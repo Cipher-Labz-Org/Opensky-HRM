@@ -1,0 +1,17 @@
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Persistence.deps.json
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Persistence.runtimeconfig.json
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Persistence.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Persistence.pdb
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Domain.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Domain.pdb
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.csproj.AssemblyReference.cache
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.GeneratedMSBuildEditorConfig.editorconfig
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.AssemblyInfoInputs.cache
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.AssemblyInfo.cs
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.csproj.CoreCompileInputs.cache
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyH.5E98DCE9.Up2Date
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\refint\OpenSkyHRM.Persistence.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.pdb
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.genruntimeconfig.cache
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\ref\OpenSkyHRM.Persistence.dll

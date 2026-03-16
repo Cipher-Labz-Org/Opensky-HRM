@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: openskyhrm_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: OpenSkyHRM.Api/Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=openskyhrm_dev;Username=postgres;Password=postgres"
+      ConnectionStrings__HangfireConnection: "Host=postgres;Port=5432;Database=openskyhrm_dev;Username=postgres;Password=postgres"
+      Cors__Origins__0: "http://localhost:3000"
+      Cors__Origins__1: "http://localhost:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

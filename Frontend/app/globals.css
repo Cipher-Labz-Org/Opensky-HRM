@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f4f7fb;
+  --panel: #ffffff;
+  --soft: #eef3f9;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --primary: #2563eb;
+  --primary-soft: #dbeafe;
+  --success: #0f766e;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --border: #d9e2ec;
+  --shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #eef4fb 0%, #f8fbff 100%);
+  color: var(--text);
+}
+
+/* App shell: responsive override so sidebar stacks on small screens */
+@media (max-width: 768px) {
+  .app-shell-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Sidebar nav links: high contrast on dark bg, hover to white */
+.sidebar-nav-link:hover {
+  color: #ffffff !important;
+}
+
+/* HRIS UI patterns from hris_ui_pack */
+.badge { display: inline-flex; align-items: center; padding: 7px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; }
+.badge-blue { background: var(--primary-soft); color: #1d4ed8; }
+.badge-green { background: #d1fae5; color: #047857; }
+.badge-orange { background: #ffedd5; color: #c2410c; }
+.badge-red { background: #fee2e2; color: #b91c1c; }
+.progress-bar { height: 10px; background: #e5edf7; border-radius: 9999px; overflow: hidden; }
+.progress-bar span { display: block; height: 100%; background: linear-gradient(90deg, #2563eb, #38bdf8); border-radius: 9999px; }
+.section-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.section-title h3 { margin: 0; font-size: 18px; }
+.section-title span { color: var(--muted); font-size: 13px; }
+.hris-card { background: var(--panel); border: 1px solid rgba(217,226,236,0.8); border-radius: 22px; padding: 20px; box-shadow: var(--shadow); }
+.hris-list { display: grid; gap: 12px; }
+.hris-list-item { display: flex; justify-content: space-between; align-items: center; padding: 14px; background: var(--soft); border-radius: 16px; }
+.hris-list-item strong { display: block; font-size: 14px; }
+.hris-list-item small { color: var(--muted); }
+.hris-timeline { display: grid; gap: 14px; }
+.hris-timeline-item { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
+.hris-timeline-date { color: var(--muted); font-size: 13px; padding-top: 4px; }
+.hris-timeline-body { background: var(--soft); border-radius: 16px; padding: 14px; }
+.hris-hero { padding: 26px; background: linear-gradient(135deg, #0f172a, #1d4ed8); color: #fff; border-radius: 26px; box-shadow: var(--shadow); }
+.hris-hero h3 { margin: 0 0 10px; font-size: 24px; }
+.hris-hero p { margin: 0; line-height: 1.6; color: #dbeafe; max-width: 860px; }
+.hris-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.hris-chip { background: rgba(255,255,255,0.12); padding: 9px 12px; border-radius: 9999px; font-size: 12px; }
+.hris-table { width: 100%; border-collapse: collapse; }
+.hris-table th, .hris-table td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #edf2f7; font-size: 14px; }
+.hris-table th { color: var(--muted); font-weight: 600; }
+.hris-meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.hris-meta-box { background: var(--soft); padding: 14px; border-radius: 16px; }
+.hris-meta-box label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+.hris-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.hris-field { background: var(--soft); padding: 14px; border-radius: 16px; }
+.hris-field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.hris-field div { font-weight: 600; }
+.hris-profile { display: grid; grid-template-columns: 130px 1fr; gap: 18px; align-items: center; }
+.hris-avatar { width: 118px; height: 118px; border-radius: 24px; background: linear-gradient(135deg, #bfdbfe, #dbeafe); display: grid; place-items: center; font-size: 34px; font-weight: 800; color: #1e3a8a; }
+.footer-note { margin-top: 24px; font-size: 12px; color: var(--muted); }
+.kpi-card .kpi-label { color: var(--muted); font-size: 13px; }
+.kpi-card .kpi-value { font-size: 34px; font-weight: 800; margin: 10px 0 6px; }
+.kpi-card .kpi-sub { font-size: 12px; color: var(--success); }
+@media (max-width: 1180px) {
+  .hris-meta-grid, .hris-form-grid { grid-template-columns: 1fr; }
+}

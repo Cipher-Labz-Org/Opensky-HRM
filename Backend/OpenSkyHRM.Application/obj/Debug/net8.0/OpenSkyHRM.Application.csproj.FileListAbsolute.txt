@@ -1,0 +1,17 @@
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Application.deps.json
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Application.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Application.pdb
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Domain.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Domain.pdb
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.csproj.AssemblyReference.cache
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.GeneratedMSBuildEditorConfig.editorconfig
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.AssemblyInfoInputs.cache
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.AssemblyInfo.cs
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.csproj.CoreCompileInputs.cache
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyH.35F70ABE.Up2Date
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\refint\OpenSkyHRM.Application.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.pdb
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\ref\OpenSkyHRM.Application.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Persistence.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Persistence.pdb

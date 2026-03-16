@@ -1,0 +1,6 @@
+@OpenSkyHRM.Api_HostAddress = http://localhost:5122
+
+GET {{OpenSkyHRM.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

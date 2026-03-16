@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="OpenSkyHRM.Api/OpenSkyHRM.Api.csproj" />
+  <Project Path="OpenSkyHRM.Application/OpenSkyHRM.Application.csproj" />
+  <Project Path="OpenSkyHRM.Domain/OpenSkyHRM.Domain.csproj" />
+  <Project Path="OpenSkyHRM.Persistence/OpenSkyHRM.Persistence.csproj" />
+</Solution>
