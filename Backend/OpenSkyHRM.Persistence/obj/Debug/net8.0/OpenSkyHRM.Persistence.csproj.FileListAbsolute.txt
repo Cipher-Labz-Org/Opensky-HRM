@@ -15,3 +15,4 @@ C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\refint\Ope
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.pdb
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.genruntimeconfig.cache
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\ref\OpenSkyHRM.Persistence.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.sourcelink.json

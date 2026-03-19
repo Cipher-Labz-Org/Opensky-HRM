@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("OpenSkyHRM.Persistence")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+48c6a4fbf597d6c374b45d4a473d7959415f5410")]
 [assembly: System.Reflection.AssemblyProductAttribute("OpenSkyHRM.Persistence")]
 [assembly: System.Reflection.AssemblyTitleAttribute("OpenSkyHRM.Persistence")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

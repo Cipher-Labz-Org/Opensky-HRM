@@ -15,3 +15,4 @@ C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\ref\OpenSkyHRM.Application.dll
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Persistence.dll
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Persistence.pdb
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.sourcelink.json

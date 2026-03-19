@@ -14,15 +14,23 @@ public interface IOrganizationService
     // Business Units
     Task<List<BusinessUnitDto>> GetBusinessUnitsAsync();
     Task<BusinessUnitDto> CreateBusinessUnitAsync(CreateLookupDto dto);
+    Task<BusinessUnitDto?> UpdateBusinessUnitAsync(Guid id, CreateLookupDto dto);
+    Task<bool> DeleteBusinessUnitAsync(Guid id);
 
     // Locations
     Task<List<LocationDto>> GetLocationsAsync();
 
     // Grades
     Task<List<GradeDto>> GetGradesAsync();
+    Task<GradeDto> CreateGradeAsync(CreateGradeDto dto);
+    Task<GradeDto?> UpdateGradeAsync(Guid id, CreateGradeDto dto);
+    Task<bool> DeleteGradeAsync(Guid id);
 
     // Job Titles
     Task<List<JobTitleDto>> GetJobTitlesAsync();
+    Task<JobTitleDto> CreateJobTitleAsync(CreateJobTitleDto dto);
+    Task<JobTitleDto?> UpdateJobTitleAsync(Guid id, CreateJobTitleDto dto);
+    Task<bool> DeleteJobTitleAsync(Guid id);
 
     // Positions
     Task<List<PositionDto>> GetPositionsAsync(Guid? departmentId = null);

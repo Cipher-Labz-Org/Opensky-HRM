@@ -1,0 +1,106 @@
+using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Persistence;
+
+namespace OpenSkyHRM.Api.Services;
+
+/// <summary>
+/// Resolves Leave module scope (Own, Team, All) from JWT permissions.
+/// </summary>
+public static class LeaveAccessHelper
+{
+    /// <summary>
+    /// Returns employee IDs the user can access for Leave (Own = self, Team = self + direct reports, All = null).
+    /// Team uses EmployeeSupervisors (employees who have this user as supervisor).
+    /// When excludeSelfForApprovalList is true and scope is Team, returns only direct reports (excludes self)
+    /// so supervisors do not see their own leave in the approval list.
+    /// </summary>
+    public static async Task<IReadOnlyList<Guid>?> GetAllowedEmployeeIdsAsync(ClaimsPrincipal user, AppDbContext db, string action = "Read", bool excludeSelfForApprovalList = false)
+    {
+        if (user.IsInRole("ADMIN"))
+            return null;
+
+        var scope = ResolveScope(user, action);
+        if (scope == "All")
+            return null;
+
+        var currentId = GetCurrentEmployeeId(user);
+        if (!currentId.HasValue)
+            return Array.Empty<Guid>();
+
+        if (scope == "Own")
+            return new[] { currentId.Value };
+
+        if (scope == "Team")
+        {
+            var teamIds = await db.EmployeeSupervisors
+                .Where(es => es.SupervisorId == currentId.Value)
+                .Select(es => es.EmployeeId)
+                .ToListAsync();
+            if (excludeSelfForApprovalList)
+                return teamIds; // Only direct reports; supervisor's own leave goes to their supervisor
+            return teamIds.Union(new[] { currentId.Value }).ToList();
+        }
+
+        return Array.Empty<Guid>();
+    }
+
+    public static string ResolveScope(ClaimsPrincipal user, string action = "Read")
+    {
+        if (user.IsInRole("ADMIN"))
+            return "All";
+
+        var permissions = user.FindAll("permission").Select(c => c.Value).ToList();
+        var leavePerms = permissions
+            .Where(p => p.StartsWith("Leave:", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (leavePerms.Any(p => p.Contains($":{action}:All", StringComparison.OrdinalIgnoreCase)))
+            return "All";
+        if (leavePerms.Any(p => p.Contains($":{action}:Team", StringComparison.OrdinalIgnoreCase)))
+            return "Team";
+        if (leavePerms.Any(p => p.Contains($":{action}:Own", StringComparison.OrdinalIgnoreCase)))
+            return "Own";
+
+        return "None";
+    }
+
+    public static Guid? GetCurrentEmployeeId(ClaimsPrincipal user)
+    {
+        var employeeIdStr = user.FindFirstValue("employeeId");
+        if (string.IsNullOrEmpty(employeeIdStr) || !Guid.TryParse(employeeIdStr, out var id))
+            return null;
+        return id;
+    }
+
+    public static async Task<bool> CanAccessEmployeeLeaveAsync(ClaimsPrincipal user, AppDbContext db, Guid employeeId, string action = "Read")
+    {
+        var allowedIds = await GetAllowedEmployeeIdsAsync(user, db, action);
+        if (allowedIds == null)
+            return true;
+        return allowedIds.Contains(employeeId);
+    }
+
+    /// <summary>
+    /// Returns the direct supervisor's employee ID for the given employee (from EmployeeSupervisors, ReportingMethod=Direct).
+    /// Returns null if the employee has no direct supervisor.
+    /// </summary>
+    public static async Task<Guid?> GetDirectSupervisorIdAsync(AppDbContext db, Guid employeeId)
+    {
+        var id = await db.EmployeeSupervisors
+            .Where(es => !es.IsDeleted && es.EmployeeId == employeeId && es.ReportingMethod == "Direct")
+            .Select(es => es.SupervisorId)
+            .FirstOrDefaultAsync();
+        return id == default ? null : id;
+    }
+
+    /// <summary>
+    /// Returns true if potentialSupervisorId is a direct supervisor of employeeId.
+    /// </summary>
+    public static async Task<bool> IsSupervisorOfAsync(AppDbContext db, Guid employeeId, Guid potentialSupervisorId)
+    {
+        return await db.EmployeeSupervisors
+            .AnyAsync(es => !es.IsDeleted && es.EmployeeId == employeeId && es.SupervisorId == potentialSupervisorId && es.ReportingMethod == "Direct");
+    }
+
+}

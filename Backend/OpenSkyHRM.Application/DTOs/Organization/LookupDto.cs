@@ -50,3 +50,18 @@ public class CreateLookupDto
     public string Code { get; set; } = string.Empty;
     public string? Description { get; set; }
 }
+
+public class CreateGradeDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public int Level { get; set; }
+    public string? Description { get; set; }
+}
+
+public class CreateJobTitleDto
+{
+    public string Title { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public string? Description { get; set; }
+}

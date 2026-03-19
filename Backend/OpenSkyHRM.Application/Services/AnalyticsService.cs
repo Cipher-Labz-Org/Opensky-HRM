@@ -20,10 +20,10 @@ public class AnalyticsService : IAnalyticsService
         return new HeadcountAnalyticsDto
         {
             TotalEmployees = employees.Count,
-            ActiveEmployees = employees.Count(e => e.Status == EmploymentStatus.Active),
-            OnLeave = employees.Count(e => e.Status == EmploymentStatus.OnLeave),
-            Terminated = employees.Count(e => e.Status == EmploymentStatus.Terminated),
-            Probation = employees.Count(e => e.Status == EmploymentStatus.Probation),
+            ActiveEmployees = employees.Count(e => e.Status == EmploymentStatus.FullTimePermanent || e.Status == EmploymentStatus.FullTimeContract || e.Status == EmploymentStatus.PartTimePermanent || e.Status == EmploymentStatus.PartTimeContract),
+            OnLeave = 0,
+            Terminated = 0,
+            Probation = employees.Count(e => e.Status == EmploymentStatus.FullTimeProbation),
             ByDepartment = employees.GroupBy(e => e.Department?.Name ?? "Unassigned").ToDictionary(g => g.Key, g => g.Count()),
             ByBusinessUnit = employees.Where(e => e.BusinessUnit != null).GroupBy(e => e.BusinessUnit!.Name).ToDictionary(g => g.Key, g => g.Count()),
         };

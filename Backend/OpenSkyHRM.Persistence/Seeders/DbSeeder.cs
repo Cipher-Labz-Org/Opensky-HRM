@@ -15,8 +15,10 @@ public static class DbSeeder
         {
             logger.LogInformation("Starting database seeding...");
 
+            await AuthSeeder.SeedAsync(context);
             await OrganizationSeeder.SeedAsync(context);
             await LeaveSeeder.SeedAsync(context);
+            await DocumentTemplateSeeder.SeedAsync(context);
 
             await context.SaveChangesAsync();
             logger.LogInformation("Database seeding completed.");

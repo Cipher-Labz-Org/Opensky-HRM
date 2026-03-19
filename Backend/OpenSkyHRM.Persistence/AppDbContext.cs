@@ -10,6 +10,18 @@ public class AppDbContext : DbContext
 
     // Employee & Organization
     public DbSet<Employee> Employees => Set<Employee>();
+    public DbSet<EmployeeAttachment> EmployeeAttachments => Set<EmployeeAttachment>();
+    public DbSet<EmployeeSupervisor> EmployeeSupervisors => Set<EmployeeSupervisor>();
+    public DbSet<EmergencyContact> EmergencyContacts => Set<EmergencyContact>();
+    public DbSet<Dependent> Dependents => Set<Dependent>();
+    public DbSet<Education> Educations => Set<Education>();
+    public DbSet<EmployeeSkill> EmployeeSkills => Set<EmployeeSkill>();
+    public DbSet<EmployeeLanguage> EmployeeLanguages => Set<EmployeeLanguage>();
+    public DbSet<EmployeeBenefit> EmployeeBenefits => Set<EmployeeBenefit>();
+    public DbSet<Immigration> Immigrations => Set<Immigration>();
+    public DbSet<ImmigrationDocument> ImmigrationDocuments => Set<ImmigrationDocument>();
+    public DbSet<WorkExperience> WorkExperiences => Set<WorkExperience>();
+    public DbSet<BankAccount> BankAccounts => Set<BankAccount>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<BusinessUnit> BusinessUnits => Set<BusinessUnit>();
     public DbSet<Position> Positions => Set<Position>();
@@ -22,10 +34,15 @@ public class AppDbContext : DbContext
     public DbSet<LeavePolicy> LeavePolicies => Set<LeavePolicy>();
     public DbSet<LeaveRequest> LeaveRequests => Set<LeaveRequest>();
     public DbSet<LeaveBalance> LeaveBalances => Set<LeaveBalance>();
+    public DbSet<LeaveMonthlyAccrual> LeaveMonthlyAccruals => Set<LeaveMonthlyAccrual>();
     public DbSet<Holiday> Holidays => Set<Holiday>();
+    public DbSet<LeaveEntitlementRule> LeaveEntitlementRules => Set<LeaveEntitlementRule>();
     public DbSet<AttendanceRecord> AttendanceRecords => Set<AttendanceRecord>();
     public DbSet<RosterTemplate> RosterTemplates => Set<RosterTemplate>();
+    public DbSet<RosterAssignment> RosterAssignments => Set<RosterAssignment>();
     public DbSet<ShiftPattern> ShiftPatterns => Set<ShiftPattern>();
+    public DbSet<BiometricDevice> BiometricDevices => Set<BiometricDevice>();
+    public DbSet<PunchImportBatch> PunchImportBatches => Set<PunchImportBatch>();
 
     // Recruitment & Onboarding
     public DbSet<Requisition> Requisitions => Set<Requisition>();
@@ -57,6 +74,8 @@ public class AppDbContext : DbContext
     public DbSet<ApprovalWorkflow> ApprovalWorkflows => Set<ApprovalWorkflow>();
     public DbSet<SecurityRole> SecurityRoles => Set<SecurityRole>();
     public DbSet<Permission> Permissions => Set<Permission>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<CompanyCalendar> CompanyCalendars => Set<CompanyCalendar>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<NotificationConfig> NotificationConfigs => Set<NotificationConfig>();
@@ -65,6 +84,10 @@ public class AppDbContext : DbContext
     // Analytics & Reporting
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
     public DbSet<ReportSchedule> ReportSchedules => Set<ReportSchedule>();
+
+    // System
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+    public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -97,17 +120,27 @@ public class AppDbContext : DbContext
 
     private void ApplyAuditInfo()
     {
-        var entries = ChangeTracker.Entries<BaseEntity>();
-        foreach (var entry in entries)
+        foreach (var entry in ChangeTracker.Entries<BaseEntity>())
         {
             if (entry.State == EntityState.Added)
-            {
                 entry.Entity.CreatedAt = DateTime.UtcNow;
-            }
 
             if (entry.State == EntityState.Modified)
-            {
                 entry.Entity.UpdatedAt = DateTime.UtcNow;
+        }
+
+        NormalizeDateTimesToUtc();
+    }
+
+    private void NormalizeDateTimesToUtc()
+    {
+        foreach (var entry in ChangeTracker.Entries()
+                     .Where(e => e.State is EntityState.Added or EntityState.Modified))
+        {
+            foreach (var prop in entry.Properties)
+            {
+                if (prop.CurrentValue is DateTime dt && dt.Kind == DateTimeKind.Unspecified)
+                    prop.CurrentValue = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             }
         }
     }

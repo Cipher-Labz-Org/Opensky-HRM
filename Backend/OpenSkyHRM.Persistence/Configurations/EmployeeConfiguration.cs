@@ -15,10 +15,42 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
 
         builder.Property(e => e.EmployeeCode).HasMaxLength(20).IsRequired();
         builder.Property(e => e.FirstName).HasMaxLength(100).IsRequired();
+        builder.Property(e => e.MiddleName).HasMaxLength(100);
         builder.Property(e => e.LastName).HasMaxLength(100).IsRequired();
         builder.Property(e => e.Email).HasMaxLength(255).IsRequired();
         builder.Property(e => e.Phone).HasMaxLength(20);
+        builder.Property(e => e.AddressStreet1).HasMaxLength(255);
+        builder.Property(e => e.AddressStreet2).HasMaxLength(255);
+        builder.Property(e => e.City).HasMaxLength(100);
+        builder.Property(e => e.Country).HasMaxLength(100);
+        builder.Property(e => e.StateProvince).HasMaxLength(100);
+        builder.Property(e => e.ZipPostalCode).HasMaxLength(20);
+        builder.Property(e => e.PollingDivision).HasMaxLength(200);
+        builder.Property(e => e.DistanceToOffice).HasMaxLength(50);
+        builder.Property(e => e.ModeOfTransport).HasMaxLength(50);
+        builder.Property(e => e.HomeTelephone).HasMaxLength(20);
+        builder.Property(e => e.WorkTelephone).HasMaxLength(20);
+        builder.Property(e => e.OtherEmail).HasMaxLength(255);
+        builder.Property(e => e.PermanentStreet1).HasMaxLength(255);
+        builder.Property(e => e.PermanentStreet2).HasMaxLength(255);
+        builder.Property(e => e.PermanentCity).HasMaxLength(100);
+        builder.Property(e => e.PermanentCountry).HasMaxLength(100);
+        builder.Property(e => e.PermanentStateProvince).HasMaxLength(100);
+        builder.Property(e => e.PermanentZipPostalCode).HasMaxLength(20);
+        builder.Property(e => e.PermanentPollingDivision).HasMaxLength(200);
+        builder.Property(e => e.PermanentDistanceToOffice).HasMaxLength(50);
         builder.Property(e => e.ProfileImageUrl).HasMaxLength(500);
+        builder.Property(e => e.MaritalStatus).HasMaxLength(30);
+        builder.Property(e => e.Nationality).HasMaxLength(100);
+        builder.Property(e => e.Religion).HasMaxLength(100);
+        builder.Property(e => e.Ethnicity).HasMaxLength(100);
+        builder.Property(e => e.OtherId).HasMaxLength(50);
+        builder.Property(e => e.NationalId).HasMaxLength(50);
+        builder.Property(e => e.TinNumber).HasMaxLength(50);
+        builder.Property(e => e.EpfNumber).HasMaxLength(50);
+        builder.Property(e => e.EtfNumber).HasMaxLength(50);
+        builder.Property(e => e.DriversLicenseNumber).HasMaxLength(50);
+        builder.Property(e => e.DriversLicenseIssuingCountry).HasMaxLength(100);
         builder.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
         builder.Property(e => e.Gender).HasConversion<string>().HasMaxLength(10);
 
@@ -52,6 +84,11 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.HasOne(e => e.JobTitle)
             .WithMany(j => j.Employees)
             .HasForeignKey(e => e.JobTitleId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(e => e.ShiftPattern)
+            .WithMany()
+            .HasForeignKey(e => e.ShiftPatternId)
             .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasOne(e => e.Manager)

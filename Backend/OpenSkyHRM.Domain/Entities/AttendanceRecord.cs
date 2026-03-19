@@ -11,6 +11,8 @@ public class AttendanceRecord : AuditableEntity
     public string Status { get; set; } = "Present";
     public string? Remarks { get; set; }
     public string? Source { get; set; }
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
 
     public Guid EmployeeId { get; set; }
     public Employee Employee { get; set; } = null!;

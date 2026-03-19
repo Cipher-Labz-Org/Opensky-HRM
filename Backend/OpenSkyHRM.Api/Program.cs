@@ -1,15 +1,49 @@
+using System.Text;
 using Hangfire;
 using Hangfire.PostgreSql;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application;
+using OpenSkyHRM.Application.DTOs.LeaveAttendance;
+using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Persistence;
 using OpenSkyHRM.Persistence.Seeders;
+
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
 // --- Layer DI Registration ---
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddApplication();
+
+// --- JWT Authentication ---
+var jwtKey = builder.Configuration["Jwt:Key"] ?? "OpenSkyHRM-Default-Key-256bit-ChangeMe!!";
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "OpenSkyHRM";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "OpenSkyHRM";
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        ClockSkew = TimeSpan.FromMinutes(1)
+    };
+});
+builder.Services.AddAuthorization();
 
 // --- Controllers ---
 builder.Services.AddControllers();
@@ -54,12 +88,12 @@ if (dbAvailable)
 }
 
 // --- CORS (allow Next.js frontend) ---
+var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>()
+    ?? new[] { "http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001" };
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
-        policy.WithOrigins(
-                builder.Configuration.GetSection("Cors:Origins").Get<string[]>()
-                    ?? new[] { "http://localhost:3000" })
+        policy.WithOrigins(corsOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod());
 });
@@ -83,7 +117,17 @@ if (app.Environment.IsDevelopment() && dbAvailable)
 }
 
 // --- Middleware Pipeline ---
+var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(wwwrootPath);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(wwwrootPath),
+    RequestPath = ""
+});
 app.UseCors("Frontend");
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.UseSwagger();
 app.UseSwaggerUI(options =>
@@ -100,6 +144,11 @@ if (dbAvailable)
 
         RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.AttendanceReconciliationJob>(
             "attendance-reconciliation",
+            job => job.ExecuteAsync(),
+            Hangfire.Cron.Daily(1, 0));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.LeaveAccrualJob>(
+            "leave-accrual",
             job => job.ExecuteAsync(),
             Hangfire.Cron.Daily(1, 0));
 
@@ -120,6 +169,27 @@ if (dbAvailable)
 }
 
 app.MapControllers();
+
+// Minimal API fallback for carry-forward (avoids 404 when controller route is not matched)
+app.MapPost("/api/leave/process-carry-forward", async (HttpContext context) =>
+{
+    var scope = LeaveAccessHelper.ResolveScope(context.User, "Update");
+    if (scope != "All")
+        return Results.Forbid();
+    var body = await context.Request.ReadFromJsonAsync<CarryForwardRequest>();
+    if (body == null)
+        return Results.BadRequest(new { message = "Request body must include fromYear and toYear." });
+    try
+    {
+        var leaveService = context.RequestServices.GetRequiredService<ILeaveService>();
+        var result = await leaveService.ProcessCarryForwardAsync(body.FromYear, body.ToYear);
+        return Results.Ok(result);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+}).RequireAuthorization();
 
 app.MapGet("/", () => Results.Redirect("/swagger"));
 

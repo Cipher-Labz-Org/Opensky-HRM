@@ -29,6 +29,7 @@ services:
       ConnectionStrings__HangfireConnection: "Host=postgres;Port=5432;Database=openskyhrm_dev;Username=postgres;Password=postgres"
       Cors__Origins__0: "http://localhost:3000"
       Cors__Origins__1: "http://localhost:3001"
+      Cors__Origins__2: "https://opensky-hrm.vercel.app"
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.DTOs.Recruitment;
 using OpenSkyHRM.Application.Interfaces;
 
 namespace OpenSkyHRM.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class RecruitmentController : ControllerBase

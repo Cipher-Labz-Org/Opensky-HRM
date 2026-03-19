@@ -1,0 +1,99 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OpenSkyHRM.Application.DTOs.Auth;
+using OpenSkyHRM.Application.Interfaces;
+
+namespace OpenSkyHRM.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize(Roles = "ADMIN,HR_MANAGER")]
+public class UserController : ControllerBase
+{
+    private readonly IAuthService _authService;
+
+    public UserController(IAuthService authService)
+    {
+        _authService = authService;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetAll()
+    {
+        var users = await _authService.GetUsersAsync();
+        return Ok(users);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetById(Guid id)
+    {
+        var user = await _authService.GetUserByIdAsync(id);
+        return user == null ? NotFound() : Ok(user);
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> Create([FromBody] CreateUserDto dto)
+    {
+        try
+        {
+            var user = await _authService.CreateUserAsync(dto);
+            return CreatedAtAction(nameof(GetById), new { id = user.Id }, user);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserDto dto)
+    {
+        try
+        {
+            var user = await _authService.UpdateUserAsync(id, dto);
+            return Ok(user);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        try
+        {
+            await _authService.DeleteUserAsync(id);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    [HttpPost("{id:guid}/reset-password")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> ResetPassword(Guid id, [FromBody] ResetPasswordRequest request)
+    {
+        try
+        {
+            await _authService.ResetPasswordAsync(id, request.NewPassword);
+            return Ok(new { message = "Password reset successfully." });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+}
+
+public record ResetPasswordRequest(string NewPassword);

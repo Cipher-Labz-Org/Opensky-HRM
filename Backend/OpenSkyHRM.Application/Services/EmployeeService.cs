@@ -11,13 +11,31 @@ namespace OpenSkyHRM.Application.Services;
 public class EmployeeService : IEmployeeService
 {
     private readonly AppDbContext _db;
+    private readonly ISystemSettingService _settings;
+    private readonly ILeaveEntitlementService _entitlementService;
 
-    public EmployeeService(AppDbContext db)
+    public EmployeeService(AppDbContext db, ISystemSettingService settings, ILeaveEntitlementService entitlementService)
     {
         _db = db;
+        _settings = settings;
+        _entitlementService = entitlementService;
     }
 
-    public async Task<PagedResult<EmployeeDto>> GetAllAsync(int page = 1, int pageSize = 20, string? search = null, Guid? departmentId = null)
+    private async Task<Dictionary<Guid, bool>> GetDirectSupervisorMapAsync(IEnumerable<Guid> employeeIds)
+    {
+        var idsWithSupervisor = await _db.Set<EmployeeSupervisor>()
+            .Where(s => !s.IsDeleted && s.ReportingMethod == "Direct" && employeeIds.Contains(s.EmployeeId))
+            .Select(s => s.EmployeeId)
+            .Distinct()
+            .ToListAsync();
+        return idsWithSupervisor.ToDictionary(id => id, _ => true);
+    }
+
+    public async Task<PagedResult<EmployeeDto>> GetAllAsync(
+        int page = 1, int pageSize = 20, string? search = null,
+        Guid? departmentId = null, Guid? jobTitleId = null,
+        Guid? locationId = null, Guid? managerId = null, string? status = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
         var query = _db.Employees
             .Include(e => e.Department)
@@ -35,12 +53,28 @@ public class EmployeeService : IEmployeeService
             query = query.Where(e =>
                 e.FirstName.ToLower().Contains(term) ||
                 e.LastName.ToLower().Contains(term) ||
+                (e.MiddleName != null && e.MiddleName.ToLower().Contains(term)) ||
                 e.EmployeeCode.ToLower().Contains(term) ||
                 e.Email.ToLower().Contains(term));
         }
 
         if (departmentId.HasValue)
             query = query.Where(e => e.DepartmentId == departmentId.Value);
+
+        if (jobTitleId.HasValue)
+            query = query.Where(e => e.JobTitleId == jobTitleId.Value);
+
+        if (locationId.HasValue)
+            query = query.Where(e => e.LocationId == locationId.Value);
+
+        if (managerId.HasValue)
+            query = query.Where(e => e.ManagerId == managerId.Value);
+
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<EmploymentStatus>(status, true, out var st))
+            query = query.Where(e => e.Status == st);
+
+        if (allowedEmployeeIds != null && allowedEmployeeIds.Count > 0)
+            query = query.Where(e => allowedEmployeeIds.Contains(e.Id));
 
         var totalCount = await query.CountAsync();
 
@@ -51,6 +85,11 @@ public class EmployeeService : IEmployeeService
             .Select(e => MapToDto(e))
             .ToListAsync();
 
+        var empIds = items.Select(i => i.Id).ToList();
+        var supMap = await GetDirectSupervisorMapAsync(empIds);
+        foreach (var item in items)
+            item.HasDirectSupervisor = supMap.ContainsKey(item.Id);
+
         return new PagedResult<EmployeeDto>
         {
             Items = items,
@@ -60,8 +99,11 @@ public class EmployeeService : IEmployeeService
         };
     }
 
-    public async Task<EmployeeDto?> GetByIdAsync(Guid id)
+    public async Task<EmployeeDto?> GetByIdAsync(Guid id, IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
+        if (allowedEmployeeIds != null && allowedEmployeeIds.Count > 0 && !allowedEmployeeIds.Contains(id))
+            return null;
+
         var employee = await _db.Employees
             .Include(e => e.Department)
             .Include(e => e.BusinessUnit)
@@ -72,22 +114,65 @@ public class EmployeeService : IEmployeeService
             .Include(e => e.Manager)
             .FirstOrDefaultAsync(e => e.Id == id);
 
-        return employee is null ? null : MapToDto(employee);
+        if (employee is null) return null;
+        var dto = MapToDto(employee);
+        var supMap = await GetDirectSupervisorMapAsync(new[] { employee.Id });
+        dto.HasDirectSupervisor = supMap.ContainsKey(employee.Id);
+        return dto;
     }
 
     public async Task<EmployeeDto> CreateAsync(CreateEmployeeDto dto)
     {
+        var code = string.IsNullOrWhiteSpace(dto.EmployeeCode)
+            ? await _settings.GenerateNextEmployeeCodeAsync()
+            : dto.EmployeeCode;
+
         var employee = new Employee
         {
-            EmployeeCode = dto.EmployeeCode,
+            EmployeeCode = code,
             FirstName = dto.FirstName,
+            MiddleName = dto.MiddleName,
             LastName = dto.LastName,
             Email = dto.Email,
             Phone = dto.Phone,
             DateOfBirth = dto.DateOfBirth,
             Gender = Enum.Parse<Gender>(dto.Gender, true),
+            MaritalStatus = dto.MaritalStatus,
+            Nationality = dto.Nationality,
+            Religion = dto.Religion,
+            Ethnicity = dto.Ethnicity,
+            OtherId = dto.OtherId,
+            NationalId = dto.NationalId,
+            TinNumber = dto.TinNumber,
+            EpfNumber = dto.EpfNumber,
+            EtfNumber = dto.EtfNumber,
+            DriversLicenseNumber = dto.DriversLicenseNumber,
+            LicenseExpiryDate = dto.LicenseExpiryDate,
+            DriversLicenseIssuingCountry = dto.DriversLicenseIssuingCountry,
+            AddressStreet1 = dto.AddressStreet1,
+            AddressStreet2 = dto.AddressStreet2,
+            City = dto.City,
+            Country = dto.Country,
+            StateProvince = dto.StateProvince,
+            ZipPostalCode = dto.ZipPostalCode,
+            PollingDivision = dto.PollingDivision,
+            DistanceToOffice = dto.DistanceToOffice,
+            ModeOfTransport = dto.ModeOfTransport,
+            HomeTelephone = dto.HomeTelephone,
+            WorkTelephone = dto.WorkTelephone,
+            OtherEmail = dto.OtherEmail,
+            PermanentStreet1 = dto.PermanentStreet1,
+            PermanentStreet2 = dto.PermanentStreet2,
+            PermanentCity = dto.PermanentCity,
+            PermanentCountry = dto.PermanentCountry,
+            PermanentStateProvince = dto.PermanentStateProvince,
+            PermanentZipPostalCode = dto.PermanentZipPostalCode,
+            PermanentPollingDivision = dto.PermanentPollingDivision,
+            PermanentDistanceToOffice = dto.PermanentDistanceToOffice,
             JoinDate = dto.JoinDate,
-            Status = EmploymentStatus.Active,
+            ProbationEndDate = dto.ProbationEndDate,
+            DateOfPermanency = dto.DateOfPermanency,
+            Status = EmploymentStatus.FullTimePermanent,
             DepartmentId = dto.DepartmentId,
             BusinessUnitId = dto.BusinessUnitId,
             PositionId = dto.PositionId,
@@ -108,13 +193,52 @@ public class EmployeeService : IEmployeeService
         var employee = await _db.Employees.FindAsync(id);
         if (employee is null) return null;
 
+        var previousPermanencyDate = employee.DateOfPermanency;
+
         employee.FirstName = dto.FirstName;
+        employee.MiddleName = dto.MiddleName;
         employee.LastName = dto.LastName;
         employee.Email = dto.Email;
         employee.Phone = dto.Phone;
         employee.DateOfBirth = dto.DateOfBirth;
         employee.Gender = Enum.Parse<Gender>(dto.Gender, true);
+        employee.MaritalStatus = dto.MaritalStatus;
+        employee.Nationality = dto.Nationality;
+        employee.Religion = dto.Religion;
+        employee.Ethnicity = dto.Ethnicity;
+        employee.OtherId = dto.OtherId;
+        employee.NationalId = dto.NationalId;
+        employee.TinNumber = dto.TinNumber;
+        employee.EpfNumber = dto.EpfNumber;
+        employee.EtfNumber = dto.EtfNumber;
+        employee.DriversLicenseNumber = dto.DriversLicenseNumber;
+        employee.LicenseExpiryDate = dto.LicenseExpiryDate;
+        employee.DriversLicenseIssuingCountry = dto.DriversLicenseIssuingCountry;
+        employee.AddressStreet1 = dto.AddressStreet1;
+        employee.AddressStreet2 = dto.AddressStreet2;
+        employee.City = dto.City;
+        employee.Country = dto.Country;
+        employee.StateProvince = dto.StateProvince;
+        employee.ZipPostalCode = dto.ZipPostalCode;
+        employee.PollingDivision = dto.PollingDivision;
+        employee.DistanceToOffice = dto.DistanceToOffice;
+        employee.ModeOfTransport = dto.ModeOfTransport;
+        employee.HomeTelephone = dto.HomeTelephone;
+        employee.WorkTelephone = dto.WorkTelephone;
+        employee.OtherEmail = dto.OtherEmail;
+        employee.PermanentStreet1 = dto.PermanentStreet1;
+        employee.PermanentStreet2 = dto.PermanentStreet2;
+        employee.PermanentCity = dto.PermanentCity;
+        employee.PermanentCountry = dto.PermanentCountry;
+        employee.PermanentStateProvince = dto.PermanentStateProvince;
+        employee.PermanentZipPostalCode = dto.PermanentZipPostalCode;
+        employee.PermanentPollingDivision = dto.PermanentPollingDivision;
+        employee.PermanentDistanceToOffice = dto.PermanentDistanceToOffice;
+        if (dto.JoinDate.HasValue) employee.JoinDate = dto.JoinDate.Value;
+        employee.ProbationEndDate = dto.ProbationEndDate;
+        employee.DateOfPermanency = dto.DateOfPermanency;
         employee.Status = Enum.Parse<EmploymentStatus>(dto.Status, true);
+        employee.TerminationDate = dto.TerminationDate;
         employee.DepartmentId = dto.DepartmentId;
         employee.BusinessUnitId = dto.BusinessUnitId;
         employee.PositionId = dto.PositionId;
@@ -122,8 +246,16 @@ public class EmployeeService : IEmployeeService
         employee.GradeId = dto.GradeId;
         employee.JobTitleId = dto.JobTitleId;
         employee.ManagerId = dto.ManagerId;
+        employee.IsTopOfHierarchy = dto.IsTopOfHierarchy;
 
         await _db.SaveChangesAsync();
+
+        // Auto-generate leave balances when Date of Permanency is first set
+        if (previousPermanencyDate is null && employee.DateOfPermanency is not null)
+        {
+            await _entitlementService.CalculateAndApplyAsync(id, DateTime.UtcNow.Year);
+        }
+
         return (await GetByIdAsync(id))!;
     }
 
@@ -137,26 +269,80 @@ public class EmployeeService : IEmployeeService
         return true;
     }
 
+    public async Task<string?> UpdateProfileImageAsync(Guid id, string imageUrl)
+    {
+        var employee = await _db.Employees.FindAsync(id);
+        if (employee is null) return null;
+
+        employee.ProfileImageUrl = imageUrl;
+        await _db.SaveChangesAsync();
+        return imageUrl;
+    }
+
     private static EmployeeDto MapToDto(Employee e) => new()
     {
         Id = e.Id,
         EmployeeCode = e.EmployeeCode,
         FirstName = e.FirstName,
+        MiddleName = e.MiddleName,
         LastName = e.LastName,
         FullName = e.FullName,
         Email = e.Email,
         Phone = e.Phone,
+        AddressStreet1 = e.AddressStreet1,
+        AddressStreet2 = e.AddressStreet2,
+        City = e.City,
+        Country = e.Country,
+        StateProvince = e.StateProvince,
+        ZipPostalCode = e.ZipPostalCode,
+        PollingDivision = e.PollingDivision,
+        DistanceToOffice = e.DistanceToOffice,
+        ModeOfTransport = e.ModeOfTransport,
+        HomeTelephone = e.HomeTelephone,
+        WorkTelephone = e.WorkTelephone,
+        OtherEmail = e.OtherEmail,
+        PermanentStreet1 = e.PermanentStreet1,
+        PermanentStreet2 = e.PermanentStreet2,
+        PermanentCity = e.PermanentCity,
+        PermanentCountry = e.PermanentCountry,
+        PermanentStateProvince = e.PermanentStateProvince,
+        PermanentZipPostalCode = e.PermanentZipPostalCode,
+        PermanentPollingDivision = e.PermanentPollingDivision,
+        PermanentDistanceToOffice = e.PermanentDistanceToOffice,
         DateOfBirth = e.DateOfBirth,
         Gender = e.Gender.ToString(),
+        MaritalStatus = e.MaritalStatus,
+        Nationality = e.Nationality,
+        Religion = e.Religion,
+        Ethnicity = e.Ethnicity,
+        OtherId = e.OtherId,
+        NationalId = e.NationalId,
+        TinNumber = e.TinNumber,
+        EpfNumber = e.EpfNumber,
+        EtfNumber = e.EtfNumber,
+        DriversLicenseNumber = e.DriversLicenseNumber,
+        LicenseExpiryDate = e.LicenseExpiryDate,
+        DriversLicenseIssuingCountry = e.DriversLicenseIssuingCountry,
         JoinDate = e.JoinDate,
+        ProbationEndDate = e.ProbationEndDate,
+        DateOfPermanency = e.DateOfPermanency,
+        TerminationDate = e.TerminationDate,
         Status = e.Status.ToString(),
+        DepartmentId = e.DepartmentId,
         DepartmentName = e.Department?.Name,
+        BusinessUnitId = e.BusinessUnitId,
         BusinessUnitName = e.BusinessUnit?.Name,
+        PositionId = e.PositionId,
         PositionTitle = e.Position?.Title,
+        LocationId = e.LocationId,
         LocationName = e.Location?.Name,
+        GradeId = e.GradeId,
         GradeName = e.Grade?.Name,
+        JobTitleId = e.JobTitleId,
         JobTitleName = e.JobTitle?.Title,
-        ManagerName = e.Manager != null ? $"{e.Manager.FirstName} {e.Manager.LastName}" : null,
         ManagerId = e.ManagerId,
+        ManagerName = e.Manager != null ? $"{e.Manager.FirstName} {e.Manager.LastName}" : null,
+        ProfileImageUrl = e.ProfileImageUrl,
+        IsTopOfHierarchy = e.IsTopOfHierarchy,
     };
 }

@@ -128,6 +128,30 @@ public class OrganizationService : IOrganizationService
         };
     }
 
+    public async Task<BusinessUnitDto?> UpdateBusinessUnitAsync(Guid id, CreateLookupDto dto)
+    {
+        var bu = await _db.BusinessUnits.FindAsync(id);
+        if (bu is null) return null;
+        bu.Name = dto.Name;
+        bu.Code = dto.Code;
+        bu.Description = dto.Description;
+        await _db.SaveChangesAsync();
+        return new BusinessUnitDto
+        {
+            Id = bu.Id, Name = bu.Name, Code = bu.Code,
+            Description = bu.Description, IsActive = bu.IsActive, EmployeeCount = 0
+        };
+    }
+
+    public async Task<bool> DeleteBusinessUnitAsync(Guid id)
+    {
+        var bu = await _db.BusinessUnits.FindAsync(id);
+        if (bu is null) return false;
+        bu.IsDeleted = true;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     // --- Locations ---
 
     public async Task<List<LocationDto>> GetLocationsAsync()
@@ -156,6 +180,35 @@ public class OrganizationService : IOrganizationService
             .ToListAsync();
     }
 
+    public async Task<GradeDto> CreateGradeAsync(CreateGradeDto dto)
+    {
+        var grade = new Grade { Name = dto.Name, Code = dto.Code, Level = dto.Level, Description = dto.Description };
+        _db.Grades.Add(grade);
+        await _db.SaveChangesAsync();
+        return new GradeDto { Id = grade.Id, Name = grade.Name, Code = grade.Code, Level = grade.Level, Description = grade.Description };
+    }
+
+    public async Task<GradeDto?> UpdateGradeAsync(Guid id, CreateGradeDto dto)
+    {
+        var grade = await _db.Grades.FindAsync(id);
+        if (grade is null) return null;
+        grade.Name = dto.Name;
+        grade.Code = dto.Code;
+        grade.Level = dto.Level;
+        grade.Description = dto.Description;
+        await _db.SaveChangesAsync();
+        return new GradeDto { Id = grade.Id, Name = grade.Name, Code = grade.Code, Level = grade.Level, Description = grade.Description };
+    }
+
+    public async Task<bool> DeleteGradeAsync(Guid id)
+    {
+        var grade = await _db.Grades.FindAsync(id);
+        if (grade is null) return false;
+        grade.IsDeleted = true;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     // --- Job Titles ---
 
     public async Task<List<JobTitleDto>> GetJobTitlesAsync()
@@ -167,6 +220,34 @@ public class OrganizationService : IOrganizationService
                 Id = j.Id, Name = j.Title, Code = j.Code, Description = j.Description
             })
             .ToListAsync();
+    }
+
+    public async Task<JobTitleDto> CreateJobTitleAsync(CreateJobTitleDto dto)
+    {
+        var jt = new JobTitle { Title = dto.Title, Code = dto.Code, Description = dto.Description };
+        _db.JobTitles.Add(jt);
+        await _db.SaveChangesAsync();
+        return new JobTitleDto { Id = jt.Id, Name = jt.Title, Code = jt.Code, Description = jt.Description };
+    }
+
+    public async Task<JobTitleDto?> UpdateJobTitleAsync(Guid id, CreateJobTitleDto dto)
+    {
+        var jt = await _db.JobTitles.FindAsync(id);
+        if (jt is null) return null;
+        jt.Title = dto.Title;
+        jt.Code = dto.Code;
+        jt.Description = dto.Description;
+        await _db.SaveChangesAsync();
+        return new JobTitleDto { Id = jt.Id, Name = jt.Title, Code = jt.Code, Description = jt.Description };
+    }
+
+    public async Task<bool> DeleteJobTitleAsync(Guid id)
+    {
+        var jt = await _db.JobTitles.FindAsync(id);
+        if (jt is null) return false;
+        jt.IsDeleted = true;
+        await _db.SaveChangesAsync();
+        return true;
     }
 
     // --- Positions ---

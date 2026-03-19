@@ -1,11 +1,29 @@
+"use client";
+
+import { useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
+import { Button } from "@/components/ui/Button";
+import { CreateGoalModal } from "@/components/forms/CreateGoalModal";
 
 export default function PerformancePage() {
+  const [showCreate, setShowCreate] = useState(false);
+
   return (
     <>
       <AppTopbar
         title="Performance & Talent"
         subtitle="Goal setting, review cycles, calibration, 9-box potential, succession, and improvement plans."
+      />
+
+      <div className="mb-6 flex items-center justify-between">
+        <div />
+        <Button onClick={() => setShowCreate(true)}>+ New Goal</Button>
+      </div>
+
+      <CreateGoalModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => window.location.reload()}
       />
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">

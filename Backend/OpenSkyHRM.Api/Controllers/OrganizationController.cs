@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
 
 namespace OpenSkyHRM.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class OrganizationController : ControllerBase
@@ -62,6 +64,20 @@ public class OrganizationController : ControllerBase
         return Ok(created);
     }
 
+    [HttpPut("business-units/{id:guid}")]
+    public async Task<IActionResult> UpdateBusinessUnit(Guid id, [FromBody] CreateLookupDto dto)
+    {
+        var updated = await _orgService.UpdateBusinessUnitAsync(id, dto);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("business-units/{id:guid}")]
+    public async Task<IActionResult> DeleteBusinessUnit(Guid id)
+    {
+        var deleted = await _orgService.DeleteBusinessUnitAsync(id);
+        return deleted ? NoContent() : NotFound();
+    }
+
     // --- Locations ---
 
     [HttpGet("locations")]
@@ -74,11 +90,47 @@ public class OrganizationController : ControllerBase
     public async Task<IActionResult> GetGrades()
         => Ok(await _orgService.GetGradesAsync());
 
+    [HttpPost("grades")]
+    public async Task<IActionResult> CreateGrade([FromBody] CreateGradeDto dto)
+        => Ok(await _orgService.CreateGradeAsync(dto));
+
+    [HttpPut("grades/{id:guid}")]
+    public async Task<IActionResult> UpdateGrade(Guid id, [FromBody] CreateGradeDto dto)
+    {
+        var updated = await _orgService.UpdateGradeAsync(id, dto);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("grades/{id:guid}")]
+    public async Task<IActionResult> DeleteGrade(Guid id)
+    {
+        var deleted = await _orgService.DeleteGradeAsync(id);
+        return deleted ? NoContent() : NotFound();
+    }
+
     // --- Job Titles ---
 
     [HttpGet("job-titles")]
     public async Task<IActionResult> GetJobTitles()
         => Ok(await _orgService.GetJobTitlesAsync());
+
+    [HttpPost("job-titles")]
+    public async Task<IActionResult> CreateJobTitle([FromBody] CreateJobTitleDto dto)
+        => Ok(await _orgService.CreateJobTitleAsync(dto));
+
+    [HttpPut("job-titles/{id:guid}")]
+    public async Task<IActionResult> UpdateJobTitle(Guid id, [FromBody] CreateJobTitleDto dto)
+    {
+        var updated = await _orgService.UpdateJobTitleAsync(id, dto);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("job-titles/{id:guid}")]
+    public async Task<IActionResult> DeleteJobTitle(Guid id)
+    {
+        var deleted = await _orgService.DeleteJobTitleAsync(id);
+        return deleted ? NoContent() : NotFound();
+    }
 
     // --- Positions ---
 

@@ -11,6 +11,13 @@ interface Lookup {
   code: string;
 }
 
+interface RoleLookup {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+}
+
 interface CreateEmployeeModalProps {
   open: boolean;
   onClose: () => void;
@@ -27,35 +34,85 @@ export function CreateEmployeeModal({
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [grades, setGrades] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
+  const [roles, setRoles] = useState<RoleLookup[]>([]);
+  const [autoGenerate, setAutoGenerate] = useState(true);
+  const [nextCode, setNextCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const [createLogin, setCreateLogin] = useState(false);
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginStatus, setLoginStatus] = useState<"enabled" | "disabled">("enabled");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginConfirmPassword, setLoginConfirmPassword] = useState("");
+  const [essRoleId, setEssRoleId] = useState("");
+  const [supervisorRoleId, setSupervisorRoleId] = useState("");
+  const [adminRoleId, setAdminRoleId] = useState("");
+
   useEffect(() => {
     if (!open) return;
+    setCreateLogin(false);
+    setLoginUsername("");
+    setLoginStatus("enabled");
+    setLoginPassword("");
+    setLoginConfirmPassword("");
+    setEssRoleId("");
+    setSupervisorRoleId("");
+    setAdminRoleId("");
+    setNextCode("");
+
     Promise.all([
-      apiFetch<Lookup[]>("/api/organization/departments"),
-      apiFetch<Lookup[]>("/api/organization/business-units"),
-      apiFetch<Lookup[]>("/api/organization/locations"),
-      apiFetch<Lookup[]>("/api/organization/grades"),
-      apiFetch<Lookup[]>("/api/organization/job-titles"),
-    ]).then(([depts, bus, locs, grs, jts]) => {
-      setDepartments(depts);
-      setBusinessUnits(bus);
-      setLocations(locs);
-      setGrades(grs);
-      setJobTitles(jts);
+      apiFetch<Lookup[]>("/api/organization/departments").catch(() => []),
+      apiFetch<Lookup[]>("/api/organization/business-units").catch(() => []),
+      apiFetch<Lookup[]>("/api/organization/locations").catch(() => []),
+      apiFetch<Lookup[]>("/api/organization/grades").catch(() => []),
+      apiFetch<Lookup[]>("/api/organization/job-titles").catch(() => []),
+      apiFetch<Record<string, string>>("/api/system-settings").catch(() => ({})),
+      apiFetch<RoleLookup[]>("/api/auth/roles").catch(() => []),
+    ]).then(([depts, bus, locs, grs, jts, settings, fetchedRoles]) => {
+      setDepartments(depts as Lookup[]);
+      setBusinessUnits(bus as Lookup[]);
+      setLocations(locs as Lookup[]);
+      setGrades(grs as Lookup[]);
+      setJobTitles(jts as Lookup[]);
+      setRoles(fetchedRoles as RoleLookup[]);
+
+      const ess = (fetchedRoles as RoleLookup[]).find((r) => r.code === "EMPLOYEE");
+      if (ess) setEssRoleId(ess.id);
+
+      const isAuto = (settings as Record<string, string>).EmployeeCodeAutoGenerate !== "false";
+      setAutoGenerate(isAuto);
+      if (isAuto) {
+        apiFetch<{ code: string }>("/api/system-settings/next-employee-code")
+          .then((r) => setNextCode(r.code))
+          .catch(() => setNextCode("(auto)"));
+      }
     });
   }, [open]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
+
+    if (createLogin) {
+      if (!loginUsername.trim()) { setError("Username is required for login."); return; }
+      if (!loginPassword) { setError("Password is required."); return; }
+      if (loginPassword !== loginConfirmPassword) { setError("Passwords do not match."); return; }
+      if (loginPassword.length < 6) { setError("Password must be at least 6 characters."); return; }
+    }
+
     setSubmitting(true);
 
     const fd = new FormData(e.currentTarget);
-    const payload = {
-      employeeCode: fd.get("employeeCode"),
+    const roleIds: string[] = [];
+    if (essRoleId) roleIds.push(essRoleId);
+    if (supervisorRoleId) roleIds.push(supervisorRoleId);
+    if (adminRoleId) roleIds.push(adminRoleId);
+
+    const payload: Record<string, unknown> = {
+      employeeCode: autoGenerate ? "" : (fd.get("employeeCode") || ""),
       firstName: fd.get("firstName"),
+      middleName: fd.get("middleName") || null,
       lastName: fd.get("lastName"),
       email: fd.get("email"),
       phone: fd.get("phone") || null,
@@ -68,6 +125,15 @@ export function CreateEmployeeModal({
       gradeId: fd.get("gradeId") || null,
       jobTitleId: fd.get("jobTitleId") || null,
     };
+
+    if (createLogin) {
+      payload.createLogin = {
+        username: loginUsername,
+        password: loginPassword,
+        isActive: loginStatus === "enabled",
+        roleIds,
+      };
+    }
 
     try {
       await apiFetch("/api/employees", {
@@ -87,6 +153,10 @@ export function CreateEmployeeModal({
     "w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20";
   const labelClass = "mb-1 block text-xs font-medium text-[var(--text-muted)]";
 
+  const essRoles = roles.filter((r) => r.code === "EMPLOYEE");
+  const supRoles = roles.filter((r) => r.code === "SUPERVISOR");
+  const adminRoles = roles.filter((r) => r.code === "ADMIN" || r.code === "HR_MANAGER");
+
   return (
     <Modal open={open} onClose={onClose} title="Create New Employee" wide>
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -98,19 +168,40 @@ export function CreateEmployeeModal({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className={labelClass}>Employee Code *</label>
-            <input name="employeeCode" required className={inputClass} placeholder="EMP-0010" />
+            <label className={labelClass}>
+              Employee Code {autoGenerate ? "(auto-generated)" : "*"}
+            </label>
+            {autoGenerate ? (
+              <input name="employeeCode" className={`${inputClass} bg-gray-50`} value={nextCode} readOnly />
+            ) : (
+              <input name="employeeCode" required className={inputClass} placeholder="Enter employee code" />
+            )}
           </div>
           <div>
             <label className={labelClass}>Email *</label>
-            <input name="email" type="email" required className={inputClass} placeholder="john@openskyhrm.com" />
+            <input
+              name="email"
+              type="email"
+              required
+              className={inputClass}
+              placeholder="john@openskyhrm.com"
+              onChange={(e) => {
+                if (createLogin && !loginUsername) {
+                  setLoginUsername(e.target.value.split("@")[0]);
+                }
+              }}
+            />
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <label className={labelClass}>First Name *</label>
             <input name="firstName" required className={inputClass} placeholder="John" />
+          </div>
+          <div>
+            <label className={labelClass}>Middle Name</label>
+            <input name="middleName" className={inputClass} placeholder="William" />
           </div>
           <div>
             <label className={labelClass}>Last Name *</label>
@@ -193,6 +284,144 @@ export function CreateEmployeeModal({
             </select>
           </div>
         </div>
+
+        {/* ── Create Login Details ─────────────────────────────────── */}
+        <div className="border-t border-[var(--border)] pt-4">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-[var(--text)]">Create Login Details</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={createLogin}
+              onClick={() => setCreateLogin(!createLogin)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                createLogin ? "bg-[var(--primary)]" : "bg-gray-200"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform duration-200 ease-in-out ${
+                  createLogin ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
+        {createLogin && (
+          <div className="space-y-4 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>User Name *</label>
+                <input
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                  className={inputClass}
+                  placeholder="john.doe"
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Status</label>
+                <div className="flex items-center gap-4 pt-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="loginStatus"
+                      checked={loginStatus === "enabled"}
+                      onChange={() => setLoginStatus("enabled")}
+                      className="h-4 w-4 text-[var(--primary)] accent-[var(--primary)]"
+                    />
+                    <span className="text-sm text-[var(--text)]">Enabled</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="loginStatus"
+                      checked={loginStatus === "disabled"}
+                      onChange={() => setLoginStatus("disabled")}
+                      className="h-4 w-4 text-[var(--primary)] accent-[var(--primary)]"
+                    />
+                    <span className="text-sm text-[var(--text)]">Disabled</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Password *</label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  className={inputClass}
+                  placeholder="Enter password"
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Confirm Password *</label>
+                <input
+                  type="password"
+                  value={loginConfirmPassword}
+                  onChange={(e) => setLoginConfirmPassword(e.target.value)}
+                  className={`${inputClass} ${
+                    loginConfirmPassword && loginPassword !== loginConfirmPassword
+                      ? "border-red-300 focus:border-red-400 focus:ring-red-200/20"
+                      : ""
+                  }`}
+                  placeholder="Re-enter password"
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-[var(--text-muted)]">
+              For a strong password, please use a hard to guess combination of text with upper and lower case characters, symbols and numbers
+            </p>
+
+            <hr className="border-blue-100" />
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <label className={labelClass}>ESS Role *</label>
+                <select
+                  value={essRoleId}
+                  onChange={(e) => setEssRoleId(e.target.value)}
+                  className={inputClass}
+                >
+                  {essRoles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                  {essRoles.length === 0 && <option value="">No ESS role found</option>}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Supervisor Role *</label>
+                <select
+                  value={supervisorRoleId}
+                  onChange={(e) => setSupervisorRoleId(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">-- Select --</option>
+                  {supRoles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Admin Role</label>
+                <select
+                  value={adminRoleId}
+                  onChange={(e) => setAdminRoleId(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">-- Select --</option>
+                  {adminRoles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-end gap-3 pt-2">
           <Button variant="secondary" onClick={onClose} type="button">

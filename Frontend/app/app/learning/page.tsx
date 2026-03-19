@@ -1,11 +1,29 @@
+"use client";
+
+import { useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
+import { Button } from "@/components/ui/Button";
+import { CreateCourseModal } from "@/components/forms/CreateCourseModal";
 
 export default function LearningPage() {
+  const [showCreate, setShowCreate] = useState(false);
+
   return (
     <>
       <AppTopbar
         title="Learning & Skills"
         subtitle="Learning catalog, certifications, mandatory training, skill matrices, and career path enablement."
+      />
+
+      <div className="mb-6 flex items-center justify-between">
+        <div />
+        <Button onClick={() => setShowCreate(true)}>+ New Course</Button>
+      </div>
+
+      <CreateCourseModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => window.location.reload()}
       />
 
       <div className="grid gap-6 lg:grid-cols-3">

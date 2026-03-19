@@ -16,7 +16,8 @@ export function CreateDepartmentModal({ open, onClose, onCreated }: Props) {
   useEffect(() => {
     if (!open) return;
     apiFetch<Lookup[]>("/api/organization/departments")
-      .then(setDepartments);
+      .then(setDepartments)
+      .catch(() => setDepartments([]));
   }, [open]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {

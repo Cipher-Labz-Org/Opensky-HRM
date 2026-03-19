@@ -61,10 +61,11 @@ public class PayrollService : IPayrollService
         return new PagedResult<PayrollBatchDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
 
-    public async Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null)
+    public async Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
         var query = _db.PayStatements.Include(p => p.Employee).AsQueryable();
         if (employeeId.HasValue) query = query.Where(p => p.EmployeeId == employeeId.Value);
+        if (allowedEmployeeIds != null) query = query.Where(p => allowedEmployeeIds.Contains(p.EmployeeId));
 
         var total = await query.CountAsync();
         var items = await query.OrderByDescending(p => p.Year).ThenByDescending(p => p.Month).Skip((page - 1) * pageSize).Take(pageSize)

@@ -10,4 +10,7 @@ public class RosterTemplate : AuditableEntity
     public TimeSpan DefaultEndTime { get; set; }
     public decimal WorkHoursPerDay { get; set; }
     public bool IsActive { get; set; } = true;
+
+    public Guid? DefaultShiftPatternId { get; set; }
+    public ShiftPattern? DefaultShiftPattern { get; set; }
 }

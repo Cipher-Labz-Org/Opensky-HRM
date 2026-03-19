@@ -2,11 +2,15 @@ namespace OpenSkyHRM.Domain.Enums;
 
 public enum EmploymentStatus
 {
-    Active,
-    Inactive,
-    OnLeave,
-    Terminated,
-    Probation
+    Freelance,
+    FullTimeContract,
+    FullTimeInternship,
+    FullTimePermanent,
+    FullTimeProbation,
+    PartTimeContract,
+    PartTimeInternship,
+    PartTimePermanent,
+    Terminated
 }
 
 public enum Gender
@@ -19,6 +23,7 @@ public enum Gender
 public enum ApprovalStatus
 {
     Pending,
+    PendingLevel2,
     Approved,
     Rejected,
     Cancelled

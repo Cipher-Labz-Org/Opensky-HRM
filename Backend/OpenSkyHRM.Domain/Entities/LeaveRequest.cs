@@ -10,9 +10,24 @@ public class LeaveRequest : AuditableEntity
     public decimal TotalDays { get; set; }
     public string? Reason { get; set; }
     public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
+    public string? CoveragePerson { get; set; }
+
+    public int CurrentApprovalLevel { get; set; } = 1;
+
+    // Level 1 approval
+    public Guid? Level1ApproverId { get; set; }
+    public string? Level1Remarks { get; set; }
+    public DateTime? Level1ApprovedAt { get; set; }
+
+    // Level 2 approval
+    public Guid? Level2ApproverId { get; set; }
+    public string? Level2Remarks { get; set; }
+    public DateTime? Level2ApprovedAt { get; set; }
+
+    // Legacy fields kept for backward compat
+    public Guid? ApproverId { get; set; }
     public string? ApproverRemarks { get; set; }
     public DateTime? ApprovedAt { get; set; }
-    public string? CoveragePerson { get; set; }
 
     public Guid EmployeeId { get; set; }
     public Employee Employee { get; set; } = null!;
@@ -20,6 +35,7 @@ public class LeaveRequest : AuditableEntity
     public Guid LeaveTypeId { get; set; }
     public LeaveType LeaveType { get; set; } = null!;
 
-    public Guid? ApproverId { get; set; }
     public Employee? Approver { get; set; }
+    public Employee? Level1Approver { get; set; }
+    public Employee? Level2Approver { get; set; }
 }

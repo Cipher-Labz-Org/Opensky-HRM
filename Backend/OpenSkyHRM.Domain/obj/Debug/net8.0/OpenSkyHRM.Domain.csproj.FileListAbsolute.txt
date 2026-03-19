@@ -9,3 +9,4 @@ C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Doma
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\refint\OpenSkyHRM.Domain.dll
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.pdb
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\ref\OpenSkyHRM.Domain.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.sourcelink.json

@@ -30,6 +30,10 @@ export const ROUTES = {
   settings: "/app/settings",
   billing: "/app/billing",
 
+  // App – Administration
+  administration: "/app/administration",
+  userManagement: "/app/user-management",
+
   // Tenant (placeholder for future multi-tenant)
   tenant: (tenantId: string) => `/tenant/${tenantId}`,
   tenantDashboard: (tenantId: string) => `/tenant/${tenantId}/dashboard`,
