@@ -320,7 +320,7 @@ export default function EmployeeDetailPage() {
   const [termNote, setTermNote] = useState("");
   const [termSaving, setTermSaving] = useState(false);
   const [withOffboarding, setWithOffboarding] = useState(true);
-  const [offboardingTemplates, setOffboardingTemplates] = useState<{ id: string; title: string; category: string }[]>([]);
+  const [offboardingTemplates, setOffboardingTemplates] = useState<{ id: string; name: string; description?: string; itemCount: number }[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [showReactivateModal, setShowReactivateModal] = useState(false);
   const [showDocPopover, setShowDocPopover] = useState(false);
@@ -516,7 +516,7 @@ export default function EmployeeDetailPage() {
       apiFetch<Attachment[]>(`/api/employees/${id}/immigration-documents`).then(setImmDocs).catch(() => {});
       apiFetch<WorkExperienceItem[]>(`/api/employees/${id}/work-experiences`).then(setWorkExperiences).catch(() => {});
       apiFetch<BankAccountItem[]>(`/api/employees/${id}/bank-accounts`).then(setBankAccounts).catch(() => {});
-      apiFetch<{ id: string; title: string; category: string }[]>("/api/offboarding/templates").then(setOffboardingTemplates).catch(() => {});
+      apiFetch<{ id: string; name: string; description?: string; itemCount: number }[]>("/api/employee-tasks/templates?type=Offboarding").then(setOffboardingTemplates).catch(() => {});
       apiFetch<BenefitData>(`/api/employees/${id}/benefit`).then((b) => {
         setBenefitInsurer(b.insuranceProvider ?? "");
         setBenefitExtMed(b.coverageExtendedMedical);
@@ -2392,13 +2392,13 @@ export default function EmployeeDetailPage() {
                       onChange={(e) => setSelectedTemplateId(e.target.value)}
                       className={inputClass}
                     >
-                      <option value="">All active templates (default)</option>
+                      <option value="">-- Select a template --</option>
                       {offboardingTemplates.map((t) => (
-                        <option key={t.id} value={t.id}>{t.title} — {t.category}</option>
+                        <option key={t.id} value={t.id}>{t.name} ({t.itemCount} task{t.itemCount !== 1 ? "s" : ""})</option>
                       ))}
                     </select>
                     {offboardingTemplates.length === 0 && (
-                      <p className="mt-1.5 text-[11px] text-amber-500">No offboarding templates found. Configure them in the Offboarding module first.</p>
+                      <p className="mt-1.5 text-[11px] text-amber-500">No offboarding templates found. Create one in Employee Tasks module first.</p>
                     )}
                   </div>
                 )}
