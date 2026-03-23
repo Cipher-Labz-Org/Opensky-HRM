@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("OpenSkyHRM.Persistence")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c66a58bf5c5b1438b4c388ebd8808821ac1abd9d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c4d22df47c9fe3f756dd8bccd2442cc1a5928170")]
 [assembly: System.Reflection.AssemblyProductAttribute("OpenSkyHRM.Persistence")]
 [assembly: System.Reflection.AssemblyTitleAttribute("OpenSkyHRM.Persistence")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
