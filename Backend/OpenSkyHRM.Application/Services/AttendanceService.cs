@@ -22,8 +22,9 @@ public class AttendanceService : IAttendanceService
         DateTime? fromDate = null, DateTime? toDate = null,
         IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
-        var from = fromDate?.Date ?? DateTime.UtcNow.Date.AddDays(-30);
-        var to = toDate?.Date ?? DateTime.UtcNow.Date;
+        var today = DateTime.UtcNow.Date;
+        var from = fromDate?.Date ?? new DateTime(today.Year, today.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var to = toDate?.Date ?? today;
         if (to < from) to = from;
 
         var query = _db.Set<AttendanceRecord>()
@@ -546,14 +547,82 @@ public class AttendanceService : IAttendanceService
             .FirstOrDefault();
 
         if (roster?.RosterTemplate != null)
-            return (roster.RosterTemplate.DefaultStartTime, roster.RosterTemplate.DefaultEndTime, roster.RosterTemplate.WorkHoursPerDay);
+        {
+            var start = roster.RosterTemplate.DefaultStartTime;
+            var end = roster.RosterTemplate.DefaultEndTime;
+            var fullHours = roster.RosterTemplate.WorkHoursPerDay;
+            var shift = roster.RosterTemplate.DefaultShiftPattern;
+            if (shift != null)
+            {
+                var (applies, dayStart, dayEnd, hours) = GetShiftTimesForDate(shift, date, start, end, fullHours);
+                if (!applies)
+                    return (start, end, 0);
+                return (dayStart ?? start, dayEnd ?? end, hours);
+            }
+            return (start, end, fullHours);
+        }
 
         if (emp.ShiftPattern != null)
         {
-            var totalShiftHours = (decimal)(emp.ShiftPattern.EndTime - emp.ShiftPattern.StartTime).TotalHours - emp.ShiftPattern.BreakHours;
-            return (emp.ShiftPattern.StartTime, emp.ShiftPattern.EndTime, Math.Max(0, totalShiftHours));
+            var shift = emp.ShiftPattern;
+            var (applies, dayStart, dayEnd, hours) = GetShiftTimesForDate(shift, date, shift.StartTime, shift.EndTime, null);
+            if (!applies)
+                return (shift.StartTime, shift.EndTime, 0);
+            return (dayStart ?? shift.StartTime, dayEnd ?? shift.EndTime, hours);
         }
 
         return (null, null, 8);
+    }
+
+    private static (bool applies, TimeSpan? start, TimeSpan? end, decimal hours) GetShiftTimesForDate(
+        ShiftPattern shift, DateTime date, TimeSpan defaultStart, TimeSpan defaultEnd, decimal? defaultHours)
+    {
+        var day = date.DayOfWeek;
+        var applies = day switch
+        {
+            DayOfWeek.Monday => shift.AppliesOnMonday,
+            DayOfWeek.Tuesday => shift.AppliesOnTuesday,
+            DayOfWeek.Wednesday => shift.AppliesOnWednesday,
+            DayOfWeek.Thursday => shift.AppliesOnThursday,
+            DayOfWeek.Friday => shift.AppliesOnFriday,
+            DayOfWeek.Saturday => shift.AppliesOnSaturday,
+            DayOfWeek.Sunday => shift.AppliesOnSunday,
+            _ => false
+        };
+        if (!applies)
+            return (false, defaultStart, defaultEnd, 0);
+
+        TimeSpan? dayStart = day switch
+        {
+            DayOfWeek.Monday => shift.MondayStartTime,
+            DayOfWeek.Tuesday => shift.TuesdayStartTime,
+            DayOfWeek.Wednesday => shift.WednesdayStartTime,
+            DayOfWeek.Thursday => shift.ThursdayStartTime,
+            DayOfWeek.Friday => shift.FridayStartTime,
+            DayOfWeek.Saturday => shift.SaturdayStartTime,
+            DayOfWeek.Sunday => shift.SundayStartTime,
+            _ => null
+        };
+        TimeSpan? dayEnd = day switch
+        {
+            DayOfWeek.Monday => shift.MondayEndTime,
+            DayOfWeek.Tuesday => shift.TuesdayEndTime,
+            DayOfWeek.Wednesday => shift.WednesdayEndTime,
+            DayOfWeek.Thursday => shift.ThursdayEndTime,
+            DayOfWeek.Friday => shift.FridayEndTime,
+            DayOfWeek.Saturday => shift.SaturdayEndTime,
+            DayOfWeek.Sunday => shift.SundayEndTime,
+            _ => null
+        };
+
+        if (dayStart.HasValue && dayEnd.HasValue)
+        {
+            var hours = (decimal)(dayEnd.Value - dayStart.Value).TotalHours - shift.BreakHours;
+            return (true, dayStart, dayEnd, Math.Max(0, hours));
+        }
+        if (defaultHours.HasValue)
+            return (true, defaultStart, defaultEnd, defaultHours.Value);
+        var fullHours = (decimal)(defaultEnd - defaultStart).TotalHours - shift.BreakHours;
+        return (true, defaultStart, defaultEnd, Math.Max(0, fullHours));
     }
 }

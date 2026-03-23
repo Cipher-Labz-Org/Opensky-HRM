@@ -20,12 +20,17 @@ public static class DependencyInjection
         services.AddScoped<IBiometricService, BiometricService>();
         services.AddScoped<IRecruitmentService, RecruitmentService>();
         services.AddScoped<IOnboardingService, OnboardingService>();
+        services.AddScoped<IOffboardingService, OffboardingService>();
+        services.AddScoped<IEmployeeTaskService, EmployeeTaskService>();
         services.AddScoped<IPayrollService, PayrollService>();
         services.AddScoped<IPerformanceService, PerformanceService>();
+        services.AddScoped<IAppraisalService, AppraisalService>();
         services.AddScoped<ILearningService, LearningService>();
         services.AddScoped<ISettingsService, SettingsService>();
         services.AddScoped<ISystemSettingService, SystemSettingService>();
         services.AddScoped<IAnalyticsService, AnalyticsService>();
+        services.AddScoped<IReportService, ReportService>();
+        services.AddScoped<IEmailService, EmailService>();
 
         // Hangfire jobs
         services.AddScoped<AttendanceReconciliationJob>();

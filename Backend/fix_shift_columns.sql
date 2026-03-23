@@ -1,0 +1,14 @@
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "MondayStartTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "MondayEndTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "TuesdayStartTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "TuesdayEndTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "WednesdayStartTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "WednesdayEndTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "ThursdayStartTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "ThursdayEndTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "FridayStartTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "FridayEndTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "SaturdayStartTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "SaturdayEndTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "SundayStartTime" interval NULL;
+ALTER TABLE "ShiftPatterns" ADD COLUMN IF NOT EXISTS "SundayEndTime" interval NULL;

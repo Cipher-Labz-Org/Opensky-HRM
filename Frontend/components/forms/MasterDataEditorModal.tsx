@@ -11,6 +11,7 @@ interface Item {
   code: string;
   description?: string | null;
   level?: number;
+  [key: string]: unknown;
 }
 
 interface FieldDef {
@@ -131,10 +132,11 @@ export function MasterDataEditorModal({
     onSubmit: (e: FormEvent<HTMLFormElement>) => void,
     defaults?: Record<string, string | number>,
     submitLabel = "Save",
-    onCancel?: () => void
+    onCancel?: () => void,
+    formKey?: string
   ) {
     return (
-      <form onSubmit={onSubmit} className="mb-4 rounded-xl border border-blue-100 bg-blue-50/30 p-4">
+      <form key={formKey} onSubmit={onSubmit} className="mb-4 rounded-xl border border-blue-100 bg-blue-50/30 p-4">
         <div className="grid gap-3 sm:grid-cols-2">
           {fields.map((f) => (
             <div key={f.key} className={f.type === "textarea" ? "sm:col-span-2" : ""}>
@@ -188,7 +190,7 @@ export function MasterDataEditorModal({
         </div>
       )}
 
-      {showAdd && renderForm(handleAdd, undefined, "Create", () => setShowAdd(false))}
+      {showAdd && renderForm(handleAdd, undefined, "Create", () => setShowAdd(false), "add-new")}
 
       {editingId && editingItem && renderForm(
         handleUpdate,
@@ -199,7 +201,8 @@ export function MasterDataEditorModal({
           ...(editingItem.level !== undefined ? { level: editingItem.level } : {}),
         },
         "Update",
-        () => setEditingId(null)
+        () => setEditingId(null),
+        `edit-${editingId}`
       )}
 
       {loading ? (

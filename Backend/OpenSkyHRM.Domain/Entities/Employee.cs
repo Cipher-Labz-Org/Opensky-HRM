@@ -49,7 +49,9 @@ public class Employee : AuditableEntity
     public DateTime? ProbationEndDate { get; set; }
     public DateTime? DateOfPermanency { get; set; }
     public DateTime? TerminationDate { get; set; }
-    public EmploymentStatus Status { get; set; } = EmploymentStatus.FullTimePermanent;
+    public string? TerminationReason { get; set; }
+    public string? TerminationNote { get; set; }
+    public string Status { get; set; } = "FullTimePermanent";
     public string? ProfileImageUrl { get; set; }
     public bool IsTopOfHierarchy { get; set; }
 

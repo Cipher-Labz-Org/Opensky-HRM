@@ -18,6 +18,13 @@ interface RoleLookup {
   description: string | null;
 }
 
+interface TemplateLookup {
+  id: string;
+  name: string;
+  type: string;
+  itemCount: number;
+}
+
 interface CreateEmployeeModalProps {
   open: boolean;
   onClose: () => void;
@@ -49,6 +56,10 @@ export function CreateEmployeeModal({
   const [supervisorRoleId, setSupervisorRoleId] = useState("");
   const [adminRoleId, setAdminRoleId] = useState("");
 
+  const [withOnboarding, setWithOnboarding] = useState(false);
+  const [onboardingTemplateId, setOnboardingTemplateId] = useState("");
+  const [onboardingTemplates, setOnboardingTemplates] = useState<TemplateLookup[]>([]);
+
   useEffect(() => {
     if (!open) return;
     setCreateLogin(false);
@@ -60,6 +71,12 @@ export function CreateEmployeeModal({
     setSupervisorRoleId("");
     setAdminRoleId("");
     setNextCode("");
+    setWithOnboarding(false);
+    setOnboardingTemplateId("");
+
+    apiFetch<TemplateLookup[]>("/api/employee-tasks/lookup?type=Onboarding")
+      .then((t) => setOnboardingTemplates(t))
+      .catch(() => setOnboardingTemplates([]));
 
     Promise.all([
       apiFetch<Lookup[]>("/api/organization/departments").catch(() => []),
@@ -133,6 +150,11 @@ export function CreateEmployeeModal({
         isActive: loginStatus === "enabled",
         roleIds,
       };
+    }
+
+    if (withOnboarding && onboardingTemplateId) {
+      payload.withOnboarding = true;
+      payload.onboardingTemplateId = onboardingTemplateId;
     }
 
     try {
@@ -420,6 +442,54 @@ export function CreateEmployeeModal({
                 </select>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Onboarding ─────────────────────────────────────────── */}
+        <div className="border-t border-[var(--border)] pt-4">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-[var(--text)]">With Onboarding</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={withOnboarding}
+              onClick={() => setWithOnboarding(!withOnboarding)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                withOnboarding ? "bg-[var(--primary)]" : "bg-gray-200"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform duration-200 ease-in-out ${
+                  withOnboarding ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
+        {withOnboarding && (
+          <div className="space-y-3 rounded-xl border border-green-100 bg-green-50/50 p-4">
+            <div>
+              <label className={labelClass}>Onboarding Template *</label>
+              <select
+                value={onboardingTemplateId}
+                onChange={(e) => setOnboardingTemplateId(e.target.value)}
+                className={inputClass}
+                required={withOnboarding}
+              >
+                <option value="">Select template...</option>
+                {onboardingTemplates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.itemCount} tasks)
+                  </option>
+                ))}
+              </select>
+            </div>
+            {onboardingTemplates.length === 0 && (
+              <p className="text-xs text-amber-600">
+                No onboarding templates found. Create one in Employee Tasks first.
+              </p>
+            )}
           </div>
         )}
 

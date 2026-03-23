@@ -16,6 +16,8 @@ export const ROUTES = {
   employeeProfile: "/app/employee-profile",
   recruitment: "/app/recruitment",
   onboarding: "/app/onboarding",
+  offboarding: "/app/offboarding",
+  employeeTasks: "/app/employee-tasks",
 
   // App – Workforce
   leave: "/app/leave",
@@ -25,6 +27,7 @@ export const ROUTES = {
   learning: "/app/learning",
 
   // App – Intelligence
+  reports: "/app/reports",
   orgStructure: "/app/org-structure",
   analytics: "/app/analytics",
   settings: "/app/settings",

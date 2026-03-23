@@ -1,0 +1,925 @@
+using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.DTOs.Reports;
+using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain.Entities;
+using OpenSkyHRM.Persistence;
+
+namespace OpenSkyHRM.Application.Services;
+
+public class ReportService : IReportService
+{
+    private readonly AppDbContext _db;
+    public ReportService(AppDbContext db) { _db = db; }
+
+    public List<ReportCategoryDto> GetReportCatalog()
+    {
+        return new List<ReportCategoryDto>
+        {
+            new()
+            {
+                Key = "people", Name = "People & Employee", Icon = "users",
+                Reports = new()
+                {
+                    new() { Key = "employee-master", Name = "Employee Master List", Description = "Complete employee directory with personal, job, and contact details" },
+                    new() { Key = "employee-by-department", Name = "Employees by Department", Description = "Headcount breakdown by department" },
+                    new() { Key = "employee-by-status", Name = "Employees by Status", Description = "Employee count grouped by employment status" },
+                    new() { Key = "employee-by-location", Name = "Employees by Location", Description = "Headcount distribution across locations" },
+                    new() { Key = "employee-by-grade", Name = "Employees by Grade", Description = "Employee distribution across pay grades" },
+                    new() { Key = "new-joiners", Name = "New Joiners", Description = "Employees who joined within a date range" },
+                    new() { Key = "terminations", Name = "Terminations / Separations", Description = "Terminated employees with reason and date" },
+                    new() { Key = "birthday-list", Name = "Birthday List", Description = "Employee birthday calendar for the current month or selected month" },
+                    new() { Key = "work-anniversary", Name = "Work Anniversary", Description = "Employee service anniversaries for the current month" },
+                    new() { Key = "probation-due", Name = "Probation End Due", Description = "Employees whose probation is ending soon" },
+                    new() { Key = "headcount-summary", Name = "Headcount Summary", Description = "Overall headcount statistics across departments and business units" },
+                }
+            },
+            new()
+            {
+                Key = "leave", Name = "Leave & Absence", Icon = "calendar",
+                Reports = new()
+                {
+                    new() { Key = "leave-balance", Name = "Leave Balance Summary", Description = "Current leave balances for all employees by leave type" },
+                    new() { Key = "leave-utilization", Name = "Leave Utilization", Description = "Leave days taken vs entitlement for each employee" },
+                    new() { Key = "leave-requests", Name = "Leave Requests History", Description = "All leave requests with status and approval details" },
+                    new() { Key = "absence-frequency", Name = "Absence Frequency", Description = "Employees ranked by number of leave instances" },
+                    new() { Key = "leave-by-type", Name = "Leave by Type", Description = "Leave days taken grouped by leave type" },
+                    new() { Key = "pending-approvals", Name = "Pending Leave Approvals", Description = "Leave requests awaiting supervisor approval" },
+                }
+            },
+            new()
+            {
+                Key = "attendance", Name = "Time & Attendance", Icon = "clock",
+                Reports = new()
+                {
+                    new() { Key = "daily-attendance", Name = "Daily Attendance Register", Description = "Punch-in/out times for a specific date" },
+                    new() { Key = "monthly-attendance", Name = "Monthly Attendance Summary", Description = "Monthly attendance statistics per employee" },
+                    new() { Key = "late-arrivals", Name = "Late Arrivals", Description = "Employees who arrived after the scheduled start time" },
+                    new() { Key = "early-departures", Name = "Early Departures", Description = "Employees who left before the scheduled end time" },
+                    new() { Key = "overtime-report", Name = "Overtime Report", Description = "Overtime hours worked by each employee" },
+                    new() { Key = "absent-report", Name = "Absent / No-Punch Report", Description = "Days with no attendance record for active employees" },
+                }
+            },
+            new()
+            {
+                Key = "payroll", Name = "Payroll & Compensation", Icon = "banknotes",
+                Reports = new()
+                {
+                    new() { Key = "payroll-register", Name = "Payroll Register", Description = "Monthly payroll summary by employee with gross, deductions, net" },
+                    new() { Key = "salary-register", Name = "Salary Register", Description = "Current salary details for all active employees" },
+                    new() { Key = "salary-revision-history", Name = "Salary Revision History", Description = "Historical salary changes with effective dates" },
+                    new() { Key = "department-cost", Name = "Department Payroll Cost", Description = "Total payroll cost broken down by department" },
+                    new() { Key = "bank-transfer-list", Name = "Bank Transfer List", Description = "Bank account details for salary transfers" },
+                }
+            },
+            new()
+            {
+                Key = "recruitment", Name = "Recruitment", Icon = "briefcase",
+                Reports = new()
+                {
+                    new() { Key = "open-requisitions", Name = "Open Requisitions", Description = "Active job requisitions with vacancy counts and status" },
+                    new() { Key = "candidate-pipeline", Name = "Candidate Pipeline", Description = "Candidates by stage across all requisitions" },
+                    new() { Key = "time-to-fill", Name = "Time to Fill", Description = "Average days to fill positions by department" },
+                    new() { Key = "recruitment-summary", Name = "Recruitment Summary", Description = "Overview of all requisitions, candidates, and offers" },
+                }
+            },
+            new()
+            {
+                Key = "performance", Name = "Performance", Icon = "chart-bar",
+                Reports = new()
+                {
+                    new() { Key = "goal-status", Name = "Goal Status", Description = "Employee goals with current status and progress" },
+                    new() { Key = "review-completion", Name = "Review Completion", Description = "Performance review completion status by cycle" },
+                    new() { Key = "rating-distribution", Name = "Rating Distribution", Description = "Performance rating distribution across the organization" },
+                }
+            },
+            new()
+            {
+                Key = "organization", Name = "Organization", Icon = "building",
+                Reports = new()
+                {
+                    new() { Key = "department-directory", Name = "Department Directory", Description = "All departments with employee counts and hierarchy" },
+                    new() { Key = "reporting-structure", Name = "Reporting Structure", Description = "Supervisor-subordinate relationships across the organization" },
+                    new() { Key = "position-vacancy", Name = "Position & Vacancy", Description = "All positions with occupancy status" },
+                    new() { Key = "shift-roster", Name = "Shift & Roster Assignment", Description = "Current shift patterns and roster assignments" },
+                }
+            },
+            new()
+            {
+                Key = "compliance", Name = "Compliance & Documents", Icon = "shield",
+                Reports = new()
+                {
+                    new() { Key = "document-expiry", Name = "Document Expiry Tracker", Description = "Employee documents approaching or past expiry date" },
+                    new() { Key = "immigration-status", Name = "Immigration / Visa Status", Description = "Visa and work permit details with expiry dates" },
+                    new() { Key = "emergency-contacts", Name = "Emergency Contacts", Description = "Emergency contact details for all employees" },
+                    new() { Key = "onboarding-status", Name = "Onboarding Status", Description = "Active onboarding tasks progress by employee" },
+                    new() { Key = "offboarding-status", Name = "Offboarding Status", Description = "Active offboarding tasks progress by employee" },
+                }
+            },
+        };
+    }
+
+    public async Task<ReportResultDto> RunReportAsync(string category, string reportKey, Dictionary<string, string>? filters = null)
+    {
+        var fullKey = $"{category}/{reportKey}";
+        return fullKey switch
+        {
+            "people/employee-master" => await EmployeeMasterReport(filters),
+            "people/employee-by-department" => await EmployeeByDepartmentReport(),
+            "people/employee-by-status" => await EmployeeByStatusReport(),
+            "people/employee-by-location" => await EmployeeByLocationReport(),
+            "people/employee-by-grade" => await EmployeeByGradeReport(),
+            "people/new-joiners" => await NewJoinersReport(filters),
+            "people/terminations" => await TerminationsReport(filters),
+            "people/birthday-list" => await BirthdayListReport(filters),
+            "people/work-anniversary" => await WorkAnniversaryReport(filters),
+            "people/probation-due" => await ProbationDueReport(),
+            "people/headcount-summary" => await HeadcountSummaryReport(),
+
+            "leave/leave-balance" => await LeaveBalanceSummaryReport(),
+            "leave/leave-utilization" => await LeaveUtilizationReport(),
+            "leave/leave-requests" => await LeaveRequestsReport(filters),
+            "leave/absence-frequency" => await AbsenceFrequencyReport(),
+            "leave/leave-by-type" => await LeaveByTypeReport(),
+            "leave/pending-approvals" => await PendingApprovalsReport(),
+
+            "attendance/daily-attendance" => await DailyAttendanceReport(filters),
+            "attendance/monthly-attendance" => await MonthlyAttendanceReport(filters),
+            "attendance/late-arrivals" => await LateArrivalsReport(filters),
+            "attendance/early-departures" => await EarlyDeparturesReport(filters),
+            "attendance/overtime-report" => await OvertimeReport(filters),
+            "attendance/absent-report" => await AbsentReport(filters),
+
+            "payroll/payroll-register" => await PayrollRegisterReport(filters),
+            "payroll/salary-register" => await SalaryRegisterReport(),
+            "payroll/salary-revision-history" => await SalaryRevisionHistoryReport(),
+            "payroll/department-cost" => await DepartmentCostReport(),
+            "payroll/bank-transfer-list" => await BankTransferListReport(),
+
+            "recruitment/open-requisitions" => await OpenRequisitionsReport(),
+            "recruitment/candidate-pipeline" => await CandidatePipelineReport(),
+            "recruitment/time-to-fill" => await TimeToFillReport(),
+            "recruitment/recruitment-summary" => await RecruitmentSummaryReport(),
+
+            "performance/goal-status" => await GoalStatusReport(),
+            "performance/review-completion" => await ReviewCompletionReport(),
+            "performance/rating-distribution" => await RatingDistributionReport(),
+
+            "organization/department-directory" => await DepartmentDirectoryReport(),
+            "organization/reporting-structure" => await ReportingStructureReport(),
+            "organization/position-vacancy" => await PositionVacancyReport(),
+            "organization/shift-roster" => await ShiftRosterReport(),
+
+            "compliance/document-expiry" => await DocumentExpiryReport(),
+            "compliance/immigration-status" => await ImmigrationStatusReport(),
+            "compliance/emergency-contacts" => await EmergencyContactsReport(),
+            "compliance/onboarding-status" => await OnboardingStatusReport(),
+            "compliance/offboarding-status" => await OffboardingStatusReport(),
+
+            _ => new ReportResultDto { ReportName = "Unknown Report", GeneratedAt = DateTime.UtcNow.ToString("o"), Columns = new(), Rows = new() }
+        };
+    }
+
+    private ReportResultDto Build(string name, List<string> cols, List<Dictionary<string, object?>> rows) => new()
+    {
+        ReportName = name,
+        GeneratedAt = DateTime.UtcNow.ToString("o"),
+        Columns = cols,
+        Rows = rows,
+        TotalRows = rows.Count
+    };
+
+    // ========== PEOPLE ==========
+
+    private async Task<ReportResultDto> EmployeeMasterReport(Dictionary<string, string>? filters)
+    {
+        var q = _db.Employees.Include(e => e.Department).Include(e => e.JobTitle)
+            .Include(e => e.Location).Include(e => e.Grade).Include(e => e.BusinessUnit).AsQueryable();
+        if (filters != null && filters.TryGetValue("status", out var st) && !string.IsNullOrWhiteSpace(st))
+            q = q.Where(e => e.Status == st);
+        else
+            q = q.Where(e => e.Status != "Terminated");
+
+        var data = await q.OrderBy(e => e.FirstName).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Full Name", "Email", "Phone", "Department", "Job Title", "Location", "Grade", "Business Unit", "Status", "Join Date", "Gender" };
+        var rows = data.Select(e => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = e.EmployeeCode, ["Full Name"] = e.FullName, ["Email"] = e.Email,
+            ["Phone"] = e.Phone, ["Department"] = e.Department?.Name, ["Job Title"] = e.JobTitle?.Title,
+            ["Location"] = e.Location?.Name, ["Grade"] = e.Grade?.Name, ["Business Unit"] = e.BusinessUnit?.Name,
+            ["Status"] = e.Status, ["Join Date"] = e.JoinDate.ToString("yyyy-MM-dd"), ["Gender"] = e.Gender.ToString(),
+        }).ToList();
+        return Build("Employee Master List", cols, rows);
+    }
+
+    private async Task<ReportResultDto> EmployeeByDepartmentReport()
+    {
+        var data = await _db.Employees.Where(e => e.Status != "Terminated")
+            .Include(e => e.Department)
+            .GroupBy(e => e.Department!.Name ?? "Unassigned")
+            .Select(g => new { Department = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count).ToListAsync();
+        var cols = new List<string> { "Department", "Headcount" };
+        var rows = data.Select(d => new Dictionary<string, object?> { ["Department"] = d.Department, ["Headcount"] = d.Count }).ToList();
+        return Build("Employees by Department", cols, rows);
+    }
+
+    private async Task<ReportResultDto> EmployeeByStatusReport()
+    {
+        var data = await _db.Employees
+            .GroupBy(e => e.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count).ToListAsync();
+        var cols = new List<string> { "Employment Status", "Headcount" };
+        var rows = data.Select(d => new Dictionary<string, object?> { ["Employment Status"] = d.Status, ["Headcount"] = d.Count }).ToList();
+        return Build("Employees by Status", cols, rows);
+    }
+
+    private async Task<ReportResultDto> EmployeeByLocationReport()
+    {
+        var data = await _db.Employees.Where(e => e.Status != "Terminated")
+            .Include(e => e.Location)
+            .GroupBy(e => e.Location != null ? e.Location.Name : "Unassigned")
+            .Select(g => new { Location = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count).ToListAsync();
+        var cols = new List<string> { "Location", "Headcount" };
+        var rows = data.Select(d => new Dictionary<string, object?> { ["Location"] = d.Location, ["Headcount"] = d.Count }).ToList();
+        return Build("Employees by Location", cols, rows);
+    }
+
+    private async Task<ReportResultDto> EmployeeByGradeReport()
+    {
+        var data = await _db.Employees.Where(e => e.Status != "Terminated")
+            .Include(e => e.Grade)
+            .GroupBy(e => e.Grade != null ? e.Grade.Name : "Unassigned")
+            .Select(g => new { Grade = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count).ToListAsync();
+        var cols = new List<string> { "Grade", "Headcount" };
+        var rows = data.Select(d => new Dictionary<string, object?> { ["Grade"] = d.Grade, ["Headcount"] = d.Count }).ToList();
+        return Build("Employees by Grade", cols, rows);
+    }
+
+    private async Task<ReportResultDto> NewJoinersReport(Dictionary<string, string>? filters)
+    {
+        var from = DateTime.UtcNow.AddDays(-30);
+        var to = DateTime.UtcNow;
+        if (filters != null)
+        {
+            if (filters.TryGetValue("from", out var f) && DateTime.TryParse(f, out var fd)) from = fd;
+            if (filters.TryGetValue("to", out var t) && DateTime.TryParse(t, out var td)) to = td;
+        }
+        var data = await _db.Employees.Include(e => e.Department).Include(e => e.JobTitle)
+            .Where(e => e.JoinDate >= from && e.JoinDate <= to)
+            .OrderByDescending(e => e.JoinDate).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Full Name", "Department", "Job Title", "Join Date", "Status" };
+        var rows = data.Select(e => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = e.EmployeeCode, ["Full Name"] = e.FullName, ["Department"] = e.Department?.Name,
+            ["Job Title"] = e.JobTitle?.Title, ["Join Date"] = e.JoinDate.ToString("yyyy-MM-dd"), ["Status"] = e.Status,
+        }).ToList();
+        return Build("New Joiners", cols, rows);
+    }
+
+    private async Task<ReportResultDto> TerminationsReport(Dictionary<string, string>? filters)
+    {
+        var from = DateTime.UtcNow.AddMonths(-6);
+        var to = DateTime.UtcNow;
+        if (filters != null)
+        {
+            if (filters.TryGetValue("from", out var f) && DateTime.TryParse(f, out var fd)) from = fd;
+            if (filters.TryGetValue("to", out var t) && DateTime.TryParse(t, out var td)) to = td;
+        }
+        var data = await _db.Employees.Include(e => e.Department)
+            .Where(e => e.Status == "Terminated" && e.TerminationDate != null && e.TerminationDate >= from && e.TerminationDate <= to)
+            .OrderByDescending(e => e.TerminationDate).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Full Name", "Department", "Termination Date", "Reason", "Note" };
+        var rows = data.Select(e => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = e.EmployeeCode, ["Full Name"] = e.FullName, ["Department"] = e.Department?.Name,
+            ["Termination Date"] = e.TerminationDate?.ToString("yyyy-MM-dd"), ["Reason"] = e.TerminationReason, ["Note"] = e.TerminationNote,
+        }).ToList();
+        return Build("Terminations / Separations", cols, rows);
+    }
+
+    private async Task<ReportResultDto> BirthdayListReport(Dictionary<string, string>? filters)
+    {
+        var month = DateTime.UtcNow.Month;
+        if (filters != null && filters.TryGetValue("month", out var m) && int.TryParse(m, out var mv)) month = mv;
+        var data = await _db.Employees.Include(e => e.Department)
+            .Where(e => e.Status != "Terminated" && e.DateOfBirth.Month == month)
+            .OrderBy(e => e.DateOfBirth.Day).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Full Name", "Department", "Date of Birth", "Day" };
+        var rows = data.Select(e => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = e.EmployeeCode, ["Full Name"] = e.FullName, ["Department"] = e.Department?.Name,
+            ["Date of Birth"] = e.DateOfBirth.ToString("yyyy-MM-dd"),
+            ["Day"] = new DateTime(2000, month, e.DateOfBirth.Day).ToString("dddd"),
+        }).ToList();
+        return Build($"Birthday List - {new DateTime(2000, month, 1):MMMM}", cols, rows);
+    }
+
+    private async Task<ReportResultDto> WorkAnniversaryReport(Dictionary<string, string>? filters)
+    {
+        var month = DateTime.UtcNow.Month;
+        if (filters != null && filters.TryGetValue("month", out var m) && int.TryParse(m, out var mv)) month = mv;
+        var now = DateTime.UtcNow;
+        var data = await _db.Employees.Include(e => e.Department)
+            .Where(e => e.Status != "Terminated" && e.JoinDate.Month == month)
+            .OrderBy(e => e.JoinDate.Day).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Full Name", "Department", "Join Date", "Years of Service" };
+        var rows = data.Select(e => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = e.EmployeeCode, ["Full Name"] = e.FullName, ["Department"] = e.Department?.Name,
+            ["Join Date"] = e.JoinDate.ToString("yyyy-MM-dd"),
+            ["Years of Service"] = Math.Floor((now - e.JoinDate).TotalDays / 365.25),
+        }).ToList();
+        return Build($"Work Anniversary - {new DateTime(2000, month, 1):MMMM}", cols, rows);
+    }
+
+    private async Task<ReportResultDto> ProbationDueReport()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(30);
+        var data = await _db.Employees.Include(e => e.Department)
+            .Where(e => e.Status == "FullTimeProbation" && e.ProbationEndDate != null && e.ProbationEndDate <= cutoff)
+            .OrderBy(e => e.ProbationEndDate).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Full Name", "Department", "Join Date", "Probation End Date" };
+        var rows = data.Select(e => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = e.EmployeeCode, ["Full Name"] = e.FullName, ["Department"] = e.Department?.Name,
+            ["Join Date"] = e.JoinDate.ToString("yyyy-MM-dd"), ["Probation End Date"] = e.ProbationEndDate?.ToString("yyyy-MM-dd"),
+        }).ToList();
+        return Build("Probation End Due (Next 30 Days)", cols, rows);
+    }
+
+    private async Task<ReportResultDto> HeadcountSummaryReport()
+    {
+        var all = await _db.Employees.Include(e => e.Department).Include(e => e.BusinessUnit).ToListAsync();
+        var active = all.Where(e => e.Status != "Terminated").ToList();
+
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["Metric"] = "Total Employees", ["Count"] = all.Count },
+            new() { ["Metric"] = "Active Employees", ["Count"] = active.Count },
+            new() { ["Metric"] = "Terminated", ["Count"] = all.Count(e => e.Status == "Terminated") },
+            new() { ["Metric"] = "On Probation", ["Count"] = active.Count(e => e.Status == "FullTimeProbation") },
+            new() { ["Metric"] = "Male", ["Count"] = active.Count(e => e.Gender.ToString() == "Male") },
+            new() { ["Metric"] = "Female", ["Count"] = active.Count(e => e.Gender.ToString() == "Female") },
+        };
+        foreach (var deptGroup in active.GroupBy(e => e.Department?.Name ?? "Unassigned").OrderByDescending(g => g.Count()))
+            rows.Add(new() { ["Metric"] = $"Dept: {deptGroup.Key}", ["Count"] = deptGroup.Count() });
+
+        return Build("Headcount Summary", new List<string> { "Metric", "Count" }, rows);
+    }
+
+    // ========== LEAVE ==========
+
+    private async Task<ReportResultDto> LeaveBalanceSummaryReport()
+    {
+        var data = await _db.Set<LeaveBalance>()
+            .Include(b => b.Employee).Include(b => b.LeaveType)
+            .Where(b => !b.IsDeleted && b.Employee.Status != "Terminated")
+            .OrderBy(b => b.Employee.FirstName).ThenBy(b => b.LeaveType.Name)
+            .ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Leave Type", "Entitled", "Taken", "Balance" };
+        var rows = data.Select(b => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = b.Employee.EmployeeCode, ["Employee Name"] = b.Employee.FullName,
+            ["Leave Type"] = b.LeaveType.Name, ["Entitled"] = b.Entitled, ["Taken"] = b.Used, ["Balance"] = b.Remaining,
+        }).ToList();
+        return Build("Leave Balance Summary", cols, rows);
+    }
+
+    private async Task<ReportResultDto> LeaveUtilizationReport()
+    {
+        var data = await _db.Set<LeaveBalance>()
+            .Include(b => b.Employee).Include(b => b.LeaveType)
+            .Where(b => !b.IsDeleted && b.Employee.Status != "Terminated" && b.Entitled > 0)
+            .OrderBy(b => b.Employee.FirstName)
+            .ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Leave Type", "Entitled", "Taken", "Utilization %" };
+        var rows = data.Select(b => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = b.Employee.EmployeeCode, ["Employee Name"] = b.Employee.FullName,
+            ["Leave Type"] = b.LeaveType.Name, ["Entitled"] = b.Entitled, ["Taken"] = b.Used,
+            ["Utilization %"] = b.Entitled > 0 ? Math.Round((double)b.Used / (double)b.Entitled * 100, 1) : 0,
+        }).ToList();
+        return Build("Leave Utilization", cols, rows);
+    }
+
+    private async Task<ReportResultDto> LeaveRequestsReport(Dictionary<string, string>? filters)
+    {
+        var q = _db.Set<LeaveRequest>().Include(r => r.Employee).Include(r => r.LeaveType)
+            .Where(r => !r.IsDeleted).AsQueryable();
+        if (filters != null && filters.TryGetValue("status", out var st) && !string.IsNullOrWhiteSpace(st))
+            q = q.Where(r => r.Status.ToString() == st);
+        var data = await q.OrderByDescending(r => r.StartDate).Take(500).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Leave Type", "From", "To", "Days", "Status", "Reason" };
+        var rows = data.Select(r => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = r.Employee.EmployeeCode, ["Employee Name"] = r.Employee.FullName,
+            ["Leave Type"] = r.LeaveType.Name, ["From"] = r.StartDate.ToString("yyyy-MM-dd"),
+            ["To"] = r.EndDate.ToString("yyyy-MM-dd"),             ["Days"] = r.TotalDays,
+            ["Status"] = r.Status.ToString(), ["Reason"] = r.Reason,
+        }).ToList();
+        return Build("Leave Requests History", cols, rows);
+    }
+
+    private async Task<ReportResultDto> AbsenceFrequencyReport()
+    {
+        var data = await _db.Set<LeaveRequest>()
+            .Include(r => r.Employee).ThenInclude(e => e.Department)
+            .Where(r => !r.IsDeleted && (r.Status.ToString() == "Approved" || r.Status.ToString() == "PendingLevel2"))
+            .GroupBy(r => new { r.Employee.EmployeeCode, Name = r.Employee.FirstName + " " + r.Employee.LastName, Dept = r.Employee.Department!.Name })
+            .Select(g => new { g.Key.EmployeeCode, g.Key.Name, g.Key.Dept, Instances = g.Count(), TotalDays = g.Sum(r => r.TotalDays) })
+            .OrderByDescending(x => x.Instances).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Leave Instances", "Total Days" };
+        var rows = data.Select(d => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = d.EmployeeCode, ["Employee Name"] = d.Name, ["Department"] = d.Dept,
+            ["Leave Instances"] = d.Instances, ["Total Days"] = d.TotalDays,
+        }).ToList();
+        return Build("Absence Frequency", cols, rows);
+    }
+
+    private async Task<ReportResultDto> LeaveByTypeReport()
+    {
+        var data = await _db.Set<LeaveRequest>()
+            .Include(r => r.LeaveType)
+            .Where(r => !r.IsDeleted && (r.Status.ToString() == "Approved" || r.Status.ToString() == "PendingLevel2"))
+            .GroupBy(r => r.LeaveType.Name)
+            .Select(g => new { LeaveType = g.Key, Requests = g.Count(), TotalDays = g.Sum(r => r.TotalDays) })
+            .OrderByDescending(x => x.TotalDays).ToListAsync();
+        var cols = new List<string> { "Leave Type", "Total Requests", "Total Days" };
+        var rows = data.Select(d => new Dictionary<string, object?>
+        {
+            ["Leave Type"] = d.LeaveType, ["Total Requests"] = d.Requests, ["Total Days"] = d.TotalDays,
+        }).ToList();
+        return Build("Leave by Type", cols, rows);
+    }
+
+    private async Task<ReportResultDto> PendingApprovalsReport()
+    {
+        var data = await _db.Set<LeaveRequest>()
+            .Include(r => r.Employee).ThenInclude(e => e.Department)
+            .Include(r => r.LeaveType)
+            .Where(r => !r.IsDeleted && (r.Status == Domain.Enums.ApprovalStatus.Pending || r.Status == Domain.Enums.ApprovalStatus.PendingLevel2))
+            .OrderBy(r => r.StartDate).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Leave Type", "From", "To", "Days", "Status" };
+        var rows = data.Select(r => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = r.Employee.EmployeeCode, ["Employee Name"] = r.Employee.FullName,
+            ["Department"] = r.Employee.Department?.Name, ["Leave Type"] = r.LeaveType.Name,
+            ["From"] = r.StartDate.ToString("yyyy-MM-dd"), ["To"] = r.EndDate.ToString("yyyy-MM-dd"),
+            ["Days"] = r.TotalDays, ["Status"] = r.Status.ToString(),
+        }).ToList();
+        return Build("Pending Leave Approvals", cols, rows);
+    }
+
+    // ========== ATTENDANCE ==========
+
+    private async Task<ReportResultDto> DailyAttendanceReport(Dictionary<string, string>? filters)
+    {
+        var date = DateTime.UtcNow.Date;
+        if (filters != null && filters.TryGetValue("date", out var d) && DateTime.TryParse(d, out var dd)) date = dd.Date;
+        var data = await _db.Set<AttendanceRecord>().Include(a => a.Employee).ThenInclude(e => e.Department)
+            .Where(a => !a.IsDeleted && a.Date.Date == date)
+            .OrderBy(a => a.Employee.FirstName).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Punch In", "Punch Out", "Worked Hours", "Status" };
+        var rows = data.Select(a => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = a.Employee.EmployeeCode, ["Employee Name"] = a.Employee.FullName,
+            ["Department"] = a.Employee.Department?.Name,
+            ["Punch In"] = a.PunchIn?.ToString("HH:mm"), ["Punch Out"] = a.PunchOut?.ToString("HH:mm"),
+            ["Worked Hours"] = a.WorkedHours?.ToString("F2"), ["Status"] = a.Status,
+        }).ToList();
+        return Build($"Daily Attendance - {date:yyyy-MM-dd}", cols, rows);
+    }
+
+    private async Task<ReportResultDto> MonthlyAttendanceReport(Dictionary<string, string>? filters)
+    {
+        var year = DateTime.UtcNow.Year;
+        var month = DateTime.UtcNow.Month;
+        if (filters != null)
+        {
+            if (filters.TryGetValue("year", out var y) && int.TryParse(y, out var yv)) year = yv;
+            if (filters.TryGetValue("month", out var m) && int.TryParse(m, out var mv)) month = mv;
+        }
+        var data = await _db.Set<AttendanceRecord>().Include(a => a.Employee)
+            .Where(a => !a.IsDeleted && a.Date.Year == year && a.Date.Month == month)
+            .GroupBy(a => new { a.Employee.EmployeeCode, Name = a.Employee.FirstName + " " + a.Employee.LastName })
+            .Select(g => new
+            {
+                g.Key.EmployeeCode, g.Key.Name,
+                PresentDays = g.Count(a => a.Status == "Present"),
+                LateDays = g.Count(a => a.Status == "Late"),
+                AbsentDays = g.Count(a => a.Status == "Absent"),
+                TotalHours = g.Sum(a => (double?)(a.WorkedHours ?? 0)) ?? 0,
+            }).OrderBy(x => x.Name).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Present Days", "Late Days", "Absent Days", "Total Hours" };
+        var rows = data.Select(d => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = d.EmployeeCode, ["Employee Name"] = d.Name,
+            ["Present Days"] = d.PresentDays, ["Late Days"] = d.LateDays,
+            ["Absent Days"] = d.AbsentDays, ["Total Hours"] = Math.Round(d.TotalHours, 1),
+        }).ToList();
+        return Build($"Monthly Attendance - {new DateTime(year, month, 1):MMMM yyyy}", cols, rows);
+    }
+
+    private async Task<ReportResultDto> LateArrivalsReport(Dictionary<string, string>? filters)
+    {
+        var from = DateTime.UtcNow.AddDays(-30).Date;
+        var to = DateTime.UtcNow.Date;
+        if (filters != null)
+        {
+            if (filters.TryGetValue("from", out var f) && DateTime.TryParse(f, out var fd)) from = fd.Date;
+            if (filters.TryGetValue("to", out var t) && DateTime.TryParse(t, out var td)) to = td.Date;
+        }
+        var data = await _db.Set<AttendanceRecord>().Include(a => a.Employee).ThenInclude(e => e.Department)
+            .Where(a => !a.IsDeleted && a.Status == "Late" && a.Date >= from && a.Date <= to)
+            .OrderByDescending(a => a.Date).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Date", "Punch In", "Status" };
+        var rows = data.Select(a => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = a.Employee.EmployeeCode, ["Employee Name"] = a.Employee.FullName,
+            ["Department"] = a.Employee.Department?.Name, ["Date"] = a.Date.ToString("yyyy-MM-dd"),
+            ["Punch In"] = a.PunchIn?.ToString("HH:mm"), ["Status"] = a.Status,
+        }).ToList();
+        return Build("Late Arrivals", cols, rows);
+    }
+
+    private async Task<ReportResultDto> EarlyDeparturesReport(Dictionary<string, string>? filters)
+    {
+        var from = DateTime.UtcNow.AddDays(-30).Date;
+        var to = DateTime.UtcNow.Date;
+        if (filters != null)
+        {
+            if (filters.TryGetValue("from", out var f) && DateTime.TryParse(f, out var fd)) from = fd.Date;
+            if (filters.TryGetValue("to", out var t) && DateTime.TryParse(t, out var td)) to = td.Date;
+        }
+        var data = await _db.Set<AttendanceRecord>().Include(a => a.Employee).ThenInclude(e => e.Department)
+            .Where(a => !a.IsDeleted && a.Status == "EarlyDeparture" && a.Date >= from && a.Date <= to)
+            .OrderByDescending(a => a.Date).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Date", "Punch Out", "Status" };
+        var rows = data.Select(a => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = a.Employee.EmployeeCode, ["Employee Name"] = a.Employee.FullName,
+            ["Department"] = a.Employee.Department?.Name, ["Date"] = a.Date.ToString("yyyy-MM-dd"),
+            ["Punch Out"] = a.PunchOut?.ToString("HH:mm"), ["Status"] = a.Status,
+        }).ToList();
+        return Build("Early Departures", cols, rows);
+    }
+
+    private async Task<ReportResultDto> OvertimeReport(Dictionary<string, string>? filters)
+    {
+        var year = DateTime.UtcNow.Year;
+        var month = DateTime.UtcNow.Month;
+        if (filters != null)
+        {
+            if (filters.TryGetValue("year", out var y) && int.TryParse(y, out var yv)) year = yv;
+            if (filters.TryGetValue("month", out var m) && int.TryParse(m, out var mv)) month = mv;
+        }
+        var data = await _db.Set<AttendanceRecord>().Include(a => a.Employee).ThenInclude(e => e.Department)
+            .Where(a => !a.IsDeleted && a.Date.Year == year && a.Date.Month == month && a.WorkedHours > 8)
+            .GroupBy(a => new { a.Employee.EmployeeCode, Name = a.Employee.FirstName + " " + a.Employee.LastName, Dept = a.Employee.Department!.Name })
+            .Select(g => new { g.Key.EmployeeCode, g.Key.Name, g.Key.Dept, OTDays = g.Count(), OTHours = g.Sum(a => (double?)(a.WorkedHours ?? 0) - 8) ?? 0 })
+            .OrderByDescending(x => x.OTHours).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "OT Days", "OT Hours" };
+        var rows = data.Select(d => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = d.EmployeeCode, ["Employee Name"] = d.Name, ["Department"] = d.Dept,
+            ["OT Days"] = d.OTDays, ["OT Hours"] = Math.Round(d.OTHours, 1),
+        }).ToList();
+        return Build($"Overtime Report - {new DateTime(year, month, 1):MMMM yyyy}", cols, rows);
+    }
+
+    private async Task<ReportResultDto> AbsentReport(Dictionary<string, string>? filters)
+    {
+        var date = DateTime.UtcNow.Date;
+        if (filters != null && filters.TryGetValue("date", out var d) && DateTime.TryParse(d, out var dd)) date = dd.Date;
+        var allActive = await _db.Employees.Where(e => e.Status != "Terminated").Select(e => new { e.Id, e.EmployeeCode, e.FirstName, e.LastName }).ToListAsync();
+        var presentIds = await _db.Set<AttendanceRecord>().Where(a => !a.IsDeleted && a.Date.Date == date).Select(a => a.EmployeeId).Distinct().ToListAsync();
+        var absent = allActive.Where(e => !presentIds.Contains(e.Id)).ToList();
+        var cols = new List<string> { "Employee Code", "Employee Name" };
+        var rows = absent.Select(e => new Dictionary<string, object?> { ["Employee Code"] = e.EmployeeCode, ["Employee Name"] = $"{e.FirstName} {e.LastName}" }).ToList();
+        return Build($"Absent / No-Punch Report - {date:yyyy-MM-dd}", cols, rows);
+    }
+
+    // ========== PAYROLL ==========
+
+    private async Task<ReportResultDto> PayrollRegisterReport(Dictionary<string, string>? filters)
+    {
+        var data = await _db.Set<PayStatement>().Include(p => p.Employee).ThenInclude(e => e.Department)
+            .Where(p => !p.IsDeleted).OrderByDescending(p => p.Year).ThenByDescending(p => p.Month).Take(500).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Period", "Gross", "Deductions", "Net Pay" };
+        var rows = data.Select(p => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = p.Employee.EmployeeCode, ["Employee Name"] = p.Employee.FullName,
+            ["Department"] = p.Employee.Department?.Name,
+            ["Period"] = $"{p.Year}-{p.Month:D2}",
+            ["Gross"] = p.GrossPay, ["Deductions"] = p.Deductions, ["Net Pay"] = p.NetPay,
+        }).ToList();
+        return Build("Payroll Register", cols, rows);
+    }
+
+    private async Task<ReportResultDto> SalaryRegisterReport()
+    {
+        var data = await _db.Set<EmployeeCompensation>().Include(c => c.Employee).ThenInclude(e => e.Department)
+            .Include(c => c.Component)
+            .Where(c => !c.IsDeleted && c.Employee.Status != "Terminated")
+            .OrderBy(c => c.Employee.FirstName).ThenBy(c => c.Component.Name).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Component", "Amount", "Currency" };
+        var rows = data.Select(c => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = c.Employee.EmployeeCode, ["Employee Name"] = c.Employee.FullName,
+            ["Department"] = c.Employee.Department?.Name, ["Component"] = c.Component.Name,
+            ["Amount"] = c.Amount, ["Currency"] = c.Currency,
+        }).ToList();
+        return Build("Salary Register", cols, rows);
+    }
+
+    private async Task<ReportResultDto> SalaryRevisionHistoryReport()
+    {
+        var data = await _db.Set<SalaryRevision>().Include(r => r.Employee).ThenInclude(e => e.Department)
+            .Where(r => !r.IsDeleted).OrderByDescending(r => r.EffectiveDate).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Effective Date", "Previous", "Revised", "Change %" };
+        var rows = data.Select(r => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = r.Employee.EmployeeCode, ["Employee Name"] = r.Employee.FullName,
+            ["Department"] = r.Employee.Department?.Name, ["Effective Date"] = r.EffectiveDate.ToString("yyyy-MM-dd"),
+            ["Previous"] = r.CurrentSalary, ["Revised"] = r.ProposedSalary,
+            ["Change %"] = r.CurrentSalary > 0 ? Math.Round((double)(r.ProposedSalary - r.CurrentSalary) / (double)r.CurrentSalary * 100, 1) : 0,
+        }).ToList();
+        return Build("Salary Revision History", cols, rows);
+    }
+
+    private async Task<ReportResultDto> DepartmentCostReport()
+    {
+        var data = await _db.Set<EmployeeCompensation>()
+            .Include(c => c.Employee).ThenInclude(e => e.Department)
+            .Where(c => !c.IsDeleted && c.Employee.Status != "Terminated")
+            .GroupBy(c => c.Employee.Department!.Name ?? "Unassigned")
+            .Select(g => new { Department = g.Key, TotalCost = g.Sum(c => c.Amount), EmployeeCount = g.Select(c => c.EmployeeId).Distinct().Count() })
+            .OrderByDescending(x => x.TotalCost).ToListAsync();
+        var cols = new List<string> { "Department", "Employee Count", "Total Monthly Cost" };
+        var rows = data.Select(d => new Dictionary<string, object?>
+        {
+            ["Department"] = d.Department, ["Employee Count"] = d.EmployeeCount, ["Total Monthly Cost"] = d.TotalCost,
+        }).ToList();
+        return Build("Department Payroll Cost", cols, rows);
+    }
+
+    private async Task<ReportResultDto> BankTransferListReport()
+    {
+        var data = await _db.Set<BankAccount>().Include(b => b.Employee).ThenInclude(e => e.Department)
+            .Where(b => !b.IsDeleted && b.Employee.Status != "Terminated")
+            .OrderBy(b => b.Employee.FirstName).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Bank Name", "Branch", "Account Number", "Account Type" };
+        var rows = data.Select(b => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = b.Employee.EmployeeCode, ["Employee Name"] = b.Employee.FullName,
+            ["Bank Name"] = b.BankName, ["Branch"] = b.BranchLocation,
+            ["Account Number"] = b.AccountNumber, ["Account Type"] = b.AccountType,
+        }).ToList();
+        return Build("Bank Transfer List", cols, rows);
+    }
+
+    // ========== RECRUITMENT ==========
+
+    private async Task<ReportResultDto> OpenRequisitionsReport()
+    {
+        var data = await _db.Set<Requisition>().Include(r => r.Department).Include(r => r.JobTitle).Include(r => r.Candidates)
+            .Where(r => !r.IsDeleted && r.Status != Domain.Enums.ApprovalStatus.Cancelled)
+            .OrderByDescending(r => r.CreatedAt).ToListAsync();
+        var cols = new List<string> { "Req Code", "Title", "Department", "Vacancies", "Candidates", "Status", "Target Date" };
+        var rows = data.Select(r => new Dictionary<string, object?>
+        {
+            ["Req Code"] = r.Code, ["Title"] = r.Title, ["Department"] = r.Department?.Name,
+            ["Vacancies"] = r.Vacancies, ["Candidates"] = r.Candidates.Count,
+            ["Status"] = r.Status.ToString(), ["Target Date"] = r.TargetDate?.ToString("yyyy-MM-dd"),
+        }).ToList();
+        return Build("Open Requisitions", cols, rows);
+    }
+
+    private async Task<ReportResultDto> CandidatePipelineReport()
+    {
+        var data = await _db.Set<Candidate>().Include(c => c.Requisition)
+            .Where(c => !c.IsDeleted)
+            .GroupBy(c => c.Stage)
+            .Select(g => new { Stage = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count).ToListAsync();
+        var cols = new List<string> { "Pipeline Stage", "Candidate Count" };
+        var rows = data.Select(d => new Dictionary<string, object?> { ["Pipeline Stage"] = d.Stage, ["Candidate Count"] = d.Count }).ToList();
+        return Build("Candidate Pipeline", cols, rows);
+    }
+
+    private async Task<ReportResultDto> TimeToFillReport()
+    {
+        var data = await _db.Set<Requisition>().Include(r => r.Department)
+            .Where(r => !r.IsDeleted && r.Status == Domain.Enums.ApprovalStatus.Approved)
+            .ToListAsync();
+        var cols = new List<string> { "Req Code", "Title", "Department", "Created", "Target", "Days Open" };
+        var rows = data.Select(r => new Dictionary<string, object?>
+        {
+            ["Req Code"] = r.Code, ["Title"] = r.Title, ["Department"] = r.Department?.Name,
+            ["Created"] = r.CreatedAt.ToString("yyyy-MM-dd"), ["Target"] = r.TargetDate?.ToString("yyyy-MM-dd"),
+            ["Days Open"] = (DateTime.UtcNow - r.CreatedAt).Days,
+        }).ToList();
+        return Build("Time to Fill", cols, rows);
+    }
+
+    private async Task<ReportResultDto> RecruitmentSummaryReport()
+    {
+        var reqs = await _db.Set<Requisition>().Where(r => !r.IsDeleted).ToListAsync();
+        var cands = await _db.Set<Candidate>().Where(c => !c.IsDeleted).CountAsync();
+        var offers = await _db.Set<Offer>().Where(o => !o.IsDeleted).CountAsync();
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["Metric"] = "Total Requisitions", ["Count"] = reqs.Count },
+            new() { ["Metric"] = "Open Requisitions", ["Count"] = reqs.Count(r => r.Status == Domain.Enums.ApprovalStatus.Pending || r.Status == Domain.Enums.ApprovalStatus.Approved) },
+            new() { ["Metric"] = "Total Candidates", ["Count"] = cands },
+            new() { ["Metric"] = "Total Offers", ["Count"] = offers },
+            new() { ["Metric"] = "Total Vacancies", ["Count"] = reqs.Sum(r => r.Vacancies) },
+        };
+        return Build("Recruitment Summary", new List<string> { "Metric", "Count" }, rows);
+    }
+
+    // ========== PERFORMANCE ==========
+
+    private async Task<ReportResultDto> GoalStatusReport()
+    {
+        var data = await _db.Set<Goal>().Include(g => g.Employee).ThenInclude(e => e.Department)
+            .Where(g => !g.IsDeleted).OrderBy(g => g.Employee.FirstName).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Goal Title", "Status", "Progress %", "Due Date" };
+        var rows = data.Select(g => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = g.Employee.EmployeeCode, ["Employee Name"] = g.Employee.FullName,
+            ["Department"] = g.Employee.Department?.Name, ["Goal Title"] = g.Title,
+            ["Status"] = g.Status, ["Progress %"] = g.Progress, ["Due Date"] = g.DueDate?.ToString("yyyy-MM-dd"),
+        }).ToList();
+        return Build("Goal Status", cols, rows);
+    }
+
+    private async Task<ReportResultDto> ReviewCompletionReport()
+    {
+        var data = await _db.Set<PerformanceReview>().Include(r => r.Employee).Include(r => r.ReviewCycle).Include(r => r.Reviewer)
+            .Where(r => !r.IsDeleted).OrderByDescending(r => r.CreatedAt).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Review Cycle", "Reviewer", "Rating", "Status" };
+        var rows = data.Select(r => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = r.Employee.EmployeeCode, ["Employee Name"] = r.Employee.FullName,
+            ["Review Cycle"] = r.ReviewCycle?.Name, ["Reviewer"] = r.Reviewer?.FullName,
+            ["Rating"] = r.OverallRating, ["Status"] = r.Status.ToString(),
+        }).ToList();
+        return Build("Review Completion", cols, rows);
+    }
+
+    private async Task<ReportResultDto> RatingDistributionReport()
+    {
+        var data = await _db.Set<PerformanceReview>()
+            .Where(r => !r.IsDeleted && r.OverallRating != null)
+            .GroupBy(r => r.OverallRating!.Value)
+            .Select(g => new { Rating = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Rating).ToListAsync();
+        var cols = new List<string> { "Rating", "Employee Count" };
+        var rows = data.Select(d => new Dictionary<string, object?> { ["Rating"] = d.Rating, ["Employee Count"] = d.Count }).ToList();
+        return Build("Rating Distribution", cols, rows);
+    }
+
+    // ========== ORGANIZATION ==========
+
+    private async Task<ReportResultDto> DepartmentDirectoryReport()
+    {
+        var data = await _db.Departments.Include(d => d.ParentDepartment).Include(d => d.Employees)
+            .OrderBy(d => d.Name).ToListAsync();
+        var cols = new List<string> { "Department", "Code", "Parent Department", "Active Employees" };
+        var rows = data.Select(d => new Dictionary<string, object?>
+        {
+            ["Department"] = d.Name, ["Code"] = d.Code,
+            ["Parent Department"] = d.ParentDepartment?.Name,
+            ["Active Employees"] = d.Employees.Count(e => !e.IsDeleted && e.Status != "Terminated"),
+        }).ToList();
+        return Build("Department Directory", cols, rows);
+    }
+
+    private async Task<ReportResultDto> ReportingStructureReport()
+    {
+        var data = await _db.Set<EmployeeSupervisor>()
+            .Include(s => s.Employee).ThenInclude(e => e.Department)
+            .Include(s => s.Supervisor)
+            .Where(s => !s.IsDeleted).OrderBy(s => s.Employee.FirstName).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Supervisor", "Reporting Method" };
+        var rows = data.Select(s => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = s.Employee.EmployeeCode, ["Employee Name"] = s.Employee.FullName,
+            ["Department"] = s.Employee.Department?.Name,
+            ["Supervisor"] = s.Supervisor.FullName, ["Reporting Method"] = s.ReportingMethod,
+        }).ToList();
+        return Build("Reporting Structure", cols, rows);
+    }
+
+    private async Task<ReportResultDto> PositionVacancyReport()
+    {
+        var data = await _db.Positions.Include(p => p.Department).Include(p => p.JobTitle)
+            .OrderBy(p => p.Title).ToListAsync();
+        var cols = new List<string> { "Position", "Code", "Department", "Job Title", "Vacant" };
+        var rows = data.Select(p => new Dictionary<string, object?>
+        {
+            ["Position"] = p.Title, ["Code"] = p.Code, ["Department"] = p.Department?.Name,
+            ["Job Title"] = p.JobTitle?.Title, ["Vacant"] = p.IsVacant ? "Yes" : "No",
+        }).ToList();
+        return Build("Position & Vacancy", cols, rows);
+    }
+
+    private async Task<ReportResultDto> ShiftRosterReport()
+    {
+        var data = await _db.Set<RosterAssignment>()
+            .Include(r => r.Employee).Include(r => r.RosterTemplate)
+            .Where(r => !r.IsDeleted).OrderBy(r => r.Employee.FirstName).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Roster Template", "Start Date", "End Date" };
+        var rows = data.Select(r => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = r.Employee.EmployeeCode, ["Employee Name"] = r.Employee.FullName,
+            ["Roster Template"] = r.RosterTemplate?.Name, ["Start Date"] = r.EffectiveFrom.ToString("yyyy-MM-dd"),
+            ["End Date"] = r.EffectiveTo?.ToString("yyyy-MM-dd"),
+        }).ToList();
+        return Build("Shift & Roster Assignment", cols, rows);
+    }
+
+    // ========== COMPLIANCE ==========
+
+    private async Task<ReportResultDto> DocumentExpiryReport()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(60);
+        var data = await _db.Set<Immigration>().Include(i => i.Employee)
+            .Where(i => !i.IsDeleted && i.ExpiryDate != null && i.ExpiryDate <= cutoff)
+            .OrderBy(i => i.ExpiryDate).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Document Type", "Number", "Expiry Date", "Status" };
+        var rows = data.Select(i => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = i.Employee.EmployeeCode, ["Employee Name"] = i.Employee.FullName,
+            ["Document Type"] = i.DocumentType, ["Number"] = i.Number,
+            ["Expiry Date"] = i.ExpiryDate?.ToString("yyyy-MM-dd"),
+            ["Status"] = i.ExpiryDate < DateTime.UtcNow ? "EXPIRED" : "Expiring Soon",
+        }).ToList();
+        return Build("Document Expiry Tracker", cols, rows);
+    }
+
+    private async Task<ReportResultDto> ImmigrationStatusReport()
+    {
+        var data = await _db.Set<Immigration>().Include(i => i.Employee)
+            .Where(i => !i.IsDeleted).OrderBy(i => i.Employee.FirstName).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Document Type", "Number", "Issued By", "Issue Date", "Expiry Date", "Eligible Status" };
+        var rows = data.Select(i => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = i.Employee.EmployeeCode, ["Employee Name"] = i.Employee.FullName,
+            ["Document Type"] = i.DocumentType, ["Number"] = i.Number, ["Issued By"] = i.IssuedBy,
+            ["Issue Date"] = i.IssuedDate?.ToString("yyyy-MM-dd"), ["Expiry Date"] = i.ExpiryDate?.ToString("yyyy-MM-dd"),
+            ["Eligible Status"] = i.EligibleStatus,
+        }).ToList();
+        return Build("Immigration / Visa Status", cols, rows);
+    }
+
+    private async Task<ReportResultDto> EmergencyContactsReport()
+    {
+        var data = await _db.Set<EmergencyContact>().Include(c => c.Employee)
+            .Where(c => !c.IsDeleted && c.Employee.Status != "Terminated")
+            .OrderBy(c => c.Employee.FirstName).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Contact Name", "Relationship", "Home Phone", "Mobile", "Work Phone" };
+        var rows = data.Select(c => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = c.Employee.EmployeeCode, ["Employee Name"] = c.Employee.FullName,
+            ["Contact Name"] = c.Name, ["Relationship"] = c.Relationship,
+            ["Home Phone"] = c.HomeTelephone, ["Mobile"] = c.MobileTelephone, ["Work Phone"] = c.WorkTelephone,
+        }).ToList();
+        return Build("Emergency Contacts", cols, rows);
+    }
+
+    private async Task<ReportResultDto> OnboardingStatusReport()
+    {
+        var data = await _db.Set<OnboardingTask>().Include(t => t.Employee).Include(t => t.AssignedToUser)
+            .Where(t => !t.IsDeleted && !t.IsCompleted)
+            .OrderBy(t => t.Employee.FirstName).ThenBy(t => t.Title).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Task", "Category", "Assigned To", "Completed" };
+        var rows = data.Select(t => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = t.Employee.EmployeeCode, ["Employee Name"] = t.Employee.FullName,
+            ["Task"] = t.Title, ["Category"] = t.Category,
+            ["Assigned To"] = t.AssignedToUser?.Username, ["Completed"] = t.IsCompleted ? "Yes" : "No",
+        }).ToList();
+        return Build("Onboarding Status", cols, rows);
+    }
+
+    private async Task<ReportResultDto> OffboardingStatusReport()
+    {
+        var data = await _db.Set<OffboardingTask>().Include(t => t.Employee).Include(t => t.AssignedToUser)
+            .Where(t => !t.IsDeleted && !t.IsCompleted)
+            .OrderBy(t => t.Employee.FirstName).ThenBy(t => t.Title).ToListAsync();
+        var cols = new List<string> { "Employee Code", "Employee Name", "Task", "Category", "Assigned To", "Completed" };
+        var rows = data.Select(t => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = t.Employee.EmployeeCode, ["Employee Name"] = t.Employee.FullName,
+            ["Task"] = t.Title, ["Category"] = t.Category,
+            ["Assigned To"] = t.AssignedToUser?.Username, ["Completed"] = t.IsCompleted ? "Yes" : "No",
+        }).ToList();
+        return Build("Offboarding Status", cols, rows);
+    }
+}

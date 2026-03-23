@@ -14,4 +14,8 @@ public class OnboardingTask : AuditableEntity
 
     public Guid EmployeeId { get; set; }
     public Employee Employee { get; set; } = null!;
+
+    public string AssignmentType { get; set; } = "User";
+    public Guid? AssignedToUserId { get; set; }
+    public User? AssignedToUser { get; set; }
 }

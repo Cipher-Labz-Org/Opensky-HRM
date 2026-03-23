@@ -48,6 +48,8 @@ public class EmployeeDto
     public DateTime? ProbationEndDate { get; set; }
     public DateTime? DateOfPermanency { get; set; }
     public DateTime? TerminationDate { get; set; }
+    public string? TerminationReason { get; set; }
+    public string? TerminationNote { get; set; }
     public string Status { get; set; } = string.Empty;
 
     public Guid DepartmentId { get; set; }
@@ -123,6 +125,9 @@ public class CreateEmployeeDto
     public Guid? ManagerId { get; set; }
 
     public CreateLoginDto? CreateLogin { get; set; }
+
+    public bool WithOnboarding { get; set; }
+    public Guid? OnboardingTemplateId { get; set; }
 }
 
 public class CreateLoginDto
@@ -179,6 +184,8 @@ public class UpdateEmployeeDto
     public DateTime? DateOfPermanency { get; set; }
     public string Status { get; set; } = string.Empty;
     public DateTime? TerminationDate { get; set; }
+    public string? TerminationReason { get; set; }
+    public string? TerminationNote { get; set; }
     public Guid DepartmentId { get; set; }
     public Guid? BusinessUnitId { get; set; }
     public Guid? PositionId { get; set; }

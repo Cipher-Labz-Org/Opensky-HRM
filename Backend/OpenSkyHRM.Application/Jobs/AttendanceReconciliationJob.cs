@@ -28,7 +28,7 @@ public class AttendanceReconciliationJob
             .ToListAsync();
 
         var allActiveEmployees = await _db.Employees
-            .Where(e => e.Status == Domain.Enums.EmploymentStatus.FullTimePermanent || e.Status == Domain.Enums.EmploymentStatus.FullTimeProbation || e.Status == Domain.Enums.EmploymentStatus.FullTimeContract)
+            .Where(e => e.Status != "Terminated")
             .Select(e => e.Id)
             .ToListAsync();
 

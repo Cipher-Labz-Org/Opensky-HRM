@@ -84,6 +84,31 @@ public class OrganizationController : ControllerBase
     public async Task<IActionResult> GetLocations()
         => Ok(await _orgService.GetLocationsAsync());
 
+    [HttpPost("locations")]
+    public async Task<IActionResult> CreateLocation([FromBody] CreateLocationDto dto)
+        => Ok(await _orgService.CreateLocationAsync(dto));
+
+    [HttpPut("locations/{id:guid}")]
+    public async Task<IActionResult> UpdateLocation(Guid id, [FromBody] CreateLocationDto dto)
+    {
+        var updated = await _orgService.UpdateLocationAsync(id, dto);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("locations/{id:guid}")]
+    public async Task<IActionResult> DeleteLocation(Guid id)
+    {
+        try
+        {
+            var deleted = await _orgService.DeleteLocationAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     // --- Grades ---
 
     [HttpGet("grades")]
@@ -137,4 +162,28 @@ public class OrganizationController : ControllerBase
     [HttpGet("positions")]
     public async Task<IActionResult> GetPositions([FromQuery] Guid? departmentId = null)
         => Ok(await _orgService.GetPositionsAsync(departmentId));
+
+    // --- Employment Status Types ---
+
+    [HttpGet("employment-statuses")]
+    public async Task<IActionResult> GetEmploymentStatusTypes()
+        => Ok(await _orgService.GetEmploymentStatusTypesAsync());
+
+    [HttpPost("employment-statuses")]
+    public async Task<IActionResult> CreateEmploymentStatusType([FromBody] CreateEmploymentStatusTypeDto dto)
+        => Ok(await _orgService.CreateEmploymentStatusTypeAsync(dto));
+
+    [HttpPut("employment-statuses/{id:guid}")]
+    public async Task<IActionResult> UpdateEmploymentStatusType(Guid id, [FromBody] CreateEmploymentStatusTypeDto dto)
+    {
+        var updated = await _orgService.UpdateEmploymentStatusTypeAsync(id, dto);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("employment-statuses/{id:guid}")]
+    public async Task<IActionResult> DeleteEmploymentStatusType(Guid id)
+    {
+        var deleted = await _orgService.DeleteEmploymentStatusTypeAsync(id);
+        return deleted ? NoContent() : NotFound();
+    }
 }

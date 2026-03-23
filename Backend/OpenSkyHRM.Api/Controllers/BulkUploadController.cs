@@ -146,12 +146,11 @@ public class BulkUploadController : ControllerBase
                     errors.Add($"Invalid Gender '{genderStr}'");
             }
 
-            EmploymentStatus status = EmploymentStatus.FullTimePermanent;
+            var status = "FullTimePermanent";
             var statusStr = Cell(row, "Employment Status");
             if (!string.IsNullOrEmpty(statusStr))
             {
-                if (!Enum.TryParse(statusStr, true, out status))
-                    errors.Add($"Invalid Employment Status '{statusStr}'");
+                status = statusStr;
             }
 
             var empCode = Cell(row, "Employee Code");

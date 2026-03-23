@@ -26,7 +26,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
       { href: ROUTES.people, label: "People Hub", module: "People" },
       { href: ROUTES.employeeProfile, label: "Employee 360", module: "People" },
       { href: ROUTES.recruitment, label: "Recruitment" },
-      { href: ROUTES.onboarding, label: "Onboarding" },
+      { href: ROUTES.employeeTasks, label: "Employee Tasks" },
     ],
   },
   {
@@ -42,6 +42,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
   {
     title: "Intelligence",
     items: [
+      { href: ROUTES.reports, label: "Reports", module: "Analytics" },
       { href: ROUTES.orgStructure, label: "Org Structure", module: "OrgStructure" },
       { href: ROUTES.analytics, label: "Analytics", module: "Analytics" },
       { href: ROUTES.settings, label: "Policy & Settings", module: "Settings" },

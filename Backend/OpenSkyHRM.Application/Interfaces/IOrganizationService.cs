@@ -19,6 +19,9 @@ public interface IOrganizationService
 
     // Locations
     Task<List<LocationDto>> GetLocationsAsync();
+    Task<LocationDto> CreateLocationAsync(CreateLocationDto dto);
+    Task<LocationDto?> UpdateLocationAsync(Guid id, CreateLocationDto dto);
+    Task<bool> DeleteLocationAsync(Guid id);
 
     // Grades
     Task<List<GradeDto>> GetGradesAsync();
@@ -34,4 +37,10 @@ public interface IOrganizationService
 
     // Positions
     Task<List<PositionDto>> GetPositionsAsync(Guid? departmentId = null);
+
+    // Employment Status Types
+    Task<List<EmploymentStatusTypeDto>> GetEmploymentStatusTypesAsync();
+    Task<EmploymentStatusTypeDto> CreateEmploymentStatusTypeAsync(CreateEmploymentStatusTypeDto dto);
+    Task<EmploymentStatusTypeDto?> UpdateEmploymentStatusTypeAsync(Guid id, CreateEmploymentStatusTypeDto dto);
+    Task<bool> DeleteEmploymentStatusTypeAsync(Guid id);
 }

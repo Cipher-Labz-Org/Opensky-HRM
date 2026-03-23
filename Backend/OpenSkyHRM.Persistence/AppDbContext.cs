@@ -49,8 +49,15 @@ public class AppDbContext : DbContext
     public DbSet<Candidate> Candidates => Set<Candidate>();
     public DbSet<Interview> Interviews => Set<Interview>();
     public DbSet<Offer> Offers => Set<Offer>();
+    public DbSet<InterviewScorecard> InterviewScorecards => Set<InterviewScorecard>();
+    public DbSet<CandidateActivity> CandidateActivities => Set<CandidateActivity>();
     public DbSet<OnboardingTask> OnboardingTasks => Set<OnboardingTask>();
     public DbSet<OnboardingMilestone> OnboardingMilestones => Set<OnboardingMilestone>();
+    public DbSet<OffboardingTask> OffboardingTasks => Set<OffboardingTask>();
+    public DbSet<OffboardingTaskTemplate> OffboardingTaskTemplates => Set<OffboardingTaskTemplate>();
+    public DbSet<EmployeeTaskTemplate> EmployeeTaskTemplates => Set<EmployeeTaskTemplate>();
+    public DbSet<EmployeeTaskTemplateItem> EmployeeTaskTemplateItems => Set<EmployeeTaskTemplateItem>();
+    public DbSet<EmploymentStatusType> EmploymentStatusTypes => Set<EmploymentStatusType>();
 
     // Payroll & Compensation
     public DbSet<CompensationComponent> CompensationComponents => Set<CompensationComponent>();
@@ -63,6 +70,19 @@ public class AppDbContext : DbContext
     public DbSet<Goal> Goals => Set<Goal>();
     public DbSet<ReviewCycle> ReviewCycles => Set<ReviewCycle>();
     public DbSet<PerformanceReview> PerformanceReviews => Set<PerformanceReview>();
+
+    // Appraisal (360-Degree)
+    public DbSet<RatingScale> RatingScales => Set<RatingScale>();
+    public DbSet<RatingScaleItem> RatingScaleItems => Set<RatingScaleItem>();
+    public DbSet<CompetencyCategory> CompetencyCategories => Set<CompetencyCategory>();
+    public DbSet<Competency> Competencies => Set<Competency>();
+    public DbSet<AppraisalTemplate> AppraisalTemplates => Set<AppraisalTemplate>();
+    public DbSet<AppraisalTemplateSection> AppraisalTemplateSections => Set<AppraisalTemplateSection>();
+    public DbSet<AppraisalTemplateSectionItem> AppraisalTemplateSectionItems => Set<AppraisalTemplateSectionItem>();
+    public DbSet<AppraisalCycle> AppraisalCycles => Set<AppraisalCycle>();
+    public DbSet<Appraisal> Appraisals => Set<Appraisal>();
+    public DbSet<AppraisalReviewer> AppraisalReviewers => Set<AppraisalReviewer>();
+    public DbSet<AppraisalResponseItem> AppraisalResponseItems => Set<AppraisalResponseItem>();
     public DbSet<Course> Courses => Set<Course>();
     public DbSet<Certification> Certifications => Set<Certification>();
     public DbSet<EmployeeCertification> EmployeeCertifications => Set<EmployeeCertification>();

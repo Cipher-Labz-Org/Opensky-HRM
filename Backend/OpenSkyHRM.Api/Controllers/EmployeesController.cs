@@ -32,10 +32,11 @@ public class EmployeesController : ControllerBase
         [FromQuery] Guid? jobTitleId = null,
         [FromQuery] Guid? locationId = null,
         [FromQuery] Guid? managerId = null,
-        [FromQuery] string? status = null)
+        [FromQuery] string? status = null,
+        [FromQuery] bool excludeTerminated = false)
     {
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, allowedIds);
+        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, allowedIds, excludeTerminated);
         return Ok(result);
     }
 
@@ -48,7 +49,8 @@ public class EmployeesController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateEmployeeDto dto)
+    public async Task<IActionResult> Create([FromBody] CreateEmployeeDto dto,
+        [FromServices] IEmployeeTaskService employeeTaskService)
     {
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Create");
         if (allowedIds != null && allowedIds.Count == 0)
@@ -78,6 +80,12 @@ public class EmployeesController : ControllerBase
             await _db.SaveChangesAsync();
         }
 
+        if (dto.WithOnboarding && dto.OnboardingTemplateId.HasValue)
+        {
+            await employeeTaskService.CreateTasksFromTemplateAsync(
+                created.Id, dto.OnboardingTemplateId.Value, "Onboarding");
+        }
+
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
@@ -89,6 +97,79 @@ public class EmployeesController : ControllerBase
             return Forbid();
         var updated = await _employeeService.UpdateAsync(id, dto);
         return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpPost("{id:guid}/terminate")]
+    public async Task<IActionResult> Terminate(Guid id, [FromBody] TerminateRequest req,
+        [FromServices] IOffboardingService offboardingService,
+        [FromServices] IEmployeeTaskService employeeTaskService)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+            return Forbid();
+
+        var employee = await _db.Employees.FindAsync(id);
+        if (employee is null) return NotFound();
+
+        employee.Status = "Terminated";
+        employee.TerminationDate = req.TerminationDate;
+        employee.TerminationReason = req.TerminationReason;
+        employee.TerminationNote = req.TerminationNote;
+        await _db.SaveChangesAsync();
+
+        if (req.WithOffboarding && req.TemplateId.HasValue)
+        {
+            await employeeTaskService.CreateTasksFromTemplateAsync(id, req.TemplateId.Value, "Offboarding");
+        }
+        else if (req.WithOffboarding)
+        {
+            await offboardingService.CreateDefaultTasksAsync(id);
+        }
+        else
+        {
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.EmployeeId == id);
+            if (user is not null)
+            {
+                user.IsActive = false;
+                await _db.SaveChangesAsync();
+            }
+        }
+
+        var result = await _employeeService.GetByIdAsync(id);
+        return Ok(result);
+    }
+
+    [HttpPost("{id:guid}/reactivate")]
+    public async Task<IActionResult> Reactivate(Guid id, [FromBody] ReactivateRequest req)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+            return Forbid();
+
+        var employee = await _db.Employees.FindAsync(id);
+        if (employee is null) return NotFound();
+
+        employee.Status = "FullTimePermanent";
+        employee.TerminationDate = null;
+        employee.TerminationReason = null;
+        employee.TerminationNote = null;
+        if (req.UpdateJoinDate && req.JoinDate.HasValue)
+            employee.JoinDate = req.JoinDate.Value;
+
+        // Clean up any remaining offboarding tasks
+        var offTasks = _db.OffboardingTasks.Where(t => t.EmployeeId == id);
+        _db.OffboardingTasks.RemoveRange(offTasks);
+
+        await _db.SaveChangesAsync();
+
+        // Re-activate user account
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.EmployeeId == id);
+        if (user is not null)
+        {
+            user.IsActive = true;
+            await _db.SaveChangesAsync();
+        }
+
+        var result = await _employeeService.GetByIdAsync(id);
+        return Ok(result);
     }
 
     [HttpDelete("{id:guid}")]
@@ -275,4 +356,20 @@ public class AddSubordinateRequest
 {
     public Guid EmployeeId { get; set; }
     public string? ReportingMethod { get; set; }
+}
+
+public class TerminateRequest
+{
+    public DateTime TerminationDate { get; set; }
+    public string TerminationReason { get; set; } = string.Empty;
+    public string? TerminationNote { get; set; }
+    public bool WithOffboarding { get; set; }
+    public Guid? TemplateId { get; set; }
+}
+
+public class ReactivateRequest
+{
+    public bool UpdateJoinDate { get; set; }
+    public DateTime? JoinDate { get; set; }
+    public bool WithOnboarding { get; set; }
 }

@@ -13,6 +13,8 @@ const APP_PATHS = [
   "/employee-profile",
   "/recruitment",
   "/onboarding",
+  "/offboarding",
+  "/employee-tasks",
   "/leave",
   "/attendance",
   "/payroll",
@@ -68,6 +70,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         { href: ROUTES.employeeProfile, label: "Employee 360" },
         { href: ROUTES.recruitment, label: "Recruitment" },
         { href: ROUTES.onboarding, label: "Onboarding" },
+        { href: ROUTES.offboarding, label: "Offboarding" },
       ],
     },
     {

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 
 interface Lookup { id: string; name: string }
+interface LocationLookup { id: string; name: string }
 
 interface Props { open: boolean; onClose: () => void; onCreated?: () => void }
 
@@ -13,6 +14,7 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
   const [employees, setEmployees] = useState<Lookup[]>([]);
+  const [locations, setLocations] = useState<LocationLookup[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,11 +24,13 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
       apiFetch<Lookup[]>("/api/organization/departments"),
       apiFetch<Lookup[]>("/api/organization/job-titles"),
       apiFetch<{ items: { id: string; firstName: string; lastName: string }[] }>("/api/employees?pageSize=200"),
-    ]).then(([d, j, e]) => {
+      apiFetch<LocationLookup[]>("/api/organization/locations"),
+    ]).then(([d, j, e, l]) => {
       setDepartments(d);
       setJobTitles(j);
       setEmployees(e.items.map((x) => ({ id: x.id, name: `${x.firstName} ${x.lastName}` })));
-    });
+      setLocations(l);
+    }).catch(() => {});
   }, [open]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -41,9 +45,16 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
       vacancies: Number(fd.get("vacancies")) || 1,
       targetDate: fd.get("targetDate") || null,
       priority: fd.get("priority") || null,
+      employmentType: fd.get("employmentType") || null,
+      experienceMin: fd.get("experienceMin") ? Number(fd.get("experienceMin")) : null,
+      experienceMax: fd.get("experienceMax") ? Number(fd.get("experienceMax")) : null,
+      salaryMin: fd.get("salaryMin") ? Number(fd.get("salaryMin")) : null,
+      salaryMax: fd.get("salaryMax") ? Number(fd.get("salaryMax")) : null,
+      skills: fd.get("skills") || null,
       departmentId: fd.get("departmentId"),
       jobTitleId: fd.get("jobTitleId") || null,
       hiringManagerId: fd.get("hiringManagerId") || null,
+      locationId: fd.get("locationId") || null,
     };
     try {
       await apiFetch("/api/recruitment/requisitions", { method: "POST", body: JSON.stringify(payload) });
@@ -78,9 +89,27 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
               <option value="Low">Low</option>
             </select>
           </div>
-          <div><label className={labelClass}>Target Date</label><input name="targetDate" type="date" className={inputClass} /></div>
+          <div><label className={labelClass}>Employment Type</label>
+            <select name="employmentType" className={inputClass}>
+              <option value="">Select...</option>
+              <option value="Full-time">Full-time</option>
+              <option value="Part-time">Part-time</option>
+              <option value="Contract">Contract</option>
+              <option value="Internship">Internship</option>
+            </select>
+          </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
+          <div><label className={labelClass}>Target Date</label><input name="targetDate" type="date" className={inputClass} /></div>
+          <div><label className={labelClass}>Exp. Min (years)</label><input name="experienceMin" type="number" min={0} className={inputClass} /></div>
+          <div><label className={labelClass}>Exp. Max (years)</label><input name="experienceMax" type="number" min={0} className={inputClass} /></div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div><label className={labelClass}>Salary Min</label><input name="salaryMin" type="number" min={0} className={inputClass} /></div>
+          <div><label className={labelClass}>Salary Max</label><input name="salaryMax" type="number" min={0} className={inputClass} /></div>
+        </div>
+        <div><label className={labelClass}>Skills (comma-separated)</label><input name="skills" className={inputClass} placeholder="React, TypeScript, C#..." /></div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div><label className={labelClass}>Department *</label>
             <select name="departmentId" required className={inputClass}>
               <option value="">Select...</option>
@@ -97,6 +126,12 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
             <select name="hiringManagerId" className={inputClass}>
               <option value="">Select...</option>
               {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </div>
+          <div><label className={labelClass}>Location</label>
+            <select name="locationId" className={inputClass}>
+              <option value="">Select...</option>
+              {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </div>
         </div>

@@ -58,6 +58,27 @@ public class ShiftService : IShiftService
             LateGraceMinutes = dto.LateGraceMinutes,
             EarlyDepartureGraceMinutes = dto.EarlyDepartureGraceMinutes,
             HalfDayHours = dto.HalfDayHours,
+            AppliesOnMonday = dto.AppliesOnMonday,
+            AppliesOnTuesday = dto.AppliesOnTuesday,
+            AppliesOnWednesday = dto.AppliesOnWednesday,
+            AppliesOnThursday = dto.AppliesOnThursday,
+            AppliesOnFriday = dto.AppliesOnFriday,
+            AppliesOnSaturday = dto.AppliesOnSaturday,
+            AppliesOnSunday = dto.AppliesOnSunday,
+            MondayStartTime = dto.MondayStartTime,
+            MondayEndTime = dto.MondayEndTime,
+            TuesdayStartTime = dto.TuesdayStartTime,
+            TuesdayEndTime = dto.TuesdayEndTime,
+            WednesdayStartTime = dto.WednesdayStartTime,
+            WednesdayEndTime = dto.WednesdayEndTime,
+            ThursdayStartTime = dto.ThursdayStartTime,
+            ThursdayEndTime = dto.ThursdayEndTime,
+            FridayStartTime = dto.FridayStartTime,
+            FridayEndTime = dto.FridayEndTime,
+            SaturdayStartTime = dto.SaturdayStartTime,
+            SaturdayEndTime = dto.SaturdayEndTime,
+            SundayStartTime = dto.SundayStartTime,
+            SundayEndTime = dto.SundayEndTime,
             IsActive = dto.IsActive,
         };
         _db.Set<ShiftPattern>().Add(entity);
@@ -91,6 +112,27 @@ public class ShiftService : IShiftService
         entity.LateGraceMinutes = dto.LateGraceMinutes;
         entity.EarlyDepartureGraceMinutes = dto.EarlyDepartureGraceMinutes;
         entity.HalfDayHours = dto.HalfDayHours;
+        entity.AppliesOnMonday = dto.AppliesOnMonday;
+        entity.AppliesOnTuesday = dto.AppliesOnTuesday;
+        entity.AppliesOnWednesday = dto.AppliesOnWednesday;
+        entity.AppliesOnThursday = dto.AppliesOnThursday;
+        entity.AppliesOnFriday = dto.AppliesOnFriday;
+        entity.AppliesOnSaturday = dto.AppliesOnSaturday;
+        entity.AppliesOnSunday = dto.AppliesOnSunday;
+        entity.MondayStartTime = dto.MondayStartTime;
+        entity.MondayEndTime = dto.MondayEndTime;
+        entity.TuesdayStartTime = dto.TuesdayStartTime;
+        entity.TuesdayEndTime = dto.TuesdayEndTime;
+        entity.WednesdayStartTime = dto.WednesdayStartTime;
+        entity.WednesdayEndTime = dto.WednesdayEndTime;
+        entity.ThursdayStartTime = dto.ThursdayStartTime;
+        entity.ThursdayEndTime = dto.ThursdayEndTime;
+        entity.FridayStartTime = dto.FridayStartTime;
+        entity.FridayEndTime = dto.FridayEndTime;
+        entity.SaturdayStartTime = dto.SaturdayStartTime;
+        entity.SaturdayEndTime = dto.SaturdayEndTime;
+        entity.SundayStartTime = dto.SundayStartTime;
+        entity.SundayEndTime = dto.SundayEndTime;
         entity.IsActive = dto.IsActive;
         await _db.SaveChangesAsync();
 
@@ -129,6 +171,27 @@ public class ShiftService : IShiftService
         LateGraceMinutes = s.LateGraceMinutes,
         EarlyDepartureGraceMinutes = s.EarlyDepartureGraceMinutes,
         HalfDayHours = s.HalfDayHours,
+        AppliesOnMonday = s.AppliesOnMonday,
+        AppliesOnTuesday = s.AppliesOnTuesday,
+        AppliesOnWednesday = s.AppliesOnWednesday,
+        AppliesOnThursday = s.AppliesOnThursday,
+        AppliesOnFriday = s.AppliesOnFriday,
+        AppliesOnSaturday = s.AppliesOnSaturday,
+        AppliesOnSunday = s.AppliesOnSunday,
+        MondayStartTime = s.MondayStartTime,
+        MondayEndTime = s.MondayEndTime,
+        TuesdayStartTime = s.TuesdayStartTime,
+        TuesdayEndTime = s.TuesdayEndTime,
+        WednesdayStartTime = s.WednesdayStartTime,
+        WednesdayEndTime = s.WednesdayEndTime,
+        ThursdayStartTime = s.ThursdayStartTime,
+        ThursdayEndTime = s.ThursdayEndTime,
+        FridayStartTime = s.FridayStartTime,
+        FridayEndTime = s.FridayEndTime,
+        SaturdayStartTime = s.SaturdayStartTime,
+        SaturdayEndTime = s.SaturdayEndTime,
+        SundayStartTime = s.SundayStartTime,
+        SundayEndTime = s.SundayEndTime,
         IsActive = s.IsActive,
     };
 }

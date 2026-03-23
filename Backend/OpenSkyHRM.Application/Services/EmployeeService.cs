@@ -21,21 +21,23 @@ public class EmployeeService : IEmployeeService
         _entitlementService = entitlementService;
     }
 
-    private async Task<Dictionary<Guid, bool>> GetDirectSupervisorMapAsync(IEnumerable<Guid> employeeIds)
+    private async Task<Dictionary<Guid, string>> GetDirectSupervisorMapAsync(IEnumerable<Guid> employeeIds)
     {
-        var idsWithSupervisor = await _db.Set<EmployeeSupervisor>()
+        var supervisors = await _db.Set<EmployeeSupervisor>()
+            .Include(s => s.Supervisor)
             .Where(s => !s.IsDeleted && s.ReportingMethod == "Direct" && employeeIds.Contains(s.EmployeeId))
-            .Select(s => s.EmployeeId)
-            .Distinct()
+            .Select(s => new { s.EmployeeId, SupervisorName = s.Supervisor.FirstName + " " + s.Supervisor.LastName })
             .ToListAsync();
-        return idsWithSupervisor.ToDictionary(id => id, _ => true);
+        return supervisors
+            .GroupBy(s => s.EmployeeId)
+            .ToDictionary(g => g.Key, g => g.First().SupervisorName);
     }
 
     public async Task<PagedResult<EmployeeDto>> GetAllAsync(
         int page = 1, int pageSize = 20, string? search = null,
         Guid? departmentId = null, Guid? jobTitleId = null,
         Guid? locationId = null, Guid? managerId = null, string? status = null,
-        IReadOnlyList<Guid>? allowedEmployeeIds = null)
+        IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = false)
     {
         var query = _db.Employees
             .Include(e => e.Department)
@@ -70,25 +72,33 @@ public class EmployeeService : IEmployeeService
         if (managerId.HasValue)
             query = query.Where(e => e.ManagerId == managerId.Value);
 
-        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<EmploymentStatus>(status, true, out var st))
-            query = query.Where(e => e.Status == st);
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(e => e.Status == status);
+
+        if (excludeTerminated && string.IsNullOrWhiteSpace(status))
+            query = query.Where(e => e.Status != "Terminated");
 
         if (allowedEmployeeIds != null && allowedEmployeeIds.Count > 0)
             query = query.Where(e => allowedEmployeeIds.Contains(e.Id));
 
         var totalCount = await query.CountAsync();
 
-        var items = await query
+        var entities = await query
             .OrderBy(e => e.FirstName)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(e => MapToDto(e))
             .ToListAsync();
+
+        var items = entities.Select(e => MapToDto(e)).ToList();
 
         var empIds = items.Select(i => i.Id).ToList();
         var supMap = await GetDirectSupervisorMapAsync(empIds);
         foreach (var item in items)
+        {
             item.HasDirectSupervisor = supMap.ContainsKey(item.Id);
+            if (supMap.TryGetValue(item.Id, out var supName))
+                item.ManagerName = supName;
+        }
 
         return new PagedResult<EmployeeDto>
         {
@@ -118,6 +128,8 @@ public class EmployeeService : IEmployeeService
         var dto = MapToDto(employee);
         var supMap = await GetDirectSupervisorMapAsync(new[] { employee.Id });
         dto.HasDirectSupervisor = supMap.ContainsKey(employee.Id);
+        if (supMap.TryGetValue(employee.Id, out var supName))
+            dto.ManagerName = supName;
         return dto;
     }
 
@@ -172,7 +184,7 @@ public class EmployeeService : IEmployeeService
             JoinDate = dto.JoinDate,
             ProbationEndDate = dto.ProbationEndDate,
             DateOfPermanency = dto.DateOfPermanency,
-            Status = EmploymentStatus.FullTimePermanent,
+            Status = "FullTimePermanent",
             DepartmentId = dto.DepartmentId,
             BusinessUnitId = dto.BusinessUnitId,
             PositionId = dto.PositionId,
@@ -237,8 +249,10 @@ public class EmployeeService : IEmployeeService
         if (dto.JoinDate.HasValue) employee.JoinDate = dto.JoinDate.Value;
         employee.ProbationEndDate = dto.ProbationEndDate;
         employee.DateOfPermanency = dto.DateOfPermanency;
-        employee.Status = Enum.Parse<EmploymentStatus>(dto.Status, true);
+        employee.Status = dto.Status;
         employee.TerminationDate = dto.TerminationDate;
+        employee.TerminationReason = dto.TerminationReason;
+        employee.TerminationNote = dto.TerminationNote;
         employee.DepartmentId = dto.DepartmentId;
         employee.BusinessUnitId = dto.BusinessUnitId;
         employee.PositionId = dto.PositionId;
@@ -327,6 +341,8 @@ public class EmployeeService : IEmployeeService
         ProbationEndDate = e.ProbationEndDate,
         DateOfPermanency = e.DateOfPermanency,
         TerminationDate = e.TerminationDate,
+        TerminationReason = e.TerminationReason,
+        TerminationNote = e.TerminationNote,
         Status = e.Status.ToString(),
         DepartmentId = e.DepartmentId,
         DepartmentName = e.Department?.Name,

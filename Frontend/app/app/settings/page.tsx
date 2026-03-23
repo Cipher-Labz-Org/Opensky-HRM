@@ -14,6 +14,8 @@ interface CountSummary {
   businessUnits: number;
   grades: number;
   jobTitles: number;
+  locations: number;
+  statuses: number;
 }
 
 interface LetterTemplate {
@@ -31,7 +33,9 @@ export default function SettingsPage() {
   const [editGrades, setEditGrades] = useState(false);
   const [editJobs, setEditJobs] = useState(false);
   const [editDocs, setEditDocs] = useState(false);
-  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0 });
+  const [editLocations, setEditLocations] = useState(false);
+  const [editStatuses, setEditStatuses] = useState(false);
+  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0 });
 
   const [codeAutoGen, setCodeAutoGen] = useState(true);
   const [codeLength, setCodeLength] = useState("6");
@@ -64,10 +68,12 @@ export default function SettingsPage() {
       apiFetch<{ id: string }[]>("/api/organization/business-units").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/organization/grades").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/organization/job-titles").then((r) => r.length).catch(() => 0),
-    ]).then(([businessUnits, grades, jobTitles]) =>
-      setCounts({ businessUnits, grades, jobTitles })
+      apiFetch<{ id: string }[]>("/api/organization/locations").then((r) => r.length).catch(() => 0),
+      apiFetch<{ id: string }[]>("/api/organization/employment-statuses").then((r) => r.length).catch(() => 0),
+    ]).then(([businessUnits, grades, jobTitles, locations, statuses]) =>
+      setCounts({ businessUnits, grades, jobTitles, locations, statuses })
     );
-  }, [editBU, editGrades, editJobs]);
+  }, [editBU, editGrades, editJobs, editLocations, editStatuses]);
 
   useEffect(() => {
     apiFetch<Record<string, string>>("/api/system-settings")
@@ -264,6 +270,61 @@ export default function SettingsPage() {
         ]}
       />
 
+      <MasterDataEditorModal
+        open={editLocations}
+        onClose={() => setEditLocations(false)}
+        title="Locations"
+        apiBase="/api/organization/locations"
+        fields={[
+          { key: "name", label: "Name", placeholder: "Head Office" },
+          { key: "code", label: "Code", placeholder: "LOC-HO" },
+          { key: "address", label: "Address", required: false, placeholder: "123 Main Street" },
+          { key: "city", label: "City", required: false, placeholder: "Colombo" },
+          { key: "country", label: "Country", required: false, placeholder: "Sri Lanka" },
+        ]}
+        toForm={(item) => ({
+          name: item.name,
+          code: item.code,
+          address: (item.address as string) ?? "",
+          city: (item.city as string) ?? "",
+          country: (item.country as string) ?? "",
+        })}
+        toPayload={(fd) => ({
+          name: fd.get("name"),
+          code: fd.get("code"),
+          address: fd.get("address") || null,
+          city: fd.get("city") || null,
+          country: fd.get("country") || null,
+          isActive: true,
+        })}
+      />
+
+      <MasterDataEditorModal
+        open={editStatuses}
+        onClose={() => setEditStatuses(false)}
+        title="Employment Statuses"
+        apiBase="/api/organization/employment-statuses"
+        fields={[
+          { key: "name", label: "Name", placeholder: "Full Time Permanent" },
+          { key: "code", label: "Code", placeholder: "FullTimePermanent" },
+          { key: "description", label: "Description", type: "textarea", required: false, placeholder: "Optional description" },
+          { key: "sortOrder", label: "Sort Order", type: "number", required: false, placeholder: "0" },
+        ]}
+        toForm={(item) => ({
+          name: item.name,
+          code: item.code,
+          description: (item.description as string) ?? "",
+          sortOrder: String(item.sortOrder ?? 0),
+        })}
+        toPayload={(fd) => ({
+          name: fd.get("name"),
+          code: fd.get("code"),
+          description: fd.get("description") || null,
+          isActive: true,
+          sortOrder: parseInt(String(fd.get("sortOrder") || "0"), 10),
+        })}
+      />
+
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="hris-card">
           <div className="section-title">
@@ -358,6 +419,20 @@ export default function SettingsPage() {
                 <div className="text-xs text-[var(--text-muted)]">NDA, contract, visa, NIC</div>
               </div>
               <button onClick={() => setEditDocs(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
+            </div>
+            <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
+              <div>
+                <strong className="text-sm font-semibold text-[var(--text)]">Locations</strong>
+                <div className="text-xs text-[var(--text-muted)]">{counts.locations} location{counts.locations !== 1 ? "s" : ""} configured</div>
+              </div>
+              <button onClick={() => setEditLocations(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
+            </div>
+            <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
+              <div>
+                <strong className="text-sm font-semibold text-[var(--text)]">Employment Statuses</strong>
+                <div className="text-xs text-[var(--text-muted)]">{counts.statuses} status{counts.statuses !== 1 ? "es" : ""} configured</div>
+              </div>
+              <button onClick={() => setEditStatuses(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
             </div>
           </div>
         </div>

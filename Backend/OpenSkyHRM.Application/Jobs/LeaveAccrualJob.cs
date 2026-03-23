@@ -70,9 +70,7 @@ public class LeaveAccrualJob
             .Where(e => !e.IsDeleted
                 && e.JoinDate <= lastDayOfPrevMonth
                 && (e.TerminationDate == null || e.TerminationDate > lastDayOfPrevMonth)
-                && (e.Status == EmploymentStatus.FullTimePermanent
-                    || e.Status == EmploymentStatus.FullTimeProbation
-                    || e.Status == EmploymentStatus.FullTimeContract))
+                && e.Status != "Terminated")
             .Select(e => new { e.Id, e.JoinDate, e.Gender, e.DateOfPermanency })
             .ToListAsync();
 

@@ -1101,11 +1101,18 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<DateTime?>("TerminationDate")
                         .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("TerminationNote")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TerminationReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("TinNumber")
                         .HasMaxLength(50)
@@ -1150,6 +1157,52 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.HasIndex("ShiftPatternId");
 
                     b.ToTable("Employees", (string)null);
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmploymentStatusType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("EmploymentStatusTypes", (string)null);
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeAttachment", b =>
@@ -2397,11 +2450,239 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.ToTable("OnboardingMilestones");
                 });
 
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeTaskTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("EmployeeTaskTemplates");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeTaskTemplateItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AssignedToUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AssignmentType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedToUserId");
+
+                    b.HasIndex("TemplateId");
+
+                    b.ToTable("EmployeeTaskTemplateItems");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.OffboardingTask", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AssignedToUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AssignmentType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("DueDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsCompleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedToUserId");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.ToTable("OffboardingTasks");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.OffboardingTaskTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AssignedToUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AssignmentType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedToUserId");
+
+                    b.ToTable("OffboardingTaskTemplates");
+                });
+
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.OnboardingTask", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AssignedToUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AssignmentType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("Category")
                         .IsRequired()
@@ -2445,6 +2726,8 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AssignedToUserId");
 
                     b.HasIndex("EmployeeId");
 
@@ -3156,6 +3439,69 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<int>("LateGraceMinutes")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("AppliesOnFriday")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AppliesOnMonday")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AppliesOnSaturday")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AppliesOnSunday")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AppliesOnThursday")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AppliesOnTuesday")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AppliesOnWednesday")
+                        .HasColumnType("boolean");
+
+                    b.Property<TimeSpan?>("FridayEndTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("FridayStartTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("MondayEndTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("MondayStartTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("SaturdayEndTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("SaturdayStartTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("SundayEndTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("SundayStartTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("ThursdayEndTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("ThursdayStartTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("TuesdayEndTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("TuesdayStartTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("WednesdayEndTime")
+                        .HasColumnType("interval");
+
+                    b.Property<TimeSpan?>("WednesdayStartTime")
+                        .HasColumnType("interval");
 
                     b.Property<decimal?>("MinimumWorkHours")
                         .HasColumnType("numeric");
@@ -3910,13 +4256,62 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Navigation("Employee");
                 });
 
-            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.OnboardingTask", b =>
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.OffboardingTask", b =>
                 {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.User", "AssignedToUser")
+                        .WithMany()
+                        .HasForeignKey("AssignedToUserId");
+
                     b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "Employee")
                         .WithMany()
                         .HasForeignKey("EmployeeId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("AssignedToUser");
+
+                    b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.OffboardingTaskTemplate", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.User", "AssignedToUser")
+                        .WithMany()
+                        .HasForeignKey("AssignedToUserId");
+
+                    b.Navigation("AssignedToUser");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeTaskTemplateItem", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.User", "AssignedToUser")
+                        .WithMany()
+                        .HasForeignKey("AssignedToUserId");
+
+                    b.HasOne("OpenSkyHRM.Domain.Entities.EmployeeTaskTemplate", "Template")
+                        .WithMany("Items")
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AssignedToUser");
+
+                    b.Navigation("Template");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.OnboardingTask", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.User", "AssignedToUser")
+                        .WithMany()
+                        .HasForeignKey("AssignedToUserId");
+
+                    b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AssignedToUser");
 
                     b.Navigation("Employee");
                 });
