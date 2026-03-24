@@ -2,11 +2,13 @@ using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Analytics")]
 [Route("api/[controller]")]
 public class ReportsController : ControllerBase
 {

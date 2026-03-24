@@ -19,6 +19,8 @@ interface UserProfile {
   profileImageUrl: string | null;
   roles: string[];
   permissions: PermissionInfo[];
+  /** Instance entitlements from the API (empty/omitted treated as unrestricted for older clients). */
+  licensedModules?: string[];
 }
 
 interface AuthContextType {
@@ -28,6 +30,8 @@ interface AuthContextType {
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Reload /api/auth/me (e.g. after licensing changes). */
+  refreshProfile: () => Promise<void>;
   hasPermission: (module: string, action: string) => boolean;
   getPeopleReadScope: () => "Own" | "Team" | "All" | null;
   getLeaveReadScope: () => "Own" | "Team" | "All" | null;
@@ -42,6 +46,7 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   login: async () => {},
   logout: () => {},
+  refreshProfile: async () => {},
   hasPermission: () => false,
   getPeopleReadScope: () => null,
   getLeaveReadScope: () => null,
@@ -90,19 +95,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, [fetchProfile, clearAuth]);
 
-  const login = async (username: string, password: string) => {
-    const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
+  const refreshProfile = useCallback(async () => {
+    const t = token ?? localStorage.getItem("auth_token");
+    if (!t) return;
+    const profile = await fetchProfile(t);
+    if (profile) setUser(profile);
+  }, [fetchProfile, token]);
 
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({ message: "Login failed" }));
-      throw new Error(data.message || "Invalid credentials");
+  const login = async (username: string, password: string) => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+    } catch {
+      throw new Error(
+        `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+      );
     }
 
-    const data = await res.json();
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = "Login failed";
+      if (/42P01|relation ["']?Instanc/i.test(text)) {
+        msg =
+          "Database is missing licensing tables. From the Backend folder run: dotnet ef database update --project OpenSkyHRM.Persistence --startup-project OpenSkyHRM.Api, then restart the API.";
+      } else {
+        try {
+          const errBody = JSON.parse(text) as { message?: string; detail?: string; title?: string };
+          msg = errBody.message || errBody.title || msg;
+          const detail = errBody.detail;
+          if (
+            msg === "Login failed" &&
+            detail &&
+            detail.length < 200 &&
+            !/Npgsql\.| at |\n|Exception \(0x/i.test(detail)
+          ) {
+            msg = detail;
+          }
+        } catch {
+          if (text.trim()) msg = text.trim().slice(0, 200);
+        }
+      }
+      throw new Error(msg || "Invalid credentials");
+    }
+
+    let data: { token: string; user: UserProfile };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("Invalid response from server.");
+    }
     localStorage.setItem("auth_token", data.token);
     document.cookie = `auth_token=${data.token}; path=/; max-age=${8 * 60 * 60}; samesite=lax`;
     setToken(data.token);
@@ -157,6 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         login,
         logout,
+        refreshProfile,
         hasPermission,
         getPeopleReadScope,
         getLeaveReadScope,

@@ -5,12 +5,14 @@ using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Leave")]
 [Route("api/leave")]
 public class LeaveController : ControllerBase
 {

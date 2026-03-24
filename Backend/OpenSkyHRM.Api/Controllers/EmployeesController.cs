@@ -5,12 +5,14 @@ using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Api.Services;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("People")]
 [Route("api/[controller]")]
 public class EmployeesController : ControllerBase
 {
@@ -33,10 +35,11 @@ public class EmployeesController : ControllerBase
         [FromQuery] Guid? locationId = null,
         [FromQuery] Guid? managerId = null,
         [FromQuery] string? status = null,
+        [FromQuery] string? employmentType = null,
         [FromQuery] bool excludeTerminated = false)
     {
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, allowedIds, excludeTerminated);
+        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, employmentType, allowedIds, excludeTerminated);
         return Ok(result);
     }
 
@@ -147,7 +150,8 @@ public class EmployeesController : ControllerBase
         var employee = await _db.Employees.FindAsync(id);
         if (employee is null) return NotFound();
 
-        employee.Status = "FullTimePermanent";
+        employee.Status = "Active";
+        employee.EmploymentType = "FullTimePermanent";
         employee.TerminationDate = null;
         employee.TerminationReason = null;
         employee.TerminationNote = null;

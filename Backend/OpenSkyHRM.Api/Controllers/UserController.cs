@@ -2,10 +2,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.DTOs.Auth;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [ApiController]
+[RequireLicensedModule("Administration")]
 [Route("api/[controller]")]
 [Authorize(Roles = "ADMIN,HR_MANAGER")]
 public class UserController : ControllerBase

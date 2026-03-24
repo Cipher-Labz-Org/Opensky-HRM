@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal";
 import { apiFetch } from "@/lib/api";
+import { API_BASE_URL } from "@/config/constants";
 
 import { Modal } from "@/components/ui/Modal";
 
@@ -16,6 +17,7 @@ interface CountSummary {
   jobTitles: number;
   locations: number;
   statuses: number;
+  empStatuses: number;
 }
 
 interface LetterTemplate {
@@ -35,7 +37,8 @@ export default function SettingsPage() {
   const [editDocs, setEditDocs] = useState(false);
   const [editLocations, setEditLocations] = useState(false);
   const [editStatuses, setEditStatuses] = useState(false);
-  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0 });
+  const [editEmpStatuses, setEditEmpStatuses] = useState(false);
+  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0, empStatuses: 0 });
 
   const [codeAutoGen, setCodeAutoGen] = useState(true);
   const [codeLength, setCodeLength] = useState("6");
@@ -55,6 +58,25 @@ export default function SettingsPage() {
   const [approvalLevels, setApprovalLevels] = useState(1);
   const [approvalConfigSaving, setApprovalConfigSaving] = useState(false);
 
+  const [companyLogoUrl, setCompanyLogoUrl] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoMsg, setLogoMsg] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const [companyName, setCompanyName] = useState("");
+  const [companyAddress1, setCompanyAddress1] = useState("");
+  const [companyAddress2, setCompanyAddress2] = useState("");
+  const [companyCity, setCompanyCity] = useState("");
+  const [companyState, setCompanyState] = useState("");
+  const [companyCountry, setCompanyCountry] = useState("");
+  const [companyPostalCode, setCompanyPostalCode] = useState("");
+  const [companyPhone, setCompanyPhone] = useState("");
+  const [companyEmail, setCompanyEmail] = useState("");
+  const [companyWebsite, setCompanyWebsite] = useState("");
+  const [companyRegNo, setCompanyRegNo] = useState("");
+  const [companySaving, setCompanySaving] = useState(false);
+  const [companyMsg, setCompanyMsg] = useState("");
+
   useEffect(() => {
     const edit = searchParams.get("edit");
     if (edit === "business-units") setEditBU(true);
@@ -70,10 +92,11 @@ export default function SettingsPage() {
       apiFetch<{ id: string }[]>("/api/organization/job-titles").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/organization/locations").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/organization/employment-statuses").then((r) => r.length).catch(() => 0),
-    ]).then(([businessUnits, grades, jobTitles, locations, statuses]) =>
-      setCounts({ businessUnits, grades, jobTitles, locations, statuses })
+      apiFetch<{ id: string }[]>("/api/organization/employee-statuses").then((r) => r.length).catch(() => 0),
+    ]).then(([businessUnits, grades, jobTitles, locations, statuses, empStatuses]) =>
+      setCounts({ businessUnits, grades, jobTitles, locations, statuses, empStatuses })
     );
-  }, [editBU, editGrades, editJobs, editLocations, editStatuses]);
+  }, [editBU, editGrades, editJobs, editLocations, editStatuses, editEmpStatuses]);
 
   useEffect(() => {
     apiFetch<Record<string, string>>("/api/system-settings")
@@ -81,9 +104,85 @@ export default function SettingsPage() {
         if (settings.EmployeeCodeAutoGenerate) setCodeAutoGen(settings.EmployeeCodeAutoGenerate !== "false");
         if (settings.EmployeeCodeLength) setCodeLength(settings.EmployeeCodeLength);
         if (settings.EmployeeCodePrefix) setCodePrefix(settings.EmployeeCodePrefix);
+        if (settings.CompanyLogoUrl) setCompanyLogoUrl(settings.CompanyLogoUrl);
+        if (settings.CompanyName) setCompanyName(settings.CompanyName);
+        if (settings.CompanyAddress1) setCompanyAddress1(settings.CompanyAddress1);
+        if (settings.CompanyAddress2) setCompanyAddress2(settings.CompanyAddress2);
+        if (settings.CompanyCity) setCompanyCity(settings.CompanyCity);
+        if (settings.CompanyState) setCompanyState(settings.CompanyState);
+        if (settings.CompanyCountry) setCompanyCountry(settings.CompanyCountry);
+        if (settings.CompanyPostalCode) setCompanyPostalCode(settings.CompanyPostalCode);
+        if (settings.CompanyPhone) setCompanyPhone(settings.CompanyPhone);
+        if (settings.CompanyEmail) setCompanyEmail(settings.CompanyEmail);
+        if (settings.CompanyWebsite) setCompanyWebsite(settings.CompanyWebsite);
+        if (settings.CompanyRegNo) setCompanyRegNo(settings.CompanyRegNo);
       })
       .catch(() => {});
   }, []);
+
+  async function handleLogoUpload(file: File) {
+    setLogoUploading(true);
+    setLogoMsg("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+      const res = await fetch(`${API_BASE_URL}/api/system-settings/company-logo`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Upload failed" }));
+        throw new Error(err.error || "Upload failed");
+      }
+      const data = await res.json();
+      setCompanyLogoUrl(data.logoUrl);
+      setLogoMsg("Logo uploaded successfully");
+      setTimeout(() => setLogoMsg(""), 3000);
+    } catch (e: unknown) {
+      setLogoMsg(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
+  async function handleLogoRemove() {
+    try {
+      await apiFetch("/api/system-settings/company-logo", { method: "DELETE" });
+      setCompanyLogoUrl("");
+      setLogoMsg("Logo removed");
+      setTimeout(() => setLogoMsg(""), 3000);
+    } catch {
+      setLogoMsg("Failed to remove logo");
+    }
+  }
+
+  async function saveCompanyDetails() {
+    setCompanySaving(true);
+    setCompanyMsg("");
+    try {
+      await Promise.all([
+        apiFetch("/api/system-settings/CompanyName", { method: "PUT", body: JSON.stringify({ value: companyName }) }),
+        apiFetch("/api/system-settings/CompanyAddress1", { method: "PUT", body: JSON.stringify({ value: companyAddress1 }) }),
+        apiFetch("/api/system-settings/CompanyAddress2", { method: "PUT", body: JSON.stringify({ value: companyAddress2 }) }),
+        apiFetch("/api/system-settings/CompanyCity", { method: "PUT", body: JSON.stringify({ value: companyCity }) }),
+        apiFetch("/api/system-settings/CompanyState", { method: "PUT", body: JSON.stringify({ value: companyState }) }),
+        apiFetch("/api/system-settings/CompanyCountry", { method: "PUT", body: JSON.stringify({ value: companyCountry }) }),
+        apiFetch("/api/system-settings/CompanyPostalCode", { method: "PUT", body: JSON.stringify({ value: companyPostalCode }) }),
+        apiFetch("/api/system-settings/CompanyPhone", { method: "PUT", body: JSON.stringify({ value: companyPhone }) }),
+        apiFetch("/api/system-settings/CompanyEmail", { method: "PUT", body: JSON.stringify({ value: companyEmail }) }),
+        apiFetch("/api/system-settings/CompanyWebsite", { method: "PUT", body: JSON.stringify({ value: companyWebsite }) }),
+        apiFetch("/api/system-settings/CompanyRegNo", { method: "PUT", body: JSON.stringify({ value: companyRegNo }) }),
+      ]);
+      setCompanyMsg("Company details saved successfully");
+      setTimeout(() => setCompanyMsg(""), 3000);
+    } catch {
+      setCompanyMsg("Failed to save company details");
+    } finally {
+      setCompanySaving(false);
+    }
+  }
 
   useEffect(() => {
     const len = parseInt(codeLength, 10) || 6;
@@ -218,6 +317,154 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Company Logo */}
+      <div className="hris-card mb-6">
+        <div className="section-title">
+          <h3>Company Logo</h3>
+          <span>Upload your company logo to display in the sidebar navigation</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-6 px-1 py-3">
+          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-slate-200 bg-slate-50">
+            {companyLogoUrl ? (
+              <img
+                src={`${API_BASE_URL}${companyLogoUrl}`}
+                alt="Company Logo"
+                className="h-full w-full object-contain p-1"
+              />
+            ) : (
+              <svg className="h-8 w-8 text-slate-300" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+              </svg>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                className="hidden"
+                onChange={(e) => { if (e.target.files?.[0]) handleLogoUpload(e.target.files[0]); }}
+              />
+              <button
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoUploading}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-[#2B7DE9] hover:text-[#2B7DE9]"
+              >
+                {logoUploading ? "Uploading..." : companyLogoUrl ? "Change Logo" : "Upload Logo"}
+              </button>
+              {companyLogoUrl && (
+                <button
+                  onClick={handleLogoRemove}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-red-500 shadow-sm transition hover:border-red-300 hover:bg-red-50"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-slate-400">PNG, JPG, SVG or WebP. Max 5 MB. Recommended: 200×200px or larger.</p>
+            {logoMsg && (
+              <p className={`text-xs font-medium ${logoMsg.includes("success") || logoMsg.includes("removed") ? "text-green-600" : "text-red-500"}`}>
+                {logoMsg}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Company Details */}
+      <div className="hris-card mb-6">
+        <div className="section-title">
+          <h3>Company Details</h3>
+          <span>Set up your organization name, address, and contact information</span>
+        </div>
+        <div className="space-y-4 px-1 py-3">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Company Name *</label>
+              <input value={companyName} onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                placeholder="e.g. OpenSky Solutions (Pvt) Ltd" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Registration No.</label>
+              <input value={companyRegNo} onChange={(e) => setCompanyRegNo(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                placeholder="e.g. PV 12345" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Address Line 1</label>
+            <input value={companyAddress1} onChange={(e) => setCompanyAddress1(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              placeholder="Street address" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Address Line 2</label>
+            <input value={companyAddress2} onChange={(e) => setCompanyAddress2(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              placeholder="Suite, building, floor (optional)" />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">City</label>
+              <input value={companyCity} onChange={(e) => setCompanyCity(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                placeholder="Colombo" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">State / Province</label>
+              <input value={companyState} onChange={(e) => setCompanyState(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                placeholder="Western Province" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Postal Code</label>
+              <input value={companyPostalCode} onChange={(e) => setCompanyPostalCode(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                placeholder="00100" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Country</label>
+            <input value={companyCountry} onChange={(e) => setCompanyCountry(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              placeholder="Sri Lanka" />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Phone</label>
+              <input value={companyPhone} onChange={(e) => setCompanyPhone(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                placeholder="+94 11 234 5678" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Email</label>
+              <input value={companyEmail} onChange={(e) => setCompanyEmail(e.target.value)} type="email"
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                placeholder="info@company.com" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Website</label>
+              <input value={companyWebsite} onChange={(e) => setCompanyWebsite(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                placeholder="https://www.company.com" />
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-1">
+            {companyMsg && (
+              <span className={`text-xs font-medium ${companyMsg.includes("success") ? "text-green-600" : "text-red-500"}`}>
+                {companyMsg}
+              </span>
+            )}
+            <button onClick={saveCompanyDetails} disabled={companySaving}
+              className="rounded-lg bg-[var(--primary)] px-5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50">
+              {companySaving ? "Saving..." : "Save Company Details"}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Master Data Editors */}
       <MasterDataEditorModal
         open={editBU}
@@ -307,6 +554,32 @@ export default function SettingsPage() {
         fields={[
           { key: "name", label: "Name", placeholder: "Full Time Permanent" },
           { key: "code", label: "Code", placeholder: "FullTimePermanent" },
+          { key: "description", label: "Description", type: "textarea", required: false, placeholder: "Optional description" },
+          { key: "sortOrder", label: "Sort Order", type: "number", required: false, placeholder: "0" },
+        ]}
+        toForm={(item) => ({
+          name: item.name,
+          code: item.code,
+          description: (item.description as string) ?? "",
+          sortOrder: String(item.sortOrder ?? 0),
+        })}
+        toPayload={(fd) => ({
+          name: fd.get("name"),
+          code: fd.get("code"),
+          description: fd.get("description") || null,
+          isActive: true,
+          sortOrder: parseInt(String(fd.get("sortOrder") || "0"), 10),
+        })}
+      />
+
+      <MasterDataEditorModal
+        open={editEmpStatuses}
+        onClose={() => setEditEmpStatuses(false)}
+        title="Employee Statuses"
+        apiBase="/api/organization/employee-statuses"
+        fields={[
+          { key: "name", label: "Name", placeholder: "Active" },
+          { key: "code", label: "Code", placeholder: "Active" },
           { key: "description", label: "Description", type: "textarea", required: false, placeholder: "Optional description" },
           { key: "sortOrder", label: "Sort Order", type: "number", required: false, placeholder: "0" },
         ]}
@@ -429,10 +702,17 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
               <div>
-                <strong className="text-sm font-semibold text-[var(--text)]">Employment Statuses</strong>
-                <div className="text-xs text-[var(--text-muted)]">{counts.statuses} status{counts.statuses !== 1 ? "es" : ""} configured</div>
+                <strong className="text-sm font-semibold text-[var(--text)]">Employment Types</strong>
+                <div className="text-xs text-[var(--text-muted)]">{counts.statuses} type{counts.statuses !== 1 ? "s" : ""} configured</div>
               </div>
               <button onClick={() => setEditStatuses(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
+            </div>
+            <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
+              <div>
+                <strong className="text-sm font-semibold text-[var(--text)]">Employee Statuses</strong>
+                <div className="text-xs text-[var(--text-muted)]">{counts.empStatuses} status{counts.empStatuses !== 1 ? "es" : ""} configured</div>
+              </div>
+              <button onClick={() => setEditEmpStatuses(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
             </div>
           </div>
         </div>

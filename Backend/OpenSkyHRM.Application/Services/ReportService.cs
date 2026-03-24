@@ -226,11 +226,11 @@ public class ReportService : IReportService
     private async Task<ReportResultDto> EmployeeByStatusReport()
     {
         var data = await _db.Employees
-            .GroupBy(e => e.Status)
-            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .GroupBy(e => e.EmploymentType)
+            .Select(g => new { EmploymentType = g.Key, Count = g.Count() })
             .OrderByDescending(x => x.Count).ToListAsync();
         var cols = new List<string> { "Employment Status", "Headcount" };
-        var rows = data.Select(d => new Dictionary<string, object?> { ["Employment Status"] = d.Status, ["Headcount"] = d.Count }).ToList();
+        var rows = data.Select(d => new Dictionary<string, object?> { ["Employment Status"] = d.EmploymentType, ["Headcount"] = d.Count }).ToList();
         return Build("Employees by Status", cols, rows);
     }
 
@@ -339,7 +339,7 @@ public class ReportService : IReportService
     {
         var cutoff = DateTime.UtcNow.AddDays(30);
         var data = await _db.Employees.Include(e => e.Department)
-            .Where(e => e.Status == "FullTimeProbation" && e.ProbationEndDate != null && e.ProbationEndDate <= cutoff)
+            .Where(e => e.EmploymentType == "FullTimeProbation" && e.ProbationEndDate != null && e.ProbationEndDate <= cutoff)
             .OrderBy(e => e.ProbationEndDate).ToListAsync();
         var cols = new List<string> { "Employee Code", "Full Name", "Department", "Join Date", "Probation End Date" };
         var rows = data.Select(e => new Dictionary<string, object?>
@@ -360,7 +360,7 @@ public class ReportService : IReportService
             new() { ["Metric"] = "Total Employees", ["Count"] = all.Count },
             new() { ["Metric"] = "Active Employees", ["Count"] = active.Count },
             new() { ["Metric"] = "Terminated", ["Count"] = all.Count(e => e.Status == "Terminated") },
-            new() { ["Metric"] = "On Probation", ["Count"] = active.Count(e => e.Status == "FullTimeProbation") },
+            new() { ["Metric"] = "On Probation", ["Count"] = active.Count(e => e.EmploymentType == "FullTimeProbation") },
             new() { ["Metric"] = "Male", ["Count"] = active.Count(e => e.Gender.ToString() == "Male") },
             new() { ["Metric"] = "Female", ["Count"] = active.Count(e => e.Gender.ToString() == "Female") },
         };
@@ -615,7 +615,7 @@ public class ReportService : IReportService
             ["Employee Code"] = p.Employee.EmployeeCode, ["Employee Name"] = p.Employee.FullName,
             ["Department"] = p.Employee.Department?.Name,
             ["Period"] = $"{p.Year}-{p.Month:D2}",
-            ["Gross"] = p.GrossPay, ["Deductions"] = p.Deductions, ["Net Pay"] = p.NetPay,
+            ["Gross"] = p.GrossPay, ["Deductions"] = p.TotalDeductions, ["Net Pay"] = p.NetPay,
         }).ToList();
         return Build("Payroll Register", cols, rows);
     }

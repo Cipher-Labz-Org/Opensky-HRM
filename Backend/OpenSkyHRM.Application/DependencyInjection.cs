@@ -9,7 +9,9 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
+        services.AddMemoryCache();
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ILicensingService, LicensingService>();
         services.AddScoped<IEmployeeService, EmployeeService>();
         services.AddScoped<IOrganizationService, OrganizationService>();
         services.AddScoped<ILeaveService, LeaveService>();
@@ -23,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<IOffboardingService, OffboardingService>();
         services.AddScoped<IEmployeeTaskService, EmployeeTaskService>();
         services.AddScoped<IPayrollService, PayrollService>();
+        services.AddScoped<PayrollCalculationEngine>();
         services.AddScoped<IPerformanceService, PerformanceService>();
         services.AddScoped<IAppraisalService, AppraisalService>();
         services.AddScoped<ILearningService, LearningService>();

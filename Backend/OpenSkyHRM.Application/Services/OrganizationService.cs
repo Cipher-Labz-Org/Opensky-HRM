@@ -21,6 +21,7 @@ public class OrganizationService : IOrganizationService
     {
         return await _db.Departments
             .Include(d => d.ParentDepartment)
+            .Include(d => d.BusinessUnit)
             .Include(d => d.Employees)
             .OrderBy(d => d.Name)
             .Select(d => new DepartmentDto
@@ -31,6 +32,8 @@ public class OrganizationService : IOrganizationService
                 Description = d.Description,
                 ParentDepartmentId = d.ParentDepartmentId,
                 ParentDepartmentName = d.ParentDepartment != null ? d.ParentDepartment.Name : null,
+                BusinessUnitId = d.BusinessUnitId,
+                BusinessUnitName = d.BusinessUnit != null ? d.BusinessUnit.Name : null,
                 EmployeeCount = d.Employees.Count(e => !e.IsDeleted),
             })
             .ToListAsync();
@@ -65,6 +68,7 @@ public class OrganizationService : IOrganizationService
             Code = dto.Code,
             Description = dto.Description,
             ParentDepartmentId = dto.ParentDepartmentId,
+            BusinessUnitId = dto.BusinessUnitId,
         };
 
         _db.Departments.Add(dept);
@@ -81,6 +85,7 @@ public class OrganizationService : IOrganizationService
         dept.Code = dto.Code;
         dept.Description = dto.Description;
         dept.ParentDepartmentId = dto.ParentDepartmentId;
+        dept.BusinessUnitId = dto.BusinessUnitId;
 
         await _db.SaveChangesAsync();
         return (await GetDepartmentByIdAsync(id))!;
@@ -381,6 +386,71 @@ public class OrganizationService : IOrganizationService
     public async Task<bool> DeleteEmploymentStatusTypeAsync(Guid id)
     {
         var entity = await _db.EmploymentStatusTypes.FindAsync(id);
+        if (entity is null) return false;
+        if (entity.IsSystem)
+            throw new InvalidOperationException("Cannot delete a system-defined status type.");
+        var inUse = await _db.Employees.AnyAsync(e => e.EmploymentType == entity.Code);
+        if (inUse)
+            throw new InvalidOperationException("Cannot delete status: it is assigned to one or more employees.");
+        entity.IsDeleted = true;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    // --- Employee Status Types ---
+
+    public async Task<List<EmploymentStatusTypeDto>> GetEmployeeStatusTypesAsync()
+    {
+        return await _db.EmployeeStatusTypes
+            .Where(s => !s.IsDeleted)
+            .OrderBy(s => s.SortOrder).ThenBy(s => s.Name)
+            .Select(s => new EmploymentStatusTypeDto
+            {
+                Id = s.Id, Name = s.Name, Code = s.Code,
+                Description = s.Description, IsActive = s.IsActive,
+                IsSystem = s.IsSystem, SortOrder = s.SortOrder
+            })
+            .ToListAsync();
+    }
+
+    public async Task<EmploymentStatusTypeDto> CreateEmployeeStatusTypeAsync(CreateEmploymentStatusTypeDto dto)
+    {
+        var entity = new EmployeeStatusType
+        {
+            Name = dto.Name, Code = dto.Code, Description = dto.Description,
+            IsActive = dto.IsActive, SortOrder = dto.SortOrder
+        };
+        _db.EmployeeStatusTypes.Add(entity);
+        await _db.SaveChangesAsync();
+        return new EmploymentStatusTypeDto
+        {
+            Id = entity.Id, Name = entity.Name, Code = entity.Code,
+            Description = entity.Description, IsActive = entity.IsActive,
+            IsSystem = entity.IsSystem, SortOrder = entity.SortOrder
+        };
+    }
+
+    public async Task<EmploymentStatusTypeDto?> UpdateEmployeeStatusTypeAsync(Guid id, CreateEmploymentStatusTypeDto dto)
+    {
+        var entity = await _db.EmployeeStatusTypes.FindAsync(id);
+        if (entity is null) return null;
+        entity.Name = dto.Name;
+        entity.Code = dto.Code;
+        entity.Description = dto.Description;
+        entity.IsActive = dto.IsActive;
+        entity.SortOrder = dto.SortOrder;
+        await _db.SaveChangesAsync();
+        return new EmploymentStatusTypeDto
+        {
+            Id = entity.Id, Name = entity.Name, Code = entity.Code,
+            Description = entity.Description, IsActive = entity.IsActive,
+            IsSystem = entity.IsSystem, SortOrder = entity.SortOrder
+        };
+    }
+
+    public async Task<bool> DeleteEmployeeStatusTypeAsync(Guid id)
+    {
+        var entity = await _db.EmployeeStatusTypes.FindAsync(id);
         if (entity is null) return false;
         if (entity.IsSystem)
             throw new InvalidOperationException("Cannot delete a system-defined status type.");

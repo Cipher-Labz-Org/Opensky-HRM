@@ -11,10 +11,17 @@ namespace OpenSkyHRM.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly ILicensingService _licensing;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService)
+    public AuthController(
+        IAuthService authService,
+        ILicensingService licensing,
+        ILogger<AuthController> logger)
     {
         _authService = authService;
+        _licensing = licensing;
+        _logger = logger;
     }
 
     [HttpPost("login")]
@@ -29,6 +36,11 @@ public class AuthController : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             return Unauthorized(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Login failed unexpectedly.");
+            return StatusCode(500, new { message = "Sign-in failed. Check API logs or database connectivity." });
         }
     }
 
@@ -82,21 +94,9 @@ public class AuthController : ControllerBase
 
     [HttpGet("roles/available-modules")]
     [Authorize(Roles = "ADMIN")]
-    public IActionResult GetAvailableModules()
+    public async Task<IActionResult> GetAvailableModules(CancellationToken cancellationToken)
     {
-        var modules = new[] {
-            new { module = "Dashboard", label = "Dashboard" },
-            new { module = "People", label = "People Hub" },
-            new { module = "Leave", label = "Leave & Absence" },
-            new { module = "Attendance", label = "Time & Attendance" },
-            new { module = "Payroll", label = "Payroll" },
-            new { module = "Performance", label = "Performance" },
-            new { module = "Learning", label = "Learning & Skills" },
-            new { module = "OrgStructure", label = "Org Structure" },
-            new { module = "Analytics", label = "Analytics" },
-            new { module = "Settings", label = "Policy & Settings" },
-            new { module = "Administration", label = "Administration" },
-        };
+        var modules = await _licensing.GetLicensedModulesForRoleAssignmentAsync(cancellationToken);
         return Ok(modules);
     }
 

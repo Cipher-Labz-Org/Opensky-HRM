@@ -4,12 +4,14 @@ using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.DTOs.Recruitment;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Offboarding")]
 [Route("api/[controller]")]
 public class OffboardingController : ControllerBase
 {

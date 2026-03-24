@@ -829,6 +829,7 @@
         "dependencies": {
           "BCrypt.Net-Next": "4.1.0",
           "Microsoft.EntityFrameworkCore": "8.0.25",
+          "Microsoft.Extensions.Caching.Memory": "8.0.1",
           "Microsoft.IdentityModel.Tokens": "7.1.2",
           "OpenSkyHRM.Domain": "1.0.0",
           "OpenSkyHRM.Persistence": "1.0.0",

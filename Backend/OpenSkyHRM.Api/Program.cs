@@ -100,19 +100,46 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// --- Migrate & Seed on startup (development only) ---
-if (app.Environment.IsDevelopment() && dbAvailable)
+// Apply pending EF migrations whenever PostgreSQL is reachable (adds licensing tables, etc.).
+if (dbAvailable)
 {
     try
     {
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Database migration failed: {ex.Message}");
+    }
+}
+
+// Demo/admin seed data (development only)
+if (app.Environment.IsDevelopment() && dbAvailable)
+{
+    try
+    {
         await DbSeeder.SeedAsync(app.Services);
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"WARNING: Database migration/seed failed: {ex.Message}");
+        Console.WriteLine($"WARNING: Database seeding failed: {ex.Message}");
+    }
+}
+
+// --- Licensing catalog & default entitlements (all environments; idempotent) ---
+if (dbAvailable)
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await LicensingSeeder.EnsureAsync(db);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Licensing defaults could not be ensured: {ex.Message}");
     }
 }
 

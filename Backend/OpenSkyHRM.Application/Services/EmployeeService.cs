@@ -37,6 +37,7 @@ public class EmployeeService : IEmployeeService
         int page = 1, int pageSize = 20, string? search = null,
         Guid? departmentId = null, Guid? jobTitleId = null,
         Guid? locationId = null, Guid? managerId = null, string? status = null,
+        string? employmentType = null,
         IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = false)
     {
         var query = _db.Employees
@@ -74,6 +75,9 @@ public class EmployeeService : IEmployeeService
 
         if (!string.IsNullOrWhiteSpace(status))
             query = query.Where(e => e.Status == status);
+
+        if (!string.IsNullOrWhiteSpace(employmentType))
+            query = query.Where(e => e.EmploymentType == employmentType);
 
         if (excludeTerminated && string.IsNullOrWhiteSpace(status))
             query = query.Where(e => e.Status != "Terminated");
@@ -184,7 +188,8 @@ public class EmployeeService : IEmployeeService
             JoinDate = dto.JoinDate,
             ProbationEndDate = dto.ProbationEndDate,
             DateOfPermanency = dto.DateOfPermanency,
-            Status = "FullTimePermanent",
+            Status = "Active",
+            EmploymentType = "FullTimePermanent",
             DepartmentId = dto.DepartmentId,
             BusinessUnitId = dto.BusinessUnitId,
             PositionId = dto.PositionId,
@@ -250,6 +255,7 @@ public class EmployeeService : IEmployeeService
         employee.ProbationEndDate = dto.ProbationEndDate;
         employee.DateOfPermanency = dto.DateOfPermanency;
         employee.Status = dto.Status;
+        employee.EmploymentType = dto.EmploymentType;
         employee.TerminationDate = dto.TerminationDate;
         employee.TerminationReason = dto.TerminationReason;
         employee.TerminationNote = dto.TerminationNote;
@@ -344,6 +350,7 @@ public class EmployeeService : IEmployeeService
         TerminationReason = e.TerminationReason,
         TerminationNote = e.TerminationNote,
         Status = e.Status.ToString(),
+        EmploymentType = e.EmploymentType,
         DepartmentId = e.DepartmentId,
         DepartmentName = e.Department?.Name,
         BusinessUnitId = e.BusinessUnitId,

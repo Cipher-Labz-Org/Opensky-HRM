@@ -166,7 +166,8 @@ export default function CandidateDetailPage() {
   }
 
   if (loading) return (
-    <div className="flex min-h-screen flex-col bg-[var(--bg)]"><AppTopbar />
+    <div className="flex min-h-screen flex-col bg-[var(--bg)]">
+      <AppTopbar title="Candidate" subtitle="Loading…" />
       <div className="flex flex-1 items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-[var(--primary)]/20 border-t-[var(--primary)]" />
       </div>
@@ -174,7 +175,8 @@ export default function CandidateDetailPage() {
   );
 
   if (error || !candidate) return (
-    <div className="flex min-h-screen flex-col bg-[var(--bg)]"><AppTopbar />
+    <div className="flex min-h-screen flex-col bg-[var(--bg)]">
+      <AppTopbar title="Candidate" subtitle={error || "Not found"} />
       <div className="flex flex-1 flex-col items-center justify-center gap-4">
         <p className="text-red-500">{error || "Candidate not found"}</p>
         <Link href="/app/recruitment" className="text-[var(--primary)] hover:underline">Back to Recruitment</Link>
@@ -187,7 +189,7 @@ export default function CandidateDetailPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--bg)]">
-      <AppTopbar />
+      <AppTopbar title={c.fullName} subtitle="Candidate profile" />
       <main className="flex-1 overflow-y-auto p-6">
         {/* Breadcrumb */}
         <div className="mb-4 flex items-center gap-2 text-sm text-[var(--text-muted)]">

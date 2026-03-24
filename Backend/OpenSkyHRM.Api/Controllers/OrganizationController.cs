@@ -2,11 +2,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("OrgStructure")]
 [Route("api/[controller]")]
 public class OrganizationController : ControllerBase
 {
@@ -185,5 +187,36 @@ public class OrganizationController : ControllerBase
     {
         var deleted = await _orgService.DeleteEmploymentStatusTypeAsync(id);
         return deleted ? NoContent() : NotFound();
+    }
+
+    // --- Employee Status Types ---
+
+    [HttpGet("employee-statuses")]
+    public async Task<IActionResult> GetEmployeeStatusTypes()
+        => Ok(await _orgService.GetEmployeeStatusTypesAsync());
+
+    [HttpPost("employee-statuses")]
+    public async Task<IActionResult> CreateEmployeeStatusType([FromBody] CreateEmploymentStatusTypeDto dto)
+        => Ok(await _orgService.CreateEmployeeStatusTypeAsync(dto));
+
+    [HttpPut("employee-statuses/{id:guid}")]
+    public async Task<IActionResult> UpdateEmployeeStatusType(Guid id, [FromBody] CreateEmploymentStatusTypeDto dto)
+    {
+        var updated = await _orgService.UpdateEmployeeStatusTypeAsync(id, dto);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("employee-statuses/{id:guid}")]
+    public async Task<IActionResult> DeleteEmployeeStatusType(Guid id)
+    {
+        try
+        {
+            var deleted = await _orgService.DeleteEmployeeStatusTypeAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 }

@@ -21,6 +21,7 @@ const APP_PATHS = [
   "/performance",
   "/learning",
   "/org-structure",
+  "/org-chart",
   "/analytics",
   "/settings",
   "/billing",
@@ -78,7 +79,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       items: [
         { href: ROUTES.leave, label: "Leave & Absence" },
         { href: ROUTES.attendance, label: "Time & Attendance" },
-        { href: ROUTES.payroll, label: "Payroll Bridge" },
+        { href: ROUTES.payroll, label: "Payroll" },
         { href: ROUTES.performance, label: "Performance" },
         { href: ROUTES.learning, label: "Learning & Skills" },
       ],
@@ -86,6 +87,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     {
       title: "Intelligence",
       items: [
+        { href: ROUTES.orgChart, label: "Org Chart" },
         { href: ROUTES.orgStructure, label: "Org Structure" },
         { href: ROUTES.analytics, label: "Analytics" },
         { href: ROUTES.settings, label: "Policy & Settings" },

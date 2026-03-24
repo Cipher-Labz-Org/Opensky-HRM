@@ -17,6 +17,7 @@ interface Employee {
   jobTitleName: string | null;
   positionTitle: string | null;
   status: string;
+  employmentType: string;
   managerName: string | null;
   locationName: string | null;
   isTopOfHierarchy: boolean;
@@ -30,6 +31,7 @@ interface Filters {
   search: string;
   employeeCode: string;
   status: string;
+  employmentType: string;
   departmentId: string;
   jobTitleId: string;
   locationId: string;
@@ -37,22 +39,31 @@ interface Filters {
 }
 
 const emptyFilters: Filters = {
-  search: "", employeeCode: "", status: "",
+  search: "", employeeCode: "", status: "", employmentType: "",
   departmentId: "", jobTitleId: "", locationId: "", managerId: "",
 };
 
-const statusBadge: Record<string, string> = {
-  Active: "badge-green",
-  Probation: "badge-blue",
-  OnNotice: "badge-red",
-  Terminated: "badge-red",
-  Resigned: "badge-orange",
-  Inactive: "badge-orange",
-  OnLeave: "badge-blue",
+const lifecycleStatusColors: Record<string, string> = {
+  Active: "bg-emerald-50 text-emerald-600",
+  OnNotice: "bg-amber-50 text-amber-600",
+  Resigned: "bg-orange-50 text-orange-600",
+  Terminated: "bg-red-50 text-red-600",
+  Retired: "bg-slate-100 text-slate-500",
+  Deceased: "bg-slate-100 text-slate-500",
+  Absconded: "bg-red-50 text-red-600",
 };
+const lifecycleStatusLabels: Record<string, string> = {
+  Active: "Active", OnNotice: "On Notice", Resigned: "Resigned",
+  Terminated: "Terminated", Retired: "Retired", Deceased: "Deceased", Absconded: "Absconded",
+};
+const lifecycleStatusOptions = ["Active", "OnNotice", "Resigned", "Terminated", "Retired", "Deceased", "Absconded"];
 
-const statusLabels: Record<string, string> = { Freelance: "Freelance", FullTimeContract: "Full-Time Contract", FullTimeInternship: "Full-Time Internship", FullTimePermanent: "Full-Time Permanent", FullTimeProbation: "Full-Time Probation", PartTimeContract: "Part-Time Contract", PartTimeInternship: "Part-Time Internship", PartTimePermanent: "Part-Time Permanent" };
-const statusOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
+const employmentTypeLabels: Record<string, string> = {
+  Freelance: "Freelance", FullTimeContract: "Full-Time Contract", FullTimeInternship: "Full-Time Internship",
+  FullTimePermanent: "Full-Time Permanent", FullTimeProbation: "Full-Time Probation",
+  PartTimeContract: "Part-Time Contract", PartTimeInternship: "Part-Time Internship", PartTimePermanent: "Part-Time Permanent",
+};
+const employmentTypeOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
 
 export default function PeoplePage() {
   const router = useRouter();
@@ -106,6 +117,7 @@ export default function PeoplePage() {
     if (f.search) params.set("search", f.search);
     if (f.employeeCode) params.set("search", f.employeeCode);
     if (f.status) params.set("status", f.status);
+    if (f.employmentType) params.set("employmentType", f.employmentType);
     if (f.departmentId) params.set("departmentId", f.departmentId);
     if (f.jobTitleId) params.set("jobTitleId", f.jobTitleId);
     if (f.locationId) params.set("locationId", f.locationId);
@@ -226,14 +238,13 @@ export default function PeoplePage() {
           {canCreateEmployee && (
             <button
               onClick={() => setShowCreate(true)}
-              className="group flex items-center gap-2 rounded-xl bg-[#2B7DE9] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#2468cc] active:scale-[0.98]"
+              className="group flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm transition-all hover:border-[#2B7DE9] hover:text-[#2B7DE9] hover:shadow active:scale-[0.98]"
+              title="Create Employee"
             >
-              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-white/20 transition-transform group-hover:rotate-90">
-                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-              </span>
-              Create Employee
+              <svg className="h-4 w-4 text-[#2B7DE9]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              New Employee
             </button>
           )}
         </div>
@@ -367,15 +378,28 @@ export default function PeoplePage() {
               />
             </div>
             <div>
-              <label className={labelClass}>Employment Status</label>
+              <label className={labelClass}>Status</label>
               <select
                 className={selectClass}
                 value={filters.status}
                 onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
               >
                 <option value="">All</option>
-                {statusOptions.map((s) => (
-                  <option key={s} value={s}>{statusLabels[s]}</option>
+                {lifecycleStatusOptions.map((s) => (
+                  <option key={s} value={s}>{lifecycleStatusLabels[s]}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Employment Type</label>
+              <select
+                className={selectClass}
+                value={filters.employmentType}
+                onChange={(e) => setFilters((f) => ({ ...f, employmentType: e.target.value }))}
+              >
+                <option value="">All</option>
+                {employmentTypeOptions.map((s) => (
+                  <option key={s} value={s}>{employmentTypeLabels[s]}</option>
                 ))}
               </select>
             </div>
@@ -469,6 +493,7 @@ export default function PeoplePage() {
                     <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Name</th>
                     <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Job Title</th>
                     <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                    <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Emp. Type</th>
                     <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Department</th>
                     <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Location</th>
                     <th className="py-2.5 px-3 pr-5 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Supervisor</th>
@@ -515,11 +540,11 @@ export default function PeoplePage() {
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.jobTitleName ?? emp.positionTitle ?? "—"}</td>
                         <td className="py-2 px-3">
                           <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${
-                            emp.status === "Terminated" || emp.status === "OnNotice" ? "bg-red-50 text-red-600" :
-                            emp.status === "Resigned" || emp.status === "Inactive" ? "bg-amber-50 text-amber-600" :
-                            emp.status === "Probation" || emp.status === "OnLeave" ? "bg-blue-50 text-blue-600" :
-                            "bg-emerald-50 text-emerald-600"
-                          }`}>{emp.status}</span>
+                            lifecycleStatusColors[emp.status] ?? "bg-slate-100 text-slate-500"
+                          }`}>{lifecycleStatusLabels[emp.status] ?? emp.status}</span>
+                        </td>
+                        <td className="py-2 px-3 text-[11px] text-slate-500">
+                          {employmentTypeLabels[emp.employmentType] ?? emp.employmentType}
                         </td>
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.departmentName ?? "—"}</td>
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.locationName ?? "—"}</td>

@@ -4,12 +4,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Administration")]
 [Route("api/[controller]")]
 public class BulkUploadController : ControllerBase
 {
@@ -47,7 +49,7 @@ public class BulkUploadController : ControllerBase
 
         refWs.Cell(1, 2).Value = "Employment Status";
         refWs.Cell(1, 2).Style.Font.Bold = true;
-        var statuses = Enum.GetNames<EmploymentStatus>();
+        var statuses = Enum.GetNames<EmploymentType>();
         for (int i = 0; i < statuses.Length; i++) refWs.Cell(i + 2, 2).Value = statuses[i];
 
         refWs.Cell(1, 3).Value = "Marital Status";
@@ -146,11 +148,11 @@ public class BulkUploadController : ControllerBase
                     errors.Add($"Invalid Gender '{genderStr}'");
             }
 
-            var status = "FullTimePermanent";
-            var statusStr = Cell(row, "Employment Status");
-            if (!string.IsNullOrEmpty(statusStr))
+            var employmentType = "FullTimePermanent";
+            var employmentTypeStr = Cell(row, "Employment Status");
+            if (!string.IsNullOrEmpty(employmentTypeStr))
             {
-                status = statusStr;
+                employmentType = employmentTypeStr;
             }
 
             var empCode = Cell(row, "Employee Code");
@@ -187,7 +189,8 @@ public class BulkUploadController : ControllerBase
                 DateOfBirth = DateTime.SpecifyKind(dobStr!.Value, DateTimeKind.Utc),
                 Gender = gender,
                 JoinDate = DateTime.SpecifyKind(joinStr!.Value, DateTimeKind.Utc),
-                Status = status,
+                Status = "Active",
+                EmploymentType = employmentType,
                 DepartmentId = dept!.Id,
                 BusinessUnitId = bu?.Id,
                 GradeId = grade?.Id,

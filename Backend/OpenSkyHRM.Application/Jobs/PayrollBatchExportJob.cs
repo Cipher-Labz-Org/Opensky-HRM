@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Application.Jobs;
@@ -20,12 +21,12 @@ public class PayrollBatchExportJob
         _logger.LogInformation("Running payroll batch export job...");
 
         var pendingBatches = await _db.PayrollBatches
-            .Where(b => b.Status == "Approved")
+            .Where(b => b.Status == BatchStatus.Approved)
             .ToListAsync();
 
         foreach (var batch in pendingBatches)
         {
-            batch.Status = "Exported";
+            batch.Status = BatchStatus.Finalized;
             batch.ProcessedAt = DateTime.UtcNow;
             _logger.LogInformation("Exported payroll batch {BatchCode} for {Month}/{Year}",
                 batch.BatchCode, batch.Month, batch.Year);

@@ -30,9 +30,9 @@ body {
   }
 }
 
-/* Sidebar nav links: high contrast on dark bg, hover to white */
+/* Sidebar nav links: active state keeps gradient colors on hover */
 .sidebar-nav-link:hover {
-  color: #ffffff !important;
+  /* handled inline */
 }
 
 /* HRIS UI patterns from hris_ui_pack */

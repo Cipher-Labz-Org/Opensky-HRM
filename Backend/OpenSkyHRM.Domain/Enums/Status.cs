@@ -1,6 +1,6 @@
 namespace OpenSkyHRM.Domain.Enums;
 
-public enum EmploymentStatus
+public enum EmploymentType
 {
     Freelance,
     FullTimeContract,
@@ -10,7 +10,17 @@ public enum EmploymentStatus
     PartTimeContract,
     PartTimeInternship,
     PartTimePermanent,
-    Terminated
+}
+
+public enum EmployeeStatus
+{
+    Active,
+    OnNotice,
+    Resigned,
+    Terminated,
+    Retired,
+    Deceased,
+    Absconded,
 }
 
 public enum Gender

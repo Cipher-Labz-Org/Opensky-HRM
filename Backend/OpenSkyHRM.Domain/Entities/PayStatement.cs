@@ -1,20 +1,24 @@
 using OpenSkyHRM.Domain.Common;
+using OpenSkyHRM.Domain.Enums;
 
 namespace OpenSkyHRM.Domain.Entities;
 
 public class PayStatement : AuditableEntity
 {
+    public Guid BatchId { get; set; }
+    public Guid EmployeeId { get; set; }
     public int Month { get; set; }
     public int Year { get; set; }
+    public decimal BasicPay { get; set; }
+    public decimal TotalEarnings { get; set; }
+    public decimal TotalDeductions { get; set; }
     public decimal GrossPay { get; set; }
-    public decimal Deductions { get; set; }
     public decimal NetPay { get; set; }
-    public string Status { get; set; } = "Draft";
+    public decimal EmployerCost { get; set; }
     public string Currency { get; set; } = "LKR";
+    public PayStatementStatus Status { get; set; } = PayStatementStatus.Draft;
 
-    public Guid EmployeeId { get; set; }
+    public PayrollBatch Batch { get; set; } = null!;
     public Employee Employee { get; set; } = null!;
-
-    public Guid? BatchId { get; set; }
-    public PayrollBatch? Batch { get; set; }
+    public ICollection<PayStatementLine> Lines { get; set; } = new List<PayStatementLine>();
 }

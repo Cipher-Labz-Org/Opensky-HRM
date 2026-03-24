@@ -4,12 +4,14 @@ using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.DTOs;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("EmployeeTasks")]
 [Route("api/employee-tasks")]
 public class EmployeeTasksController : ControllerBase
 {

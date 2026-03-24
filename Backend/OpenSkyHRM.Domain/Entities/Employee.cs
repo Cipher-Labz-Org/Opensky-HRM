@@ -51,7 +51,8 @@ public class Employee : AuditableEntity
     public DateTime? TerminationDate { get; set; }
     public string? TerminationReason { get; set; }
     public string? TerminationNote { get; set; }
-    public string Status { get; set; } = "FullTimePermanent";
+    public string Status { get; set; } = "Active";
+    public string EmploymentType { get; set; } = "FullTimePermanent";
     public string? ProfileImageUrl { get; set; }
     public bool IsTopOfHierarchy { get; set; }
 

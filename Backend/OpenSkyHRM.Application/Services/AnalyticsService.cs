@@ -23,7 +23,7 @@ public class AnalyticsService : IAnalyticsService
             ActiveEmployees = employees.Count(e => e.Status != "Terminated"),
             OnLeave = 0,
             Terminated = employees.Count(e => e.Status == "Terminated"),
-            Probation = employees.Count(e => e.Status == "FullTimeProbation"),
+            Probation = employees.Count(e => e.EmploymentType == "FullTimeProbation"),
             ByDepartment = employees.GroupBy(e => e.Department?.Name ?? "Unassigned").ToDictionary(g => g.Key, g => g.Count()),
             ByBusinessUnit = employees.Where(e => e.BusinessUnit != null).GroupBy(e => e.BusinessUnit!.Name).ToDictionary(g => g.Key, g => g.Count()),
         };

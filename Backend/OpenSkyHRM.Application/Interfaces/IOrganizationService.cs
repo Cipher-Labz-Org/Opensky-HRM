@@ -43,4 +43,10 @@ public interface IOrganizationService
     Task<EmploymentStatusTypeDto> CreateEmploymentStatusTypeAsync(CreateEmploymentStatusTypeDto dto);
     Task<EmploymentStatusTypeDto?> UpdateEmploymentStatusTypeAsync(Guid id, CreateEmploymentStatusTypeDto dto);
     Task<bool> DeleteEmploymentStatusTypeAsync(Guid id);
+
+    // Employee Status Types
+    Task<List<EmploymentStatusTypeDto>> GetEmployeeStatusTypesAsync();
+    Task<EmploymentStatusTypeDto> CreateEmployeeStatusTypeAsync(CreateEmploymentStatusTypeDto dto);
+    Task<EmploymentStatusTypeDto?> UpdateEmployeeStatusTypeAsync(Guid id, CreateEmploymentStatusTypeDto dto);
+    Task<bool> DeleteEmployeeStatusTypeAsync(Guid id);
 }

@@ -5,12 +5,14 @@ using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Attendance")]
 [Route("api/[controller]")]
 public class AttendanceController : ControllerBase
 {

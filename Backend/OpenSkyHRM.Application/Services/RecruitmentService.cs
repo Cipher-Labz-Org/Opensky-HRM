@@ -252,7 +252,8 @@ public class RecruitmentService : IRecruitmentService
             JobTitleId = c.Offer?.JobTitleId ?? c.Requisition.JobTitleId,
             JoinDate = c.Offer?.JoiningDate ?? DateTime.UtcNow,
             DateOfBirth = DateTime.UtcNow.AddYears(-25),
-            Status = "FullTimePermanent",
+            Status = "Active",
+            EmploymentType = "FullTimePermanent",
             EmployeeCode = await _settings.GenerateNextEmployeeCodeAsync(),
         };
 

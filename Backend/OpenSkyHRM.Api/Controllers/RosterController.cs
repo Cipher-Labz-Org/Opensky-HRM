@@ -3,12 +3,14 @@ using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.DTOs.TimeAttendance;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Attendance")]
 [Route("api/roster")]
 public class RosterController : ControllerBase
 {

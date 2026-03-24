@@ -58,6 +58,7 @@ public class AppDbContext : DbContext
     public DbSet<EmployeeTaskTemplate> EmployeeTaskTemplates => Set<EmployeeTaskTemplate>();
     public DbSet<EmployeeTaskTemplateItem> EmployeeTaskTemplateItems => Set<EmployeeTaskTemplateItem>();
     public DbSet<EmploymentStatusType> EmploymentStatusTypes => Set<EmploymentStatusType>();
+    public DbSet<EmployeeStatusType> EmployeeStatusTypes => Set<EmployeeStatusType>();
 
     // Payroll & Compensation
     public DbSet<CompensationComponent> CompensationComponents => Set<CompensationComponent>();
@@ -65,6 +66,8 @@ public class AppDbContext : DbContext
     public DbSet<SalaryRevision> SalaryRevisions => Set<SalaryRevision>();
     public DbSet<PayrollBatch> PayrollBatches => Set<PayrollBatch>();
     public DbSet<PayStatement> PayStatements => Set<PayStatement>();
+    public DbSet<PayStatementLine> PayStatementLines => Set<PayStatementLine>();
+    public DbSet<PayrollFormula> PayrollFormulas => Set<PayrollFormula>();
 
     // Performance & Learning
     public DbSet<Goal> Goals => Set<Goal>();
@@ -108,6 +111,11 @@ public class AppDbContext : DbContext
     // System
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
+
+    // Licensing (per-instance)
+    public DbSet<LicensedModule> LicensedModules => Set<LicensedModule>();
+    public DbSet<InstanceSubscription> InstanceSubscriptions => Set<InstanceSubscription>();
+    public DbSet<InstanceModuleEntitlement> InstanceModuleEntitlements => Set<InstanceModuleEntitlement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

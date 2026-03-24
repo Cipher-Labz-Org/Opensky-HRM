@@ -11,6 +11,10 @@ public class Department : AuditableEntity
     public Guid? ParentDepartmentId { get; set; }
     public Department? ParentDepartment { get; set; }
 
+    /// <summary>Optional legal entity / subsidiary (organizational slice below company).</summary>
+    public Guid? BusinessUnitId { get; set; }
+    public BusinessUnit? BusinessUnit { get; set; }
+
     public ICollection<Department> SubDepartments { get; set; } = new List<Department>();
     public ICollection<Employee> Employees { get; set; } = new List<Employee>();
     public ICollection<Position> Positions { get; set; } = new List<Position>();

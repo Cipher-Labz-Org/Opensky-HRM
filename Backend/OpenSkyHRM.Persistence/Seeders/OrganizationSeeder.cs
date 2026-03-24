@@ -17,6 +17,7 @@ public static class OrganizationSeeder
         var buLogistics = new BusinessUnit { Name = "Logistics", Code = "BU-LOG", Description = "Supply chain and logistics" };
 
         context.BusinessUnits.AddRange(buRetail, buManuf, buHQ, buLogistics);
+        await context.SaveChangesAsync();
 
         // Locations
         var locHQ = new Location { Name = "Head Office - Colombo", Code = "LOC-CMB", City = "Colombo", Country = "Sri Lanka", Address = "42 Galle Road, Colombo 03" };
@@ -44,6 +45,9 @@ public static class OrganizationSeeder
         var deptOps = new Department { Name = "Operations", Code = "DEPT-OPS" };
         var deptSales = new Department { Name = "Sales & Marketing", Code = "DEPT-SAL" };
         var deptLegal = new Department { Name = "Legal & Compliance", Code = "DEPT-LEG" };
+
+        foreach (var d in new[] { deptHR, deptFinance, deptIT, deptOps, deptSales, deptLegal })
+            d.BusinessUnitId = buHQ.Id;
 
         context.Departments.AddRange(deptHR, deptFinance, deptIT, deptOps, deptSales, deptLegal);
 
@@ -78,7 +82,8 @@ public static class OrganizationSeeder
             DateOfBirth = new DateTime(1975, 3, 15, 0, 0, 0, DateTimeKind.Utc),
             Gender = Gender.Male,
             JoinDate = new DateTime(2015, 1, 10, 0, 0, 0, DateTimeKind.Utc),
-            Status = "FullTimePermanent",
+            Status = "Active",
+            EmploymentType = "FullTimePermanent",
             DepartmentId = deptOps.Id,
             BusinessUnitId = buHQ.Id,
             PositionId = posCEO.Id,
@@ -97,7 +102,8 @@ public static class OrganizationSeeder
             DateOfBirth = new DateTime(1980, 7, 22, 0, 0, 0, DateTimeKind.Utc),
             Gender = Gender.Male,
             JoinDate = new DateTime(2016, 4, 1, 0, 0, 0, DateTimeKind.Utc),
-            Status = "FullTimePermanent",
+            Status = "Active",
+            EmploymentType = "FullTimePermanent",
             DepartmentId = deptHR.Id,
             BusinessUnitId = buHQ.Id,
             PositionId = posHRD.Id,
@@ -117,7 +123,8 @@ public static class OrganizationSeeder
             DateOfBirth = new DateTime(1990, 11, 5, 0, 0, 0, DateTimeKind.Utc),
             Gender = Gender.Female,
             JoinDate = new DateTime(2019, 9, 15, 0, 0, 0, DateTimeKind.Utc),
-            Status = "FullTimePermanent",
+            Status = "Active",
+            EmploymentType = "FullTimePermanent",
             DepartmentId = deptFinance.Id,
             BusinessUnitId = buHQ.Id,
             PositionId = posSrAcct.Id,

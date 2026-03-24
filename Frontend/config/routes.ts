@@ -29,6 +29,7 @@ export const ROUTES = {
   // App – Intelligence
   reports: "/app/reports",
   orgStructure: "/app/org-structure",
+  orgChart: "/app/org-chart",
   analytics: "/app/analytics",
   settings: "/app/settings",
   billing: "/app/billing",

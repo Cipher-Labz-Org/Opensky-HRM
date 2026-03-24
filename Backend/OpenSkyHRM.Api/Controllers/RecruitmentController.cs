@@ -3,10 +3,13 @@ using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.DTOs.Recruitment;
 using OpenSkyHRM.Application.Interfaces;
 
+using OpenSkyHRM.Api.Filters;
+
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Recruitment")]
 [Route("api/[controller]")]
 public class RecruitmentController : ControllerBase
 {

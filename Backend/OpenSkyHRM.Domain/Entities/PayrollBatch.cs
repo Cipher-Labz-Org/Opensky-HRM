@@ -1,4 +1,5 @@
 using OpenSkyHRM.Domain.Common;
+using OpenSkyHRM.Domain.Enums;
 
 namespace OpenSkyHRM.Domain.Entities;
 
@@ -7,9 +8,16 @@ public class PayrollBatch : AuditableEntity
     public string BatchCode { get; set; } = string.Empty;
     public int Month { get; set; }
     public int Year { get; set; }
-    public string Status { get; set; } = "Draft";
+    public BatchStatus Status { get; set; } = BatchStatus.Draft;
     public DateTime? ProcessedAt { get; set; }
+    public string? ApprovedBy { get; set; }
     public int EmployeeCount { get; set; }
     public decimal TotalGross { get; set; }
+    public decimal TotalDeductions { get; set; }
     public decimal TotalNet { get; set; }
+    public decimal TotalEmployerCost { get; set; }
+    public string? Notes { get; set; }
+    public string? SelectedEmployeeIds { get; set; }
+
+    public ICollection<PayStatement> PayStatements { get; set; } = new List<PayStatement>();
 }

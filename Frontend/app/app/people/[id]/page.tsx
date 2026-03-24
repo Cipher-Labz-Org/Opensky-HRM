@@ -55,6 +55,7 @@ interface EmployeeDetail {
   dateOfPermanency: string | null;
   terminationDate: string | null;
   status: string;
+  employmentType: string;
   departmentId: string;
   departmentName: string | null;
   businessUnitId: string | null;
@@ -209,9 +210,10 @@ const ALL_WIDGETS: WidgetDef[] = [
 ];
 const DEFAULT_VISIBLE = ["about", "quickAccess", "leaveBalance", "leaveList", "timesheets", "timeAtWork", "goals", "performance"];
 
-const statusColors: Record<string, string> = { Freelance: "bg-purple-500", FullTimeContract: "bg-blue-500", FullTimeInternship: "bg-cyan-500", FullTimePermanent: "bg-emerald-500", FullTimeProbation: "bg-amber-500", PartTimeContract: "bg-indigo-400", PartTimeInternship: "bg-teal-400", PartTimePermanent: "bg-green-400", Terminated: "bg-red-500" };
-const statusLabels: Record<string, string> = { Freelance: "Freelance", FullTimeContract: "Full-Time Contract", FullTimeInternship: "Full-Time Internship", FullTimePermanent: "Full-Time Permanent", FullTimeProbation: "Full-Time Probation", PartTimeContract: "Part-Time Contract", PartTimeInternship: "Part-Time Internship", PartTimePermanent: "Part-Time Permanent", Terminated: "Terminated" };
-const statusOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
+const lifecycleColors: Record<string, string> = { Active: "bg-emerald-500", OnNotice: "bg-amber-500", Resigned: "bg-orange-500", Terminated: "bg-red-500", Retired: "bg-slate-400", Deceased: "bg-slate-400", Absconded: "bg-red-500" };
+const lifecycleLabels: Record<string, string> = { Active: "Active", OnNotice: "On Notice", Resigned: "Resigned", Terminated: "Terminated", Retired: "Retired", Deceased: "Deceased", Absconded: "Absconded" };
+const empTypeLabels: Record<string, string> = { Freelance: "Freelance", FullTimeContract: "Full-Time Contract", FullTimeInternship: "Full-Time Internship", FullTimePermanent: "Full-Time Permanent", FullTimeProbation: "Full-Time Probation", PartTimeContract: "Part-Time Contract", PartTimeInternship: "Part-Time Internship", PartTimePermanent: "Part-Time Permanent" };
+const empTypeOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
 const genderOptions = ["Male", "Female", "Other"];
 
 type PageTab = "profile" | "personal" | "job" | "contactDetails" | "emergencyContacts" | "dependents" | "qualifications" | "workExperience" | "driversLicense" | "bankAccount" | "reportTo" | "benefits" | "immigration";
@@ -1289,7 +1291,7 @@ export default function EmployeeDetailPage() {
     if (!emp) return;
     setReactSaving(true);
     try {
-      const newStatus = "FullTimePermanent";
+      const newEmploymentType = "FullTimePermanent";
       const newJoinDate = reactUpdateJoinDate ? reactDate : emp.joinDate;
       const payload = {
         firstName: emp.firstName,
@@ -1334,7 +1336,8 @@ export default function EmployeeDetailPage() {
         joinDate: newJoinDate,
         probationEndDate: emp.probationEndDate,
         dateOfPermanency: emp.dateOfPermanency,
-        status: newStatus,
+        status: "Active",
+        employmentType: newEmploymentType,
         terminationDate: null,
         departmentId: emp.departmentId,
         businessUnitId: emp.businessUnitId,
@@ -1493,7 +1496,8 @@ export default function EmployeeDetailPage() {
       joinDate: fd.get("joinDate") || emp.joinDate,
       probationEndDate: fd.get("probationEndDate") || null,
       dateOfPermanency: fd.get("dateOfPermanency") || null,
-      status: fd.get("status") || emp.status,
+      status: emp.status,
+      employmentType: fd.get("employmentType") || emp.employmentType,
       departmentId: fd.get("departmentId") || emp.departmentId,
       businessUnitId: fd.get("businessUnitId") || null,
       positionId: fd.get("positionId") || null,
@@ -1800,9 +1804,10 @@ export default function EmployeeDetailPage() {
                         <div className="flex py-0.5">
                           <span className="w-24 shrink-0 text-xs text-slate-400">Status:</span>
                           <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                            <span className={`h-1.5 w-1.5 rounded-full ${statusColors[emp.status] ?? "bg-gray-400"}`} />{statusLabels[emp.status] ?? emp.status}
+                            <span className={`h-1.5 w-1.5 rounded-full ${lifecycleColors[emp.status] ?? "bg-gray-400"}`} />{lifecycleLabels[emp.status] ?? emp.status}
                           </span>
                         </div>
+                        <InfoRow label="Emp. Type" value={empTypeLabels[emp.employmentType] ?? emp.employmentType} />
                       </div>
                       <div className="border-t border-slate-100 pt-3">
                         <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-slate-600"><SectionIcon path="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" color="bg-green-500" />Contact</h4>
@@ -1916,7 +1921,7 @@ export default function EmployeeDetailPage() {
                 <div><label className={labelClass}>Nationality</label><select name="nationality" className={inputClass} defaultValue={emp.nationality ?? ""}><option value="">--Select--</option>{["Afghan","Albanian","Algerian","American","Andorran","Angolan","Argentine","Armenian","Australian","Austrian","Azerbaijani","Bahamian","Bahraini","Bangladeshi","Barbadian","Belarusian","Belgian","Belizean","Beninese","Bhutanese","Bolivian","Bosnian","Brazilian","British","Bruneian","Bulgarian","Burkinabe","Burmese","Burundian","Cambodian","Cameroonian","Canadian","Cape Verdean","Central African","Chadian","Chilean","Chinese","Colombian","Comorian","Congolese","Costa Rican","Croatian","Cuban","Cypriot","Czech","Danish","Djiboutian","Dominican","Dutch","East Timorese","Ecuadorian","Egyptian","Emirati","Equatorial Guinean","Eritrean","Estonian","Ethiopian","Fijian","Filipino","Finnish","French","Gabonese","Gambian","Georgian","German","Ghanaian","Greek","Grenadian","Guatemalan","Guinean","Guyanese","Haitian","Honduran","Hungarian","Icelandic","Indian","Indonesian","Iranian","Iraqi","Irish","Israeli","Italian","Ivorian","Jamaican","Japanese","Jordanian","Kazakh","Kenyan","Kiribati","Korean","Kuwaiti","Kyrgyz","Lao","Latvian","Lebanese","Liberian","Libyan","Lithuanian","Luxembourgish","Macedonian","Malagasy","Malawian","Malaysian","Maldivian","Malian","Maltese","Mauritanian","Mauritian","Mexican","Moldovan","Monegasque","Mongolian","Montenegrin","Moroccan","Mozambican","Namibian","Nepalese","New Zealander","Nicaraguan","Nigerian","Nigerien","Norwegian","Omani","Pakistani","Palauan","Palestinian","Panamanian","Papua New Guinean","Paraguayan","Peruvian","Polish","Portuguese","Qatari","Romanian","Russian","Rwandan","Saint Lucian","Salvadoran","Samoan","Saudi","Senegalese","Serbian","Seychellois","Sierra Leonean","Singaporean","Slovak","Slovenian","Somali","South African","South Sudanese","Spanish","Sri Lankan","Sudanese","Surinamese","Swedish","Swiss","Syrian","Taiwanese","Tajik","Tanzanian","Thai","Togolese","Tongan","Trinidadian","Tunisian","Turkish","Turkmen","Tuvaluan","Ugandan","Ukrainian","Uruguayan","Uzbek","Vanuatuan","Venezuelan","Vietnamese","Yemeni","Zambian","Zimbabwean"].map((n) => <option key={n} value={n}>{n}</option>)}</select></div>
                 <div><label className={labelClass}>Religion</label><select name="religion" className={inputClass} defaultValue={emp.religion ?? ""}><option value="">--Select--</option>{["Buddhism","Christianity","Hinduism","Islam","Judaism","Sikhism","Bahá'í","Jainism","Shinto","Taoism","Zoroastrianism","Other","Prefer not to say"].map((r) => <option key={r} value={r}>{r}</option>)}</select></div>
                 <div><label className={labelClass}>Ethnicity</label><select name="ethnicity" className={inputClass} defaultValue={emp.ethnicity ?? ""}><option value="">--Select--</option>{["Asian","Black / African","Hispanic / Latino","Middle Eastern / North African","Native American / Indigenous","Pacific Islander","White / Caucasian","Mixed / Multiracial","Other","Prefer not to say"].map((e) => <option key={e} value={e}>{e}</option>)}</select></div>
-                <div><label className={labelClass}>Status *</label><select name="status" required className={inputClass} defaultValue={emp.status}>{statusOptions.map((s) => <option key={s} value={s}>{statusLabels[s]}</option>)}</select></div>
+                <div><label className={labelClass}>Employment Type *</label><select name="employmentType" required className={inputClass} defaultValue={emp.employmentType}>{empTypeOptions.map((s) => <option key={s} value={s}>{empTypeLabels[s]}</option>)}</select></div>
               </div>
               {/* Hidden fields for other sections */}
               <input type="hidden" name="driversLicenseNumber" value={emp.driversLicenseNumber ?? ""} />
@@ -2200,8 +2205,8 @@ export default function EmployeeDetailPage() {
                 </div>
                 <span className="hidden sm:inline text-slate-200">|</span>
                 <div className="flex items-center gap-1.5">
-                  <span className={`h-2 w-2 rounded-full ${statusColors[emp.status] ?? "bg-gray-400"}`} />
-                  <span className="text-xs font-semibold text-slate-600">{statusLabels[emp.status] ?? emp.status}</span>
+                  <span className={`h-2 w-2 rounded-full ${lifecycleColors[emp.status] ?? "bg-gray-400"}`} />
+                  <span className="text-xs font-semibold text-slate-600">{lifecycleLabels[emp.status] ?? emp.status}</span>
                 </div>
                 {emp.locationName && (
                   <>
@@ -2221,7 +2226,7 @@ export default function EmployeeDetailPage() {
                 <div><label className={labelClass}>Date of Permanency</label><input name="dateOfPermanency" type="date" className={inputClass} defaultValue={emp.dateOfPermanency ? fmtDate(emp.dateOfPermanency) : ""} /></div>
                 <div><label className={labelClass}>Job Title</label><select name="jobTitleId" className={inputClass} defaultValue={emp.jobTitleId ?? ""}><option value="">— None —</option>{jobTitles.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}</select></div>
                 <div><label className={labelClass}>Department *</label><select name="departmentId" required className={inputClass} defaultValue={emp.departmentId}>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
-                <div><label className={labelClass}>Employment Status *</label><select name="status" required className={inputClass} defaultValue={emp.status}>{statusOptions.map((s) => <option key={s} value={s}>{statusLabels[s]}</option>)}</select></div>
+                <div><label className={labelClass}>Employment Type *</label><select name="employmentType" required className={inputClass} defaultValue={emp.employmentType}>{empTypeOptions.map((s) => <option key={s} value={s}>{empTypeLabels[s]}</option>)}</select></div>
                 <div><label className={labelClass}>Business Unit</label><select name="businessUnitId" className={inputClass} defaultValue={emp.businessUnitId ?? ""}><option value="">— None —</option>{businessUnits.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
                 <div><label className={labelClass}>Grade</label><select name="gradeId" className={inputClass} defaultValue={emp.gradeId ?? ""}><option value="">— None —</option>{grades.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
                 <div><label className={labelClass}>Location</label><select name="locationId" className={inputClass} defaultValue={emp.locationId ?? ""}><option value="">— None —</option>{locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
@@ -3432,7 +3437,7 @@ export default function EmployeeDetailPage() {
                         driversLicenseNumber: emp.driversLicenseNumber, licenseExpiryDate: emp.licenseExpiryDate,
                         driversLicenseIssuingCountry: emp.driversLicenseIssuingCountry,
                         joinDate: emp.joinDate, probationEndDate: emp.probationEndDate, dateOfPermanency: emp.dateOfPermanency,
-                        status: emp.status, terminationDate: emp.terminationDate,
+                        status: emp.status, employmentType: emp.employmentType, terminationDate: emp.terminationDate,
                         departmentId: emp.departmentId, businessUnitId: emp.businessUnitId,
                         positionId: emp.positionId, locationId: emp.locationId,
                         gradeId: emp.gradeId, jobTitleId: emp.jobTitleId, managerId: emp.managerId,

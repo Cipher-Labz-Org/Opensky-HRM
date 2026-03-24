@@ -51,6 +51,7 @@ public class EmployeeDto
     public string? TerminationReason { get; set; }
     public string? TerminationNote { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string EmploymentType { get; set; } = string.Empty;
 
     public Guid DepartmentId { get; set; }
     public string? DepartmentName { get; set; }
@@ -183,6 +184,7 @@ public class UpdateEmployeeDto
     public DateTime? ProbationEndDate { get; set; }
     public DateTime? DateOfPermanency { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string EmploymentType { get; set; } = string.Empty;
     public DateTime? TerminationDate { get; set; }
     public string? TerminationReason { get; set; }
     public string? TerminationNote { get; set; }
