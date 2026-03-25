@@ -52,6 +52,9 @@ export function CreateEmployeeModal({
   const [loginStatus, setLoginStatus] = useState<"enabled" | "disabled">("enabled");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginConfirmPassword, setLoginConfirmPassword] = useState("");
+  const [loginUsernameError, setLoginUsernameError] = useState("");
+  const [loginPasswordError, setLoginPasswordError] = useState("");
+  const [loginConfirmPasswordError, setLoginConfirmPasswordError] = useState("");
   const [essRoleId, setEssRoleId] = useState("");
   const [supervisorRoleId, setSupervisorRoleId] = useState("");
   const [adminRoleId, setAdminRoleId] = useState("");
@@ -67,6 +70,9 @@ export function CreateEmployeeModal({
     setLoginStatus("enabled");
     setLoginPassword("");
     setLoginConfirmPassword("");
+    setLoginUsernameError("");
+    setLoginPasswordError("");
+    setLoginConfirmPasswordError("");
     setEssRoleId("");
     setSupervisorRoleId("");
     setAdminRoleId("");
@@ -110,12 +116,31 @@ export function CreateEmployeeModal({
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
+    setLoginUsernameError("");
+    setLoginPasswordError("");
+    setLoginConfirmPasswordError("");
 
     if (createLogin) {
-      if (!loginUsername.trim()) { setError("Username is required for login."); return; }
-      if (!loginPassword) { setError("Password is required."); return; }
-      if (loginPassword !== loginConfirmPassword) { setError("Passwords do not match."); return; }
-      if (loginPassword.length < 6) { setError("Password must be at least 6 characters."); return; }
+      let hasFieldError = false;
+      if (!loginUsername.trim()) {
+        setLoginUsernameError("Username is required.");
+        hasFieldError = true;
+      }
+      if (!loginPassword) {
+        setLoginPasswordError("Password is required.");
+        hasFieldError = true;
+      } else if (loginPassword.length < 6) {
+        setLoginPasswordError("Password must be at least 6 characters.");
+        hasFieldError = true;
+      }
+      if (!loginConfirmPassword) {
+        setLoginConfirmPasswordError("Confirm password is required.");
+        hasFieldError = true;
+      } else if (loginPassword !== loginConfirmPassword) {
+        setLoginConfirmPasswordError("Passwords do not match.");
+        hasFieldError = true;
+      }
+      if (hasFieldError) return;
     }
 
     setSubmitting(true);
@@ -165,7 +190,15 @@ export function CreateEmployeeModal({
       onCreated?.();
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create employee");
+      const msg = err instanceof Error ? err.message : "Failed to create employee";
+      // Best-effort: route password-specific server validation to the password field.
+      if (createLogin && /password/i.test(msg)) {
+        setLoginPasswordError(msg);
+      } else if (createLogin && /username/i.test(msg)) {
+        setLoginUsernameError(msg);
+      } else {
+        setError(msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -336,10 +369,16 @@ export function CreateEmployeeModal({
                 <label className={labelClass}>User Name *</label>
                 <input
                   value={loginUsername}
-                  onChange={(e) => setLoginUsername(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) => {
+                    setLoginUsername(e.target.value);
+                    if (loginUsernameError) setLoginUsernameError("");
+                  }}
+                  className={`${inputClass} ${loginUsernameError ? "border-red-300 focus:border-red-400 focus:ring-red-200/20" : ""}`}
                   placeholder="john.doe"
                 />
+                {loginUsernameError && (
+                  <p className="mt-1 text-xs font-medium text-red-600">{loginUsernameError}</p>
+                )}
               </div>
               <div>
                 <label className={labelClass}>Status</label>
@@ -374,24 +413,42 @@ export function CreateEmployeeModal({
                 <input
                   type="password"
                   value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) => {
+                    setLoginPassword(e.target.value);
+                    if (loginPasswordError) setLoginPasswordError("");
+                    // keep confirm error live when user edits password
+                    if (loginConfirmPasswordError && loginConfirmPassword && e.target.value === loginConfirmPassword) {
+                      setLoginConfirmPasswordError("");
+                    }
+                  }}
+                  className={`${inputClass} ${loginPasswordError ? "border-red-300 focus:border-red-400 focus:ring-red-200/20" : ""}`}
                   placeholder="Enter password"
                 />
+                {loginPasswordError && (
+                  <p className="mt-1 text-xs font-medium text-red-600">{loginPasswordError}</p>
+                )}
               </div>
               <div>
                 <label className={labelClass}>Confirm Password *</label>
                 <input
                   type="password"
                   value={loginConfirmPassword}
-                  onChange={(e) => setLoginConfirmPassword(e.target.value)}
+                  onChange={(e) => {
+                    setLoginConfirmPassword(e.target.value);
+                    if (loginConfirmPasswordError) setLoginConfirmPasswordError("");
+                  }}
                   className={`${inputClass} ${
-                    loginConfirmPassword && loginPassword !== loginConfirmPassword
+                    loginConfirmPasswordError || (loginConfirmPassword && loginPassword !== loginConfirmPassword)
                       ? "border-red-300 focus:border-red-400 focus:ring-red-200/20"
                       : ""
                   }`}
                   placeholder="Re-enter password"
                 />
+                {(loginConfirmPasswordError || (loginConfirmPassword && loginPassword !== loginConfirmPassword)) && (
+                  <p className="mt-1 text-xs font-medium text-red-600">
+                    {loginConfirmPasswordError || "Passwords do not match."}
+                  </p>
+                )}
               </div>
             </div>
 

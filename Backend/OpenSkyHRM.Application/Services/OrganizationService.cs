@@ -439,6 +439,7 @@ public class OrganizationService : IOrganizationService
     public async Task<List<EmploymentStatusTypeDto>> GetEmploymentStatusTypesAsync()
     {
         return await _db.EmploymentStatusTypes
+            .Where(s => !s.IsDeleted)
             .OrderBy(s => s.SortOrder).ThenBy(s => s.Name)
             .Select(s => new EmploymentStatusTypeDto
             {

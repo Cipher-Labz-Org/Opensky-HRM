@@ -189,8 +189,15 @@ public class OrganizationController : ControllerBase
     [HttpDelete("employment-statuses/{id:guid}")]
     public async Task<IActionResult> DeleteEmploymentStatusType(Guid id)
     {
-        var deleted = await _orgService.DeleteEmploymentStatusTypeAsync(id);
-        return deleted ? NoContent() : NotFound();
+        try
+        {
+            var deleted = await _orgService.DeleteEmploymentStatusTypeAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     // --- Employee Status Types ---

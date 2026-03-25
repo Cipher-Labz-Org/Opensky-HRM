@@ -1,9 +1,13 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using OpenSkyHRM.Persistence;
 
 #nullable disable
 
 namespace OpenSkyHRM.Persistence.Migrations
 {
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260322100000_AddOffboardingTasks")]
     public partial class AddOffboardingTasks : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)

@@ -1,10 +1,14 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using OpenSkyHRM.Persistence;
 
 #nullable disable
 
 namespace OpenSkyHRM.Persistence.Migrations
 {
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260321000000_AddPhase3to5")]
     public partial class AddPhase3to5 : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)

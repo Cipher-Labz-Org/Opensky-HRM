@@ -17,6 +17,53 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+static bool IsSafePgIdentifier(string? name)
+{
+    if (string.IsNullOrWhiteSpace(name))
+        return false;
+
+    // Conservative: only allow characters commonly used in DB names.
+    // Prevents injection since we must interpolate the identifier in CREATE DATABASE.
+    foreach (var ch in name)
+    {
+        if (!(char.IsLetterOrDigit(ch) || ch == '_'))
+            return false;
+    }
+    return true;
+}
+
+static async Task EnsureDatabaseExistsAsync(string? connectionString)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+        return;
+
+    var csb = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+    var targetDb = csb.Database;
+
+    if (!IsSafePgIdentifier(targetDb))
+        throw new InvalidOperationException($"Unsafe or missing database name in connection string: '{targetDb}'");
+
+    // Connect to the maintenance DB to create/check the target DB.
+    csb.Database = "postgres";
+
+    await using var conn = new Npgsql.NpgsqlConnection(csb.ConnectionString);
+    await conn.OpenAsync();
+
+    await using (var existsCmd = conn.CreateCommand())
+    {
+        existsCmd.CommandText = "SELECT 1 FROM pg_database WHERE datname = @db";
+        existsCmd.Parameters.AddWithValue("db", targetDb!);
+
+        var exists = await existsCmd.ExecuteScalarAsync();
+        if (exists == null)
+        {
+            await using var createCmd = conn.CreateCommand();
+            createCmd.CommandText = $@"CREATE DATABASE ""{targetDb}""";
+            await createCmd.ExecuteNonQueryAsync();
+        }
+    }
+}
+
 // --- Layer DI Registration ---
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
@@ -90,9 +137,7 @@ if (dbAvailable)
         builder.Services.AddHangfire(config =>
             config.UsePostgreSqlStorage(hangfireConn, new PostgreSqlStorageOptions
             {
-                // Do not attempt install/upgrade on startup; avoid blocking the API when the schema already exists
-                // but Hangfire detects a version drift or an incompatible state.
-                PrepareSchemaIfNecessary = false,
+                PrepareSchemaIfNecessary = true,
                 SchemaName = "hangfire"
             }));
         builder.Services.AddHangfireServer();
@@ -122,9 +167,35 @@ if (dbAvailable)
 {
     try
     {
+        var defaultConn = builder.Configuration.GetConnectionString("DefaultConnection");
+        var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? defaultConn;
+        await EnsureDatabaseExistsAsync(defaultConn);
+        await EnsureDatabaseExistsAsync(hangfireConn);
+
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync();
+
+        // Repair corrupted Hangfire schema from partial installs so the auto-installer can start fresh.
+        try
+        {
+            await using var hfConn = new Npgsql.NpgsqlConnection(hangfireConn);
+            await hfConn.OpenAsync();
+            await using var cmd = hfConn.CreateCommand();
+            cmd.CommandText = @"
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'hangfire')
+                       AND NOT EXISTS (
+                           SELECT 1 FROM information_schema.tables
+                           WHERE table_schema = 'hangfire' AND table_name = 'schema'
+                       )
+                    THEN
+                        DROP SCHEMA hangfire CASCADE;
+                    END IF;
+                END $$;";
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch { }
     }
     catch (Exception ex)
     {

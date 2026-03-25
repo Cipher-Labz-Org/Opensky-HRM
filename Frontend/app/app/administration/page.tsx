@@ -117,6 +117,25 @@ export default function AdministrationPage() {
   );
 }
 
+async function downloadTemplate(path: string, fallbackFilename: string) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "GET",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error((await res.text().catch(() => "")) || `Download failed (${res.status})`);
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fallbackFilename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 // ──── Employee Upload Section ────
 
 function EmployeeUploadSection() {
@@ -154,7 +173,16 @@ function EmployeeUploadSection() {
             </div>
             <h2 className="text-[15px] font-bold text-slate-700">Employee Bulk Import</h2>
           </div>
-          <button onClick={() => window.open(`${API_BASE_URL}/api/bulkupload/template`, "_blank")} className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 transition hover:bg-green-100">
+          <button
+            onClick={async () => {
+              try {
+                await downloadTemplate("/api/bulkupload/template", "EmployeeImportTemplate.xlsx");
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Template download failed");
+              }
+            }}
+            className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 transition hover:bg-green-100"
+          >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
             Download Template
           </button>
@@ -260,7 +288,16 @@ function LeaveBalanceUploadSection() {
             </div>
             <h2 className="text-[15px] font-bold text-slate-700">Leave Balance Bulk Import</h2>
           </div>
-          <button onClick={() => window.open(`${API_BASE_URL}/api/bulkupload/leave-balance-template`, "_blank")} className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 transition hover:bg-green-100">
+          <button
+            onClick={async () => {
+              try {
+                await downloadTemplate("/api/bulkupload/leave-balance-template", "LeaveBalanceImportTemplate.xlsx");
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Template download failed");
+              }
+            }}
+            className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 transition hover:bg-green-100"
+          >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
             Download Template
           </button>

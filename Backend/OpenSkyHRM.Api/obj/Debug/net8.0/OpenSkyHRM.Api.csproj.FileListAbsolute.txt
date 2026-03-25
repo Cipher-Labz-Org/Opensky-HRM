@@ -332,3 +332,4 @@ C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Api.deps.json
 C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Api.runtimeconfig.json
 C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Api.dll
 C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Api.pdb
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Api\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
