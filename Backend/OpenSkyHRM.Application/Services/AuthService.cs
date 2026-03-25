@@ -168,8 +168,18 @@ public class AuthService : IAuthService
 
     public async Task DeleteUserAsync(Guid id)
     {
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id && !u.IsDeleted)
+        var user = await _db.Users
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(u => u.Id == id && !u.IsDeleted)
             ?? throw new KeyNotFoundException("User not found.");
+
+        var isProtectedAdmin =
+            string.Equals(user.Username, "admin", StringComparison.OrdinalIgnoreCase) ||
+            user.UserRoles.Any(ur => string.Equals(ur.Role.Code, "ADMIN", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(ur.Role.Name, "Admin", StringComparison.OrdinalIgnoreCase));
+
+        if (isProtectedAdmin)
+            throw new InvalidOperationException("The primary admin account cannot be deleted.");
 
         user.IsDeleted = true;
         user.UpdatedAt = DateTime.UtcNow;

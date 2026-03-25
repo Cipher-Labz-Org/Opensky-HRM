@@ -24,6 +24,15 @@ public class SystemSettingsController : ControllerBase
         return Ok(await _service.GetAllAsync());
     }
 
+    /// <summary>Must be registered before the literal route so "email-delivery-logs" is not handled as a setting key (404).</summary>
+    [HttpGet("email-delivery-logs")]
+    public async Task<IActionResult> GetEmailDeliveryLogs(
+        [FromServices] ISettingsService settingsService,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? status = null)
+        => Ok(await settingsService.GetOutboundEmailLogsAsync(page, pageSize, status));
+
     [HttpGet("{key}")]
     public async Task<IActionResult> Get(string key)
     {

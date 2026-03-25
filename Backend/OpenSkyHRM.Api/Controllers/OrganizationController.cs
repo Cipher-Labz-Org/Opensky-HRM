@@ -165,6 +165,10 @@ public class OrganizationController : ControllerBase
     public async Task<IActionResult> GetPositions([FromQuery] Guid? departmentId = null)
         => Ok(await _orgService.GetPositionsAsync(departmentId));
 
+    [HttpGet("reporting-hierarchy")]
+    public async Task<IActionResult> GetReportingHierarchy()
+        => Ok(await _orgService.GetReportingHierarchyAsync());
+
     // --- Employment Status Types ---
 
     [HttpGet("employment-statuses")]

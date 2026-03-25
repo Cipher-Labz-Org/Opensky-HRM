@@ -91,6 +91,7 @@ public class AppDbContext : DbContext
     public DbSet<EmployeeCertification> EmployeeCertifications => Set<EmployeeCertification>();
     public DbSet<Skill> Skills => Set<Skill>();
     public DbSet<SkillMatrix> SkillMatrices => Set<SkillMatrix>();
+    public DbSet<TrainingAssignment> TrainingAssignments => Set<TrainingAssignment>();
     public DbSet<SuccessionPlan> SuccessionPlans => Set<SuccessionPlan>();
 
     // Settings & Configuration
@@ -101,12 +102,14 @@ public class AppDbContext : DbContext
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<CompanyCalendar> CompanyCalendars => Set<CompanyCalendar>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<OutboundEmailLog> OutboundEmailLogs => Set<OutboundEmailLog>();
     public DbSet<NotificationConfig> NotificationConfigs => Set<NotificationConfig>();
     public DbSet<IntegrationConfig> IntegrationConfigs => Set<IntegrationConfig>();
 
     // Analytics & Reporting
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
     public DbSet<ReportSchedule> ReportSchedules => Set<ReportSchedule>();
+    public DbSet<AnalyticsSnapshotCache> AnalyticsSnapshotCaches => Set<AnalyticsSnapshotCache>();
 
     // System
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();

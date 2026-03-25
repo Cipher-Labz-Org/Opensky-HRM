@@ -1,7 +1,6 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { OrgStructureVisualizer } from "@/components/org/OrgStructureVisualizer";
-
-export default function OrgChartPage() {
-  return <OrgStructureVisualizer initialTab="chart" />;
+/** Legacy URL: org chart lives under Org Structure (chart tab). */
+export default function OrgChartRedirectPage() {
+  redirect("/app/org-structure");
 }

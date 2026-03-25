@@ -28,10 +28,45 @@ public class SettingsService : ISettingsService
         var items = await query.OrderByDescending(a => a.Timestamp).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(a => new AuditLogDto
             {
-                Id = a.Id, EntityName = a.EntityName, Action = a.Action,
-                UserName = a.UserName, Timestamp = a.Timestamp,
+                Id = a.Id,
+                Module = a.Module,
+                SubjectEmployeeId = a.SubjectEmployeeId,
+                EntityName = a.EntityName,
+                EntityId = a.EntityId,
+                Action = a.Action,
+                UserName = a.UserName,
+                Timestamp = a.Timestamp,
             }).ToListAsync();
         return new PagedResult<AuditLogDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
+    }
+
+    public async Task<PagedResult<OutboundEmailLogDto>> GetOutboundEmailLogsAsync(int page = 1, int pageSize = 50, string? status = null)
+    {
+        var query = _db.OutboundEmailLogs.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(x => x.Status == status);
+
+        var total = await query.CountAsync();
+        var items = await query.OrderByDescending(x => x.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(x => new OutboundEmailLogDto
+            {
+                Id = x.Id,
+                CreatedAt = x.CreatedAt,
+                Category = x.Category,
+                RecipientEmail = x.RecipientEmail,
+                RecipientName = x.RecipientName,
+                Subject = x.Subject,
+                Status = x.Status,
+                Provider = x.Provider,
+                HttpStatusCode = x.HttpStatusCode,
+                FromEmail = x.FromEmail,
+                ErrorDetail = x.ErrorDetail,
+            })
+            .ToListAsync();
+
+        return new PagedResult<OutboundEmailLogDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
 
     public async Task<List<WorkflowDto>> GetWorkflowsAsync()

@@ -5,6 +5,7 @@ using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Auditing;
 
 namespace OpenSkyHRM.Application.Services;
 
@@ -297,6 +298,65 @@ public class EmployeeService : IEmployeeService
         employee.ProfileImageUrl = imageUrl;
         await _db.SaveChangesAsync();
         return imageUrl;
+    }
+
+    public async Task<PagedResult<PeopleAuditLogEntryDto>> GetPeopleAuditTrailAsync(
+        Guid? subjectEmployeeId,
+        IReadOnlyList<Guid>? allowedEmployeeIds,
+        int page = 1,
+        int pageSize = 50)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 50;
+        if (pageSize > 200) pageSize = 200;
+
+        if (subjectEmployeeId.HasValue && allowedEmployeeIds != null && !allowedEmployeeIds.Contains(subjectEmployeeId.Value))
+        {
+            return new PagedResult<PeopleAuditLogEntryDto>
+            {
+                Items = Array.Empty<PeopleAuditLogEntryDto>(),
+                TotalCount = 0,
+                Page = page,
+                PageSize = pageSize,
+            };
+        }
+
+        var query = _db.AuditLogs.AsNoTracking()
+            .Where(a => !a.IsDeleted && a.Module == PeopleHubAuditSaveChangesInterceptor.PeopleModule);
+
+        if (subjectEmployeeId.HasValue)
+            query = query.Where(a => a.SubjectEmployeeId == subjectEmployeeId.Value);
+        else if (allowedEmployeeIds != null)
+            query = query.Where(a => a.SubjectEmployeeId != null && allowedEmployeeIds.Contains(a.SubjectEmployeeId.Value));
+
+        var total = await query.CountAsync();
+        var items = await query.OrderByDescending(a => a.Timestamp)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(a => new PeopleAuditLogEntryDto
+            {
+                Id = a.Id,
+                EntityName = a.EntityName,
+                EntityId = a.EntityId,
+                Action = a.Action,
+                SubjectEmployeeId = a.SubjectEmployeeId,
+                UserId = a.UserId,
+                UserName = a.UserName,
+                Timestamp = a.Timestamp,
+                OldValues = a.OldValues,
+                NewValues = a.NewValues,
+            })
+            .ToListAsync();
+
+        await PeopleAuditTrailEnricher.EnrichAsync(items, _db);
+
+        return new PagedResult<PeopleAuditLogEntryDto>
+        {
+            Items = items,
+            TotalCount = total,
+            Page = page,
+            PageSize = pageSize,
+        };
     }
 
     private static EmployeeDto MapToDto(Employee e) => new()

@@ -2,6 +2,8 @@
  * Longest-prefix wins. Maps app routes to licensing module codes (backend catalog).
  */
 const ROUTE_PREFIX_TO_MODULE: { prefix: string; module: string }[] = [
+  { prefix: "/app/email-delivery-log", module: "Settings" },
+  { prefix: "/app/email-templates", module: "Settings" },
   { prefix: "/app/user-management", module: "Administration" },
   { prefix: "/app/administration", module: "Administration" },
   { prefix: "/app/employee-profile", module: "People" },
@@ -16,7 +18,6 @@ const ROUTE_PREFIX_TO_MODULE: { prefix: string; module: string }[] = [
   { prefix: "/app/performance", module: "Performance" },
   { prefix: "/app/learning", module: "Learning" },
   { prefix: "/app/reports", module: "Analytics" },
-  { prefix: "/app/org-chart", module: "OrgStructure" },
   { prefix: "/app/org-structure", module: "OrgStructure" },
   { prefix: "/app/analytics", module: "Analytics" },
   { prefix: "/app/settings", module: "Settings" },

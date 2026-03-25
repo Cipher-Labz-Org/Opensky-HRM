@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { CreateDepartmentModal } from "@/components/forms/CreateDepartmentModal";
 import { apiFetch } from "@/lib/api";
 import { CompanyOrgHierarchy, type OrgChartBusinessUnit } from "./CompanyOrgHierarchy";
+import { EmployeeHierarchyChart, type ReportingHierarchyNode } from "./EmployeeHierarchyChart";
 import { type OrgChartDepartment } from "./DepartmentOrgChart";
 
 interface Position {
@@ -18,7 +19,7 @@ interface Position {
   jobTitleName: string | null;
 }
 
-type Tab = "chart" | "registry";
+type Tab = "chart" | "reporting" | "registry";
 
 export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -28,6 +29,7 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [companyName, setCompanyName] = useState("");
   const [businessUnits, setBusinessUnits] = useState<OrgChartBusinessUnit[]>([]);
+  const [reportingHierarchy, setReportingHierarchy] = useState<ReportingHierarchyNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -39,13 +41,14 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [depts, pos, settings, bus] = await Promise.all([
+      const [depts, pos, settings, bus, hierarchy] = await Promise.all([
         apiFetch<OrgChartDepartment[]>("/api/organization/departments"),
         apiFetch<Position[]>("/api/organization/positions"),
         apiFetch<Record<string, string>>("/api/system-settings").catch(() => ({}) as Record<string, string>),
         apiFetch<Array<{ id: string; name: string; code: string; isActive: boolean }>>("/api/organization/business-units").catch(
           () => []
         ),
+        apiFetch<ReportingHierarchyNode[]>("/api/organization/reporting-hierarchy").catch(() => []),
       ]);
       setDepartments(Array.isArray(depts) ? depts : []);
       setPositions(Array.isArray(pos) ? pos : []);
@@ -55,6 +58,7 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
           ? bus.map((b) => ({ id: b.id, name: b.name, code: b.code, isActive: b.isActive !== false }))
           : []
       );
+      setReportingHierarchy(Array.isArray(hierarchy) ? hierarchy : []);
     } catch {
       /* keep prior data */
     } finally {
@@ -160,11 +164,18 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
     }
   }
 
-  const title = initialTab === "chart" ? "Organization chart" : "Organization & position management";
+  const title =
+    tab === "chart"
+      ? "Organization chart"
+      : tab === "reporting"
+        ? "Reporting hierarchy"
+        : "Organization & position management";
   const subtitle =
-    initialTab === "chart"
-      ? "Live hierarchy from departments. Refreshes when you return to this tab or click Refresh."
-      : "Legal entities, business units, departments, locations, positions, vacancies, and reporting lines.";
+    tab === "chart"
+      ? "Company structure by business units and departments."
+      : tab === "reporting"
+        ? "Supervisor-based hierarchy from employee reporting lines."
+        : "Legal entities, business units, departments, locations, and positions.";
 
   return (
     <>
@@ -178,6 +189,13 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
             className={`rounded-lg px-4 py-2 text-sm font-medium transition ${tab === "chart" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
           >
             Org chart
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("reporting")}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${tab === "reporting" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+          >
+            Reporting hierarchy
           </button>
           <button
             type="button"
@@ -242,6 +260,18 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
             }}
             deletingId={deletingId}
           />
+        </div>
+      ) : tab === "reporting" ? (
+        <div className="hris-card">
+          <div className="section-title">
+            <h3>Reporting hierarchy (supervisors)</h3>
+            <span>{reportingHierarchy.length} root node(s)</span>
+          </div>
+          <p className="mb-4 text-sm text-[var(--text-muted)]">
+            Built from <strong className="text-slate-700">direct supervisors</strong>, manager assignments, and{" "}
+            <strong className="text-slate-700">head of organization</strong> metadata.
+          </p>
+          <EmployeeHierarchyChart roots={reportingHierarchy} />
         </div>
       ) : (
         <>

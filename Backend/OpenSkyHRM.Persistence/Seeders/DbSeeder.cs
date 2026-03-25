@@ -19,6 +19,7 @@ public static class DbSeeder
             await OrganizationSeeder.SeedAsync(context);
             await LeaveSeeder.SeedAsync(context);
             await DocumentTemplateSeeder.SeedAsync(context);
+            await TransactionalEmailTemplateSeeder.EnsureAsync(context);
             await PayrollSeeder.SeedAsync(context);
 
             await context.SaveChangesAsync();

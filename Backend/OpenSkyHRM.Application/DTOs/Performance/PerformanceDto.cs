@@ -36,10 +36,12 @@ public class CourseDto
     public Guid Id { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Code { get; set; } = string.Empty;
+    public string? Description { get; set; }
     public string? Provider { get; set; }
     public int DurationHours { get; set; }
     public string? Category { get; set; }
     public bool IsMandatory { get; set; }
+    public bool IsActive { get; set; } = true;
 }
 
 public class SkillDto
@@ -52,7 +54,11 @@ public class SkillDto
 public class SkillMatrixDto
 {
     public Guid Id { get; set; }
+    public Guid EmployeeId { get; set; }
+    public Guid SkillId { get; set; }
     public string EmployeeName { get; set; } = string.Empty;
     public string SkillName { get; set; } = string.Empty;
     public int ProficiencyLevel { get; set; }
+    public DateTime? AssessedAt { get; set; }
+    public string? Notes { get; set; }
 }

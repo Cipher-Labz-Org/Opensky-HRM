@@ -19,10 +19,17 @@ export async function apiFetch<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch {
+    throw new Error(
+      `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+    );
+  }
 
   if (res.status === 401) {
     if (typeof window !== "undefined") {
@@ -36,9 +43,24 @@ export async function apiFetch<T>(
     const text = await res.text().catch(() => "Unknown error");
     let errorMessage = `API ${res.status}: ${text}`;
     try {
-      const parsed = JSON.parse(text);
-      if (parsed.message) errorMessage = parsed.message;
-    } catch { /* use raw text */ }
+      const parsed = JSON.parse(text) as {
+        message?: string;
+        title?: string;
+        detail?: string;
+        code?: string;
+        module?: string;
+      };
+      if (parsed.code === "MODULE_NOT_LICENSED") {
+        errorMessage = `The "${parsed.module ?? "requested"}" module is not licensed for this instance.`;
+      } else if (typeof parsed.message === "string") errorMessage = parsed.message;
+      else if (typeof parsed.detail === "string") errorMessage = parsed.detail;
+      else if (typeof parsed.title === "string") errorMessage = parsed.title;
+    } catch {
+      /* use raw text */
+    }
+    if (res.status === 404 && !text?.trim()) {
+      errorMessage = `API 404: no route for ${endpoint}. Restart the API after pulling changes, or set NEXT_PUBLIC_API_URL to your API (using ${API_BASE_URL}).`;
+    }
     throw new Error(errorMessage);
   }
 

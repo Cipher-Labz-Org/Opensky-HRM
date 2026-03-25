@@ -21,9 +21,9 @@ const APP_PATHS = [
   "/performance",
   "/learning",
   "/org-structure",
-  "/org-chart",
   "/analytics",
   "/settings",
+  "/email-templates",
   "/billing",
 ];
 
@@ -87,10 +87,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
     {
       title: "Intelligence",
       items: [
-        { href: ROUTES.orgChart, label: "Org Chart" },
         { href: ROUTES.orgStructure, label: "Org Structure" },
         { href: ROUTES.analytics, label: "Analytics" },
         { href: ROUTES.settings, label: "Policy & Settings" },
+        { href: ROUTES.emailTemplates, label: "Email templates" },
+        { href: ROUTES.emailDeliveryLog, label: "Email delivery log" },
         { href: ROUTES.billing, label: "Billing" },
       ],
     },

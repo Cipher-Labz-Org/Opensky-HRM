@@ -25,6 +25,18 @@ public class EmployeesController : ControllerBase
         _db = db;
     }
 
+    /// <summary>Paged People Hub audit entries (employee profile, related records, compensation). Respects People:Read scope.</summary>
+    [HttpGet("audit-trail")]
+    public async Task<IActionResult> GetPeopleAuditTrail(
+        [FromQuery] Guid? employeeId = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50)
+    {
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var result = await _employeeService.GetPeopleAuditTrailAsync(employeeId, allowedIds, page, pageSize);
+        return Ok(result);
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetAll(
         [FromQuery] int page = 1,

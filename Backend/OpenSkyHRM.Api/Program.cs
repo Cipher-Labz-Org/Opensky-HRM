@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -9,6 +10,7 @@ using OpenSkyHRM.Application;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Auditing;
 using OpenSkyHRM.Persistence.Seeders;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
@@ -16,6 +18,8 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 var builder = WebApplication.CreateBuilder(args);
 
 // --- Layer DI Registration ---
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddApplication();
 
@@ -81,10 +85,23 @@ catch (Exception ex)
 if (dbAvailable)
 {
     var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? connStr;
-    builder.Services.AddHangfire(config =>
-        config.UsePostgreSqlStorage(options =>
-            options.UseNpgsqlConnection(hangfireConn)));
-    builder.Services.AddHangfireServer();
+    try
+    {
+        builder.Services.AddHangfire(config =>
+            config.UsePostgreSqlStorage(hangfireConn, new PostgreSqlStorageOptions
+            {
+                // Do not attempt install/upgrade on startup; avoid blocking the API when the schema already exists
+                // but Hangfire detects a version drift or an incompatible state.
+                PrepareSchemaIfNecessary = false,
+                SchemaName = "hangfire"
+            }));
+        builder.Services.AddHangfireServer();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Hangfire registration failed: {ex.Message}");
+        Console.WriteLine("The API will start without Hangfire background processing.");
+    }
 }
 
 // --- CORS (allow Next.js frontend) ---
@@ -136,6 +153,14 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await LicensingSeeder.EnsureAsync(db);
+
+        // Dev safety: ensure there is always at least one usable admin after resets.
+        // This does not overwrite existing users; it only bootstraps if no active ADMIN user exists.
+        if (app.Environment.IsDevelopment())
+        {
+            var bootstrapPassword = builder.Configuration["CustomerReset:BootstrapAdminPassword"] ?? "Admin@123";
+            await AdminBootstrapSeeder.EnsureAsync(db, adminPassword: bootstrapPassword);
+        }
     }
     catch (Exception ex)
     {
@@ -188,6 +213,16 @@ if (dbAvailable)
             "report-generation",
             job => job.ExecuteAsync(),
             Hangfire.Cron.Daily(3, 0));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.AnalyticsSnapshotRefreshJob>(
+            "analytics-snapshot-refresh",
+            job => job.ExecuteAsync(CancellationToken.None),
+            Hangfire.Cron.Daily(4, 0));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.TrainingDueReminderJob>(
+            "training-overdue-reminders",
+            job => job.ExecuteAsync(CancellationToken.None),
+            Hangfire.Cron.Daily(5, 0));
     }
     catch (Exception ex)
     {

@@ -16,4 +16,10 @@ public interface IEmployeeService
     Task<EmployeeDto?> UpdateAsync(Guid id, UpdateEmployeeDto dto);
     Task<bool> DeleteAsync(Guid id);
     Task<string?> UpdateProfileImageAsync(Guid id, string imageUrl);
+
+    Task<PagedResult<PeopleAuditLogEntryDto>> GetPeopleAuditTrailAsync(
+        Guid? subjectEmployeeId,
+        IReadOnlyList<Guid>? allowedEmployeeIds,
+        int page = 1,
+        int pageSize = 50);
 }

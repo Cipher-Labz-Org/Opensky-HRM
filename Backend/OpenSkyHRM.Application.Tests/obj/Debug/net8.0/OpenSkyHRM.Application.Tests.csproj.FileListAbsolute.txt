@@ -125,3 +125,9 @@ C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\obj\Debug\net8.0\refi
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\obj\Debug\net8.0\OpenSkyHRM.Application.Tests.pdb
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\obj\Debug\net8.0\OpenSkyHRM.Application.Tests.genruntimeconfig.cache
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\obj\Debug\net8.0\ref\OpenSkyHRM.Application.Tests.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Configuration.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Configuration.Binder.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.Abstractions.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Http.dll
+C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Options.ConfigurationExtensions.dll

@@ -37,6 +37,7 @@ public interface IOrganizationService
 
     // Positions
     Task<List<PositionDto>> GetPositionsAsync(Guid? departmentId = null);
+    Task<List<ReportingHierarchyNodeDto>> GetReportingHierarchyAsync();
 
     // Employment Status Types
     Task<List<EmploymentStatusTypeDto>> GetEmploymentStatusTypesAsync();

@@ -25,6 +25,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
     items: [
       { href: ROUTES.dashboard, label: "Dashboard", module: "Dashboard" },
       { href: ROUTES.people, label: "People Hub", module: "People" },
+      { href: ROUTES.peopleAuditTrail, label: "People audit trail", module: "People" },
       { href: ROUTES.employeeProfile, label: "Employee 360", module: "People" },
       { href: ROUTES.recruitment, label: "Recruitment", module: "Recruitment" },
       { href: ROUTES.employeeTasks, label: "Employee Tasks", module: "EmployeeTasks" },
@@ -44,11 +45,17 @@ const ALL_NAV_GROUPS: NavGroup[] = [
     title: "Intelligence",
     items: [
       { href: ROUTES.reports, label: "Reports", module: "Analytics" },
-      { href: ROUTES.orgChart, label: "Org Chart", module: "OrgStructure" },
       { href: ROUTES.orgStructure, label: "Org Structure", module: "OrgStructure" },
       { href: ROUTES.analytics, label: "Analytics", module: "Analytics" },
       { href: ROUTES.settings, label: "Policy & Settings", module: "Settings" },
       { href: ROUTES.billing, label: "Billing" },
+    ],
+  },
+  {
+    title: "Audit & Compliance",
+    items: [
+      { href: ROUTES.emailTemplates, label: "Email templates", module: "Settings" },
+      { href: ROUTES.emailDeliveryLog, label: "Email delivery log", module: "Settings" },
     ],
   },
   {

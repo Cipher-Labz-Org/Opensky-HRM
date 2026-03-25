@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { CreateEmployeeModal } from "@/components/forms/CreateEmployeeModal";
+import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
+import { ROUTES } from "@/config/routes";
 
 interface Employee {
   id: string;
@@ -235,18 +237,28 @@ export default function PeoplePage() {
             <h1 className="text-xl font-bold text-slate-800">People Hub</h1>
             <p className="mt-0.5 text-[13px] text-slate-400">Manage your workforce — employees, contracts, and lifecycle.</p>
           </div>
-          {canCreateEmployee && (
-            <button
-              onClick={() => setShowCreate(true)}
-              className="group flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm transition-all hover:border-[#2B7DE9] hover:text-[#2B7DE9] hover:shadow active:scale-[0.98]"
-              title="Create Employee"
-            >
-              <svg className="h-4 w-4 text-[#2B7DE9]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              New Employee
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {(isAdmin || hasPermission("People", "Read")) && !showSimplifiedView && (
+              <Link
+                href={ROUTES.peopleAuditTrail}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-600 shadow-sm transition-all hover:border-slate-300 hover:text-slate-800"
+              >
+                Audit trail
+              </Link>
+            )}
+            {canCreateEmployee && (
+              <button
+                onClick={() => setShowCreate(true)}
+                className="group flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm transition-all hover:border-[#2B7DE9] hover:text-[#2B7DE9] hover:shadow active:scale-[0.98]"
+                title="Create Employee"
+              >
+                <svg className="h-4 w-4 text-[#2B7DE9]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                New Employee
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Stat Cards */}

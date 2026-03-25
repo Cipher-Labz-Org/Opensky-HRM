@@ -12,7 +12,10 @@ public class SecurityRoleDto
 public class AuditLogDto
 {
     public Guid Id { get; set; }
+    public string Module { get; set; } = string.Empty;
+    public Guid? SubjectEmployeeId { get; set; }
     public string EntityName { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
     public string Action { get; set; } = string.Empty;
     public string? UserName { get; set; }
     public DateTime Timestamp { get; set; }
@@ -25,4 +28,19 @@ public class WorkflowDto
     public string Module { get; set; } = string.Empty;
     public int Steps { get; set; }
     public bool IsActive { get; set; }
+}
+
+public class OutboundEmailLogDto
+{
+    public Guid Id { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string Category { get; set; } = string.Empty;
+    public string RecipientEmail { get; set; } = string.Empty;
+    public string? RecipientName { get; set; }
+    public string Subject { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string Provider { get; set; } = string.Empty;
+    public int? HttpStatusCode { get; set; }
+    public string? FromEmail { get; set; }
+    public string? ErrorDetail { get; set; }
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
@@ -74,6 +75,7 @@ function printReport(result: ReportResult, sortedRows: Record<string, unknown>[]
 }
 
 export default function ReportsPage() {
+  const searchParams = useSearchParams();
   const [catalog, setCatalog] = useState<ReportCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [selectedReport, setSelectedReport] = useState<string>("");
@@ -82,6 +84,7 @@ export default function ReportsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
+  const deepLinkConsumed = useRef<string | null>(null);
 
   useEffect(() => {
     apiFetch<ReportCategory[]>("/api/reports/catalog").then((cats) => {
@@ -102,6 +105,18 @@ export default function ReportsPage() {
       setResult(data);
     } catch { /* ignore */ } finally { setLoading(false); }
   }, []);
+
+  useEffect(() => {
+    const cat = searchParams.get("category");
+    const rpt = searchParams.get("report");
+    if (!cat || !rpt || catalog.length === 0) return;
+    const catObj = catalog.find((c) => c.key === cat);
+    if (!catObj?.reports.some((r) => r.key === rpt)) return;
+    const sig = `${cat}:${rpt}`;
+    if (deepLinkConsumed.current === sig) return;
+    deepLinkConsumed.current = sig;
+    void runReport(cat, rpt);
+  }, [searchParams, catalog, runReport]);
 
   const handleSort = (col: string) => {
     if (sortCol === col) setSortAsc(!sortAsc);

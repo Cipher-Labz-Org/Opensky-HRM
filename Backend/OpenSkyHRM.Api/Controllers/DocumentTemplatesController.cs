@@ -17,9 +17,9 @@ public class DocumentTemplatesController : ControllerBase
 
     public DocumentTemplatesController(AppDbContext db) => _db = db;
 
-    public record TemplateDto(Guid Id, string Name, string TemplateKey, string HtmlContent, bool IsActive);
+    public record TemplateDto(Guid Id, string Name, string TemplateKey, string? Subject, string HtmlContent, bool IsActive);
     public record TemplateListDto(Guid Id, string Name, string TemplateKey, bool IsActive);
-    public record UpdateTemplateRequest(string Name, string HtmlContent, bool IsActive);
+    public record UpdateTemplateRequest(string Name, string? Subject, string HtmlContent, bool IsActive);
 
     [HttpGet]
     public async Task<IActionResult> GetAll()
@@ -31,29 +31,13 @@ public class DocumentTemplatesController : ControllerBase
         return Ok(templates);
     }
 
-    [HttpGet("{id:guid}")]
-    public async Task<IActionResult> GetById(Guid id)
-    {
-        var t = await _db.DocumentTemplates.FindAsync(id);
-        if (t is null) return NotFound();
-        return Ok(new TemplateDto(t.Id, t.Name, t.TemplateKey, t.HtmlContent, t.IsActive));
-    }
-
-    [HttpPut("{id:guid}")]
-    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateTemplateRequest req)
-    {
-        var t = await _db.DocumentTemplates.FindAsync(id);
-        if (t is null) return NotFound();
-        t.Name = req.Name;
-        t.HtmlContent = req.HtmlContent;
-        t.IsActive = req.IsActive;
-        await _db.SaveChangesAsync();
-        return Ok(new TemplateDto(t.Id, t.Name, t.TemplateKey, t.HtmlContent, t.IsActive));
-    }
-
+    /// <summary>Literal route segment must stay ahead of {id:guid} so &quot;render&quot; is never parsed as a template id.</summary>
     [HttpGet("render/{templateKey}/{employeeId:guid}")]
     public async Task<IActionResult> Render(string templateKey, Guid employeeId)
     {
+        if (templateKey.StartsWith("Email_", StringComparison.OrdinalIgnoreCase))
+            return BadRequest("Transactional email templates are not used with employee letter render.");
+
         var template = await _db.DocumentTemplates
             .FirstOrDefaultAsync(t => t.TemplateKey == templateKey && t.IsActive);
         if (template is null) return NotFound("Template not found or inactive.");
@@ -100,6 +84,33 @@ public class DocumentTemplatesController : ControllerBase
             .Replace("{{CompanyName}}", "OpenSky HRM");
 
         return Ok(new { html });
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetById(Guid id)
+    {
+        var t = await _db.DocumentTemplates.FindAsync(id);
+        if (t is null) return NotFound();
+        return Ok(new TemplateDto(t.Id, t.Name, t.TemplateKey, t.Subject, t.HtmlContent, t.IsActive));
+    }
+
+    [HttpPut("{id:guid}")]
+    public Task<IActionResult> Put(Guid id, [FromBody] UpdateTemplateRequest req) => UpdateTemplateAsync(id, req);
+
+    /// <summary>Some hosts/proxies block PUT; POST is an alternate save path for the same body.</summary>
+    [HttpPost("{id:guid}")]
+    public Task<IActionResult> PostUpdate(Guid id, [FromBody] UpdateTemplateRequest req) => UpdateTemplateAsync(id, req);
+
+    private async Task<IActionResult> UpdateTemplateAsync(Guid id, UpdateTemplateRequest req)
+    {
+        var t = await _db.DocumentTemplates.FindAsync(id);
+        if (t is null) return NotFound();
+        t.Name = req.Name;
+        t.Subject = req.Subject;
+        t.HtmlContent = req.HtmlContent;
+        t.IsActive = req.IsActive;
+        await _db.SaveChangesAsync();
+        return Ok(new TemplateDto(t.Id, t.Name, t.TemplateKey, t.Subject, t.HtmlContent, t.IsActive));
     }
 
     private static string FormatAddress(params string?[] parts)

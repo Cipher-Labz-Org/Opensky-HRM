@@ -333,6 +333,107 @@ public class OrganizationService : IOrganizationService
             .ToListAsync();
     }
 
+    public async Task<List<ReportingHierarchyNodeDto>> GetReportingHierarchyAsync()
+    {
+        var employees = await _db.Employees
+            .Where(e => e.Status != "Terminated")
+            .Select(e => new
+            {
+                e.Id,
+                e.EmployeeCode,
+                e.FirstName,
+                e.MiddleName,
+                e.LastName,
+                e.IsTopOfHierarchy,
+                e.ManagerId,
+                JobTitleName = e.JobTitle != null ? e.JobTitle.Title : null,
+                DepartmentName = e.Department != null ? e.Department.Name : null,
+            })
+            .ToListAsync();
+
+        var supervisorLinks = await _db.Set<EmployeeSupervisor>()
+            .OrderBy(x => x.CreatedAt)
+            .Select(x => new { x.EmployeeId, x.SupervisorId, x.ReportingMethod, x.CreatedAt })
+            .ToListAsync();
+
+        var nodesById = employees.ToDictionary(
+            e => e.Id,
+            e => new ReportingHierarchyNodeDto
+            {
+                Id = e.Id,
+                EmployeeCode = e.EmployeeCode,
+                FullName = string.IsNullOrWhiteSpace(e.MiddleName)
+                    ? $"{e.FirstName} {e.LastName}"
+                    : $"{e.FirstName} {e.MiddleName} {e.LastName}",
+                JobTitleName = e.JobTitleName,
+                DepartmentName = e.DepartmentName,
+                IsTopOfHierarchy = e.IsTopOfHierarchy,
+            });
+
+        // Keep one supervisor edge per employee; prefer Employee.ManagerId when set
+        // (current profile value), otherwise use supervisor rows and prefer "Direct".
+        var supervisorByEmployee = supervisorLinks
+            .Where(x => nodesById.ContainsKey(x.EmployeeId) && nodesById.ContainsKey(x.SupervisorId))
+            .GroupBy(x => x.EmployeeId)
+            .ToDictionary(
+                g => g.Key,
+                g => g
+                    .OrderByDescending(x => string.Equals(x.ReportingMethod, "Direct", StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(x => x.CreatedAt)
+                    .Select(x => x.SupervisorId)
+                    .First());
+
+        foreach (var employee in employees)
+        {
+            if (!employee.ManagerId.HasValue) continue;
+            if (!nodesById.ContainsKey(employee.ManagerId.Value)) continue;
+            if (employee.ManagerId.Value == employee.Id) continue;
+            supervisorByEmployee[employee.Id] = employee.ManagerId.Value;
+        }
+
+        foreach (var pair in supervisorByEmployee)
+        {
+            var employeeId = pair.Key;
+            var supervisorId = pair.Value;
+            if (employeeId == supervisorId) continue;
+            nodesById[supervisorId].Children.Add(nodesById[employeeId]);
+        }
+
+        var roots = nodesById.Values
+            .Where(n => !supervisorByEmployee.ContainsKey(n.Id))
+            .OrderByDescending(n => n.IsTopOfHierarchy)
+            .ThenBy(n => n.FullName)
+            .ToList();
+
+        if (roots.Count == 0)
+            roots = nodesById.Values.OrderBy(n => n.FullName).ToList();
+
+        var visited = new HashSet<Guid>();
+        foreach (var root in roots)
+            SortAndBreakCycles(root, visited);
+
+        var unattached = nodesById.Values
+            .Where(n => !visited.Contains(n.Id))
+            .OrderBy(n => n.FullName)
+            .ToList();
+
+        roots.AddRange(unattached);
+        return roots;
+    }
+
+    private static void SortAndBreakCycles(ReportingHierarchyNodeDto node, HashSet<Guid> visited)
+    {
+        if (!visited.Add(node.Id))
+        {
+            node.Children.Clear();
+            return;
+        }
+
+        node.Children = node.Children.OrderBy(c => c.FullName).ToList();
+        foreach (var child in node.Children)
+            SortAndBreakCycles(child, visited);
+    }
+
     // --- Employment Status Types ---
 
     public async Task<List<EmploymentStatusTypeDto>> GetEmploymentStatusTypesAsync()

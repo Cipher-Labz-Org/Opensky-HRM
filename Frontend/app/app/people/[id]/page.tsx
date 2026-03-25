@@ -138,6 +138,41 @@ interface SkillItem {
   comments: string | null;
 }
 
+interface TrainingAssignmentRow {
+  id: string;
+  courseTitle: string;
+  courseCode: string;
+  status: string;
+  dueDate: string | null;
+  assignedAt: string;
+  completedAt: string | null;
+}
+
+interface EmployeeCertRow {
+  id: string;
+  certificationId: string;
+  certificationName: string;
+  obtainedDate: string;
+  expiryDate: string | null;
+  certificateNumber: string | null;
+  status: string;
+}
+
+interface SkillMatrixRow {
+  id: string;
+  skillName: string;
+  proficiencyLevel: number;
+  assessedAt: string | null;
+  notes: string | null;
+}
+
+interface CourseOption {
+  id: string;
+  title: string;
+  code: string;
+  isActive: boolean;
+}
+
 interface LanguageItem {
   id: string;
   employeeId: string;
@@ -195,6 +230,7 @@ interface BenefitData {
 }
 
 interface Lookup { id: string; name: string }
+interface StatusLookup extends Lookup { code: string }
 
 interface WidgetDef { id: string; label: string; icon: string; color: string }
 
@@ -341,6 +377,7 @@ export default function EmployeeDetailPage() {
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [grades, setGrades] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
+  const [employeeStatuses, setEmployeeStatuses] = useState<StatusLookup[]>([]);
   const [managers, setManagers] = useState<Lookup[]>([]);
 
   const [visibleWidgets, setVisibleWidgets] = useState<string[]>(DEFAULT_VISIBLE);
@@ -411,6 +448,15 @@ export default function EmployeeDetailPage() {
   const [skillName, setSkillName] = useState("");
   const [skillYears, setSkillYears] = useState("");
   const [skillComments, setSkillComments] = useState("");
+
+  const [trainingRows, setTrainingRows] = useState<TrainingAssignmentRow[]>([]);
+  const [certRows, setCertRows] = useState<EmployeeCertRow[]>([]);
+  const [matrixRows, setMatrixRows] = useState<SkillMatrixRow[]>([]);
+  const [showTrainAssignModal, setShowTrainAssignModal] = useState(false);
+  const [coursesCatalog, setCoursesCatalog] = useState<CourseOption[]>([]);
+  const [trainCourseId, setTrainCourseId] = useState("");
+  const [trainDue, setTrainDue] = useState("");
+  const [trainSaving, setTrainSaving] = useState(false);
 
   const [languages, setLanguages] = useState<LanguageItem[]>([]);
   const [showLangModal, setShowLangModal] = useState(false);
@@ -484,13 +530,14 @@ export default function EmployeeDetailPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [e, deps, bus, locs, grs, jts, mgrs, settings, atts] = await Promise.all([
+      const [e, deps, bus, locs, grs, jts, sts, mgrs, settings, atts] = await Promise.all([
         apiFetch<EmployeeDetail>(`/api/employees/${id}`),
         apiFetch<Lookup[]>("/api/organization/departments"),
         apiFetch<Lookup[]>("/api/organization/business-units"),
         apiFetch<Lookup[]>("/api/organization/locations"),
         apiFetch<Lookup[]>("/api/organization/grades"),
         apiFetch<Lookup[]>("/api/organization/job-titles"),
+        apiFetch<StatusLookup[]>("/api/organization/employee-statuses").catch(() => [] as StatusLookup[]),
         apiFetch<{ items: { id: string; fullName: string }[] }>("/api/employees?pageSize=200")
           .then((r) => r.items.filter((m) => m.id !== id).map((m) => ({ id: m.id, name: m.fullName }))),
         apiFetch<Record<string, string>>("/api/system-settings").catch((): Record<string, string> => ({})),
@@ -505,6 +552,7 @@ export default function EmployeeDetailPage() {
       setLocations(locs);
       setGrades(grs);
       setJobTitles(jts);
+      setEmployeeStatuses(sts);
       setManagers(mgrs);
       setAttachments(atts);
       apiFetch<ReportPerson[]>(`/api/employees/${id}/supervisors`).then(setSupervisors).catch(() => {});
@@ -513,6 +561,11 @@ export default function EmployeeDetailPage() {
       apiFetch<DependentItem[]>(`/api/employees/${id}/dependents`).then(setDependents).catch(() => {});
       apiFetch<EducationItem[]>(`/api/employees/${id}/educations`).then(setEducations).catch(() => {});
       apiFetch<SkillItem[]>(`/api/employees/${id}/skills`).then(setSkills).catch(() => {});
+      apiFetch<TrainingAssignmentRow[]>(`/api/employees/${id}/training-assignments`).then(setTrainingRows).catch(() => { setTrainingRows([]); });
+      apiFetch<EmployeeCertRow[]>(`/api/employees/${id}/certifications`).then(setCertRows).catch(() => { setCertRows([]); });
+      apiFetch<{ id: string; skillName: string; proficiencyLevel: number; assessedAt: string | null; notes: string | null }[]>(`/api/learning/skill-matrix?employeeId=${id}`)
+        .then((rows) => setMatrixRows(rows.map((r) => ({ id: r.id, skillName: r.skillName, proficiencyLevel: r.proficiencyLevel, assessedAt: r.assessedAt, notes: r.notes }))))
+        .catch(() => { setMatrixRows([]); });
       apiFetch<LanguageItem[]>(`/api/employees/${id}/languages`).then(setLanguages).catch(() => {});
       apiFetch<ImmigrationItem[]>(`/api/employees/${id}/immigrations`).then(setImmigrations).catch(() => {});
       apiFetch<Attachment[]>(`/api/employees/${id}/immigration-documents`).then(setImmDocs).catch(() => {});
@@ -948,6 +1001,51 @@ export default function EmployeeDetailPage() {
       await apiFetch(`/api/employees/${id}/skills/${skillId}`, { method: "DELETE" });
       setSkills((prev) => prev.filter((s) => s.id !== skillId));
     } catch { /* ignore */ }
+  }
+
+  async function openTrainAssignModal() {
+    try {
+      const cs = await apiFetch<CourseOption[]>("/api/learning/courses");
+      const active = cs.filter((c) => c.isActive);
+      if (active.length === 0) {
+        alert("No active courses in the catalog. Add a course from Learning first.");
+        return;
+      }
+      setCoursesCatalog(active);
+      setTrainCourseId(active[0]!.id);
+      setTrainDue("");
+      setShowTrainAssignModal(true);
+    } catch {
+      alert("Could not load courses. Ensure the Learning module is licensed and you have access.");
+    }
+  }
+
+  function closeTrainAssignModal() {
+    setShowTrainAssignModal(false);
+  }
+
+  async function saveTrainingAssign(e: FormEvent) {
+    e.preventDefault();
+    if (!trainCourseId) return;
+    setTrainSaving(true);
+    try {
+      await apiFetch("/api/learning/training-assignments", {
+        method: "POST",
+        body: JSON.stringify({
+          employeeId: id,
+          courseId: trainCourseId,
+          dueDate: trainDue ? new Date(trainDue).toISOString() : null,
+          notes: null,
+        }),
+      });
+      const rows = await apiFetch<TrainingAssignmentRow[]>(`/api/employees/${id}/training-assignments`);
+      setTrainingRows(rows);
+      closeTrainAssignModal();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to assign training");
+    } finally {
+      setTrainSaving(false);
+    }
   }
 
   function openLangModal(lang?: LanguageItem) {
@@ -1496,7 +1594,7 @@ export default function EmployeeDetailPage() {
       joinDate: fd.get("joinDate") || emp.joinDate,
       probationEndDate: fd.get("probationEndDate") || null,
       dateOfPermanency: fd.get("dateOfPermanency") || null,
-      status: emp.status,
+      status: fd.get("status") || emp.status,
       employmentType: fd.get("employmentType") || emp.employmentType,
       departmentId: fd.get("departmentId") || emp.departmentId,
       businessUnitId: fd.get("businessUnitId") || null,
@@ -1921,7 +2019,22 @@ export default function EmployeeDetailPage() {
                 <div><label className={labelClass}>Nationality</label><select name="nationality" className={inputClass} defaultValue={emp.nationality ?? ""}><option value="">--Select--</option>{["Afghan","Albanian","Algerian","American","Andorran","Angolan","Argentine","Armenian","Australian","Austrian","Azerbaijani","Bahamian","Bahraini","Bangladeshi","Barbadian","Belarusian","Belgian","Belizean","Beninese","Bhutanese","Bolivian","Bosnian","Brazilian","British","Bruneian","Bulgarian","Burkinabe","Burmese","Burundian","Cambodian","Cameroonian","Canadian","Cape Verdean","Central African","Chadian","Chilean","Chinese","Colombian","Comorian","Congolese","Costa Rican","Croatian","Cuban","Cypriot","Czech","Danish","Djiboutian","Dominican","Dutch","East Timorese","Ecuadorian","Egyptian","Emirati","Equatorial Guinean","Eritrean","Estonian","Ethiopian","Fijian","Filipino","Finnish","French","Gabonese","Gambian","Georgian","German","Ghanaian","Greek","Grenadian","Guatemalan","Guinean","Guyanese","Haitian","Honduran","Hungarian","Icelandic","Indian","Indonesian","Iranian","Iraqi","Irish","Israeli","Italian","Ivorian","Jamaican","Japanese","Jordanian","Kazakh","Kenyan","Kiribati","Korean","Kuwaiti","Kyrgyz","Lao","Latvian","Lebanese","Liberian","Libyan","Lithuanian","Luxembourgish","Macedonian","Malagasy","Malawian","Malaysian","Maldivian","Malian","Maltese","Mauritanian","Mauritian","Mexican","Moldovan","Monegasque","Mongolian","Montenegrin","Moroccan","Mozambican","Namibian","Nepalese","New Zealander","Nicaraguan","Nigerian","Nigerien","Norwegian","Omani","Pakistani","Palauan","Palestinian","Panamanian","Papua New Guinean","Paraguayan","Peruvian","Polish","Portuguese","Qatari","Romanian","Russian","Rwandan","Saint Lucian","Salvadoran","Samoan","Saudi","Senegalese","Serbian","Seychellois","Sierra Leonean","Singaporean","Slovak","Slovenian","Somali","South African","South Sudanese","Spanish","Sri Lankan","Sudanese","Surinamese","Swedish","Swiss","Syrian","Taiwanese","Tajik","Tanzanian","Thai","Togolese","Tongan","Trinidadian","Tunisian","Turkish","Turkmen","Tuvaluan","Ugandan","Ukrainian","Uruguayan","Uzbek","Vanuatuan","Venezuelan","Vietnamese","Yemeni","Zambian","Zimbabwean"].map((n) => <option key={n} value={n}>{n}</option>)}</select></div>
                 <div><label className={labelClass}>Religion</label><select name="religion" className={inputClass} defaultValue={emp.religion ?? ""}><option value="">--Select--</option>{["Buddhism","Christianity","Hinduism","Islam","Judaism","Sikhism","Bahá'í","Jainism","Shinto","Taoism","Zoroastrianism","Other","Prefer not to say"].map((r) => <option key={r} value={r}>{r}</option>)}</select></div>
                 <div><label className={labelClass}>Ethnicity</label><select name="ethnicity" className={inputClass} defaultValue={emp.ethnicity ?? ""}><option value="">--Select--</option>{["Asian","Black / African","Hispanic / Latino","Middle Eastern / North African","Native American / Indigenous","Pacific Islander","White / Caucasian","Mixed / Multiracial","Other","Prefer not to say"].map((e) => <option key={e} value={e}>{e}</option>)}</select></div>
-                <div><label className={labelClass}>Employment Type *</label><select name="employmentType" required className={inputClass} defaultValue={emp.employmentType}>{empTypeOptions.map((s) => <option key={s} value={s}>{empTypeLabels[s]}</option>)}</select></div>
+                <div>
+                  <label className={labelClass}>Employee Status *</label>
+                  <select name="status" required className={inputClass} defaultValue={emp.status}>
+                    {employeeStatuses.length > 0
+                      ? employeeStatuses.map((s) => (
+                          <option key={s.id} value={s.code}>
+                            {s.name}
+                          </option>
+                        ))
+                      : Object.keys(lifecycleLabels).map((code) => (
+                          <option key={code} value={code}>
+                            {lifecycleLabels[code] ?? code}
+                          </option>
+                        ))}
+                  </select>
+                </div>
               </div>
               {/* Hidden fields for other sections */}
               <input type="hidden" name="driversLicenseNumber" value={emp.driversLicenseNumber ?? ""} />
@@ -2946,6 +3059,157 @@ export default function EmployeeDetailPage() {
                             </button>
                           </div>
                         </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <Modal open={showTrainAssignModal} onClose={closeTrainAssignModal} title="">
+            <form onSubmit={saveTrainingAssign}>
+              <h3 className="text-lg font-semibold text-slate-700">Assign training</h3>
+              <p className="mt-1 text-sm text-slate-500">Creates a course assignment for this employee.</p>
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Course</label>
+                  <select
+                    value={trainCourseId}
+                    onChange={(e) => setTrainCourseId(e.target.value)}
+                    className={inputClass}
+                    required
+                  >
+                    {coursesCatalog.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title} ({c.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Due date (optional)</label>
+                  <input type="date" value={trainDue} onChange={(e) => setTrainDue(e.target.value)} className={inputClass} />
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button type="button" onClick={closeTrainAssignModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600">
+                  Cancel
+                </button>
+                <button type="submit" disabled={trainSaving || !trainCourseId} className="rounded-full bg-indigo-600 px-8 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                  {trainSaving ? "Saving…" : "Assign"}
+                </button>
+              </div>
+            </form>
+          </Modal>
+
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div className="flex items-center gap-2.5">
+                <SectionIcon path="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" color="bg-indigo-500" />
+                <h2 className="text-base font-bold text-indigo-700">Training assignments</h2>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-500">{trainingRows.length} record(s)</span>
+                <button type="button" onClick={() => void openTrainAssignModal()} className="grid h-9 w-9 place-items-center rounded-full bg-indigo-600 text-white shadow-sm transition hover:bg-indigo-700" title="Assign training">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                </button>
+              </div>
+            </div>
+            {trainingRows.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-slate-400">No training assignments (requires Learning module access).</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
+                      <th className="px-6 py-3">Course</th>
+                      <th className="px-4 py-3">Code</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Due</th>
+                      <th className="px-4 py-3">Assigned</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trainingRows.map((t) => (
+                      <tr key={t.id} className="border-b border-slate-50 transition hover:bg-slate-50">
+                        <td className="px-6 py-3 font-medium text-slate-700">{t.courseTitle}</td>
+                        <td className="px-4 py-3 text-slate-600">{t.courseCode}</td>
+                        <td className="px-4 py-3 text-slate-600">{t.status}</td>
+                        <td className="px-4 py-3 text-slate-600">{t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{t.assignedAt ? new Date(t.assignedAt).toLocaleDateString() : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div className="flex items-center gap-2.5">
+                <SectionIcon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" color="bg-violet-500" />
+                <h2 className="text-base font-bold text-violet-800">Skill matrix (reference skills)</h2>
+              </div>
+              <span className="text-sm text-slate-500">{matrixRows.length} record(s)</span>
+            </div>
+            {matrixRows.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-slate-400">No structured skill matrix rows for this employee.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
+                      <th className="px-6 py-3">Skill</th>
+                      <th className="px-4 py-3">Proficiency</th>
+                      <th className="px-4 py-3">Assessed</th>
+                      <th className="px-4 py-3">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrixRows.map((m) => (
+                      <tr key={m.id} className="border-b border-slate-50 transition hover:bg-slate-50">
+                        <td className="px-6 py-3 font-medium text-slate-700">{m.skillName}</td>
+                        <td className="px-4 py-3 text-slate-600">{m.proficiencyLevel}</td>
+                        <td className="px-4 py-3 text-slate-600">{m.assessedAt ? new Date(m.assessedAt).toLocaleDateString() : "—"}</td>
+                        <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{m.notes ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div className="flex items-center gap-2.5">
+                <SectionIcon path="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" color="bg-amber-500" />
+                <h2 className="text-base font-bold text-amber-800">Certifications</h2>
+              </div>
+              <span className="text-sm text-slate-500">{certRows.length} record(s)</span>
+            </div>
+            {certRows.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-slate-400">No certifications recorded.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
+                      <th className="px-6 py-3">Certification</th>
+                      <th className="px-4 py-3">Obtained</th>
+                      <th className="px-4 py-3">Expires</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {certRows.map((c) => (
+                      <tr key={c.id} className="border-b border-slate-50 transition hover:bg-slate-50">
+                        <td className="px-6 py-3 font-medium text-slate-700">{c.certificationName}</td>
+                        <td className="px-4 py-3 text-slate-600">{new Date(c.obtainedDate).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 text-slate-600">{c.expiryDate ? new Date(c.expiryDate).toLocaleDateString() : "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{c.status}</td>
                       </tr>
                     ))}
                   </tbody>

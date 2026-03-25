@@ -8,6 +8,8 @@ import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
+import Link from "next/link";
+import { ROUTES } from "@/config/routes";
 
 import { Modal } from "@/components/ui/Modal";
 
@@ -20,12 +22,16 @@ interface CountSummary {
   empStatuses: number;
 }
 
-interface LetterTemplate {
+interface TemplateListItem {
   id: string;
   name: string;
   templateKey: string;
-  htmlContent: string;
   isActive: boolean;
+}
+
+interface TemplateDetail extends TemplateListItem {
+  subject?: string | null;
+  htmlContent: string;
 }
 
 export default function SettingsPage() {
@@ -47,8 +53,8 @@ export default function SettingsPage() {
   const [codeMsg, setCodeMsg] = useState("");
   const [codePreview, setCodePreview] = useState("");
 
-  const [letterTemplates, setLetterTemplates] = useState<LetterTemplate[]>([]);
-  const [editingTemplate, setEditingTemplate] = useState<LetterTemplate | null>(null);
+  const [letterTemplates, setLetterTemplates] = useState<TemplateListItem[]>([]);
+  const [editingTemplate, setEditingTemplate] = useState<TemplateDetail | null>(null);
   const [tplName, setTplName] = useState("");
   const [tplHtml, setTplHtml] = useState("");
   const [tplActive, setTplActive] = useState(true);
@@ -217,8 +223,8 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    apiFetch<LetterTemplate[]>("/api/documenttemplates")
-      .then(setLetterTemplates)
+    apiFetch<TemplateListItem[]>("/api/documenttemplates")
+      .then((all) => setLetterTemplates(all.filter((t) => !t.templateKey.startsWith("Email_"))))
       .catch(() => {});
   }, []);
 
@@ -236,8 +242,8 @@ export default function SettingsPage() {
     } catch { /* ignore */ } finally { setApprovalConfigSaving(false); }
   }
 
-  function openTemplateEditor(tpl: LetterTemplate) {
-    apiFetch<LetterTemplate>(`/api/documenttemplates/${tpl.id}`)
+  function openTemplateEditor(tpl: TemplateListItem) {
+    apiFetch<TemplateDetail>(`/api/documenttemplates/${tpl.id}`)
       .then((full) => {
         setEditingTemplate(full);
         setTplName(full.name);
@@ -252,13 +258,17 @@ export default function SettingsPage() {
     if (!editingTemplate) return;
     setTplSaving(true);
     try {
-      const updated = await apiFetch<LetterTemplate>(`/api/documenttemplates/${editingTemplate.id}`, {
+      const updated = await apiFetch<TemplateDetail>(`/api/documenttemplates/${editingTemplate.id}`, {
         method: "PUT",
-        body: JSON.stringify({ name: tplName, htmlContent: tplHtml, isActive: tplActive }),
+        body: JSON.stringify({
+          name: tplName,
+          subject: null,
+          htmlContent: tplHtml,
+          isActive: tplActive,
+        }),
       });
-      setLetterTemplates((prev) =>
-        prev.map((t) => (t.id === updated.id ? { ...t, name: updated.name, isActive: updated.isActive } : t))
-      );
+      const patch = { id: updated.id, name: updated.name, templateKey: updated.templateKey, isActive: updated.isActive };
+      setLetterTemplates((prev) => prev.map((t) => (t.id === updated.id ? patch : t)));
       setEditingTemplate(null);
     } catch {
       alert("Failed to save template");
@@ -723,6 +733,13 @@ export default function SettingsPage() {
             <span>Configure document templates for employee letters</span>
           </div>
           <div className="space-y-2">
+            <p className="text-xs text-[var(--text-muted)] mb-3 rounded-lg bg-[var(--bg-subtle)] px-3 py-2">
+              To edit <strong>transactional emails</strong> (leave confirmation, offer, etc.), open{" "}
+              <Link href={ROUTES.emailTemplates} className="font-medium text-[var(--primary)] hover:underline">
+                Email templates
+              </Link>{" "}
+              under <strong>Audit &amp; Compliance</strong> in the sidebar (or use this link).
+            </p>
             <p className="text-xs text-[var(--text-muted)] mb-2">
               Available placeholders: <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{EmployeeName}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{EmployeeCode}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{JobTitle}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{Department}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{JoinDate}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{CurrentDate}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{CompanyName}}"}</code> and more.
             </p>
@@ -786,6 +803,15 @@ export default function SettingsPage() {
           <table className="hris-table">
             <thead><tr><th>Control</th><th>Description</th></tr></thead>
             <tbody>
+              <tr>
+                <td>Outbound email log</td>
+                <td>
+                  Status of every transactional email (SendGrid/SMTP): recipient, subject, sent/failed/skipped, provider response.{" "}
+                  <Link href={ROUTES.emailDeliveryLog} className="font-medium text-blue-600 hover:underline">
+                    Open email delivery log
+                  </Link>
+                </td>
+              </tr>
               <tr><td>Audit trail</td><td>Every master and transaction change logged with user, time, old/new value</td></tr>
               <tr><td>Document retention</td><td>Controlled storage and expiry/removal policies</td></tr>
               <tr><td>PII protection</td><td>Field masking, encryption, scoped exports</td></tr>

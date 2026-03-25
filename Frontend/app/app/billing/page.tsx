@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { API_BASE_URL } from "@/config/constants";
 import { useAuth } from "@/contexts/auth-context";
+import Link from "next/link";
 
 type LicensingSummary = {
   planName: string;
@@ -195,6 +196,25 @@ export default function BillingPage() {
         {success && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
             {success}
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className="rounded-[22px] border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[var(--shadow)]">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--text)]">Customer onboarding reset</h3>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  Dry-run preview and secure execution to clear transactional data for a new customer.
+                </p>
+              </div>
+              <Link
+                href="/app/billing/customer-reset"
+                className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Open reset
+              </Link>
+            </div>
           </div>
         )}
 

@@ -11,10 +11,11 @@
 using System;
 using System.Reflection;
 
+[assembly: Microsoft.Extensions.Configuration.UserSecrets.UserSecretsIdAttribute("93e97f3f-42ae-4d3a-9d1e-303b8fdb8708")]
 [assembly: System.Reflection.AssemblyCompanyAttribute("OpenSkyHRM.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+48c6a4fbf597d6c374b45d4a473d7959415f5410")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d24acb40a981736db372647cbc49c1e54c0e6f40")]
 [assembly: System.Reflection.AssemblyProductAttribute("OpenSkyHRM.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("OpenSkyHRM.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
