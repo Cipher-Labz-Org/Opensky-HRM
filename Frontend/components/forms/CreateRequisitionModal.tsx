@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, useMemo, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { DatePickerField } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { type EmploymentTypeCatalogItem, employmentTypeOptionsFromCatalog } from "@/lib/employment-types";
 
 interface Lookup { id: string; name: string }
 interface LocationLookup { id: string; name: string }
@@ -15,8 +17,14 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
   const [employees, setEmployees] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<LocationLookup[]>([]);
+  const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const employmentTypeOpts = useMemo(
+    () => employmentTypeOptionsFromCatalog(employmentTypes),
+    [employmentTypes]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -25,11 +33,13 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
       apiFetch<Lookup[]>("/api/organization/job-titles"),
       apiFetch<{ items: { id: string; firstName: string; lastName: string }[] }>("/api/employees?pageSize=200"),
       apiFetch<LocationLookup[]>("/api/organization/locations"),
-    ]).then(([d, j, e, l]) => {
+      apiFetch<EmploymentTypeCatalogItem[]>("/api/organization/employment-statuses").catch(() => [] as EmploymentTypeCatalogItem[]),
+    ]).then(([d, j, e, l, empTypes]) => {
       setDepartments(d);
       setJobTitles(j);
       setEmployees(e.items.map((x) => ({ id: x.id, name: `${x.firstName} ${x.lastName}` })));
       setLocations(l);
+      setEmploymentTypes(empTypes);
     }).catch(() => {});
   }, [open]);
 
@@ -92,15 +102,14 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
           <div><label className={labelClass}>Employment Type</label>
             <select name="employmentType" className={inputClass}>
               <option value="">Select...</option>
-              <option value="Full-time">Full-time</option>
-              <option value="Part-time">Part-time</option>
-              <option value="Contract">Contract</option>
-              <option value="Internship">Internship</option>
+              {employmentTypeOpts.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          <div><label className={labelClass}>Target Date</label><input name="targetDate" type="date" className={inputClass} /></div>
+          <div><label className={labelClass}>Target Date</label><DatePickerField name="targetDate" className={inputClass} /></div>
           <div><label className={labelClass}>Exp. Min (years)</label><input name="experienceMin" type="number" min={0} className={inputClass} /></div>
           <div><label className={labelClass}>Exp. Max (years)</label><input name="experienceMax" type="number" min={0} className={inputClass} /></div>
         </div>

@@ -32,6 +32,7 @@ public class WorkExperiencesController : ControllerBase
                 EmployeeId = w.EmployeeId,
                 Company = w.Company,
                 JobTitle = w.JobTitle,
+                EmploymentType = w.EmploymentType,
                 FromDate = w.FromDate,
                 ToDate = w.ToDate,
                 Creditable = w.Creditable,
@@ -52,6 +53,7 @@ public class WorkExperiencesController : ControllerBase
             EmployeeId = employeeId,
             Company = req.Company,
             JobTitle = req.JobTitle,
+            EmploymentType = req.EmploymentType,
             FromDate = req.FromDate,
             ToDate = req.ToDate,
             Creditable = req.Creditable,
@@ -74,6 +76,7 @@ public class WorkExperiencesController : ControllerBase
 
         item.Company = req.Company;
         item.JobTitle = req.JobTitle;
+        item.EmploymentType = req.EmploymentType;
         item.FromDate = req.FromDate;
         item.ToDate = req.ToDate;
         item.Creditable = req.Creditable;
@@ -103,6 +106,7 @@ public class WorkExperiencesController : ControllerBase
         EmployeeId = w.EmployeeId,
         Company = w.Company,
         JobTitle = w.JobTitle,
+        EmploymentType = w.EmploymentType,
         FromDate = w.FromDate,
         ToDate = w.ToDate,
         Creditable = w.Creditable,
@@ -116,6 +120,7 @@ public class WorkExperienceDto
     public Guid EmployeeId { get; set; }
     public string Company { get; set; } = string.Empty;
     public string JobTitle { get; set; } = string.Empty;
+    public string? EmploymentType { get; set; }
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
     public bool Creditable { get; set; }
@@ -126,6 +131,7 @@ public class WorkExperienceRequest
 {
     public string Company { get; set; } = string.Empty;
     public string JobTitle { get; set; } = string.Empty;
+    public string? EmploymentType { get; set; }
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
     public bool Creditable { get; set; }

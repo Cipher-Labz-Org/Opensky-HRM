@@ -13,6 +13,7 @@ public class WorkExperienceConfiguration : IEntityTypeConfiguration<WorkExperien
 
         builder.Property(w => w.Company).HasMaxLength(200).IsRequired();
         builder.Property(w => w.JobTitle).HasMaxLength(200).IsRequired();
+        builder.Property(w => w.EmploymentType).HasMaxLength(80);
         builder.Property(w => w.Comment).HasMaxLength(1000);
 
         builder.HasOne(w => w.Employee)

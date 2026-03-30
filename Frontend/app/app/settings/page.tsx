@@ -20,6 +20,8 @@ interface CountSummary {
   locations: number;
   statuses: number;
   empStatuses: number;
+  skills: number;
+  attachmentTypes: number;
 }
 
 interface TemplateListItem {
@@ -44,7 +46,9 @@ export default function SettingsPage() {
   const [editLocations, setEditLocations] = useState(false);
   const [editStatuses, setEditStatuses] = useState(false);
   const [editEmpStatuses, setEditEmpStatuses] = useState(false);
-  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0, empStatuses: 0 });
+  const [editSkills, setEditSkills] = useState(false);
+  const [editAttachmentTypes, setEditAttachmentTypes] = useState(false);
+  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0, empStatuses: 0, skills: 0, attachmentTypes: 0 });
 
   const [codeAutoGen, setCodeAutoGen] = useState(true);
   const [codeLength, setCodeLength] = useState("6");
@@ -99,10 +103,12 @@ export default function SettingsPage() {
       apiFetch<{ id: string }[]>("/api/organization/locations").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/organization/employment-statuses").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/organization/employee-statuses").then((r) => r.length).catch(() => 0),
-    ]).then(([businessUnits, grades, jobTitles, locations, statuses, empStatuses]) =>
-      setCounts({ businessUnits, grades, jobTitles, locations, statuses, empStatuses })
+      apiFetch<{ id: string }[]>("/api/employees/skills-catalog").then((r) => r.length).catch(() => 0),
+      apiFetch<{ id: string }[]>("/api/employees/profile-attachment-types").then((r) => r.length).catch(() => 0),
+    ]).then(([businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, attachmentTypes]) =>
+      setCounts({ businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, attachmentTypes })
     );
-  }, [editBU, editGrades, editJobs, editLocations, editStatuses, editEmpStatuses]);
+  }, [editBU, editGrades, editJobs, editLocations, editStatuses, editEmpStatuses, editSkills, editAttachmentTypes]);
 
   useEffect(() => {
     apiFetch<Record<string, string>>("/api/system-settings")
@@ -451,6 +457,7 @@ export default function SettingsPage() {
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Email</label>
               <input value={companyEmail} onChange={(e) => setCompanyEmail(e.target.value)} type="email"
+                pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. info@company.com)"
                 className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
                 placeholder="info@company.com" />
             </div>
@@ -559,7 +566,7 @@ export default function SettingsPage() {
       <MasterDataEditorModal
         open={editStatuses}
         onClose={() => setEditStatuses(false)}
-        title="Employment Statuses"
+        title="Employment Types"
         apiBase="/api/organization/employment-statuses"
         fields={[
           { key: "name", label: "Name", placeholder: "Full Time Permanent" },
@@ -605,6 +612,60 @@ export default function SettingsPage() {
           description: fd.get("description") || null,
           isActive: true,
           sortOrder: parseInt(String(fd.get("sortOrder") || "0"), 10),
+        })}
+      />
+
+      <MasterDataEditorModal
+        open={editSkills}
+        onClose={() => setEditSkills(false)}
+        title="Skills (People Hub qualifications)"
+        apiBase="/api/employees/skills-catalog"
+        codeColumnHeader="Category"
+        fields={[
+          { key: "name", label: "Skill name", placeholder: "e.g. Project management" },
+          { key: "code", label: "Category", required: false, placeholder: "e.g. Leadership (optional)" },
+          { key: "description", label: "Description", type: "textarea", required: false, placeholder: "Optional notes" },
+          { key: "isActive", label: "Active (shown in People Hub skill dropdown)", type: "checkbox", required: false, defaultForAdd: true },
+        ]}
+        toForm={(item) => ({
+          name: item.name,
+          code: (item.category as string) ?? item.code ?? "",
+          description: (item.description as string) ?? "",
+          isActive: item.isActive !== false,
+        })}
+        toPayload={(fd) => ({
+          name: fd.get("name"),
+          category: fd.get("code") || null,
+          description: fd.get("description") || null,
+          isActive: fd.get("isActive") === "on",
+        })}
+      />
+
+      <MasterDataEditorModal
+        open={editAttachmentTypes}
+        onClose={() => setEditAttachmentTypes(false)}
+        title="Profile attachment types (People Hub)"
+        apiBase="/api/employees/profile-attachment-types"
+        fields={[
+          { key: "name", label: "Name", placeholder: "e.g. Passport copy" },
+          { key: "code", label: "Code", placeholder: "ATT-PASS" },
+          { key: "description", label: "Description", type: "textarea", required: false, placeholder: "Optional" },
+          { key: "sortOrder", label: "Sort order", type: "number", required: false, placeholder: "0" },
+          { key: "isActive", label: "Active (available in profile upload)", type: "checkbox", required: false, defaultForAdd: true },
+        ]}
+        toForm={(item) => ({
+          name: item.name,
+          code: item.code,
+          description: (item.description as string) ?? "",
+          sortOrder: String(item.sortOrder ?? 0),
+          isActive: item.isActive !== false,
+        })}
+        toPayload={(fd) => ({
+          name: fd.get("name"),
+          code: fd.get("code"),
+          description: fd.get("description") || null,
+          sortOrder: parseInt(String(fd.get("sortOrder") || "0"), 10),
+          isActive: fd.get("isActive") === "on",
         })}
       />
 
@@ -723,6 +784,20 @@ export default function SettingsPage() {
                 <div className="text-xs text-[var(--text-muted)]">{counts.empStatuses} status{counts.empStatuses !== 1 ? "es" : ""} configured</div>
               </div>
               <button onClick={() => setEditEmpStatuses(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
+            </div>
+            <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
+              <div>
+                <strong className="text-sm font-semibold text-[var(--text)]">Skills</strong>
+                <div className="text-xs text-[var(--text-muted)]">{counts.skills} skill{counts.skills !== 1 ? "s" : ""} in catalog (People qualifications)</div>
+              </div>
+              <button type="button" onClick={() => setEditSkills(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
+            </div>
+            <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
+              <div>
+                <strong className="text-sm font-semibold text-[var(--text)]">Profile attachment types</strong>
+                <div className="text-xs text-[var(--text-muted)]">{counts.attachmentTypes} type{counts.attachmentTypes !== 1 ? "s" : ""} (Personal details attachments)</div>
+              </div>
+              <button type="button" onClick={() => setEditAttachmentTypes(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
             </div>
           </div>
         </div>

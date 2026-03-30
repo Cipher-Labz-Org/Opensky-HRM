@@ -244,12 +244,16 @@ public class AttendanceService : IAttendanceService
         var today = DateTime.UtcNow.Date;
         var now = DateTime.UtcNow;
         var onLeaveToday = await HasApprovedLeaveOnDateAsync(employeeId, today);
+        var isOut = dto.Type.Equals("out", StringComparison.OrdinalIgnoreCase);
+        var source = string.IsNullOrWhiteSpace(dto.Source) ? "Mobile" : dto.Source.Trim();
 
-        if (dto.Type.Equals("out", StringComparison.OrdinalIgnoreCase))
+        if (isOut)
         {
             var existing = await _db.Set<AttendanceRecord>()
                 .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
-                .FirstOrDefaultAsync(a => a.EmployeeId == employeeId && a.Date == today && a.PunchOut == null);
+                .Where(a => a.EmployeeId == employeeId && a.Date == today && a.PunchOut == null && !a.IsDeleted)
+                .OrderByDescending(a => a.PunchIn ?? DateTime.MinValue)
+                .FirstOrDefaultAsync();
 
             if (existing != null)
             {
@@ -263,16 +267,23 @@ public class AttendanceService : IAttendanceService
                     .Where(ra => ra.EmployeeId == employeeId).ToListAsync();
                 return MapToDto(existing, rosters, onLeaveToday);
             }
+
+            throw new InvalidOperationException("There is no open check-in to check out from.");
         }
+
+        var hasOpen = await _db.Set<AttendanceRecord>()
+            .AnyAsync(a => a.EmployeeId == employeeId && a.Date == today && a.PunchOut == null && !a.IsDeleted);
+        if (hasOpen)
+            throw new InvalidOperationException("Check out before recording another check-in.");
 
         var newRecord = new AttendanceRecord
         {
             EmployeeId = employeeId,
             Date = today,
-            PunchIn = dto.Type.Equals("out", StringComparison.OrdinalIgnoreCase) ? null : now,
-            PunchOut = dto.Type.Equals("out", StringComparison.OrdinalIgnoreCase) ? now : null,
+            PunchIn = now,
+            PunchOut = null,
             Status = "Present",
-            Source = "Mobile",
+            Source = source,
             Latitude = dto.Latitude,
             Longitude = dto.Longitude,
         };

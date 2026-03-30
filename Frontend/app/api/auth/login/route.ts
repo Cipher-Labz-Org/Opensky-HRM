@@ -5,7 +5,7 @@ function backendBase(): string {
   return (
     process.env.API_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
-    "http://127.0.0.1:5122"
+    "http://127.0.0.1:5000"
   ).replace(/\/$/, "");
 }
 
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         message:
-          "Cannot reach the HR API. Start the backend (dotnet run) and set API_URL or NEXT_PUBLIC_API_URL if it is not http://127.0.0.1:5122.",
+          "Cannot reach the HR API. Start the backend (dotnet run on port 5000) and set API_URL or NEXT_PUBLIC_API_URL if the API uses another URL.",
       },
       { status: 503 },
     );

@@ -5,6 +5,7 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { CreateCourseModal } from "@/components/forms/CreateCourseModal";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -248,7 +249,7 @@ export default function LearningPage() {
                           <td className="px-4 py-3 text-slate-600">{t.courseTitle}</td>
                           <td className="px-4 py-3 text-slate-600">{t.status}</td>
                           <td className="px-4 py-3 text-slate-600">
-                            {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—"}
+                            {formatDate(t.dueDate)}
                           </td>
                         </tr>
                       ))
@@ -444,7 +445,7 @@ export default function LearningPage() {
                         <td className="px-4 py-3 text-slate-600">{m.skillName}</td>
                         <td className="px-4 py-3 text-slate-600">{m.proficiencyLevel}</td>
                         <td className="px-4 py-3 text-slate-600">
-                          {m.assessedAt ? new Date(m.assessedAt).toLocaleDateString() : "—"}
+                          {formatDateTime(m.assessedAt)}
                         </td>
                       </tr>
                     ))
@@ -484,10 +485,10 @@ export default function LearningPage() {
                       <td className="px-4 py-3 text-slate-600">{t.courseTitle}</td>
                       <td className="px-4 py-3 text-slate-600">{t.status}</td>
                       <td className="px-4 py-3 text-slate-600">
-                        {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—"}
+                        {formatDate(t.dueDate)}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
-                        {t.assignedAt ? new Date(t.assignedAt).toLocaleDateString() : "—"}
+                        {formatDateTime(t.assignedAt)}
                       </td>
                     </tr>
                   ))

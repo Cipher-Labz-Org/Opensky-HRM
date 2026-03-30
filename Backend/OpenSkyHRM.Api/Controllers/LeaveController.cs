@@ -362,12 +362,38 @@ public class LeaveController : ControllerBase
 
     // ───── Entitlement & Recalculate ─────
 
+    /// <summary>Shop &amp; Office Act baseline entitlements for the calendar year (continuous service; ignores probation/permanency).</summary>
+    [HttpGet("shop-office-entitlement/{employeeId:guid}")]
+    public async Task<IActionResult> GetShopOfficeEntitlement(Guid employeeId, [FromQuery] int year = 0)
+    {
+        if (!await LeaveAccessHelper.CanAccessEmployeeLeaveAsync(User, _db, employeeId, "Read"))
+            return Forbid();
+        var y = year == 0 ? DateTime.UtcNow.Year : year;
+        var dto = await _entitlementService.GetShopOfficeActEntitlementAsync(employeeId, y);
+        if (dto is null) return NotFound();
+        return Ok(new
+        {
+            annual_leave_entitlement = dto.AnnualLeaveEntitlement,
+            casual_leave_entitlement = dto.CasualLeaveEntitlement,
+            year = dto.Year,
+            based_on = dto.BasedOn,
+        });
+    }
+
     [HttpPost("recalculate/{employeeId:guid}")]
     public async Task<IActionResult> Recalculate(Guid employeeId, [FromQuery] int year)
     {
         if (!await LeaveAccessHelper.CanAccessEmployeeLeaveAsync(User, _db, employeeId, "Update"))
             return Forbid();
-        return Ok(await _entitlementService.CalculateAndApplyAsync(employeeId, year == 0 ? DateTime.UtcNow.Year : year));
+        var y0 = year == 0 ? DateTime.UtcNow.Year : year;
+        var years = new SortedSet<int> { y0, DateTime.UtcNow.Year };
+        EntitlementResult sum = new(0, 0);
+        foreach (var y in years)
+        {
+            var r = await _entitlementService.CalculateAndApplyAsync(employeeId, y);
+            sum = new(sum.BalancesCreated + r.BalancesCreated, sum.BalancesUpdated + r.BalancesUpdated);
+        }
+        return Ok(sum);
     }
 
     [HttpPost("recalculate-all")]

@@ -194,6 +194,7 @@ function EmployeeUploadSection() {
               <li>Click <strong>Download Template</strong> to get the Excel file with all columns pre-formatted.</li>
               <li>Fill in employee data. <strong>First Name, Last Name, Email, Department, Gender, Date of Birth, Joined Date</strong> are required.</li>
               <li>Use values from the lookup sheets (Departments, Grades, etc.) for dropdown fields.</li>
+              <li><strong>Employment Type</strong> and <strong>Employee Status</strong> must match the codes on the <strong>Reference</strong> sheet (same codes as Administration → Organization / People Hub).</li>
               <li>Leave <strong>Employee Code</strong> blank to auto-generate, or provide unique codes.</li>
               <li>Upload the completed file below.</li>
             </ol>

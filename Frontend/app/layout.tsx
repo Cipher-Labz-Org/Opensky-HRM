@@ -2,6 +2,7 @@ import React from "react";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import "react-day-picker/style.css";
 import { APP_NAME } from "@/config/constants";
 import { AuthProvider } from "@/contexts/auth-context";
 

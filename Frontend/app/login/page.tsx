@@ -25,7 +25,13 @@ export default function LoginPage() {
     );
   }
 
-  if (isAuthenticated) return null;
+  if (isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center" style={{ background: "linear-gradient(180deg, #f7f9fc 0%, #eef3f9 100%)" }}>
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
+      </div>
+    );
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

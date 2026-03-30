@@ -3,6 +3,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { DatePickerField } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 interface Lookup {
@@ -238,6 +239,8 @@ export function CreateEmployeeModal({
               name="email"
               type="email"
               required
+              pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}"
+              title="Enter a valid email (e.g. name@company.com)"
               className={inputClass}
               placeholder="john@openskyhrm.com"
               onChange={(e) => {
@@ -266,8 +269,15 @@ export function CreateEmployeeModal({
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
-            <label className={labelClass}>Date of Birth *</label>
-            <input name="dateOfBirth" type="date" required className={inputClass} />
+            <label className={labelClass} htmlFor="create-employee-dateOfBirth">
+              Date of Birth *
+            </label>
+            <DatePickerField
+              id="create-employee-dateOfBirth"
+              name="dateOfBirth"
+              required
+              className={inputClass}
+            />
           </div>
           <div>
             <label className={labelClass}>Gender *</label>
@@ -280,7 +290,7 @@ export function CreateEmployeeModal({
           </div>
           <div>
             <label className={labelClass}>Join Date *</label>
-            <input name="joinDate" type="date" required className={inputClass} />
+            <DatePickerField name="joinDate" required className={inputClass} />
           </div>
         </div>
 

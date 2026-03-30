@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Common;
 using OpenSkyHRM.Domain.Entities;
 
@@ -13,6 +14,7 @@ public sealed class PeopleHubAuditSaveChangesInterceptor : SaveChangesIntercepto
     public const string PeopleModule = "People";
 
     private readonly ICurrentAuditUser _currentUser;
+    private readonly IBusinessClock _clock;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -46,7 +48,11 @@ public sealed class PeopleHubAuditSaveChangesInterceptor : SaveChangesIntercepto
         nameof(BaseEntity.UpdatedAt),
     ];
 
-    public PeopleHubAuditSaveChangesInterceptor(ICurrentAuditUser currentUser) => _currentUser = currentUser;
+    public PeopleHubAuditSaveChangesInterceptor(ICurrentAuditUser currentUser, IBusinessClock clock)
+    {
+        _currentUser = currentUser;
+        _clock = clock;
+    }
 
     public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
     {
@@ -88,8 +94,9 @@ public sealed class PeopleHubAuditSaveChangesInterceptor : SaveChangesIntercepto
         }
     }
 
-    private static AuditLog? BuildLog(EntityEntry entry, Guid? userId, string? userName)
+    private AuditLog? BuildLog(EntityEntry entry, Guid? userId, string? userName)
     {
+        var now = _clock.Now;
         var entityName = entry.Metadata.ClrType.Name;
         var idProp = entry.Properties.FirstOrDefault(p => p.Metadata.IsPrimaryKey());
         var entityId = idProp?.CurrentValue ?? idProp?.OriginalValue;
@@ -111,7 +118,8 @@ public sealed class PeopleHubAuditSaveChangesInterceptor : SaveChangesIntercepto
                     NewValues = SerializeScalars(entry, EntityState.Added, forOriginal: false),
                     UserId = userId?.ToString(),
                     UserName = userName,
-                    Timestamp = DateTime.UtcNow,
+                    CreatedAt = now,
+                    Timestamp = now,
                 };
 
             case EntityState.Deleted:
@@ -126,7 +134,8 @@ public sealed class PeopleHubAuditSaveChangesInterceptor : SaveChangesIntercepto
                     NewValues = null,
                     UserId = userId?.ToString(),
                     UserName = userName,
-                    Timestamp = DateTime.UtcNow,
+                    CreatedAt = now,
+                    Timestamp = now,
                 };
 
             case EntityState.Modified:
@@ -168,7 +177,8 @@ public sealed class PeopleHubAuditSaveChangesInterceptor : SaveChangesIntercepto
                     NewValues = changesNew,
                     UserId = userId?.ToString(),
                     UserName = userName,
-                    Timestamp = DateTime.UtcNow,
+                    CreatedAt = now,
+                    Timestamp = now,
                 };
 
             default:

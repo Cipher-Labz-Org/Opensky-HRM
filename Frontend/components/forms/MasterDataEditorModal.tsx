@@ -17,9 +17,11 @@ interface Item {
 interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "textarea";
+  type?: "text" | "number" | "textarea" | "checkbox";
   required?: boolean;
   placeholder?: string;
+  /** When adding a row and `defaults` is undefined, used as initial checkbox checked / fallback. */
+  defaultForAdd?: boolean;
 }
 
 interface Props {
@@ -28,8 +30,10 @@ interface Props {
   title: string;
   apiBase: string;
   fields: FieldDef[];
+  /** Second column header in the list table (default &quot;Code&quot;). */
+  codeColumnHeader?: string;
   /** maps API item → flat form-ready object */
-  toForm?: (item: Item) => Record<string, string | number>;
+  toForm?: (item: Item) => Record<string, string | number | boolean>;
   /** maps form data → API payload */
   toPayload?: (fd: FormData) => Record<string, unknown>;
 }
@@ -40,6 +44,7 @@ export function MasterDataEditorModal({
   title,
   apiBase,
   fields,
+  codeColumnHeader = "Code",
   toForm,
   toPayload,
 }: Props) {
@@ -76,6 +81,10 @@ export function MasterDataEditorModal({
     if (toPayload) return toPayload(fd);
     const obj: Record<string, unknown> = {};
     for (const f of fields) {
+      if (f.type === "checkbox") {
+        obj[f.key] = fd.get(f.key) === "on";
+        continue;
+      }
       const val = fd.get(f.key);
       obj[f.key] = f.type === "number" ? Number(val) : (val || null);
     }
@@ -130,7 +139,7 @@ export function MasterDataEditorModal({
 
   function renderForm(
     onSubmit: (e: FormEvent<HTMLFormElement>) => void,
-    defaults?: Record<string, string | number>,
+    defaults?: Record<string, string | number | boolean>,
     submitLabel = "Save",
     onCancel?: () => void,
     formKey?: string
@@ -139,25 +148,45 @@ export function MasterDataEditorModal({
       <form key={formKey} onSubmit={onSubmit} className="mb-4 rounded-xl border border-blue-100 bg-blue-50/30 p-4">
         <div className="grid gap-3 sm:grid-cols-2">
           {fields.map((f) => (
-            <div key={f.key} className={f.type === "textarea" ? "sm:col-span-2" : ""}>
-              <label className={labelClass}>{f.label}{f.required !== false ? " *" : ""}</label>
-              {f.type === "textarea" ? (
-                <textarea
-                  name={f.key}
-                  rows={2}
-                  className={inputClass}
-                  defaultValue={defaults?.[f.key] ?? ""}
-                  placeholder={f.placeholder}
-                />
+            <div key={f.key} className={f.type === "textarea" || f.type === "checkbox" ? "sm:col-span-2" : ""}>
+              {f.type === "checkbox" ? (
+                <label className="flex cursor-pointer items-center gap-2.5 pt-1">
+                  <input
+                    type="checkbox"
+                    name={f.key}
+                    defaultChecked={
+                      defaults?.[f.key] !== undefined
+                        ? Boolean(defaults[f.key])
+                        : Boolean(f.defaultForAdd)
+                    }
+                    className="h-4 w-4 rounded border border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/20"
+                  />
+                  <span className="text-sm font-medium text-[var(--text)]">
+                    {f.label}{f.required !== false ? " *" : ""}
+                  </span>
+                </label>
               ) : (
-                <input
-                  name={f.key}
-                  type={f.type ?? "text"}
-                  required={f.required !== false}
-                  className={inputClass}
-                  defaultValue={defaults?.[f.key] ?? ""}
-                  placeholder={f.placeholder}
-                />
+                <>
+                  <label className={labelClass}>{f.label}{f.required !== false ? " *" : ""}</label>
+                  {f.type === "textarea" ? (
+                    <textarea
+                      name={f.key}
+                      rows={2}
+                      className={inputClass}
+                      defaultValue={String(defaults?.[f.key] ?? "")}
+                      placeholder={f.placeholder}
+                    />
+                  ) : (
+                    <input
+                      name={f.key}
+                      type={f.type ?? "text"}
+                      required={f.required !== false}
+                      className={inputClass}
+                      defaultValue={defaults?.[f.key] !== undefined ? String(defaults[f.key]) : ""}
+                      placeholder={f.placeholder}
+                    />
+                  )}
+                </>
               )}
             </div>
           ))}
@@ -215,7 +244,7 @@ export function MasterDataEditorModal({
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Code</th>
+                <th>{codeColumnHeader}</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>

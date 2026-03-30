@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { DatePickerField } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { formatDate } from "@/lib/date-utils";
 import Link from "next/link";
 
 // ── Types ─────────────────────────────────────────────────────
@@ -468,7 +470,7 @@ export default function PerformancePage() {
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PHASE_COLORS[c.phase] ?? "bg-slate-100 text-slate-600"}`}>{PHASE_LABELS[c.phase] ?? c.phase}</span>
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">{c.cycleType}</span>
                         </div>
-                        <p className="text-xs text-slate-400 mt-1">{new Date(c.startDate).toLocaleDateString()} — {new Date(c.endDate).toLocaleDateString()} &middot; {c.templateName} &middot; {c.totalAppraisals} employees</p>
+                        <p className="text-xs text-slate-400 mt-1">{formatDate(c.startDate)} — {formatDate(c.endDate)} &middot; {c.templateName} &middot; {c.totalAppraisals} employees</p>
                       </div>
                       <div className="flex items-center gap-2">
                         {c.totalAppraisals > 0 && (
@@ -734,8 +736,8 @@ export default function PerformancePage() {
           </div>
           <div><label className={labelClass}>Description</label><textarea value={cycleDesc} onChange={e => setCycleDesc(e.target.value)} rows={2} className={inputClass} /></div>
           <div className="grid grid-cols-3 gap-4">
-            <div><label className={labelClass}>Start Date</label><input type="date" value={cycleStart} onChange={e => setCycleStart(e.target.value)} className={inputClass} /></div>
-            <div><label className={labelClass}>End Date</label><input type="date" value={cycleEnd} onChange={e => setCycleEnd(e.target.value)} className={inputClass} /></div>
+            <div><label className={labelClass}>Start Date</label><DatePickerField value={cycleStart} onChange={setCycleStart} className={inputClass} /></div>
+            <div><label className={labelClass}>End Date</label><DatePickerField value={cycleEnd} onChange={setCycleEnd} className={inputClass} /></div>
             <div><label className={labelClass}>Template</label><select value={cycleTplId} onChange={e => setCycleTplId(e.target.value)} className={inputClass}>{templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
           </div>
 
@@ -769,10 +771,10 @@ export default function PerformancePage() {
           <div>
             <label className={labelClass}>Phase Deadlines</label>
             <div className="grid grid-cols-4 gap-3">
-              <div><label className="text-[10px] text-slate-400">Self Assessment</label><input type="date" value={cycleSelfDl} onChange={e => setCycleSelfDl(e.target.value)} className={inputClass} /></div>
-              <div><label className="text-[10px] text-slate-400">Manager Review</label><input type="date" value={cycleMgrDl} onChange={e => setCycleMgrDl(e.target.value)} className={inputClass} /></div>
-              <div><label className="text-[10px] text-slate-400">Peer Review</label><input type="date" value={cyclePeerDl} onChange={e => setCyclePeerDl(e.target.value)} className={inputClass} /></div>
-              <div><label className="text-[10px] text-slate-400">Completion</label><input type="date" value={cycleCompDl} onChange={e => setCycleCompDl(e.target.value)} className={inputClass} /></div>
+              <div><label className="text-[10px] text-slate-400">Self Assessment</label><DatePickerField value={cycleSelfDl} onChange={setCycleSelfDl} className={inputClass} /></div>
+              <div><label className="text-[10px] text-slate-400">Manager Review</label><DatePickerField value={cycleMgrDl} onChange={setCycleMgrDl} className={inputClass} /></div>
+              <div><label className="text-[10px] text-slate-400">Peer Review</label><DatePickerField value={cyclePeerDl} onChange={setCyclePeerDl} className={inputClass} /></div>
+              <div><label className="text-[10px] text-slate-400">Completion</label><DatePickerField value={cycleCompDl} onChange={setCycleCompDl} className={inputClass} /></div>
             </div>
           </div>
 

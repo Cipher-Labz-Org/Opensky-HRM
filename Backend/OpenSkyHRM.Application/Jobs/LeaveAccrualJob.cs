@@ -9,9 +9,8 @@ namespace OpenSkyHRM.Application.Jobs;
 
 /// <summary>
 /// Runs daily at 1:00 AM. On the 1st of each month, accrues leave for employees
-/// in their first year who have monthly-rate rules (e.g. 0.5 days casual leave per month).
-/// Accrual stops when: (1) the join year ends, or (2) the employee gets confirmed (DateOfPermanency).
-/// After that, they get leave according to the month they joined (via Recalculate Balances).
+/// in their first calendar year who have legacy monthly-rate rules (no monthlyAccrualEveryYear flag).
+/// Shop &amp; Office casual/annual use entitlement recalculation instead.
 /// </summary>
 public class LeaveAccrualJob
 {
@@ -54,8 +53,9 @@ public class LeaveAccrualJob
         var accrualRules = new List<(LeaveEntitlementRule Rule, decimal MonthlyRate)>();
         foreach (var rule in rules)
         {
-            var config = JsonSerializer.Deserialize<ServiceYearConfig>(rule.RuleConfig, JsonOpts);
-            if (config?.Year1MonthlyRate is > 0)
+            var config = JsonSerializer.Deserialize<AccrualRuleConfig>(rule.RuleConfig, JsonOpts);
+            // When monthlyAccrualEveryYear is set, entitlement comes from Recalculate only (avoids double-counting).
+            if (config?.Year1MonthlyRate is > 0 && !config.MonthlyAccrualEveryYear)
                 accrualRules.Add((rule, config.Year1MonthlyRate.Value));
         }
 
@@ -85,11 +85,6 @@ public class LeaveAccrualJob
 
             // Must have joined in or before the accrual month
             if (emp.JoinDate.Year == year && emp.JoinDate.Month > month)
-                continue;
-
-            // Stop 0.5/month accrual once employee is confirmed (DateOfPermanency set)
-            // Once confirmed, they get leave according to month joined via Recalculate Balances
-            if (emp.DateOfPermanency.HasValue && emp.DateOfPermanency.Value <= lastDayOfPrevMonth)
                 continue;
 
             foreach (var (rule, monthlyRate) in accrualRules)
@@ -170,5 +165,9 @@ public class LeaveAccrualJob
         return true;
     }
 
-    private record ServiceYearConfig(decimal? Year1MonthlyRate);
+    private sealed class AccrualRuleConfig
+    {
+        public decimal? Year1MonthlyRate { get; set; }
+        public bool MonthlyAccrualEveryYear { get; set; }
+    }
 }

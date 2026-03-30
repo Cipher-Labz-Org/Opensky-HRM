@@ -284,9 +284,13 @@ public static class PeopleAuditTrailEnricher
             }
 
             if (jv.TryGetValue<DateTime>(out var dt))
-                return dt.Kind == DateTimeKind.Utc
-                    ? dt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC"
-                    : DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC";
+            {
+                if (dt.Kind == DateTimeKind.Unspecified)
+                    return dt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " (office)";
+                if (dt.Kind == DateTimeKind.Utc)
+                    return dt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC";
+                return dt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+            }
         }
 
         var raw = node.ToString();

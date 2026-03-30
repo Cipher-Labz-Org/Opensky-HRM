@@ -95,3 +95,24 @@ public class CreateEmploymentStatusTypeDto
     public bool IsActive { get; set; } = true;
     public int SortOrder { get; set; }
 }
+
+/// <summary>People Hub / Learning shared skill catalog (Skills table).</summary>
+public class SkillCatalogDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Category { get; set; }
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
+
+    /// <summary>Mirrors Category for master-data UIs that use a &quot;code&quot; column.</summary>
+    public string Code => Category ?? "";
+}
+
+public class CreateSkillCatalogDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Category { get; set; }
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
+}

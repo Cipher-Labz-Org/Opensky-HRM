@@ -563,4 +563,186 @@ public class OrganizationService : IOrganizationService
         await _db.SaveChangesAsync();
         return true;
     }
+
+    // --- Skills catalog ---
+
+    public async Task<List<SkillCatalogDto>> GetSkillsCatalogAsync()
+    {
+        return await _db.Skills
+            .Where(s => !s.IsDeleted)
+            .OrderBy(s => s.Name)
+            .Select(s => new SkillCatalogDto
+            {
+                Id = s.Id,
+                Name = s.Name,
+                Category = s.Category,
+                Description = s.Description,
+                IsActive = s.IsActive,
+            })
+            .ToListAsync();
+    }
+
+    public async Task<SkillCatalogDto> CreateSkillCatalogAsync(CreateSkillCatalogDto dto)
+    {
+        var name = dto.Name.Trim();
+        if (string.IsNullOrEmpty(name))
+            throw new InvalidOperationException("Skill name is required.");
+
+        var entity = new Skill
+        {
+            Name = name,
+            Category = string.IsNullOrWhiteSpace(dto.Category) ? null : dto.Category.Trim(),
+            Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim(),
+            IsActive = dto.IsActive,
+        };
+        _db.Skills.Add(entity);
+        await _db.SaveChangesAsync();
+        return new SkillCatalogDto
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Category = entity.Category,
+            Description = entity.Description,
+            IsActive = entity.IsActive,
+        };
+    }
+
+    public async Task<SkillCatalogDto?> UpdateSkillCatalogAsync(Guid id, CreateSkillCatalogDto dto)
+    {
+        var entity = await _db.Skills.FindAsync(id);
+        if (entity is null) return null;
+
+        var name = dto.Name.Trim();
+        if (string.IsNullOrEmpty(name))
+            throw new InvalidOperationException("Skill name is required.");
+
+        entity.Name = name;
+        entity.Category = string.IsNullOrWhiteSpace(dto.Category) ? null : dto.Category.Trim();
+        entity.Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim();
+        entity.IsActive = dto.IsActive;
+        await _db.SaveChangesAsync();
+        return new SkillCatalogDto
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Category = entity.Category,
+            Description = entity.Description,
+            IsActive = entity.IsActive,
+        };
+    }
+
+    public async Task<bool> DeleteSkillCatalogAsync(Guid id)
+    {
+        var entity = await _db.Skills.FindAsync(id);
+        if (entity is null) return false;
+
+        var inMatrix = await _db.SkillMatrices.AnyAsync(sm => sm.SkillId == id);
+        if (inMatrix)
+            throw new InvalidOperationException("Cannot delete this skill: it is used in the skill matrix.");
+
+        entity.IsDeleted = true;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    // --- Employee attachment types (People profile) ---
+
+    public async Task<List<EmployeeAttachmentTypeCatalogDto>> GetEmployeeAttachmentTypesCatalogAsync()
+    {
+        return await _db.EmployeeAttachmentTypes
+            .Where(t => !t.IsDeleted)
+            .OrderBy(t => t.SortOrder)
+            .ThenBy(t => t.Name)
+            .Select(t => new EmployeeAttachmentTypeCatalogDto
+            {
+                Id = t.Id,
+                Name = t.Name,
+                Code = t.Code,
+                Description = t.Description,
+                IsActive = t.IsActive,
+                SortOrder = t.SortOrder,
+            })
+            .ToListAsync();
+    }
+
+    public async Task<EmployeeAttachmentTypeCatalogDto> CreateEmployeeAttachmentTypeAsync(CreateEmployeeAttachmentTypeDto dto)
+    {
+        var name = dto.Name.Trim();
+        var code = dto.Code.Trim();
+        if (string.IsNullOrEmpty(name))
+            throw new InvalidOperationException("Name is required.");
+        if (string.IsNullOrEmpty(code))
+            throw new InvalidOperationException("Code is required.");
+
+        var dup = await _db.EmployeeAttachmentTypes.AnyAsync(t => t.Code == code);
+        if (dup)
+            throw new InvalidOperationException("An attachment type with this code already exists.");
+
+        var entity = new EmployeeAttachmentType
+        {
+            Name = name,
+            Code = code,
+            Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim(),
+            IsActive = dto.IsActive,
+            SortOrder = dto.SortOrder,
+        };
+        _db.EmployeeAttachmentTypes.Add(entity);
+        await _db.SaveChangesAsync();
+        return new EmployeeAttachmentTypeCatalogDto
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Code = entity.Code,
+            Description = entity.Description,
+            IsActive = entity.IsActive,
+            SortOrder = entity.SortOrder,
+        };
+    }
+
+    public async Task<EmployeeAttachmentTypeCatalogDto?> UpdateEmployeeAttachmentTypeAsync(Guid id, CreateEmployeeAttachmentTypeDto dto)
+    {
+        var entity = await _db.EmployeeAttachmentTypes.FindAsync(id);
+        if (entity is null) return null;
+
+        var name = dto.Name.Trim();
+        var code = dto.Code.Trim();
+        if (string.IsNullOrEmpty(name))
+            throw new InvalidOperationException("Name is required.");
+        if (string.IsNullOrEmpty(code))
+            throw new InvalidOperationException("Code is required.");
+
+        var dup = await _db.EmployeeAttachmentTypes.AnyAsync(t => t.Code == code && t.Id != id);
+        if (dup)
+            throw new InvalidOperationException("An attachment type with this code already exists.");
+
+        entity.Name = name;
+        entity.Code = code;
+        entity.Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim();
+        entity.IsActive = dto.IsActive;
+        entity.SortOrder = dto.SortOrder;
+        await _db.SaveChangesAsync();
+        return new EmployeeAttachmentTypeCatalogDto
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Code = entity.Code,
+            Description = entity.Description,
+            IsActive = entity.IsActive,
+            SortOrder = entity.SortOrder,
+        };
+    }
+
+    public async Task<bool> DeleteEmployeeAttachmentTypeAsync(Guid id)
+    {
+        var entity = await _db.EmployeeAttachmentTypes.FindAsync(id);
+        if (entity is null) return false;
+
+        var inUse = await _db.EmployeeAttachments.AnyAsync(a => a.AttachmentTypeId == id && !a.IsDeleted);
+        if (inUse)
+            throw new InvalidOperationException("Cannot delete this type: it is used on one or more employee attachments.");
+
+        entity.IsDeleted = true;
+        await _db.SaveChangesAsync();
+        return true;
+    }
 }

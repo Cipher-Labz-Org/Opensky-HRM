@@ -50,4 +50,16 @@ public interface IOrganizationService
     Task<EmploymentStatusTypeDto> CreateEmployeeStatusTypeAsync(CreateEmploymentStatusTypeDto dto);
     Task<EmploymentStatusTypeDto?> UpdateEmployeeStatusTypeAsync(Guid id, CreateEmploymentStatusTypeDto dto);
     Task<bool> DeleteEmployeeStatusTypeAsync(Guid id);
+
+    // Skills catalog (People qualifications + Learning)
+    Task<List<SkillCatalogDto>> GetSkillsCatalogAsync();
+    Task<SkillCatalogDto> CreateSkillCatalogAsync(CreateSkillCatalogDto dto);
+    Task<SkillCatalogDto?> UpdateSkillCatalogAsync(Guid id, CreateSkillCatalogDto dto);
+    Task<bool> DeleteSkillCatalogAsync(Guid id);
+
+    // People profile attachment types (Personal details)
+    Task<List<EmployeeAttachmentTypeCatalogDto>> GetEmployeeAttachmentTypesCatalogAsync();
+    Task<EmployeeAttachmentTypeCatalogDto> CreateEmployeeAttachmentTypeAsync(CreateEmployeeAttachmentTypeDto dto);
+    Task<EmployeeAttachmentTypeCatalogDto?> UpdateEmployeeAttachmentTypeAsync(Guid id, CreateEmployeeAttachmentTypeDto dto);
+    Task<bool> DeleteEmployeeAttachmentTypeAsync(Guid id);
 }

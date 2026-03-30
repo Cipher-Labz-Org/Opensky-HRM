@@ -5,7 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { DatePickerField, DateTimePickerField } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 
 interface CandidateDetail {
   id: string; firstName: string; lastName: string; fullName: string; email: string;
@@ -213,7 +215,7 @@ export default function CandidateDetailPage() {
               <span>{c.email}</span>
               {c.phone && <span>{c.phone}</span>}
               <span>Source: {c.source}</span>
-              <span>Applied: {new Date(c.appliedAt).toLocaleDateString()}</span>
+              <span>Applied: {formatDateTime(c.appliedAt)}</span>
               {c.rating != null && <span>{"★".repeat(c.rating)}{"☆".repeat(5 - c.rating)}</span>}
             </div>
             {c.tags && (
@@ -304,7 +306,7 @@ export default function CandidateDetailPage() {
               <h3 className="mb-4 text-sm font-semibold text-[var(--text)] uppercase tracking-wide">Application Info</h3>
               <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                 <div><dt className="text-[var(--text-muted)]">Source</dt><dd className="font-medium">{c.source}</dd></div>
-                <div><dt className="text-[var(--text-muted)]">Applied On</dt><dd className="font-medium">{new Date(c.appliedAt).toLocaleDateString()}</dd></div>
+                <div><dt className="text-[var(--text-muted)]">Applied On</dt><dd className="font-medium">{formatDateTime(c.appliedAt)}</dd></div>
                 <div><dt className="text-[var(--text-muted)]">Requisition</dt><dd className="font-medium text-[var(--primary)]">{c.requisitionTitle || "—"}</dd></div>
                 <div><dt className="text-[var(--text-muted)]">Rating</dt><dd className="font-medium">{c.rating ? "★".repeat(c.rating) + "☆".repeat(5 - c.rating) : "Not rated"}</dd></div>
               </dl>
@@ -333,7 +335,7 @@ export default function CandidateDetailPage() {
                   <div>
                     <h4 className="font-semibold text-[var(--text)]">{iv.title}</h4>
                     <p className="text-sm text-[var(--text-muted)]">
-                      {new Date(iv.scheduledAt).toLocaleString()} &middot; {iv.duration}min
+                      {formatDateTime(iv.scheduledAt)} &middot; {iv.duration}min
                       {iv.location && <> &middot; {iv.location}</>}
                       {iv.interviewType && <> &middot; {iv.interviewType}</>}
                     </p>
@@ -380,11 +382,11 @@ export default function CandidateDetailPage() {
                 </div>
                 <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm lg:grid-cols-3">
                   <div><dt className="text-[var(--text-muted)]">Salary Offered</dt><dd className="font-medium">{c.offer.currency ?? "LKR"} {c.offer.salaryOffered.toLocaleString()}</dd></div>
-                  <div><dt className="text-[var(--text-muted)]">Offer Date</dt><dd className="font-medium">{new Date(c.offer.offerDate).toLocaleDateString()}</dd></div>
-                  {c.offer.expiryDate && <div><dt className="text-[var(--text-muted)]">Expiry</dt><dd className="font-medium">{new Date(c.offer.expiryDate).toLocaleDateString()}</dd></div>}
-                  {c.offer.joiningDate && <div><dt className="text-[var(--text-muted)]">Joining Date</dt><dd className="font-medium">{new Date(c.offer.joiningDate).toLocaleDateString()}</dd></div>}
-                  {c.offer.acceptedAt && <div><dt className="text-[var(--text-muted)]">Accepted</dt><dd className="font-medium text-green-600">{new Date(c.offer.acceptedAt).toLocaleDateString()}</dd></div>}
-                  {c.offer.rejectedAt && <div><dt className="text-[var(--text-muted)]">Rejected</dt><dd className="font-medium text-red-600">{new Date(c.offer.rejectedAt).toLocaleDateString()}</dd></div>}
+                  <div><dt className="text-[var(--text-muted)]">Offer Date</dt><dd className="font-medium">{formatDate(c.offer.offerDate)}</dd></div>
+                  {c.offer.expiryDate && <div><dt className="text-[var(--text-muted)]">Expiry</dt><dd className="font-medium">{formatDate(c.offer.expiryDate)}</dd></div>}
+                  {c.offer.joiningDate && <div><dt className="text-[var(--text-muted)]">Joining Date</dt><dd className="font-medium">{formatDate(c.offer.joiningDate)}</dd></div>}
+                  {c.offer.acceptedAt && <div><dt className="text-[var(--text-muted)]">Accepted</dt><dd className="font-medium text-green-600">{formatDateTime(c.offer.acceptedAt)}</dd></div>}
+                  {c.offer.rejectedAt && <div><dt className="text-[var(--text-muted)]">Rejected</dt><dd className="font-medium text-red-600">{formatDateTime(c.offer.rejectedAt)}</dd></div>}
                 </dl>
                 {c.offer.remarks && <p className="mt-4 text-sm text-[var(--text-muted)]">{c.offer.remarks}</p>}
                 {c.offer.rejectionReason && (
@@ -437,15 +439,15 @@ export default function CandidateDetailPage() {
                       <div className="grid grid-cols-3 gap-3">
                         <div>
                           <label className="block text-sm font-medium mb-1">Offer Date *</label>
-                          <input type="date" value={offerForm.offerDate} onChange={(e) => setOfferForm({ ...offerForm, offerDate: e.target.value })} className={INPUT} />
+                          <DatePickerField value={offerForm.offerDate} onChange={(v) => setOfferForm({ ...offerForm, offerDate: v })} className={INPUT} />
                         </div>
                         <div>
                           <label className="block text-sm font-medium mb-1">Expiry Date</label>
-                          <input type="date" value={offerForm.expiryDate} onChange={(e) => setOfferForm({ ...offerForm, expiryDate: e.target.value })} className={INPUT} />
+                          <DatePickerField value={offerForm.expiryDate} onChange={(v) => setOfferForm({ ...offerForm, expiryDate: v })} className={INPUT} />
                         </div>
                         <div>
                           <label className="block text-sm font-medium mb-1">Joining Date</label>
-                          <input type="date" value={offerForm.joiningDate} onChange={(e) => setOfferForm({ ...offerForm, joiningDate: e.target.value })} className={INPUT} />
+                          <DatePickerField value={offerForm.joiningDate} onChange={(v) => setOfferForm({ ...offerForm, joiningDate: v })} className={INPUT} />
                         </div>
                       </div>
                       <div>
@@ -482,7 +484,7 @@ export default function CandidateDetailPage() {
                     <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--primary)]" />
                     <div className="flex-1">
                       <p className="text-sm text-[var(--text)]">{a.description}</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{a.performedBy && <>{a.performedBy} &middot; </>}{new Date(a.performedAt).toLocaleString()}</p>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{a.performedBy && <>{a.performedBy} &middot; </>}{formatDateTime(a.performedAt)}</p>
                     </div>
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{a.activityType}</span>
                   </div>
@@ -520,7 +522,7 @@ export default function CandidateDetailPage() {
                 <input value={interviewForm.title} onChange={(e) => setInterviewForm({ ...interviewForm, title: e.target.value })} className={INPUT} /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="block text-sm font-medium mb-1">Date & Time *</label>
-                  <input type="datetime-local" value={interviewForm.scheduledAt} onChange={(e) => setInterviewForm({ ...interviewForm, scheduledAt: e.target.value })} className={INPUT} /></div>
+                  <DateTimePickerField value={interviewForm.scheduledAt} onChange={(v) => setInterviewForm({ ...interviewForm, scheduledAt: v })} className={INPUT} /></div>
                 <div><label className="block text-sm font-medium mb-1">Duration (min)</label>
                   <input type="number" value={interviewForm.duration} onChange={(e) => setInterviewForm({ ...interviewForm, duration: Number(e.target.value) })} className={INPUT} /></div>
               </div>
@@ -578,7 +580,7 @@ export default function CandidateDetailPage() {
                       <div><dt className="text-[var(--text-muted)]">Email</dt><dd className="font-medium">{c.email}</dd></div>
                       {c.phone && <div><dt className="text-[var(--text-muted)]">Phone</dt><dd className="font-medium">{c.phone}</dd></div>}
                       <div><dt className="text-[var(--text-muted)]">Department</dt><dd className="font-medium">{c.requisitionTitle ? "From requisition" : "—"}</dd></div>
-                      {c.offer?.joiningDate && <div><dt className="text-[var(--text-muted)]">Joining Date</dt><dd className="font-medium">{new Date(c.offer.joiningDate).toLocaleDateString()}</dd></div>}
+                      {c.offer?.joiningDate && <div><dt className="text-[var(--text-muted)]">Joining Date</dt><dd className="font-medium">{formatDate(c.offer.joiningDate)}</dd></div>}
                       {c.offer && <div><dt className="text-[var(--text-muted)]">Salary</dt><dd className="font-medium">{c.offer.currency ?? "LKR"} {c.offer.salaryOffered.toLocaleString()}</dd></div>}
                     </dl>
                   </div>

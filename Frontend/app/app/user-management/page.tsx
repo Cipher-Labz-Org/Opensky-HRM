@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
+import { formatDateTime } from "@/lib/date-utils";
 
 interface UserItem {
   id: string;
@@ -300,7 +301,7 @@ export default function UserManagementPage() {
                         </span>
                       </td>
                       <td className="px-6 py-3 text-xs text-slate-500">
-                        {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : "Never"}
+                        {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : "Never"}
                       </td>
                       <td className="px-6 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -348,7 +349,7 @@ export default function UserManagementPage() {
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div><label className={labelClass}>Username *</label><input value={username} onChange={(e) => setUsername(e.target.value)} className={inputClass} /></div>
-                <div><label className={labelClass}>Email *</label><input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className={inputClass} /></div>
+                <div><label className={labelClass}>Email *</label><input value={email} onChange={(e) => setEmail(e.target.value)} type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@company.com)" className={inputClass} /></div>
               </div>
 
               {!editUser && (

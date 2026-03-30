@@ -31,12 +31,14 @@ public class EducationsController : ControllerBase
                 Id = e.Id,
                 EmployeeId = e.EmployeeId,
                 Level = e.Level,
+                QualificationName = e.QualificationName,
                 Institute = e.Institute,
                 Major = e.Major,
                 Year = e.Year,
                 GpaScore = e.GpaScore,
                 StartDate = e.StartDate,
                 EndDate = e.EndDate,
+                Remark = e.Remark,
             })
             .ToListAsync();
 
@@ -53,12 +55,14 @@ public class EducationsController : ControllerBase
         {
             EmployeeId = employeeId,
             Level = req.Level,
+            QualificationName = req.QualificationName,
             Institute = req.Institute,
             Major = req.Major,
             Year = req.Year,
             GpaScore = req.GpaScore,
             StartDate = req.StartDate,
             EndDate = req.EndDate,
+            Remark = req.Remark,
         };
 
         _db.Educations.Add(education);
@@ -78,12 +82,14 @@ public class EducationsController : ControllerBase
         if (education is null) return NotFound();
 
         education.Level = req.Level;
+        education.QualificationName = req.QualificationName;
         education.Institute = req.Institute;
         education.Major = req.Major;
         education.Year = req.Year;
         education.GpaScore = req.GpaScore;
         education.StartDate = req.StartDate;
         education.EndDate = req.EndDate;
+        education.Remark = req.Remark;
         await _db.SaveChangesAsync();
 
         return Ok(MapToDto(education));
@@ -109,12 +115,14 @@ public class EducationsController : ControllerBase
         Id = e.Id,
         EmployeeId = e.EmployeeId,
         Level = e.Level,
+        QualificationName = e.QualificationName,
         Institute = e.Institute,
         Major = e.Major,
         Year = e.Year,
         GpaScore = e.GpaScore,
         StartDate = e.StartDate,
         EndDate = e.EndDate,
+        Remark = e.Remark,
     };
 }
 
@@ -123,21 +131,25 @@ public class EducationDto
     public Guid Id { get; set; }
     public Guid EmployeeId { get; set; }
     public string Level { get; set; } = string.Empty;
+    public string? QualificationName { get; set; }
     public string? Institute { get; set; }
     public string? Major { get; set; }
     public string? Year { get; set; }
     public string? GpaScore { get; set; }
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
+    public string? Remark { get; set; }
 }
 
 public class EducationRequest
 {
     public string Level { get; set; } = string.Empty;
+    public string? QualificationName { get; set; }
     public string? Institute { get; set; }
     public string? Major { get; set; }
     public string? Year { get; set; }
     public string? GpaScore { get; set; }
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
+    public string? Remark { get; set; }
 }

@@ -5,6 +5,7 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { apiFetch } from "@/lib/api";
+import { formatDate } from "@/lib/date-utils";
 
 interface TemplateItem {
   id: string;
@@ -481,7 +482,7 @@ export default function EmployeeTasksPage() {
                           <span className="text-xs text-slate-400">({a.employeeCode})</span>
                           {a.departmentName && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">{a.departmentName}</span>}
                         </div>
-                        <p className="text-xs text-slate-400 mt-0.5">{a.terminationReason}{a.terminationDate ? ` — ${new Date(a.terminationDate).toLocaleDateString()}` : ""}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{a.terminationReason}{a.terminationDate ? ` — ${formatDate(a.terminationDate)}` : ""}</p>
                       </div>
                       <div className="shrink-0 w-32">
                         <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">

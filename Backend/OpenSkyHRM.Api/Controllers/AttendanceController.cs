@@ -88,9 +88,40 @@ public class AttendanceController : ControllerBase
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         if (userId == null) return Unauthorized();
         var user = await _db.Set<User>().FirstOrDefaultAsync(u => u.Id.ToString() == userId);
-        if (user?.EmployeeId == null) return BadRequest("User is not linked to an employee.");
-        var result = await _attendanceService.PunchAsync(user.EmployeeId.Value, dto);
-        return Ok(result);
+
+        Guid? linkedEmployeeId = user?.EmployeeId;
+        if (linkedEmployeeId == null && Guid.TryParse(User.FindFirst("employeeId")?.Value, out var fromClaim))
+            linkedEmployeeId = fromClaim;
+
+        Guid targetEmployeeId;
+        if (dto.EmployeeId.HasValue && dto.EmployeeId.Value != Guid.Empty)
+            targetEmployeeId = dto.EmployeeId.Value;
+        else if (linkedEmployeeId != null)
+            targetEmployeeId = linkedEmployeeId.Value;
+        else
+            return BadRequest("User is not linked to an employee.");
+
+        var isSelfPunch = linkedEmployeeId == targetEmployeeId;
+        if (isSelfPunch)
+        {
+            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, targetEmployeeId, "Read"))
+                return Forbid();
+        }
+        else
+        {
+            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, targetEmployeeId, "Update"))
+                return Forbid();
+        }
+
+        try
+        {
+            var result = await _attendanceService.PunchAsync(targetEmployeeId, dto);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpGet("overtime-nopay")]

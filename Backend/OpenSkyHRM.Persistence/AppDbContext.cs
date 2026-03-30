@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Common;
 using OpenSkyHRM.Domain.Entities;
 
@@ -6,11 +7,17 @@ namespace OpenSkyHRM.Persistence;
 
 public class AppDbContext : DbContext
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+    private readonly IBusinessClock _clock;
+
+    public AppDbContext(DbContextOptions<AppDbContext> options, IBusinessClock clock) : base(options)
+    {
+        _clock = clock;
+    }
 
     // Employee & Organization
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<EmployeeAttachment> EmployeeAttachments => Set<EmployeeAttachment>();
+    public DbSet<EmployeeAttachmentType> EmployeeAttachmentTypes => Set<EmployeeAttachmentType>();
     public DbSet<EmployeeSupervisor> EmployeeSupervisors => Set<EmployeeSupervisor>();
     public DbSet<EmergencyContact> EmergencyContacts => Set<EmergencyContact>();
     public DbSet<Dependent> Dependents => Set<Dependent>();
@@ -151,25 +158,37 @@ public class AppDbContext : DbContext
 
     private void ApplyAuditInfo()
     {
+        var now = _clock.Now;
+
         foreach (var entry in ChangeTracker.Entries<BaseEntity>())
         {
             if (entry.State == EntityState.Added)
-                entry.Entity.CreatedAt = DateTime.UtcNow;
+                entry.Entity.CreatedAt = now;
 
             if (entry.State == EntityState.Modified)
-                entry.Entity.UpdatedAt = DateTime.UtcNow;
+                entry.Entity.UpdatedAt = now;
         }
 
         NormalizeDateTimesToUtc();
     }
 
+    /// <summary>
+    /// Marks unspecified DateTime values as UTC for Npgsql where appropriate.
+    /// Skips <see cref="AuditLog"/> (business-local wall times) and <see cref="BaseEntity.CreatedAt"/> / <see cref="BaseEntity.UpdatedAt"/> (also business local).
+    /// </summary>
     private void NormalizeDateTimesToUtc()
     {
         foreach (var entry in ChangeTracker.Entries()
                      .Where(e => e.State is EntityState.Added or EntityState.Modified))
         {
+            if (entry.Entity is AuditLog)
+                continue;
+
             foreach (var prop in entry.Properties)
             {
+                if (prop.Metadata.Name is nameof(BaseEntity.CreatedAt) or nameof(BaseEntity.UpdatedAt))
+                    continue;
+
                 if (prop.CurrentValue is DateTime dt && dt.Kind == DateTimeKind.Unspecified)
                     prop.CurrentValue = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             }

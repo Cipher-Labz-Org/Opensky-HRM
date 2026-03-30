@@ -4,8 +4,10 @@ import { useState, useEffect, useCallback, useRef, type FormEvent } from "react"
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { DatePickerField, DateTimePickerField } from "@/components/ui";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 
 // ──────────────────────────── Tabs ────────────────────────────
 
@@ -108,8 +110,7 @@ function fmtTime(iso: string | null): string {
 }
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString();
+  return formatDate(iso);
 }
 
 function fmtTimeSpan(ts: string | null): string {
@@ -336,11 +337,11 @@ function AttendanceListTab() {
         </div>
         <div>
           <label className={labelClass}>From</label>
-          <input type="date" value={filterFrom} onChange={(e) => { setFilterFrom(e.target.value); setPage(1); }} className={`${inputClass} w-40`} />
+          <DatePickerField value={filterFrom} onChange={(v) => { setFilterFrom(v); setPage(1); }} className={`${inputClass} w-40`} />
         </div>
         <div>
           <label className={labelClass}>To</label>
-          <input type="date" value={filterTo} onChange={(e) => { setFilterTo(e.target.value); setPage(1); }} className={`${inputClass} w-40`} />
+          <DatePickerField value={filterTo} onChange={(v) => { setFilterTo(v); setPage(1); }} className={`${inputClass} w-40`} />
         </div>
         <Button variant="secondary" onClick={() => { setFilterEmployee(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}>Clear</Button>
         <div className="ml-auto"><Button onClick={() => setShowCreate(true)}>+ Log Attendance</Button></div>
@@ -431,11 +432,21 @@ function AttendanceListTab() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>Punch In</label>
-                <input name="punchIn" type="datetime-local" defaultValue={editingRecord.punchIn ? editingRecord.punchIn.slice(0, 16) : ""} className={inputClass} />
+                <DateTimePickerField
+                  name="punchIn"
+                  defaultValue={editingRecord.punchIn ? editingRecord.punchIn.slice(0, 16) : ""}
+                  className={inputClass}
+                  rowClassName="sm:col-span-1"
+                />
               </div>
               <div>
                 <label className={labelClass}>Punch Out</label>
-                <input name="punchOut" type="datetime-local" defaultValue={editingRecord.punchOut ? editingRecord.punchOut.slice(0, 16) : ""} className={inputClass} />
+                <DateTimePickerField
+                  name="punchOut"
+                  defaultValue={editingRecord.punchOut ? editingRecord.punchOut.slice(0, 16) : ""}
+                  className={inputClass}
+                  rowClassName="sm:col-span-1"
+                />
               </div>
             </div>
             <div>
@@ -599,7 +610,7 @@ function DevicesTab() {
                   <td className="px-4 py-3 text-slate-600">{d.location ?? "—"}</td>
                   <td className="px-4 py-3 text-slate-600">{d.deviceType}</td>
                   <td className="px-4 py-3">{d.isActive ? <span className="text-green-600">Active</span> : <span className="text-slate-400">Inactive</span>}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{d.lastSyncAt ? new Date(d.lastSyncAt).toLocaleString() : "Never"}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{d.lastSyncAt ? formatDateTime(d.lastSyncAt) : "Never"}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
                       <button type="button" onClick={() => { setEditingDevice(d); setDeviceModal(true); }} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
@@ -634,7 +645,7 @@ function DevicesTab() {
                   <tr key={h.id} className="hover:bg-slate-50/50">
                     <td className="px-4 py-3 text-slate-700">{h.fileName}</td>
                     <td className="px-4 py-3 text-slate-600">{h.deviceName ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">{new Date(h.importedAt).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-600 text-xs">{formatDateTime(h.importedAt)}</td>
                     <td className="px-4 py-3 text-slate-600">{h.totalRecords}</td>
                     <td className="px-4 py-3 text-green-600">{h.successCount}</td>
                     <td className="px-4 py-3 text-red-600">{h.failCount}</td>
@@ -778,11 +789,11 @@ function OtNopayTab() {
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className={labelClass}>From *</label>
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={`${inputClass} w-40`} />
+          <DatePickerField value={fromDate} onChange={setFromDate} className={`${inputClass} w-40`} />
         </div>
         <div>
           <label className={labelClass}>To *</label>
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={`${inputClass} w-40`} />
+          <DatePickerField value={toDate} onChange={setToDate} className={`${inputClass} w-40`} />
         </div>
         <div>
           <label className={labelClass}>Employee</label>
@@ -1711,8 +1722,8 @@ function RosterTab() {
               <span className="font-medium">{editingAssign.employeeName}</span> &mdash; {editingAssign.rosterTemplateName}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><label className={labelClass}>Effective from *</label><input name="effectiveFrom" type="date" required defaultValue={dateOnlyForInput(editingAssign.effectiveFrom)} className={inputClass} /></div>
-              <div><label className={labelClass}>Effective to</label><input name="effectiveTo" type="date" defaultValue={editingAssign.effectiveTo ? dateOnlyForInput(editingAssign.effectiveTo) : ""} className={inputClass} /></div>
+              <div><label className={labelClass}>Effective from *</label><DatePickerField name="effectiveFrom" required defaultValue={dateOnlyForInput(editingAssign.effectiveFrom)} className={inputClass} /></div>
+              <div><label className={labelClass}>Effective to</label><DatePickerField name="effectiveTo" defaultValue={editingAssign.effectiveTo ? dateOnlyForInput(editingAssign.effectiveTo) : ""} className={inputClass} /></div>
             </div>
             <div><label className={labelClass}>Notes</label><textarea name="notes" rows={2} defaultValue={editingAssign.notes ?? ""} className={inputClass} /></div>
             <div className="flex justify-end gap-3 pt-2">
@@ -1745,8 +1756,8 @@ function RosterTab() {
                 </select>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div><label className={labelClass}>Effective from *</label><input type="date" value={bulkFrom} onChange={(e) => setBulkFrom(e.target.value)} className={inputClass} /></div>
-                <div><label className={labelClass}>Effective to</label><input type="date" value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className={inputClass} /></div>
+                <div><label className={labelClass}>Effective from *</label><DatePickerField value={bulkFrom} onChange={setBulkFrom} className={inputClass} /></div>
+                <div><label className={labelClass}>Effective to</label><DatePickerField value={bulkTo} onChange={setBulkTo} className={inputClass} /></div>
               </div>
               <div><label className={labelClass}>Notes</label><textarea rows={2} value={bulkNotes} onChange={(e) => setBulkNotes(e.target.value)} className={inputClass} /></div>
               <div className="flex justify-end gap-3 pt-2">

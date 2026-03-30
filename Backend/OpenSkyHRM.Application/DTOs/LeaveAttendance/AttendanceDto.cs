@@ -61,8 +61,12 @@ public class AttendanceSummaryDto
 public class PunchRequestDto
 {
     public string Type { get; set; } = "in";
+    /// <summary>When set, punch for this employee (requires update access). When omitted, punch for the logged-in user’s linked employee.</summary>
+    public Guid? EmployeeId { get; set; }
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }
+    /// <summary>Optional source label (e.g. PeopleProfile, Mobile). Defaults to Mobile when omitted.</summary>
+    public string? Source { get; set; }
 }
 
 public class OvertimeNopayResultDto

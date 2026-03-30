@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { DateTimePickerField } from "@/components/ui";
 import { CreateRequisitionModal } from "@/components/forms/CreateRequisitionModal";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { type EmploymentTypeCatalogItem, employmentTypeSelectOptions } from "@/lib/employment-types";
 
 interface Requisition {
   id: string; title: string; code: string; description?: string; vacancies: number;
@@ -249,7 +252,7 @@ export default function RecruitmentPage() {
                   <div key={iv.id} className="flex items-center justify-between rounded-xl border border-[var(--border)] p-3">
                     <div>
                       <div className="text-sm font-medium">{iv.title}</div>
-                      <div className="text-xs text-[var(--text-muted)]">{iv.candidateName} &bull; {new Date(iv.scheduledAt).toLocaleString()}</div>
+                      <div className="text-xs text-[var(--text-muted)]">{iv.candidateName} &bull; {formatDateTime(iv.scheduledAt)}</div>
                     </div>
                     <span className="badge badge-blue">{iv.interviewType || "Interview"}</span>
                   </div>
@@ -266,7 +269,7 @@ export default function RecruitmentPage() {
                   <div key={a.id} className="flex items-center gap-3 text-sm">
                     <span className={`inline-block w-2 h-2 rounded-full ${a.activityType === "Hired" ? "bg-green-500" : a.activityType === "StageChange" ? "bg-blue-500" : "bg-gray-400"}`} />
                     <span className="flex-1">{a.description}</span>
-                    <span className="text-xs text-[var(--text-muted)]">{new Date(a.performedAt).toLocaleDateString()}</span>
+                    <span className="text-xs text-[var(--text-muted)]">{formatDateTime(a.performedAt)}</span>
                   </div>
                 ))}
               </div>
@@ -323,7 +326,7 @@ export default function RecruitmentPage() {
                       </span>
                     </td>
                     <td>{r.candidateCount}</td>
-                    <td>{r.targetDate ? new Date(r.targetDate).toLocaleDateString() : "-"}</td>
+                    <td>{r.targetDate ? formatDate(r.targetDate) : "-"}</td>
                     <td>
                       <div className="flex gap-1">
                         {r.status === "Pending" && (
@@ -440,7 +443,7 @@ export default function RecruitmentPage() {
                       </td>
                       <td>{c.source}</td>
                       <td>{c.rating ? "★".repeat(c.rating) : "-"}</td>
-                      <td>{new Date(c.appliedAt).toLocaleDateString()}</td>
+                      <td>{formatDateTime(c.appliedAt)}</td>
                       <td>
                         <Link href={`/app/recruitment/candidate/${c.id}`} className="text-xs text-blue-600 hover:underline">View</Link>
                       </td>
@@ -479,7 +482,7 @@ export default function RecruitmentPage() {
                     <td className="font-medium">{iv.title}</td>
                     <td>{iv.candidateName}</td>
                     <td>{iv.requisitionTitle}</td>
-                    <td>{new Date(iv.scheduledAt).toLocaleString()}</td>
+                    <td>{formatDateTime(iv.scheduledAt)}</td>
                     <td>{iv.duration} min</td>
                     <td>{iv.interviewerName || "-"}</td>
                     <td>{iv.interviewType || "-"}</td>
@@ -537,9 +540,11 @@ export default function RecruitmentPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Date & Time *</label>
-                  <input type="datetime-local" className={inputClass}
+                  <DateTimePickerField
+                    className={inputClass}
                     value={scheduleForm.scheduledAt ? String(scheduleForm.scheduledAt).slice(0, 16) : ""}
-                    onChange={(e) => setScheduleForm({ ...scheduleForm, scheduledAt: e.target.value })} />
+                    onChange={(v) => setScheduleForm({ ...scheduleForm, scheduledAt: v })}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Duration (min)</label>
@@ -603,7 +608,7 @@ export default function RecruitmentPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Email *</label>
-                  <input type="email" className={inputClass} value={candidateForm.email}
+                  <input type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@example.com)" className={inputClass} value={candidateForm.email}
                     onChange={(e) => setCandidateForm({ ...candidateForm, email: e.target.value })} />
                 </div>
                 <div>
@@ -685,7 +690,19 @@ export default function RecruitmentPage() {
 function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: Requisition; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({ ...requisition });
   const [submitting, setSubmitting] = useState(false);
+  const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   const inputClass = "w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20";
+
+  useEffect(() => {
+    apiFetch<EmploymentTypeCatalogItem[]>("/api/organization/employment-statuses")
+      .then(setEmploymentTypes)
+      .catch(() => setEmploymentTypes([]));
+  }, []);
+
+  const employmentTypeOpts = useMemo(
+    () => employmentTypeSelectOptions(employmentTypes, form.employmentType),
+    [employmentTypes, form.employmentType]
+  );
 
   const handleSave = async () => {
     setSubmitting(true);
@@ -743,8 +760,9 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Employment Type</label>
               <select className={inputClass} value={form.employmentType || ""} onChange={(e) => setForm({ ...form, employmentType: e.target.value })}>
                 <option value="">Select...</option>
-                <option value="Full-time">Full-time</option><option value="Part-time">Part-time</option>
-                <option value="Contract">Contract</option><option value="Internship">Internship</option>
+                {employmentTypeOpts.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
               </select>
             </div>
           </div>

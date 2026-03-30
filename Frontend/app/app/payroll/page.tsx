@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useCallback, type FormEvent } from "react";
 import { apiFetch } from "@/lib/api";
+import { formatDate } from "@/lib/date-utils";
 import { API_BASE_URL } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { DatePickerField } from "@/components/ui";
 
 interface Component {
   id: string; name: string; code: string; type: string; category: string;
@@ -539,7 +541,7 @@ function CompensationTable({ title, items, allItems, loading, onAssign, onEdit, 
                 <td className="py-2.5 font-medium text-slate-700">{c.componentName} <span className="text-xs text-slate-400">({c.componentCode})</span></td>
                 <td className="py-2.5 text-slate-600">{c.componentType}</td>
                 <td className="py-2.5 text-right font-mono text-slate-700">LKR {fmt(c.amount)}</td>
-                <td className="py-2.5 text-xs text-slate-500">{new Date(c.effectiveFrom).toLocaleDateString()}</td>
+                <td className="py-2.5 text-xs text-slate-500">{formatDate(c.effectiveFrom)}</td>
                 <td className="py-2.5">
                   <div className="flex gap-1">
                     <button onClick={() => onEdit(c)} className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50">Edit</button>
@@ -613,7 +615,7 @@ function ImportCompensationModal({ category, batchId, onClose, onImported }: { c
         </button>
 
         <div><label className={labelCls}>Effective From *</label>
-          <input type="date" className={inputCls} value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} />
+          <DatePickerField className={inputCls} value={effectiveFrom} onChange={setEffectiveFrom} />
         </div>
 
         <div><label className={labelCls}>Upload File (.xlsx)</label>
@@ -676,8 +678,8 @@ function EditCompensationModal({ comp, onClose, onSaved }: { comp: EmpComp; onCl
         {error && <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
         <div><label className={labelCls}>Amount *</label><input name="amount" type="number" step="0.01" required className={inputCls} defaultValue={comp.amount} /></div>
         <div><label className={labelCls}>Currency</label><input name="currency" className={inputCls} defaultValue={comp.currency || "LKR"} /></div>
-        <div><label className={labelCls}>Effective From *</label><input name="effectiveFrom" type="date" required className={inputCls} defaultValue={comp.effectiveFrom?.slice(0, 10)} /></div>
-        <div><label className={labelCls}>Effective To</label><input name="effectiveTo" type="date" className={inputCls} defaultValue={comp.effectiveTo?.slice(0, 10) ?? ""} /></div>
+        <div><label className={labelCls}>Effective From *</label><DatePickerField key={comp.id} name="effectiveFrom" required className={inputCls} defaultValue={comp.effectiveFrom?.slice(0, 10) ?? ""} /></div>
+        <div><label className={labelCls}>Effective To</label><DatePickerField key={`${comp.id}-to`} name="effectiveTo" className={inputCls} defaultValue={comp.effectiveTo?.slice(0, 10) ?? ""} /></div>
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="secondary" onClick={onClose} type="button">Cancel</Button>
           <Button type="submit" disabled={submitting}>{submitting ? "Saving..." : "Update"}</Button>
@@ -720,7 +722,7 @@ function AssignComponentModal({ empId, components, batchId, onClose, onSaved }: 
           <input name="amount" type="number" step="0.01" required className={inputCls} />
         </div>
         <div><label className={labelCls}>Effective From *</label>
-          <input name="effectiveFrom" type="date" required className={inputCls} defaultValue={new Date().toISOString().split("T")[0]} />
+          <DatePickerField name="effectiveFrom" required className={inputCls} defaultValue={new Date().toISOString().split("T")[0]} />
         </div>
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="secondary" onClick={onClose} type="button">Cancel</Button>

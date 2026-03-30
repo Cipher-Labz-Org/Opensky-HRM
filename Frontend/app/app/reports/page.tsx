@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
+import { formatDateTime } from "@/lib/date-utils";
 import { API_BASE_URL } from "@/config/constants";
 
 interface ReportItem { key: string; name: string; description: string; }
@@ -62,7 +63,7 @@ function printReport(result: ReportResult, sortedRows: Record<string, unknown>[]
 
   printWin.document.write(`<!DOCTYPE html><html><head><title>${result.reportName}</title></head><body style="font-family:Arial,sans-serif;margin:20px">
     <h2 style="margin:0 0 4px;font-size:16px">${result.reportName}</h2>
-    <p style="margin:0 0 12px;font-size:11px;color:#64748b">Generated: ${new Date(result.generatedAt).toLocaleString()} &bull; ${sortedRows.length} records</p>
+    <p style="margin:0 0 12px;font-size:11px;color:#64748b">Generated: ${formatDateTime(result.generatedAt)} &bull; ${sortedRows.length} records</p>
     <table style="border-collapse:collapse;width:100%">
       <thead><tr><th style="border:1px solid #ccc;padding:4px 6px;background:#f1f5f9;font-size:10px;width:30px">#</th>${headerHtml}</tr></thead>
       <tbody>${rowsHtml}</tbody>
@@ -207,9 +208,12 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Full-screen report overlay (respects sidebar) */}
+      {/* Report panel: below AppGlobalHeader (h-[52px] z-[45]); does not cover the app header */}
       {(result || loading) && (
-        <div className="fixed top-0 right-0 bottom-0 z-50 flex flex-col bg-white" style={{ left: 280 }}>
+        <div
+          className="fixed right-0 bottom-0 top-[52px] z-40 flex flex-col border-l border-slate-200 bg-white shadow-lg"
+          style={{ left: 280 }}
+        >
           {/* Top bar */}
           <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-3">
             <div className="flex items-center gap-4">
@@ -320,7 +324,7 @@ export default function ReportsPage() {
           {/* Footer */}
           {result && !loading && (
             <div className="border-t border-slate-200 bg-slate-50 px-6 py-2 text-right text-[10px] text-slate-400">
-              Generated at {new Date(result.generatedAt).toLocaleString()} &middot; Showing {sortedRows.length} of {result.totalRows} records
+              Generated at {formatDateTime(result.generatedAt)} &middot; Showing {sortedRows.length} of {result.totalRows} records
             </div>
           )}
         </div>

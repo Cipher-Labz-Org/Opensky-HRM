@@ -130,6 +130,16 @@ public class LeaveService : ILeaveService
         if (hasOverlap)
             throw new InvalidOperationException("Leave already exists for one or more of the selected dates. Please choose different dates.");
 
+        var leaveType = await _db.Set<LeaveType>().AsNoTracking().FirstOrDefaultAsync(lt => lt.Id == dto.LeaveTypeId);
+        if (leaveType != null && string.Equals(leaveType.Code, "LT-ANN", StringComparison.OrdinalIgnoreCase))
+        {
+            var start = dto.StartDate.Date;
+            var end = dto.EndDate.Date;
+            var calendarSpanDays = (end - start).TotalDays + 1;
+            if (calendarSpanDays < 7 || dto.TotalDays < 7)
+                throw new InvalidOperationException("Annual leave must be at least 7 consecutive calendar days with at least 7 leave days (Shop & Office Act).");
+        }
+
         // Validate leave balance - find balance whose period contains the leave start date
         var startDate = dto.StartDate.Date;
         var balances = await _db.Set<LeaveBalance>()

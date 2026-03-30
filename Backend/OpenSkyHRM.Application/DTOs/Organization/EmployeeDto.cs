@@ -16,6 +16,7 @@ public class EmployeeDto
     public string? Country { get; set; }
     public string? StateProvince { get; set; }
     public string? ZipPostalCode { get; set; }
+    public string? District { get; set; }
     public string? PollingDivision { get; set; }
     public string? DistanceToOffice { get; set; }
     public string? ModeOfTransport { get; set; }
@@ -28,6 +29,7 @@ public class EmployeeDto
     public string? PermanentCountry { get; set; }
     public string? PermanentStateProvince { get; set; }
     public string? PermanentZipPostalCode { get; set; }
+    public string? PermanentDistrict { get; set; }
     public string? PermanentPollingDivision { get; set; }
     public string? PermanentDistanceToOffice { get; set; }
     public DateTime DateOfBirth { get; set; }
@@ -42,6 +44,8 @@ public class EmployeeDto
     public string? EpfNumber { get; set; }
     public string? EtfNumber { get; set; }
     public string? DriversLicenseNumber { get; set; }
+    public string? DriversLicenseType { get; set; }
+    public DateTime? LicenseIssueDate { get; set; }
     public DateTime? LicenseExpiryDate { get; set; }
     public string? DriversLicenseIssuingCountry { get; set; }
     public DateTime JoinDate { get; set; }
@@ -86,6 +90,7 @@ public class CreateEmployeeDto
     public string? Country { get; set; }
     public string? StateProvince { get; set; }
     public string? ZipPostalCode { get; set; }
+    public string? District { get; set; }
     public string? PollingDivision { get; set; }
     public string? DistanceToOffice { get; set; }
     public string? ModeOfTransport { get; set; }
@@ -98,6 +103,7 @@ public class CreateEmployeeDto
     public string? PermanentCountry { get; set; }
     public string? PermanentStateProvince { get; set; }
     public string? PermanentZipPostalCode { get; set; }
+    public string? PermanentDistrict { get; set; }
     public string? PermanentPollingDivision { get; set; }
     public string? PermanentDistanceToOffice { get; set; }
     public DateTime DateOfBirth { get; set; }
@@ -112,6 +118,8 @@ public class CreateEmployeeDto
     public string? EpfNumber { get; set; }
     public string? EtfNumber { get; set; }
     public string? DriversLicenseNumber { get; set; }
+    public string? DriversLicenseType { get; set; }
+    public DateTime? LicenseIssueDate { get; set; }
     public DateTime? LicenseExpiryDate { get; set; }
     public string? DriversLicenseIssuingCountry { get; set; }
     public DateTime JoinDate { get; set; }
@@ -152,6 +160,7 @@ public class UpdateEmployeeDto
     public string? Country { get; set; }
     public string? StateProvince { get; set; }
     public string? ZipPostalCode { get; set; }
+    public string? District { get; set; }
     public string? PollingDivision { get; set; }
     public string? DistanceToOffice { get; set; }
     public string? ModeOfTransport { get; set; }
@@ -164,6 +173,7 @@ public class UpdateEmployeeDto
     public string? PermanentCountry { get; set; }
     public string? PermanentStateProvince { get; set; }
     public string? PermanentZipPostalCode { get; set; }
+    public string? PermanentDistrict { get; set; }
     public string? PermanentPollingDivision { get; set; }
     public string? PermanentDistanceToOffice { get; set; }
     public DateTime DateOfBirth { get; set; }
@@ -178,6 +188,8 @@ public class UpdateEmployeeDto
     public string? EpfNumber { get; set; }
     public string? EtfNumber { get; set; }
     public string? DriversLicenseNumber { get; set; }
+    public string? DriversLicenseType { get; set; }
+    public DateTime? LicenseIssueDate { get; set; }
     public DateTime? LicenseExpiryDate { get; set; }
     public string? DriversLicenseIssuingCountry { get; set; }
     public DateTime? JoinDate { get; set; }

@@ -164,6 +164,8 @@ public class EmployeeService : IEmployeeService
             EpfNumber = dto.EpfNumber,
             EtfNumber = dto.EtfNumber,
             DriversLicenseNumber = dto.DriversLicenseNumber,
+            DriversLicenseType = dto.DriversLicenseType,
+            LicenseIssueDate = dto.LicenseIssueDate,
             LicenseExpiryDate = dto.LicenseExpiryDate,
             DriversLicenseIssuingCountry = dto.DriversLicenseIssuingCountry,
             AddressStreet1 = dto.AddressStreet1,
@@ -172,6 +174,7 @@ public class EmployeeService : IEmployeeService
             Country = dto.Country,
             StateProvince = dto.StateProvince,
             ZipPostalCode = dto.ZipPostalCode,
+            District = dto.District,
             PollingDivision = dto.PollingDivision,
             DistanceToOffice = dto.DistanceToOffice,
             ModeOfTransport = dto.ModeOfTransport,
@@ -184,6 +187,7 @@ public class EmployeeService : IEmployeeService
             PermanentCountry = dto.PermanentCountry,
             PermanentStateProvince = dto.PermanentStateProvince,
             PermanentZipPostalCode = dto.PermanentZipPostalCode,
+            PermanentDistrict = dto.PermanentDistrict,
             PermanentPollingDivision = dto.PermanentPollingDivision,
             PermanentDistanceToOffice = dto.PermanentDistanceToOffice,
             JoinDate = dto.JoinDate,
@@ -203,6 +207,11 @@ public class EmployeeService : IEmployeeService
         _db.Employees.Add(employee);
         await _db.SaveChangesAsync();
 
+        var calendarYear = DateTime.UtcNow.Year;
+        await _entitlementService.CalculateAndApplyAsync(employee.Id, calendarYear);
+        if (employee.JoinDate.Year != calendarYear)
+            await _entitlementService.CalculateAndApplyAsync(employee.Id, employee.JoinDate.Year);
+
         return (await GetByIdAsync(employee.Id))!;
     }
 
@@ -211,7 +220,10 @@ public class EmployeeService : IEmployeeService
         var employee = await _db.Employees.FindAsync(id);
         if (employee is null) return null;
 
-        var previousPermanencyDate = employee.DateOfPermanency;
+        var snapJoin = employee.JoinDate;
+        var snapEmploymentType = employee.EmploymentType;
+        var snapProbationEnd = employee.ProbationEndDate;
+        var snapPermanency = employee.DateOfPermanency;
 
         employee.FirstName = dto.FirstName;
         employee.MiddleName = dto.MiddleName;
@@ -230,6 +242,8 @@ public class EmployeeService : IEmployeeService
         employee.EpfNumber = dto.EpfNumber;
         employee.EtfNumber = dto.EtfNumber;
         employee.DriversLicenseNumber = dto.DriversLicenseNumber;
+        employee.DriversLicenseType = dto.DriversLicenseType;
+        employee.LicenseIssueDate = dto.LicenseIssueDate;
         employee.LicenseExpiryDate = dto.LicenseExpiryDate;
         employee.DriversLicenseIssuingCountry = dto.DriversLicenseIssuingCountry;
         employee.AddressStreet1 = dto.AddressStreet1;
@@ -238,6 +252,7 @@ public class EmployeeService : IEmployeeService
         employee.Country = dto.Country;
         employee.StateProvince = dto.StateProvince;
         employee.ZipPostalCode = dto.ZipPostalCode;
+        employee.District = dto.District;
         employee.PollingDivision = dto.PollingDivision;
         employee.DistanceToOffice = dto.DistanceToOffice;
         employee.ModeOfTransport = dto.ModeOfTransport;
@@ -250,6 +265,7 @@ public class EmployeeService : IEmployeeService
         employee.PermanentCountry = dto.PermanentCountry;
         employee.PermanentStateProvince = dto.PermanentStateProvince;
         employee.PermanentZipPostalCode = dto.PermanentZipPostalCode;
+        employee.PermanentDistrict = dto.PermanentDistrict;
         employee.PermanentPollingDivision = dto.PermanentPollingDivision;
         employee.PermanentDistanceToOffice = dto.PermanentDistanceToOffice;
         if (dto.JoinDate.HasValue) employee.JoinDate = dto.JoinDate.Value;
@@ -271,10 +287,16 @@ public class EmployeeService : IEmployeeService
 
         await _db.SaveChangesAsync();
 
-        // Auto-generate leave balances when Date of Permanency is first set
-        if (previousPermanencyDate is null && employee.DateOfPermanency is not null)
+        var joinChanged = dto.JoinDate.HasValue && employee.JoinDate != snapJoin;
+        var employmentChanged = !string.Equals(employee.EmploymentType, snapEmploymentType, StringComparison.Ordinal);
+        var probationEndChanged = employee.ProbationEndDate != snapProbationEnd;
+        var permanencyChanged = employee.DateOfPermanency != snapPermanency;
+
+        if (joinChanged || employmentChanged || probationEndChanged || permanencyChanged)
         {
-            await _entitlementService.CalculateAndApplyAsync(id, DateTime.UtcNow.Year);
+            var years = new SortedSet<int> { DateTime.UtcNow.Year, DateTime.UtcNow.Year - 1 };
+            foreach (var y in years)
+                await _entitlementService.CalculateAndApplyAsync(id, y);
         }
 
         return (await GetByIdAsync(id))!;
@@ -375,6 +397,7 @@ public class EmployeeService : IEmployeeService
         Country = e.Country,
         StateProvince = e.StateProvince,
         ZipPostalCode = e.ZipPostalCode,
+        District = e.District,
         PollingDivision = e.PollingDivision,
         DistanceToOffice = e.DistanceToOffice,
         ModeOfTransport = e.ModeOfTransport,
@@ -387,6 +410,7 @@ public class EmployeeService : IEmployeeService
         PermanentCountry = e.PermanentCountry,
         PermanentStateProvince = e.PermanentStateProvince,
         PermanentZipPostalCode = e.PermanentZipPostalCode,
+        PermanentDistrict = e.PermanentDistrict,
         PermanentPollingDivision = e.PermanentPollingDivision,
         PermanentDistanceToOffice = e.PermanentDistanceToOffice,
         DateOfBirth = e.DateOfBirth,
@@ -401,6 +425,8 @@ public class EmployeeService : IEmployeeService
         EpfNumber = e.EpfNumber,
         EtfNumber = e.EtfNumber,
         DriversLicenseNumber = e.DriversLicenseNumber,
+        DriversLicenseType = e.DriversLicenseType,
+        LicenseIssueDate = e.LicenseIssueDate,
         LicenseExpiryDate = e.LicenseExpiryDate,
         DriversLicenseIssuingCountry = e.DriversLicenseIssuingCountry,
         JoinDate = e.JoinDate,

@@ -9,19 +9,9 @@ import { API_BASE_URL } from "@/config/constants";
 export type NavItem = { href: string; label: string };
 export type NavGroup = { title: string; items: NavItem[] };
 
-interface UserInfo {
-  username: string;
-  email: string;
-  employeeName: string | null;
-  profileImageUrl: string | null;
-  roles: string[];
-}
-
 type AppSidebarProps = {
   appName: string;
   navGroups: NavGroup[];
-  user?: UserInfo | null;
-  onLogout?: () => void;
   collapsed?: boolean;
   onToggle?: () => void;
 };
@@ -52,11 +42,8 @@ const NAV_ICONS: Record<string, string> = {
 const SIDEBAR_EXPANDED_W = 280;
 const SIDEBAR_COLLAPSED_W = 64;
 
-export function AppSidebar({ appName, navGroups, user, onLogout, collapsed, onToggle }: AppSidebarProps) {
+export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSidebarProps) {
   const pathname = usePathname();
-  const displayName = user?.employeeName || user?.username || "User";
-  const initials = displayName.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
-  const roleLine = user?.roles.map((r) => r.replace("_", " ")).join(", ") || "";
   const w = collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_EXPANDED_W;
 
   const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
@@ -151,50 +138,6 @@ export function AppSidebar({ appName, navGroups, user, onLogout, collapsed, onTo
         ))}
       </nav>
 
-      {/* User + Footer */}
-      {user && (
-        <div className={`border-t border-slate-100 ${collapsed ? "px-2 py-3" : "px-4 py-3"}`}>
-          {collapsed ? (
-            <div className="flex flex-col items-center gap-2">
-              {user.profileImageUrl ? (
-                <img src={`${API_BASE_URL}${user.profileImageUrl}`} alt={displayName} className="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200" />
-              ) : (
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#E8192C] to-[#2B7DE9] text-[10px] font-bold text-white">{initials}</div>
-              )}
-              <button
-                onClick={onLogout}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-red-50 hover:text-[#E8192C]"
-                title="Sign out"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
-                </svg>
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2.5">
-              {user.profileImageUrl ? (
-                <img src={`${API_BASE_URL}${user.profileImageUrl}`} alt={displayName} className="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200" />
-              ) : (
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#E8192C] to-[#2B7DE9] text-[10px] font-bold text-white">{initials}</div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[12px] font-medium text-slate-700">{displayName}</p>
-                <p className="truncate text-[10px] text-slate-400">{roleLine}</p>
-              </div>
-              <button
-                onClick={onLogout}
-                className="shrink-0 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-[#E8192C]"
-                title="Sign out"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
-                </svg>
-              </button>
-            </div>
-          )}
-        </div>
-      )}
       {!collapsed && (
         <div className="border-t border-slate-50 px-5 py-2 text-center">
           <p className="text-[9px] text-slate-300">powered by <span className="font-semibold text-slate-400">OpenSky HRM</span></p>

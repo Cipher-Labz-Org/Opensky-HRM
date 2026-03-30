@@ -1,4 +1,7 @@
+using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using Hangfire;
 using Hangfire.PostgreSql;
@@ -97,7 +100,8 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 // --- Controllers ---
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new ApiDateTimeJsonConverter()));
 
 // --- Swagger ---
 builder.Services.AddEndpointsApiExplorer();
@@ -196,6 +200,21 @@ if (dbAvailable)
             await cmd.ExecuteNonQueryAsync();
         }
         catch { }
+
+        // Hangfire.PostgreSql can retry forever on a half-migrated schema (42701: column "updatecount"
+        // on hangfire.lock already exists), which prevents the host from finishing startup — no HTTP listener.
+        if (app.Configuration.GetValue<bool>("Hangfire:ResetSchemaOnStartup"))
+        {
+            try
+            {
+                await using var hfResetConn = new Npgsql.NpgsqlConnection(hangfireConn);
+                await hfResetConn.OpenAsync();
+                await using var resetCmd = hfResetConn.CreateCommand();
+                resetCmd.CommandText = "DROP SCHEMA IF EXISTS hangfire CASCADE;";
+                await resetCmd.ExecuteNonQueryAsync();
+            }
+            catch { /* non-fatal */ }
+        }
     }
     catch (Exception ex)
     {
@@ -224,6 +243,8 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await LicensingSeeder.EnsureAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchCasualLeaveMonthlyEveryYearAsync(db);
 
         // Dev safety: ensure there is always at least one usable admin after resets.
         // This does not overwrite existing users; it only bootstraps if no active ADMIN user exists.
@@ -329,3 +350,29 @@ app.MapGet("/", () => Results.Redirect("/swagger"));
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow, database = dbAvailable }));
 
 app.Run();
+
+/// <summary>
+/// Serializes UTC instants with a Z suffix; business-local wall times (Unspecified / Local) without Z so clients do not misread them as UTC.
+/// </summary>
+public sealed class ApiDateTimeJsonConverter : JsonConverter<DateTime>
+{
+    public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var dt = reader.GetDateTime();
+        // Preserve Unspecified for round-trip with legacy timestamp columns (wall time).
+        return dt;
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
+    {
+        const string localFmt = "yyyy-MM-dd'T'HH:mm:ss.fff";
+        if (value.Kind == DateTimeKind.Utc)
+        {
+            writer.WriteStringValue(
+                value.ToUniversalTime().ToString(localFmt, CultureInfo.InvariantCulture) + "Z");
+            return;
+        }
+
+        writer.WriteStringValue(value.ToString(localFmt, CultureInfo.InvariantCulture));
+    }
+}

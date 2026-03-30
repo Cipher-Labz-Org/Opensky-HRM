@@ -6,6 +6,7 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { apiFetch } from "@/lib/api";
+import { formatDate } from "@/lib/date-utils";
 
 interface TemplateItem {
   id: string;
@@ -308,7 +309,7 @@ export default function OffboardingPage() {
                       </div>
                       <div className="mt-0.5 flex items-center gap-3 text-xs text-slate-400">
                         {a.departmentName && <span>{a.departmentName}</span>}
-                        {a.terminationDate && <span>Terminated {new Date(a.terminationDate).toLocaleDateString()}</span>}
+                        {a.terminationDate && <span>Terminated {formatDate(a.terminationDate)}</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">

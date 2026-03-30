@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpenSkyHRM.Application.DTOs.Licensing;
 using OpenSkyHRM.Application.Services;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
@@ -13,12 +14,17 @@ namespace OpenSkyHRM.Application.Tests;
 
 public class LicensingServiceTests
 {
+    private sealed class TestClock : IBusinessClock
+    {
+        public DateTime Now => DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
+    }
+
     private static async Task<(AppDbContext Db, LicensingService Svc)> CreateSutAsync()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
-        var db = new AppDbContext(options);
+        var db = new AppDbContext(options, new TestClock());
         await LicensingSeeder.EnsureAsync(db);
         var cache = new MemoryCache(new MemoryCacheOptions());
         var svc = new LicensingService(db, cache, NullLogger<LicensingService>.Instance);

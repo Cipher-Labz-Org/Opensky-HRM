@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
+import { formatDateTime } from "@/lib/date-utils";
 import { ROUTES } from "@/config/routes";
 
 interface PeopleAuditChange {
@@ -152,7 +153,7 @@ export default function PeopleAuditTrailPage() {
             <table className="hris-table text-[13px]">
               <thead>
                 <tr>
-                  <th>When (UTC)</th>
+                  <th>When (office)</th>
                   <th>Action</th>
                   <th>Entity</th>
                   <th>Employee</th>
@@ -164,7 +165,7 @@ export default function PeopleAuditTrailPage() {
                 {data.items.map((row) => (
                   <tr key={row.id}>
                     <td className="whitespace-nowrap text-slate-600">
-                      {new Date(row.timestamp).toLocaleString()}
+                      {formatDateTime(row.timestamp)}
                     </td>
                     <td>
                       <span

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,12 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
+import { formatDate } from "@/lib/date-utils";
+import {
+  type EmploymentTypeCatalogItem,
+  employmentTypeDisplayName,
+  employmentTypeFilterOptions,
+} from "@/lib/employment-types";
 
 interface Employee {
   id: string;
@@ -25,9 +31,12 @@ interface Employee {
   isTopOfHierarchy: boolean;
   hasDirectSupervisor: boolean;
   profileImageUrl: string | null;
+  joinDate: string;
+  terminationDate: string | null;
 }
 
 interface Lookup { id: string; name: string }
+interface StatusLookup { id: string; name: string; code: string }
 
 interface Filters {
   search: string;
@@ -45,7 +54,7 @@ const emptyFilters: Filters = {
   departmentId: "", jobTitleId: "", locationId: "", managerId: "",
 };
 
-const lifecycleStatusColors: Record<string, string> = {
+const statusColorMap: Record<string, string> = {
   Active: "bg-emerald-50 text-emerald-600",
   OnNotice: "bg-amber-50 text-amber-600",
   Resigned: "bg-orange-50 text-orange-600",
@@ -54,11 +63,10 @@ const lifecycleStatusColors: Record<string, string> = {
   Deceased: "bg-slate-100 text-slate-500",
   Absconded: "bg-red-50 text-red-600",
 };
-const lifecycleStatusLabels: Record<string, string> = {
-  Active: "Active", OnNotice: "On Notice", Resigned: "Resigned",
-  Terminated: "Terminated", Retired: "Retired", Deceased: "Deceased", Absconded: "Absconded",
-};
-const lifecycleStatusOptions = ["Active", "OnNotice", "Resigned", "Terminated", "Retired", "Deceased", "Absconded"];
+
+function getStatusColor(status: string): string {
+  return statusColorMap[status] ?? "bg-slate-100 text-slate-500";
+}
 
 const employmentTypeLabels: Record<string, string> = {
   Freelance: "Freelance", FullTimeContract: "Full-Time Contract", FullTimeInternship: "Full-Time Internship",
@@ -91,7 +99,14 @@ export default function PeoplePage() {
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [managers, setManagers] = useState<Lookup[]>([]);
+  const [employeeStatuses, setEmployeeStatuses] = useState<StatusLookup[]>([]);
+  const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   const [stats, setStats] = useState({ total: 0, departments: 0, locations: 0, jobTitles: 0 });
+
+  const employmentTypeFilterOpts = useMemo(
+    () => employmentTypeFilterOptions(employmentTypes),
+    [employmentTypes]
+  );
 
   useEffect(() => {
     Promise.all([
@@ -102,11 +117,15 @@ export default function PeoplePage() {
         .then((r) => r.items.map((e) => ({ id: e.id, name: e.fullName })))
         .catch(() => []),
       apiFetch<{ totalCount: number }>("/api/employees?pageSize=1&excludeTerminated=true").catch(() => ({ totalCount: 0 })),
-    ]).then(([d, j, l, m, empResult]) => {
+      apiFetch<StatusLookup[]>("/api/organization/employee-statuses").catch(() => [] as StatusLookup[]),
+      apiFetch<EmploymentTypeCatalogItem[]>("/api/organization/employment-statuses").catch(() => [] as EmploymentTypeCatalogItem[]),
+    ]).then(([d, j, l, m, empResult, statuses, empTypes]) => {
       setDepartments(d);
       setJobTitles(j);
       setLocations(l);
       setManagers(m);
+      setEmployeeStatuses(statuses);
+      setEmploymentTypes(empTypes);
       setStats({ total: empResult.totalCount, departments: d.length, locations: l.length, jobTitles: j.length });
     });
   }, []);
@@ -397,8 +416,8 @@ export default function PeoplePage() {
                 onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
               >
                 <option value="">All</option>
-                {lifecycleStatusOptions.map((s) => (
-                  <option key={s} value={s}>{lifecycleStatusLabels[s]}</option>
+                {employeeStatuses.map((s) => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
                 ))}
               </select>
             </div>
@@ -552,11 +571,11 @@ export default function PeoplePage() {
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.jobTitleName ?? emp.positionTitle ?? "—"}</td>
                         <td className="py-2 px-3">
                           <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${
-                            lifecycleStatusColors[emp.status] ?? "bg-slate-100 text-slate-500"
-                          }`}>{lifecycleStatusLabels[emp.status] ?? emp.status}</span>
+                            getStatusColor(emp.status)
+                          }`}>{emp.status}</span>
                         </td>
                         <td className="py-2 px-3 text-[11px] text-slate-500">
-                          {employmentTypeLabels[emp.employmentType] ?? emp.employmentType}
+                          {employmentTypeDisplayName(employmentTypes, emp.employmentType)}
                         </td>
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.departmentName ?? "—"}</td>
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.locationName ?? "—"}</td>

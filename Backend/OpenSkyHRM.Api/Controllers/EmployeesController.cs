@@ -71,6 +71,9 @@ public class EmployeesController : ControllerBase
         if (allowedIds != null && allowedIds.Count == 0)
             return Forbid();
 
+        var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
+        if (licenseErr != null) return licenseErr;
+
         var created = await _employeeService.CreateAsync(dto);
 
         if (dto.CreateLogin != null)
@@ -110,6 +113,8 @@ public class EmployeesController : ControllerBase
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
         if (allowedIds != null && (allowedIds.Count == 0 || !allowedIds.Contains(id)))
             return Forbid();
+        var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
+        if (licenseErr != null) return licenseErr;
         var updated = await _employeeService.UpdateAsync(id, dto);
         return updated is null ? NotFound() : Ok(updated);
     }
@@ -275,6 +280,42 @@ public class EmployeesController : ControllerBase
         return Ok(rows);
     }
 
+    /// <summary>Employees who may be assigned as supervisors: active login with SUPERVISOR role (People read scope applies).</summary>
+    [HttpGet("{id:guid}/reporting/supervisor-candidates")]
+    public async Task<IActionResult> GetSupervisorCandidates(Guid id)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Read"))
+            return Forbid();
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+
+        var q = _db.Employees
+            .AsNoTracking()
+            .Where(e => !e.IsDeleted && e.Status != "Terminated" && e.Id != id)
+            .Where(e => _db.Users.Any(u =>
+                !u.IsDeleted
+                && u.IsActive
+                && u.EmployeeId == e.Id
+                && u.UserRoles.Any(ur =>
+                    !ur.IsDeleted
+                    && !ur.Role.IsDeleted
+                    && ur.Role.Code == "SUPERVISOR")));
+
+        if (allowedIds != null)
+            q = q.Where(e => allowedIds.Contains(e.Id));
+
+        var items = await q
+            .OrderBy(e => e.LastName)
+            .ThenBy(e => e.FirstName)
+            .Select(e => new
+            {
+                id = e.Id,
+                fullName = e.FirstName + (e.MiddleName != null ? " " + e.MiddleName : "") + " " + e.LastName,
+            })
+            .ToListAsync();
+
+        return Ok(new { items });
+    }
+
     [HttpPost("{id:guid}/supervisors")]
     public async Task<IActionResult> AddSupervisor(Guid id, [FromBody] AddSupervisorRequest req)
     {
@@ -282,6 +323,18 @@ public class EmployeesController : ControllerBase
         if (employee is null) return NotFound();
         var supervisor = await _db.Employees.FindAsync(req.SupervisorId);
         if (supervisor is null) return BadRequest(new { error = "Supervisor not found." });
+
+        var hasSupervisorRole = await _db.Users
+            .AnyAsync(u =>
+                !u.IsDeleted
+                && u.IsActive
+                && u.EmployeeId == req.SupervisorId
+                && u.UserRoles.Any(ur =>
+                    !ur.IsDeleted
+                    && !ur.Role.IsDeleted
+                    && ur.Role.Code == "SUPERVISOR"));
+        if (!hasSupervisorRole)
+            return BadRequest(new { error = "Only employees with the Supervisor role can be assigned as a supervisor." });
 
         var exists = await _db.EmployeeSupervisors.AnyAsync(x => x.EmployeeId == id && x.SupervisorId == req.SupervisorId);
         if (exists) return BadRequest(new { error = "This supervisor is already assigned." });
@@ -317,6 +370,11 @@ public class EmployeesController : ControllerBase
 
         var exists = await _db.EmployeeSupervisors.AnyAsync(x => x.EmployeeId == req.EmployeeId && x.SupervisorId == id);
         if (exists) return BadRequest(new { error = "This subordinate is already assigned." });
+
+        var theyAreMySupervisor = await _db.EmployeeSupervisors
+            .AnyAsync(x => x.EmployeeId == id && x.SupervisorId == req.EmployeeId);
+        if (theyAreMySupervisor)
+            return BadRequest(new { error = "An employee who is assigned as your supervisor cannot be added as your subordinate." });
 
         var entry = new Domain.Entities.EmployeeSupervisor
         {
@@ -359,6 +417,15 @@ public class EmployeesController : ControllerBase
         entry.IsDeleted = true;
         await _db.SaveChangesAsync();
         return NoContent();
+    }
+
+    private static IActionResult? LicenseDateValidationProblem(DateTime? issue, DateTime? expiry)
+    {
+        if (issue.HasValue && issue.Value.Date > DateTime.UtcNow.Date)
+            return new BadRequestObjectResult(new { message = "License issue date cannot be in the future." });
+        if (issue.HasValue && expiry.HasValue && expiry.Value.Date < issue.Value.Date)
+            return new BadRequestObjectResult(new { message = "License expiry date must be on or after the issue date." });
+        return null;
     }
 }
 

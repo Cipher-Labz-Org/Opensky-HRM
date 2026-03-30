@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { API_BASE_URL } from "@/config/constants";
+import { formatDate as fmtDate } from "@/lib/date-utils";
 import { useAuth } from "@/contexts/auth-context";
 import Link from "next/link";
+import { DatePickerField } from "@/components/ui";
 
 type LicensingSummary = {
   planName: string;
@@ -40,15 +42,7 @@ type AdminState = {
 };
 
 function formatDate(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return iso;
-  }
+  return fmtDate(iso);
 }
 
 export default function BillingPage() {
@@ -292,12 +286,13 @@ export default function BillingPage() {
                 </label>
                 <label className="block text-sm sm:col-span-2">
                   <span className="text-[var(--muted)]">Valid until (optional)</span>
-                  <input
-                    type="date"
-                    className="mt-1 w-full max-w-xs rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[var(--text)]"
-                    value={validUntil}
-                    onChange={(e) => setValidUntil(e.target.value)}
-                  />
+                  <div className="mt-1 max-w-xs">
+                    <DatePickerField
+                      className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[var(--text)]"
+                      value={validUntil}
+                      onChange={setValidUntil}
+                    />
+                  </div>
                 </label>
                 <label className="block text-sm sm:col-span-2">
                   <span className="text-[var(--muted)]">Notes</span>

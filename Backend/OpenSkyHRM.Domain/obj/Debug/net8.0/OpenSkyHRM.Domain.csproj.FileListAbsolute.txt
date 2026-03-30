@@ -1,5 +1,4 @@
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.deps.json
-C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.dll
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.pdb
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.GeneratedMSBuildEditorConfig.editorconfig
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.AssemblyInfoInputs.cache
@@ -8,7 +7,6 @@ C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Doma
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.dll
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\refint\OpenSkyHRM.Domain.dll
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.pdb
-C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\ref\OpenSkyHRM.Domain.dll
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.sourcelink.json
 C:\D Drive\OpenskyHRM\Backend\_buildcheck\OpenSkyHRM.Domain.deps.json
 C:\D Drive\OpenskyHRM\Backend\_buildcheck\OpenSkyHRM.Domain.dll
@@ -76,3 +74,5 @@ C:\D Drive\OpenskyHRM\Backend\_buildtmp_api17\OpenSkyHRM.Domain.pdb
 C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Domain.deps.json
 C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Domain.dll
 C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Domain.pdb
+c:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.dll
+c:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\ref\OpenSkyHRM.Domain.dll

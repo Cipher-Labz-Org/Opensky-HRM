@@ -131,3 +131,9 @@ C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Micr
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.Abstractions.dll
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Http.dll
 C:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Options.ConfigurationExtensions.dll
+c:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Configuration.EnvironmentVariables.dll
+c:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Configuration.FileExtensions.dll
+c:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.Configuration.Json.dll
+c:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.FileProviders.Abstractions.dll
+c:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.FileProviders.Physical.dll
+c:\D Drive\OpenskyHRM\Backend\OpenSkyHRM.Application.Tests\bin\Debug\net8.0\Microsoft.Extensions.FileSystemGlobbing.dll

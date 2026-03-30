@@ -50,6 +50,7 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(e => e.EpfNumber).HasMaxLength(50);
         builder.Property(e => e.EtfNumber).HasMaxLength(50);
         builder.Property(e => e.DriversLicenseNumber).HasMaxLength(50);
+        builder.Property(e => e.DriversLicenseType).HasMaxLength(80);
         builder.Property(e => e.DriversLicenseIssuingCountry).HasMaxLength(100);
         builder.Property(e => e.Status).HasMaxLength(50);
         builder.Property(e => e.Gender).HasConversion<string>().HasMaxLength(10);

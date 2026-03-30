@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { APP_NAME } from "@/config/constants";
 import { AppSidebar } from "@/components/navigation/AppSidebar";
+import { AppGlobalHeader } from "@/components/navigation/AppGlobalHeader";
+import { PeopleHubHelpProvider } from "@/components/help/PeopleHubHelpPanel";
 import { LicensePageGate } from "@/components/licensing/LicensePageGate";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
@@ -76,22 +78,32 @@ function isLicensedForNav(
   return licensedModules.includes(module);
 }
 
+function FullScreenSpinner() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
+    </div>
+  );
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading, logout, hasPermission, isAdmin } = useAuth();
   const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isLoading, isAuthenticated, router]);
+
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
-      </div>
-    );
+    return <FullScreenSpinner />;
   }
 
   if (!isAuthenticated) {
-    router.replace("/login");
-    return null;
+    return <FullScreenSpinner />;
   }
 
   const licensedModules = user?.licensedModules;
@@ -109,18 +121,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     .filter((group) => group.items.length > 0);
 
   return (
-    <div className="app-shell-grid flex min-h-screen">
-      <AppSidebar
-        appName={APP_NAME}
-        navGroups={filteredNavGroups}
-        user={user}
-        onLogout={logout}
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-      />
-      <main className="min-h-screen flex-1 p-7" style={{ minWidth: 0 }}>
-        <LicensePageGate>{children}</LicensePageGate>
-      </main>
-    </div>
+    <PeopleHubHelpProvider>
+      <div className="app-shell-grid flex min-h-screen">
+        <AppSidebar
+          appName={APP_NAME}
+          navGroups={filteredNavGroups}
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        />
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-[var(--bg)]">
+          {user ? <AppGlobalHeader user={user} onLogout={logout} /> : null}
+          <main className="flex-1 p-7" style={{ minWidth: 0 }}>
+            <LicensePageGate>{children}</LicensePageGate>
+          </main>
+        </div>
+      </div>
+    </PeopleHubHelpProvider>
   );
 }

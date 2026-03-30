@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
+import { formatDateTime } from "@/lib/date-utils";
 import Link from "next/link";
 
 interface MyTask {
@@ -587,12 +588,7 @@ export default function DashboardPage() {
                     className="group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
                   >
                     <div className="pt-0.5 text-[11px] font-medium text-slate-500">
-                      {new Date(ev.at).toLocaleString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatDateTime(ev.at)}
                     </div>
                     <div className="min-w-0">
                       <div className="mb-0.5 flex items-center gap-2">

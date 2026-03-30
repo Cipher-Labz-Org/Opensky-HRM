@@ -230,4 +230,51 @@ public class OrganizationController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    // --- Skills catalog (People qualifications, Learning matrix) ---
+
+    [HttpGet("skills")]
+    public async Task<IActionResult> GetSkillsCatalog()
+        => Ok(await _orgService.GetSkillsCatalogAsync());
+
+    [HttpPost("skills")]
+    public async Task<IActionResult> CreateSkillCatalog([FromBody] CreateSkillCatalogDto dto)
+    {
+        try
+        {
+            return Ok(await _orgService.CreateSkillCatalogAsync(dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("skills/{id:guid}")]
+    public async Task<IActionResult> UpdateSkillCatalog(Guid id, [FromBody] CreateSkillCatalogDto dto)
+    {
+        try
+        {
+            var updated = await _orgService.UpdateSkillCatalogAsync(id, dto);
+            return updated is null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpDelete("skills/{id:guid}")]
+    public async Task<IActionResult> DeleteSkillCatalog(Guid id)
+    {
+        try
+        {
+            var deleted = await _orgService.DeleteSkillCatalogAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }
