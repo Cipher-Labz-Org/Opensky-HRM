@@ -65,3 +65,54 @@ public class CreateJobTitleDto
     public string Code { get; set; } = string.Empty;
     public string? Description { get; set; }
 }
+
+public class CreateLocationDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public string? Address { get; set; }
+    public string? City { get; set; }
+    public string? Country { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+public class EmploymentStatusTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool IsActive { get; set; }
+    public bool IsSystem { get; set; }
+    public int SortOrder { get; set; }
+}
+
+public class CreateEmploymentStatusTypeDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
+    public int SortOrder { get; set; }
+}
+
+/// <summary>People Hub / Learning shared skill catalog (Skills table).</summary>
+public class SkillCatalogDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Category { get; set; }
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
+
+    /// <summary>Mirrors Category for master-data UIs that use a &quot;code&quot; column.</summary>
+    public string Code => Category ?? "";
+}
+
+public class CreateSkillCatalogDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Category { get; set; }
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
+}

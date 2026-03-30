@@ -6,30 +6,98 @@ public class CompensationComponentDto
     public string Name { get; set; } = string.Empty;
     public string Code { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
     public bool IsTaxable { get; set; }
     public bool IsStatutory { get; set; }
     public bool IsActive { get; set; }
+    public string? Description { get; set; }
+    public string? FormulaExpression { get; set; }
+    public string? DependsOnComponentCode { get; set; }
+    public int SortOrder { get; set; }
+    public bool IsEmployerContribution { get; set; }
+}
+
+public class CreateComponentDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public string Type { get; set; } = "Earning";
+    public string Category { get; set; } = "Fixed";
+    public bool IsTaxable { get; set; }
+    public bool IsStatutory { get; set; }
+    public string? Description { get; set; }
+    public string? FormulaExpression { get; set; }
+    public string? DependsOnComponentCode { get; set; }
+    public int SortOrder { get; set; }
+    public bool IsEmployerContribution { get; set; }
+}
+
+public class UpdateComponentDto : CreateComponentDto
+{
+    public bool IsActive { get; set; } = true;
 }
 
 public class EmployeeCompensationDto
 {
     public Guid Id { get; set; }
+    public Guid EmployeeId { get; set; }
     public string EmployeeName { get; set; } = string.Empty;
+    public Guid ComponentId { get; set; }
     public string ComponentName { get; set; } = string.Empty;
+    public string ComponentCode { get; set; } = string.Empty;
+    public string ComponentType { get; set; } = string.Empty;
+    public string ComponentCategory { get; set; } = string.Empty;
     public decimal Amount { get; set; }
-    public string Currency { get; set; } = string.Empty;
+    public string Currency { get; set; } = "LKR";
     public DateTime EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public bool IsActive { get; set; }
+    public Guid? BatchId { get; set; }
+}
+
+public class CreateEmployeeCompensationDto
+{
+    public Guid ComponentId { get; set; }
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "LKR";
+    public DateTime EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public Guid? BatchId { get; set; }
+}
+
+public class UpdateEmployeeCompensationDto
+{
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "LKR";
+    public DateTime EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public bool IsActive { get; set; } = true;
 }
 
 public class SalaryRevisionDto
 {
     public Guid Id { get; set; }
+    public Guid EmployeeId { get; set; }
     public string EmployeeName { get; set; } = string.Empty;
     public string RevisionType { get; set; } = string.Empty;
     public decimal CurrentSalary { get; set; }
     public decimal ProposedSalary { get; set; }
     public decimal ChangePercentage { get; set; }
+    public string? Justification { get; set; }
     public string Status { get; set; } = string.Empty;
+    public DateTime EffectiveDate { get; set; }
+    public string? ApprovedBy { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+    public string? Remarks { get; set; }
+}
+
+public class CreateSalaryRevisionDto
+{
+    public Guid EmployeeId { get; set; }
+    public string RevisionType { get; set; } = "Increment";
+    public decimal CurrentSalary { get; set; }
+    public decimal ProposedSalary { get; set; }
+    public string? Justification { get; set; }
     public DateTime EffectiveDate { get; set; }
 }
 
@@ -40,19 +108,84 @@ public class PayrollBatchDto
     public int Month { get; set; }
     public int Year { get; set; }
     public string Status { get; set; } = string.Empty;
+    public DateTime? ProcessedAt { get; set; }
+    public string? ApprovedBy { get; set; }
     public int EmployeeCount { get; set; }
     public decimal TotalGross { get; set; }
+    public decimal TotalDeductions { get; set; }
     public decimal TotalNet { get; set; }
+    public decimal TotalEmployerCost { get; set; }
+    public string? Notes { get; set; }
+    public int SelectedCount { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class CreatePayrollBatchDto
+{
+    public int Month { get; set; }
+    public int Year { get; set; }
+    public string? Notes { get; set; }
+    public List<Guid> EmployeeIds { get; set; } = new();
 }
 
 public class PayStatementDto
 {
     public Guid Id { get; set; }
+    public Guid BatchId { get; set; }
+    public Guid EmployeeId { get; set; }
     public string EmployeeName { get; set; } = string.Empty;
+    public string? EmployeeCode { get; set; }
+    public string? Department { get; set; }
     public int Month { get; set; }
     public int Year { get; set; }
+    public decimal BasicPay { get; set; }
+    public decimal TotalEarnings { get; set; }
+    public decimal TotalDeductions { get; set; }
     public decimal GrossPay { get; set; }
-    public decimal Deductions { get; set; }
     public decimal NetPay { get; set; }
+    public decimal EmployerCost { get; set; }
     public string Status { get; set; } = string.Empty;
+    public List<PayStatementLineDto> Lines { get; set; } = new();
+}
+
+public class PayStatementLineDto
+{
+    public Guid Id { get; set; }
+    public Guid ComponentId { get; set; }
+    public string ComponentName { get; set; } = string.Empty;
+    public string ComponentCode { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public bool IsEmployerContribution { get; set; }
+    public int SortOrder { get; set; }
+}
+
+public class PayrollSettingsDto
+{
+    public decimal EpfEmployeeRate { get; set; }
+    public decimal EpfEmployerRate { get; set; }
+    public decimal EtfEmployerRate { get; set; }
+}
+
+public class BulkVariableUpdateRequest
+{
+    public List<VariableUpdateItem> Updates { get; set; } = new();
+}
+
+public class VariableUpdateItem
+{
+    public Guid Id { get; set; }
+    public decimal Amount { get; set; }
+}
+
+public class PayrollFormulaDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public Guid ComponentId { get; set; }
+    public string ComponentName { get; set; } = string.Empty;
+    public string Expression { get; set; } = string.Empty;
+    public DateTime EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public bool IsActive { get; set; }
 }

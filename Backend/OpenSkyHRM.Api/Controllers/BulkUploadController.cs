@@ -4,12 +4,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Administration")]
 [Route("api/[controller]")]
 public class BulkUploadController : ControllerBase
 {
@@ -18,9 +20,27 @@ public class BulkUploadController : ControllerBase
     public BulkUploadController(AppDbContext db) => _db = db;
 
     [HttpGet("template")]
-    public IActionResult DownloadTemplate()
+    public async Task<IActionResult> DownloadTemplate()
     {
         using var wb = new XLWorkbook();
+
+        var employmentTypeCodes = await _db.EmploymentStatusTypes
+            .AsNoTracking()
+            .Where(t => !t.IsDeleted && t.IsActive)
+            .OrderBy(t => t.SortOrder).ThenBy(t => t.Name)
+            .Select(t => t.Code)
+            .ToListAsync();
+        if (employmentTypeCodes.Count == 0)
+            employmentTypeCodes = Enum.GetNames<EmploymentType>().ToList();
+
+        var employeeStatusCodes = await _db.EmployeeStatusTypes
+            .AsNoTracking()
+            .Where(t => !t.IsDeleted && t.IsActive)
+            .OrderBy(t => t.SortOrder).ThenBy(t => t.Name)
+            .Select(t => t.Code)
+            .ToListAsync();
+        if (employeeStatusCodes.Count == 0)
+            employeeStatusCodes = Enum.GetNames<EmployeeStatus>().ToList();
 
         var ws = wb.Worksheets.Add("Employees");
         var cols = GetEmployeeColumns();
@@ -38,6 +58,8 @@ public class BulkUploadController : ControllerBase
         AddLookupSheet(wb, "Grades", _db.Grades.Where(g => !g.IsDeleted).Select(g => new { g.Name }).ToList().Select(g => g.Name));
         AddLookupSheet(wb, "Locations", _db.Locations.Where(l => !l.IsDeleted).Select(l => new { l.Name }).ToList().Select(l => l.Name));
         AddLookupSheet(wb, "JobTitles", _db.JobTitles.Where(j => !j.IsDeleted).Select(j => new { j.Title }).ToList().Select(j => j.Title));
+        AddLookupSheet(wb, "PositionCodes", _db.Positions.Where(p => !p.IsDeleted).OrderBy(p => p.Code).Select(p => p.Code).ToList());
+        AddLookupSheet(wb, "ShiftPatternCodes", _db.ShiftPatterns.Where(s => !s.IsDeleted).OrderBy(s => s.Code).Select(s => s.Code).ToList());
 
         var refWs = wb.Worksheets.Add("Reference");
         refWs.Cell(1, 1).Value = "Gender Options";
@@ -45,15 +67,22 @@ public class BulkUploadController : ControllerBase
         var genders = new[] { "Male", "Female", "Other" };
         for (int i = 0; i < genders.Length; i++) refWs.Cell(i + 2, 1).Value = genders[i];
 
-        refWs.Cell(1, 2).Value = "Employment Status";
+        refWs.Cell(1, 2).Value = "Employment Type (code)";
         refWs.Cell(1, 2).Style.Font.Bold = true;
-        var statuses = Enum.GetNames<EmploymentStatus>();
-        for (int i = 0; i < statuses.Length; i++) refWs.Cell(i + 2, 2).Value = statuses[i];
+        for (int i = 0; i < employmentTypeCodes.Count; i++) refWs.Cell(i + 2, 2).Value = employmentTypeCodes[i];
 
         refWs.Cell(1, 3).Value = "Marital Status";
         refWs.Cell(1, 3).Style.Font.Bold = true;
         var marital = new[] { "Single", "Married", "Divorced", "Widowed", "Separated" };
         for (int i = 0; i < marital.Length; i++) refWs.Cell(i + 2, 3).Value = marital[i];
+
+        refWs.Cell(1, 4).Value = "Employee Status (code)";
+        refWs.Cell(1, 4).Style.Font.Bold = true;
+        for (int i = 0; i < employeeStatusCodes.Count; i++) refWs.Cell(i + 2, 4).Value = employeeStatusCodes[i];
+
+        refWs.Cell(1, 5).Value = "Is Top of Hierarchy";
+        refWs.Cell(1, 5).Style.Font.Bold = true;
+        refWs.Cell(2, 5).Value = "Yes, Y, True, or 1 = top; blank or other = no";
 
         refWs.Columns().AdjustToContents();
 
@@ -79,7 +108,30 @@ public class BulkUploadController : ControllerBase
         var grades = await _db.Grades.Where(g => !g.IsDeleted).ToListAsync();
         var locations = await _db.Locations.Where(l => !l.IsDeleted).ToListAsync();
         var jobTitles = await _db.JobTitles.Where(j => !j.IsDeleted).ToListAsync();
-        var existingCodes = await _db.Employees.Select(e => e.EmployeeCode).ToListAsync();
+        var positions = await _db.Positions.Where(p => !p.IsDeleted).ToListAsync();
+        var shiftPatterns = await _db.ShiftPatterns.Where(s => !s.IsDeleted).ToListAsync();
+
+        var employmentTypeCanonical = await BuildEmploymentTypeCodeMapAsync(_db);
+        var employeeStatusCanonical = await BuildEmployeeStatusCodeMapAsync(_db);
+        var defaultEmploymentTypeCode = await _db.EmploymentStatusTypes.AsNoTracking()
+            .Where(t => !t.IsDeleted && t.IsActive)
+            .OrderBy(t => t.SortOrder).ThenBy(t => t.Name)
+            .Select(t => t.Code)
+            .FirstOrDefaultAsync() ?? nameof(EmploymentType.FullTimePermanent);
+        var defaultEmployeeStatusCode = await _db.EmployeeStatusTypes.AsNoTracking()
+            .Where(t => !t.IsDeleted && t.IsActive)
+            .OrderBy(t => t.SortOrder).ThenBy(t => t.Name)
+            .Select(t => t.Code)
+            .FirstOrDefaultAsync() ?? nameof(EmployeeStatus.Active);
+
+        var existingEmployees = await _db.Employees.Where(e => !e.IsDeleted).Select(e => new { e.Id, e.EmployeeCode }).ToListAsync();
+        var existingCodes = existingEmployees.Select(e => e.EmployeeCode).ToList();
+        var managerLookup = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in existingEmployees)
+        {
+            if (!managerLookup.ContainsKey(e.EmployeeCode))
+                managerLookup[e.EmployeeCode] = e.Id;
+        }
 
         var results = new List<RowResult>();
         int created = 0;
@@ -88,7 +140,6 @@ public class BulkUploadController : ControllerBase
         using var stream = file.OpenReadStream();
         using var wb = new XLWorkbook(stream);
         var ws = wb.Worksheet(1);
-        var cols = GetEmployeeColumns();
 
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int c = 1; c <= (ws.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
@@ -103,6 +154,16 @@ public class BulkUploadController : ControllerBase
             if (!headerMap.TryGetValue(colName, out int c)) return null;
             var val = row.Cell(c).GetString().Trim();
             return string.IsNullOrEmpty(val) ? null : val;
+        }
+
+        string? CellAny(IXLRow row, params string[] colNames)
+        {
+            foreach (var colName in colNames)
+            {
+                var v = Cell(row, colName);
+                if (v != null) return v;
+            }
+            return null;
         }
 
         DateTime? DateCell(IXLRow row, string colName)
@@ -146,17 +207,49 @@ public class BulkUploadController : ControllerBase
                     errors.Add($"Invalid Gender '{genderStr}'");
             }
 
-            EmploymentStatus status = EmploymentStatus.FullTimePermanent;
-            var statusStr = Cell(row, "Employment Status");
-            if (!string.IsNullOrEmpty(statusStr))
+            var employmentType = defaultEmploymentTypeCode;
+            var employmentTypeStr = CellAny(row, "Employment Type", "Employment Status");
+            if (!string.IsNullOrEmpty(employmentTypeStr))
             {
-                if (!Enum.TryParse(statusStr, true, out status))
-                    errors.Add($"Invalid Employment Status '{statusStr}'");
+                if (!employmentTypeCanonical.TryGetValue(employmentTypeStr.Trim(), out var canonEmpType))
+                    errors.Add($"Invalid Employment Type '{employmentTypeStr}' (use Reference column B — codes from Administration → Organization, or legacy enum names)");
+                else
+                    employmentType = canonEmpType;
             }
 
             var empCode = Cell(row, "Employee Code");
             if (!string.IsNullOrEmpty(empCode) && existingCodes.Contains(empCode))
                 errors.Add($"Employee Code '{empCode}' already exists");
+
+            var posCodeRaw = Cell(row, "Position Code");
+            Position? position = null;
+            if (!string.IsNullOrEmpty(posCodeRaw))
+            {
+                position = positions.FirstOrDefault(p => p.Code.Equals(posCodeRaw, StringComparison.OrdinalIgnoreCase))
+                    ?? positions.FirstOrDefault(p => p.Title.Equals(posCodeRaw, StringComparison.OrdinalIgnoreCase));
+                if (position is null)
+                    errors.Add($"Position Code '{posCodeRaw}' not found (use Position Code or Title from master data)");
+            }
+
+            var shiftCodeRaw = Cell(row, "Shift Pattern Code");
+            ShiftPattern? shiftPattern = null;
+            if (!string.IsNullOrEmpty(shiftCodeRaw))
+            {
+                shiftPattern = shiftPatterns.FirstOrDefault(s => s.Code.Equals(shiftCodeRaw, StringComparison.OrdinalIgnoreCase))
+                    ?? shiftPatterns.FirstOrDefault(s => s.Name.Equals(shiftCodeRaw, StringComparison.OrdinalIgnoreCase));
+                if (shiftPattern is null)
+                    errors.Add($"Shift Pattern Code '{shiftCodeRaw}' not found (use Code or Name from master data)");
+            }
+
+            var mgrCodeRaw = Cell(row, "Manager Employee Code");
+            Guid? managerId = null;
+            if (!string.IsNullOrEmpty(mgrCodeRaw))
+            {
+                if (!managerLookup.TryGetValue(mgrCodeRaw, out var mgrIdFound))
+                    errors.Add($"Manager Employee Code '{mgrCodeRaw}' not found (must be an existing employee code, or appear earlier in this file)");
+                else
+                    managerId = mgrIdFound;
+            }
 
             if (errors.Count > 0)
             {
@@ -168,6 +261,13 @@ public class BulkUploadController : ControllerBase
             if (string.IsNullOrEmpty(empCode))
                 empCode = await GenerateNextCode(existingCodes);
 
+            if (!string.IsNullOrEmpty(mgrCodeRaw) && mgrCodeRaw.Equals(empCode, StringComparison.OrdinalIgnoreCase))
+            {
+                skipped++;
+                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false, new List<string> { "Manager Employee Code cannot be the same as this row's Employee Code" }));
+                continue;
+            }
+
             var buName = Cell(row, "Business Unit");
             var bu = buName != null ? businessUnits.FirstOrDefault(b => b.Name.Equals(buName, StringComparison.OrdinalIgnoreCase)) : null;
             var gradeName = Cell(row, "Grade");
@@ -176,6 +276,23 @@ public class BulkUploadController : ControllerBase
             var loc = locName != null ? locations.FirstOrDefault(l => l.Name.Equals(locName, StringComparison.OrdinalIgnoreCase)) : null;
             var jtName = Cell(row, "Job Title");
             var jt = jtName != null ? jobTitles.FirstOrDefault(j => j.Title.Equals(jtName, StringComparison.OrdinalIgnoreCase)) : null;
+
+            var lifecycleStatus = defaultEmployeeStatusCode;
+            var lifecycleRaw = Cell(row, "Employee Status");
+            if (!string.IsNullOrEmpty(lifecycleRaw))
+            {
+                if (!employeeStatusCanonical.TryGetValue(lifecycleRaw.Trim(), out var canonSt))
+                    errors.Add($"Invalid Employee Status '{lifecycleRaw}' (use Reference column D — codes from Administration → Organization, or legacy enum names)");
+                else
+                    lifecycleStatus = canonSt;
+            }
+
+            if (errors.Count > 0)
+            {
+                skipped++;
+                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false, errors));
+                continue;
+            }
 
             var employee = new Employee
             {
@@ -188,12 +305,16 @@ public class BulkUploadController : ControllerBase
                 DateOfBirth = DateTime.SpecifyKind(dobStr!.Value, DateTimeKind.Utc),
                 Gender = gender,
                 JoinDate = DateTime.SpecifyKind(joinStr!.Value, DateTimeKind.Utc),
-                Status = status,
+                Status = lifecycleStatus,
+                EmploymentType = employmentType,
                 DepartmentId = dept!.Id,
                 BusinessUnitId = bu?.Id,
                 GradeId = grade?.Id,
                 LocationId = loc?.Id,
                 JobTitleId = jt?.Id,
+                PositionId = position?.Id,
+                ManagerId = managerId,
+                ShiftPatternId = shiftPattern?.Id,
                 MaritalStatus = Cell(row, "Marital Status"),
                 Nationality = Cell(row, "Nationality"),
                 Religion = Cell(row, "Religion"),
@@ -204,6 +325,8 @@ public class BulkUploadController : ControllerBase
                 EpfNumber = Cell(row, "EPF Number"),
                 EtfNumber = Cell(row, "ETF Number"),
                 DriversLicenseNumber = Cell(row, "Driver License Number"),
+                DriversLicenseType = Cell(row, "Driver License Type"),
+                LicenseIssueDate = DateCell(row, "License Issue Date") is DateTime lid ? DateTime.SpecifyKind(lid, DateTimeKind.Utc) : null,
                 LicenseExpiryDate = DateCell(row, "License Expiry Date") is DateTime led ? DateTime.SpecifyKind(led, DateTimeKind.Utc) : null,
                 DriversLicenseIssuingCountry = Cell(row, "License Issuing Country"),
                 HomeTelephone = Cell(row, "Home Telephone"),
@@ -215,6 +338,7 @@ public class BulkUploadController : ControllerBase
                 Country = Cell(row, "Country"),
                 StateProvince = Cell(row, "State/Province"),
                 ZipPostalCode = Cell(row, "Zip/Postal Code"),
+                District = Cell(row, "District"),
                 PollingDivision = Cell(row, "Polling Division"),
                 DistanceToOffice = Cell(row, "Distance to Office"),
                 ModeOfTransport = Cell(row, "Mode of Transport"),
@@ -224,14 +348,21 @@ public class BulkUploadController : ControllerBase
                 PermanentCountry = Cell(row, "Permanent Country"),
                 PermanentStateProvince = Cell(row, "Permanent State/Province"),
                 PermanentZipPostalCode = Cell(row, "Permanent Zip/Postal Code"),
+                PermanentDistrict = Cell(row, "Permanent District"),
                 PermanentPollingDivision = Cell(row, "Permanent Polling Division"),
                 PermanentDistanceToOffice = Cell(row, "Permanent Distance to Office"),
                 ProbationEndDate = DateCell(row, "Probation End Date") is DateTime ped ? DateTime.SpecifyKind(ped, DateTimeKind.Utc) : null,
                 DateOfPermanency = DateCell(row, "Date of Permanency") is DateTime dop ? DateTime.SpecifyKind(dop, DateTimeKind.Utc) : null,
+                TerminationDate = DateCell(row, "Termination Date") is DateTime td ? DateTime.SpecifyKind(td, DateTimeKind.Utc) : null,
+                TerminationReason = Cell(row, "Termination Reason"),
+                TerminationNote = Cell(row, "Termination Note"),
+                IsTopOfHierarchy = ParseYesNo(Cell(row, "Is Top of Hierarchy")),
             };
 
             _db.Employees.Add(employee);
             existingCodes.Add(empCode!);
+            if (!managerLookup.ContainsKey(empCode!))
+                managerLookup[empCode!] = employee.Id;
             created++;
             results.Add(new RowResult(r, firstName!, lastName!, true, new List<string>()));
         }
@@ -239,6 +370,50 @@ public class BulkUploadController : ControllerBase
         await _db.SaveChangesAsync();
 
         return Ok(new UploadResult(created, skipped, lastRow - 1, results));
+    }
+
+    private static async Task<Dictionary<string, string>> BuildEmploymentTypeCodeMapAsync(AppDbContext db)
+    {
+        var codes = await db.EmploymentStatusTypes.AsNoTracking()
+            .Where(t => !t.IsDeleted)
+            .Select(t => t.Code)
+            .ToListAsync();
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in codes)
+        {
+            if (!string.IsNullOrWhiteSpace(c))
+                map[c] = c;
+        }
+
+        foreach (var n in Enum.GetNames<EmploymentType>())
+        {
+            if (!map.ContainsKey(n))
+                map[n] = n;
+        }
+
+        return map;
+    }
+
+    private static async Task<Dictionary<string, string>> BuildEmployeeStatusCodeMapAsync(AppDbContext db)
+    {
+        var codes = await db.EmployeeStatusTypes.AsNoTracking()
+            .Where(t => !t.IsDeleted)
+            .Select(t => t.Code)
+            .ToListAsync();
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in codes)
+        {
+            if (!string.IsNullOrWhiteSpace(c))
+                map[c] = c;
+        }
+
+        foreach (var n in Enum.GetNames<EmployeeStatus>())
+        {
+            if (!map.ContainsKey(n))
+                map[n] = n;
+        }
+
+        return map;
     }
 
     private async Task<string> GenerateNextCode(List<string> existingCodes)
@@ -261,6 +436,17 @@ public class BulkUploadController : ControllerBase
         return $"{prefix}-{next}";
     }
 
+    private static bool ParseYesNo(string? v)
+    {
+        if (string.IsNullOrWhiteSpace(v)) return false;
+        v = v.Trim();
+        return v.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || v.Equals("y", StringComparison.OrdinalIgnoreCase)
+            || v.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || v == "1";
+    }
+
+    /// <summary>Column headers for the employee import sheet. Order is for template UX only; upload matches by header name.</summary>
     private static string[] GetEmployeeColumns() => new[]
     {
         "Employee Code",
@@ -272,12 +458,35 @@ public class BulkUploadController : ControllerBase
         "Gender",
         "Date of Birth",
         "Joined Date",
-        "Employment Status",
+        "Employment Type",
+        "Employee Status",
         "Department",
         "Business Unit",
         "Grade",
         "Job Title",
         "Location",
+        "Position Code",
+        "Manager Employee Code",
+        "Shift Pattern Code",
+        "Address Street 1",
+        "Address Street 2",
+        "City",
+        "District",
+        "Country",
+        "State/Province",
+        "Zip/Postal Code",
+        "Polling Division",
+        "Distance to Office",
+        "Mode of Transport",
+        "Permanent Street 1",
+        "Permanent Street 2",
+        "Permanent City",
+        "Permanent District",
+        "Permanent Country",
+        "Permanent State/Province",
+        "Permanent Zip/Postal Code",
+        "Permanent Polling Division",
+        "Permanent Distance to Office",
         "Marital Status",
         "Nationality",
         "Religion",
@@ -288,6 +497,8 @@ public class BulkUploadController : ControllerBase
         "EPF Number",
         "ETF Number",
         "Driver License Number",
+        "Driver License Type",
+        "License Issue Date",
         "License Expiry Date",
         "License Issuing Country",
         "Home Telephone",
@@ -295,23 +506,10 @@ public class BulkUploadController : ControllerBase
         "Personal Email",
         "Probation End Date",
         "Date of Permanency",
-        "Address Street 1",
-        "Address Street 2",
-        "City",
-        "Country",
-        "State/Province",
-        "Zip/Postal Code",
-        "Polling Division",
-        "Distance to Office",
-        "Mode of Transport",
-        "Permanent Street 1",
-        "Permanent Street 2",
-        "Permanent City",
-        "Permanent Country",
-        "Permanent State/Province",
-        "Permanent Zip/Postal Code",
-        "Permanent Polling Division",
-        "Permanent Distance to Office",
+        "Termination Date",
+        "Termination Reason",
+        "Termination Note",
+        "Is Top of Hierarchy",
     };
 
     private static void AddLookupSheet(XLWorkbook wb, string name, IEnumerable<string> values)

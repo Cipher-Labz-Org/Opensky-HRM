@@ -1,9 +1,13 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using OpenSkyHRM.Persistence;
 
 #nullable disable
 
 namespace OpenSkyHRM.Persistence.Migrations
 {
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260319100000_AddEmployeeShiftPatternId")]
     public partial class AddEmployeeShiftPatternId : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)

@@ -3,10 +3,13 @@ using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.DTOs.TimeAttendance;
 using OpenSkyHRM.Application.Interfaces;
 
+using OpenSkyHRM.Api.Filters;
+
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Attendance")]
 [Route("api/biometric")]
 public class BiometricController : ControllerBase
 {

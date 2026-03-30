@@ -1,9 +1,12 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { APP_NAME } from "@/config/constants";
 import { AppSidebar } from "@/components/navigation/AppSidebar";
+import { AppGlobalHeader } from "@/components/navigation/AppGlobalHeader";
+import { PeopleHubHelpProvider } from "@/components/help/PeopleHubHelpPanel";
+import { LicensePageGate } from "@/components/licensing/LicensePageGate";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -24,9 +27,10 @@ const ALL_NAV_GROUPS: NavGroup[] = [
     items: [
       { href: ROUTES.dashboard, label: "Dashboard", module: "Dashboard" },
       { href: ROUTES.people, label: "People Hub", module: "People" },
+      { href: ROUTES.peopleAuditTrail, label: "People audit trail", module: "People" },
       { href: ROUTES.employeeProfile, label: "Employee 360", module: "People" },
-      { href: ROUTES.recruitment, label: "Recruitment" },
-      { href: ROUTES.onboarding, label: "Onboarding" },
+      { href: ROUTES.recruitment, label: "Recruitment", module: "Recruitment" },
+      { href: ROUTES.employeeTasks, label: "Employee Tasks", module: "EmployeeTasks" },
     ],
   },
   {
@@ -34,7 +38,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
     items: [
       { href: ROUTES.leave, label: "Leave & Absence", module: "Leave" },
       { href: ROUTES.attendance, label: "Time & Attendance", module: "Attendance" },
-      { href: ROUTES.payroll, label: "Payroll Bridge", module: "Payroll" },
+      { href: ROUTES.payroll, label: "Payroll", module: "Payroll" },
       { href: ROUTES.performance, label: "Performance", module: "Performance" },
       { href: ROUTES.learning, label: "Learning & Skills", module: "Learning" },
     ],
@@ -42,10 +46,18 @@ const ALL_NAV_GROUPS: NavGroup[] = [
   {
     title: "Intelligence",
     items: [
+      { href: ROUTES.reports, label: "Reports", module: "Analytics" },
       { href: ROUTES.orgStructure, label: "Org Structure", module: "OrgStructure" },
       { href: ROUTES.analytics, label: "Analytics", module: "Analytics" },
       { href: ROUTES.settings, label: "Policy & Settings", module: "Settings" },
       { href: ROUTES.billing, label: "Billing" },
+    ],
+  },
+  {
+    title: "Audit & Compliance",
+    items: [
+      { href: ROUTES.emailTemplates, label: "Email templates", module: "Settings" },
+      { href: ROUTES.emailDeliveryLog, label: "Email delivery log", module: "Settings" },
     ],
   },
   {
@@ -57,27 +69,50 @@ const ALL_NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+function isLicensedForNav(
+  module: string | undefined,
+  licensedModules: string[] | undefined
+): boolean {
+  if (!module) return true;
+  if (licensedModules == null || licensedModules.length === 0) return true;
+  return licensedModules.includes(module);
+}
+
+function FullScreenSpinner() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
+    </div>
+  );
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading, logout, hasPermission, isAdmin } = useAuth();
   const router = useRouter();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isLoading, isAuthenticated, router]);
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
-      </div>
-    );
+    return <FullScreenSpinner />;
   }
 
   if (!isAuthenticated) {
-    router.replace("/login");
-    return null;
+    return <FullScreenSpinner />;
   }
+
+  const licensedModules = user?.licensedModules;
 
   const filteredNavGroups = ALL_NAV_GROUPS
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
+        if (!isLicensedForNav(item.module, licensedModules)) return false;
         if (isAdmin) return true;
         if (!item.module) return true;
         return hasPermission(item.module, "Read");
@@ -86,18 +121,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     .filter((group) => group.items.length > 0);
 
   return (
-    <div
-      style={{
-        display: "grid",
-        minHeight: "100vh",
-        gridTemplateColumns: "280px 1fr",
-      }}
-      className="app-shell-grid min-h-screen"
-    >
-      <AppSidebar appName={APP_NAME} navGroups={filteredNavGroups} user={user} onLogout={logout} />
-      <main className="min-h-screen p-7" style={{ minWidth: 0 }}>
-        {children}
-      </main>
-    </div>
+    <PeopleHubHelpProvider>
+      <div className="app-shell-grid flex min-h-screen">
+        <AppSidebar
+          appName={APP_NAME}
+          navGroups={filteredNavGroups}
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        />
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-[var(--bg)]">
+          {user ? <AppGlobalHeader user={user} onLogout={logout} /> : null}
+          <main className="flex-1 p-7" style={{ minWidth: 0 }}>
+            <LicensePageGate>{children}</LicensePageGate>
+          </main>
+        </div>
+      </div>
+    </PeopleHubHelpProvider>
   );
 }

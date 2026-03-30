@@ -1,4 +1,8 @@
+using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -9,13 +13,63 @@ using OpenSkyHRM.Application;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Auditing;
 using OpenSkyHRM.Persistence.Seeders;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+static bool IsSafePgIdentifier(string? name)
+{
+    if (string.IsNullOrWhiteSpace(name))
+        return false;
+
+    // Conservative: only allow characters commonly used in DB names.
+    // Prevents injection since we must interpolate the identifier in CREATE DATABASE.
+    foreach (var ch in name)
+    {
+        if (!(char.IsLetterOrDigit(ch) || ch == '_'))
+            return false;
+    }
+    return true;
+}
+
+static async Task EnsureDatabaseExistsAsync(string? connectionString)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+        return;
+
+    var csb = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+    var targetDb = csb.Database;
+
+    if (!IsSafePgIdentifier(targetDb))
+        throw new InvalidOperationException($"Unsafe or missing database name in connection string: '{targetDb}'");
+
+    // Connect to the maintenance DB to create/check the target DB.
+    csb.Database = "postgres";
+
+    await using var conn = new Npgsql.NpgsqlConnection(csb.ConnectionString);
+    await conn.OpenAsync();
+
+    await using (var existsCmd = conn.CreateCommand())
+    {
+        existsCmd.CommandText = "SELECT 1 FROM pg_database WHERE datname = @db";
+        existsCmd.Parameters.AddWithValue("db", targetDb!);
+
+        var exists = await existsCmd.ExecuteScalarAsync();
+        if (exists == null)
+        {
+            await using var createCmd = conn.CreateCommand();
+            createCmd.CommandText = $@"CREATE DATABASE ""{targetDb}""";
+            await createCmd.ExecuteNonQueryAsync();
+        }
+    }
+}
+
 // --- Layer DI Registration ---
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddApplication();
 
@@ -46,7 +100,8 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 // --- Controllers ---
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new ApiDateTimeJsonConverter()));
 
 // --- Swagger ---
 builder.Services.AddEndpointsApiExplorer();
@@ -81,10 +136,21 @@ catch (Exception ex)
 if (dbAvailable)
 {
     var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? connStr;
-    builder.Services.AddHangfire(config =>
-        config.UsePostgreSqlStorage(options =>
-            options.UseNpgsqlConnection(hangfireConn)));
-    builder.Services.AddHangfireServer();
+    try
+    {
+        builder.Services.AddHangfire(config =>
+            config.UsePostgreSqlStorage(hangfireConn, new PostgreSqlStorageOptions
+            {
+                PrepareSchemaIfNecessary = true,
+                SchemaName = "hangfire"
+            }));
+        builder.Services.AddHangfireServer();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Hangfire registration failed: {ex.Message}");
+        Console.WriteLine("The API will start without Hangfire background processing.");
+    }
 }
 
 // --- CORS (allow Next.js frontend) ---
@@ -100,19 +166,97 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// --- Migrate & Seed on startup (development only) ---
+// Apply pending EF migrations whenever PostgreSQL is reachable (adds licensing tables, etc.).
+if (dbAvailable)
+{
+    try
+    {
+        var defaultConn = builder.Configuration.GetConnectionString("DefaultConnection");
+        var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? defaultConn;
+        await EnsureDatabaseExistsAsync(defaultConn);
+        await EnsureDatabaseExistsAsync(hangfireConn);
+
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.MigrateAsync();
+
+        // Repair corrupted Hangfire schema from partial installs so the auto-installer can start fresh.
+        try
+        {
+            await using var hfConn = new Npgsql.NpgsqlConnection(hangfireConn);
+            await hfConn.OpenAsync();
+            await using var cmd = hfConn.CreateCommand();
+            cmd.CommandText = @"
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'hangfire')
+                       AND NOT EXISTS (
+                           SELECT 1 FROM information_schema.tables
+                           WHERE table_schema = 'hangfire' AND table_name = 'schema'
+                       )
+                    THEN
+                        DROP SCHEMA hangfire CASCADE;
+                    END IF;
+                END $$;";
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch { }
+
+        // Hangfire.PostgreSql can retry forever on a half-migrated schema (42701: column "updatecount"
+        // on hangfire.lock already exists), which prevents the host from finishing startup — no HTTP listener.
+        if (app.Configuration.GetValue<bool>("Hangfire:ResetSchemaOnStartup"))
+        {
+            try
+            {
+                await using var hfResetConn = new Npgsql.NpgsqlConnection(hangfireConn);
+                await hfResetConn.OpenAsync();
+                await using var resetCmd = hfResetConn.CreateCommand();
+                resetCmd.CommandText = "DROP SCHEMA IF EXISTS hangfire CASCADE;";
+                await resetCmd.ExecuteNonQueryAsync();
+            }
+            catch { /* non-fatal */ }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Database migration failed: {ex.Message}");
+    }
+}
+
+// Demo/admin seed data (development only)
 if (app.Environment.IsDevelopment() && dbAvailable)
+{
+    try
+    {
+        await DbSeeder.SeedAsync(app.Services);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Database seeding failed: {ex.Message}");
+    }
+}
+
+// --- Licensing catalog & default entitlements (all environments; idempotent) ---
+if (dbAvailable)
 {
     try
     {
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.MigrateAsync();
-        await DbSeeder.SeedAsync(app.Services);
+        await LicensingSeeder.EnsureAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchCasualLeaveMonthlyEveryYearAsync(db);
+
+        // Dev safety: ensure there is always at least one usable admin after resets.
+        // This does not overwrite existing users; it only bootstraps if no active ADMIN user exists.
+        if (app.Environment.IsDevelopment())
+        {
+            var bootstrapPassword = builder.Configuration["CustomerReset:BootstrapAdminPassword"] ?? "Admin@123";
+            await AdminBootstrapSeeder.EnsureAsync(db, adminPassword: bootstrapPassword);
+        }
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"WARNING: Database migration/seed failed: {ex.Message}");
+        Console.WriteLine($"WARNING: Licensing defaults could not be ensured: {ex.Message}");
     }
 }
 
@@ -161,6 +305,16 @@ if (dbAvailable)
             "report-generation",
             job => job.ExecuteAsync(),
             Hangfire.Cron.Daily(3, 0));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.AnalyticsSnapshotRefreshJob>(
+            "analytics-snapshot-refresh",
+            job => job.ExecuteAsync(CancellationToken.None),
+            Hangfire.Cron.Daily(4, 0));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.TrainingDueReminderJob>(
+            "training-overdue-reminders",
+            job => job.ExecuteAsync(CancellationToken.None),
+            Hangfire.Cron.Daily(5, 0));
     }
     catch (Exception ex)
     {
@@ -196,3 +350,29 @@ app.MapGet("/", () => Results.Redirect("/swagger"));
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow, database = dbAvailable }));
 
 app.Run();
+
+/// <summary>
+/// Serializes UTC instants with a Z suffix; business-local wall times (Unspecified / Local) without Z so clients do not misread them as UTC.
+/// </summary>
+public sealed class ApiDateTimeJsonConverter : JsonConverter<DateTime>
+{
+    public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var dt = reader.GetDateTime();
+        // Preserve Unspecified for round-trip with legacy timestamp columns (wall time).
+        return dt;
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
+    {
+        const string localFmt = "yyyy-MM-dd'T'HH:mm:ss.fff";
+        if (value.Kind == DateTimeKind.Utc)
+        {
+            writer.WriteStringValue(
+                value.ToUniversalTime().ToString(localFmt, CultureInfo.InvariantCulture) + "Z");
+            return;
+        }
+
+        writer.WriteStringValue(value.ToString(localFmt, CultureInfo.InvariantCulture));
+    }
+}

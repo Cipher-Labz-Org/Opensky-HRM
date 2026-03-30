@@ -2,6 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
+/* App accent for react-day-picker (see node_modules default blue) */
+.opensky-day-picker {
+  --rdp-accent-color: #ea580c;
+  --rdp-accent-background-color: #ffedd5;
+  --rdp-today-color: #c2410c;
+  --rdp-dropdown-gap: 0.5rem;
+}
+
+/* Month/year row: Radix triggers live inside .rdp-dropdown_root (DayPickerDropdown) */
+.opensky-day-picker .rdp-dropdowns {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rdp-dropdown-gap);
+}
+.opensky-day-picker .rdp-dropdown_root {
+  border: none;
+  padding: 0;
+  background: transparent;
+  min-height: unset;
+}
+
 :root {
   --bg: #f4f7fb;
   --panel: #ffffff;
@@ -30,9 +52,9 @@ body {
   }
 }
 
-/* Sidebar nav links: high contrast on dark bg, hover to white */
+/* Sidebar nav links: active state keeps gradient colors on hover */
 .sidebar-nav-link:hover {
-  color: #ffffff !important;
+  /* handled inline */
 }
 
 /* HRIS UI patterns from hris_ui_pack */

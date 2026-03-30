@@ -24,6 +24,8 @@ public class UserProfileDto
     public string? ProfileImageUrl { get; set; }
     public List<string> Roles { get; set; } = new();
     public List<PermissionDto> Permissions { get; set; } = new();
+    /// <summary>Instance entitlements: RBAC still applies per user.</summary>
+    public List<string> LicensedModules { get; set; } = new();
 }
 
 public class PermissionDto

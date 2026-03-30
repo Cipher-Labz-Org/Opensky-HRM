@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Common;
 using OpenSkyHRM.Domain.Entities;
 
@@ -6,11 +7,17 @@ namespace OpenSkyHRM.Persistence;
 
 public class AppDbContext : DbContext
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+    private readonly IBusinessClock _clock;
+
+    public AppDbContext(DbContextOptions<AppDbContext> options, IBusinessClock clock) : base(options)
+    {
+        _clock = clock;
+    }
 
     // Employee & Organization
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<EmployeeAttachment> EmployeeAttachments => Set<EmployeeAttachment>();
+    public DbSet<EmployeeAttachmentType> EmployeeAttachmentTypes => Set<EmployeeAttachmentType>();
     public DbSet<EmployeeSupervisor> EmployeeSupervisors => Set<EmployeeSupervisor>();
     public DbSet<EmergencyContact> EmergencyContacts => Set<EmergencyContact>();
     public DbSet<Dependent> Dependents => Set<Dependent>();
@@ -49,8 +56,16 @@ public class AppDbContext : DbContext
     public DbSet<Candidate> Candidates => Set<Candidate>();
     public DbSet<Interview> Interviews => Set<Interview>();
     public DbSet<Offer> Offers => Set<Offer>();
+    public DbSet<InterviewScorecard> InterviewScorecards => Set<InterviewScorecard>();
+    public DbSet<CandidateActivity> CandidateActivities => Set<CandidateActivity>();
     public DbSet<OnboardingTask> OnboardingTasks => Set<OnboardingTask>();
     public DbSet<OnboardingMilestone> OnboardingMilestones => Set<OnboardingMilestone>();
+    public DbSet<OffboardingTask> OffboardingTasks => Set<OffboardingTask>();
+    public DbSet<OffboardingTaskTemplate> OffboardingTaskTemplates => Set<OffboardingTaskTemplate>();
+    public DbSet<EmployeeTaskTemplate> EmployeeTaskTemplates => Set<EmployeeTaskTemplate>();
+    public DbSet<EmployeeTaskTemplateItem> EmployeeTaskTemplateItems => Set<EmployeeTaskTemplateItem>();
+    public DbSet<EmploymentStatusType> EmploymentStatusTypes => Set<EmploymentStatusType>();
+    public DbSet<EmployeeStatusType> EmployeeStatusTypes => Set<EmployeeStatusType>();
 
     // Payroll & Compensation
     public DbSet<CompensationComponent> CompensationComponents => Set<CompensationComponent>();
@@ -58,16 +73,32 @@ public class AppDbContext : DbContext
     public DbSet<SalaryRevision> SalaryRevisions => Set<SalaryRevision>();
     public DbSet<PayrollBatch> PayrollBatches => Set<PayrollBatch>();
     public DbSet<PayStatement> PayStatements => Set<PayStatement>();
+    public DbSet<PayStatementLine> PayStatementLines => Set<PayStatementLine>();
+    public DbSet<PayrollFormula> PayrollFormulas => Set<PayrollFormula>();
 
     // Performance & Learning
     public DbSet<Goal> Goals => Set<Goal>();
     public DbSet<ReviewCycle> ReviewCycles => Set<ReviewCycle>();
     public DbSet<PerformanceReview> PerformanceReviews => Set<PerformanceReview>();
+
+    // Appraisal (360-Degree)
+    public DbSet<RatingScale> RatingScales => Set<RatingScale>();
+    public DbSet<RatingScaleItem> RatingScaleItems => Set<RatingScaleItem>();
+    public DbSet<CompetencyCategory> CompetencyCategories => Set<CompetencyCategory>();
+    public DbSet<Competency> Competencies => Set<Competency>();
+    public DbSet<AppraisalTemplate> AppraisalTemplates => Set<AppraisalTemplate>();
+    public DbSet<AppraisalTemplateSection> AppraisalTemplateSections => Set<AppraisalTemplateSection>();
+    public DbSet<AppraisalTemplateSectionItem> AppraisalTemplateSectionItems => Set<AppraisalTemplateSectionItem>();
+    public DbSet<AppraisalCycle> AppraisalCycles => Set<AppraisalCycle>();
+    public DbSet<Appraisal> Appraisals => Set<Appraisal>();
+    public DbSet<AppraisalReviewer> AppraisalReviewers => Set<AppraisalReviewer>();
+    public DbSet<AppraisalResponseItem> AppraisalResponseItems => Set<AppraisalResponseItem>();
     public DbSet<Course> Courses => Set<Course>();
     public DbSet<Certification> Certifications => Set<Certification>();
     public DbSet<EmployeeCertification> EmployeeCertifications => Set<EmployeeCertification>();
     public DbSet<Skill> Skills => Set<Skill>();
     public DbSet<SkillMatrix> SkillMatrices => Set<SkillMatrix>();
+    public DbSet<TrainingAssignment> TrainingAssignments => Set<TrainingAssignment>();
     public DbSet<SuccessionPlan> SuccessionPlans => Set<SuccessionPlan>();
 
     // Settings & Configuration
@@ -78,16 +109,23 @@ public class AppDbContext : DbContext
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<CompanyCalendar> CompanyCalendars => Set<CompanyCalendar>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<OutboundEmailLog> OutboundEmailLogs => Set<OutboundEmailLog>();
     public DbSet<NotificationConfig> NotificationConfigs => Set<NotificationConfig>();
     public DbSet<IntegrationConfig> IntegrationConfigs => Set<IntegrationConfig>();
 
     // Analytics & Reporting
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
     public DbSet<ReportSchedule> ReportSchedules => Set<ReportSchedule>();
+    public DbSet<AnalyticsSnapshotCache> AnalyticsSnapshotCaches => Set<AnalyticsSnapshotCache>();
 
     // System
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
+
+    // Licensing (per-instance)
+    public DbSet<LicensedModule> LicensedModules => Set<LicensedModule>();
+    public DbSet<InstanceSubscription> InstanceSubscriptions => Set<InstanceSubscription>();
+    public DbSet<InstanceModuleEntitlement> InstanceModuleEntitlements => Set<InstanceModuleEntitlement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -120,25 +158,37 @@ public class AppDbContext : DbContext
 
     private void ApplyAuditInfo()
     {
+        var now = _clock.Now;
+
         foreach (var entry in ChangeTracker.Entries<BaseEntity>())
         {
             if (entry.State == EntityState.Added)
-                entry.Entity.CreatedAt = DateTime.UtcNow;
+                entry.Entity.CreatedAt = now;
 
             if (entry.State == EntityState.Modified)
-                entry.Entity.UpdatedAt = DateTime.UtcNow;
+                entry.Entity.UpdatedAt = now;
         }
 
         NormalizeDateTimesToUtc();
     }
 
+    /// <summary>
+    /// Marks unspecified DateTime values as UTC for Npgsql where appropriate.
+    /// Skips <see cref="AuditLog"/> (business-local wall times) and <see cref="BaseEntity.CreatedAt"/> / <see cref="BaseEntity.UpdatedAt"/> (also business local).
+    /// </summary>
     private void NormalizeDateTimesToUtc()
     {
         foreach (var entry in ChangeTracker.Entries()
                      .Where(e => e.State is EntityState.Added or EntityState.Modified))
         {
+            if (entry.Entity is AuditLog)
+                continue;
+
             foreach (var prop in entry.Properties)
             {
+                if (prop.Metadata.Name is nameof(BaseEntity.CreatedAt) or nameof(BaseEntity.UpdatedAt))
+                    continue;
+
                 if (prop.CurrentValue is DateTime dt && dt.Kind == DateTimeKind.Unspecified)
                     prop.CurrentValue = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             }

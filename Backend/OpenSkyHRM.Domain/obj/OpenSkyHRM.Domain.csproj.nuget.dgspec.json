@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {}
+    "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {}
   },
   "projects": {
-    "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
+    "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
+        "projectUniqueName": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
         "projectName": "OpenSkyHRM.Domain",
-        "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
+        "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
         "packagesPath": "C:\\Users\\HP\\.nuget\\packages\\",
-        "outputPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\obj\\",
+        "outputPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\HP\\AppData\\Roaming\\NuGet\\NuGet.Config",

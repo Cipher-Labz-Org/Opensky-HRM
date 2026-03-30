@@ -3,12 +3,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Domain.Entities;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("People")]
 [Route("api/employees/{employeeId:guid}/languages")]
 public class EmployeeLanguagesController : ControllerBase
 {

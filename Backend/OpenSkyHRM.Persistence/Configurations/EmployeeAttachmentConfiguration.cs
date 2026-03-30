@@ -22,6 +22,13 @@ public class EmployeeAttachmentConfiguration : IEntityTypeConfiguration<Employee
             .HasForeignKey(a => a.EmployeeId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasOne(a => a.AttachmentType)
+            .WithMany(t => t.Attachments)
+            .HasForeignKey(a => a.AttachmentTypeId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(a => a.AttachmentTypeId);
+
         builder.HasQueryFilter(a => !a.IsDeleted);
     }
 }

@@ -15,11 +15,13 @@ public class AuthService : IAuthService
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
+    private readonly ILicensingService _licensing;
 
-    public AuthService(AppDbContext db, IConfiguration config)
+    public AuthService(AppDbContext db, IConfiguration config, ILicensingService licensing)
     {
         _db = db;
         _config = config;
+        _licensing = licensing;
     }
 
     public async Task<AuthResponseDto> LoginAsync(LoginDto dto)
@@ -34,8 +36,8 @@ public class AuthService : IAuthService
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.Permissions)
             .Include(u => u.Employee)
             .FirstOrDefaultAsync(u => !u.IsDeleted && (
-                u.Username == loginInput ||
-                u.Email!.ToLower() == loginLower));
+                u.Username.ToLower() == loginLower ||
+                (u.Email != null && u.Email.ToLower() == loginLower)));
 
         if (user == null)
             throw new UnauthorizedAccessException("Invalid username or password.");
@@ -62,11 +64,13 @@ public class AuthService : IAuthService
 
         var (token, expiresAt) = GenerateJwt(user);
 
+        var licensedModules = (await _licensing.GetEffectiveModuleCodesAsync()).ToList();
+
         return new AuthResponseDto
         {
             Token = token,
             ExpiresAt = expiresAt,
-            User = MapProfile(user)
+            User = MapProfile(user, licensedModules)
         };
     }
 
@@ -78,7 +82,8 @@ public class AuthService : IAuthService
             .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted)
             ?? throw new KeyNotFoundException("User not found.");
 
-        return MapProfile(user);
+        var licensedModules = (await _licensing.GetEffectiveModuleCodesAsync()).ToList();
+        return MapProfile(user, licensedModules);
     }
 
     public async Task ChangePasswordAsync(Guid userId, ChangePasswordDto dto)
@@ -163,8 +168,18 @@ public class AuthService : IAuthService
 
     public async Task DeleteUserAsync(Guid id)
     {
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id && !u.IsDeleted)
+        var user = await _db.Users
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(u => u.Id == id && !u.IsDeleted)
             ?? throw new KeyNotFoundException("User not found.");
+
+        var isProtectedAdmin =
+            string.Equals(user.Username, "admin", StringComparison.OrdinalIgnoreCase) ||
+            user.UserRoles.Any(ur => string.Equals(ur.Role.Code, "ADMIN", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(ur.Role.Name, "Admin", StringComparison.OrdinalIgnoreCase));
+
+        if (isProtectedAdmin)
+            throw new InvalidOperationException("The primary admin account cannot be deleted.");
 
         user.IsDeleted = true;
         user.UpdatedAt = DateTime.UtcNow;
@@ -295,7 +310,7 @@ public class AuthService : IAuthService
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new(JwtRegisteredClaimNames.Email, user.Email),
+            new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
             new("username", user.Username),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
@@ -319,7 +334,7 @@ public class AuthService : IAuthService
         return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
     }
 
-    private static UserProfileDto MapProfile(User user)
+    private static UserProfileDto MapProfile(User user, IReadOnlyList<string> licensedModules)
     {
         var roles = user.UserRoles.Select(ur => ur.Role).ToList();
         var allPermissions = roles
@@ -339,7 +354,8 @@ public class AuthService : IAuthService
             EmployeeName = user.Employee != null ? $"{user.Employee.FirstName} {user.Employee.LastName}" : null,
             ProfileImageUrl = user.Employee?.ProfileImageUrl,
             Roles = roles.Select(r => r.Code).ToList(),
-            Permissions = allPermissions
+            Permissions = allPermissions,
+            LicensedModules = licensedModules.ToList()
         };
     }
 }

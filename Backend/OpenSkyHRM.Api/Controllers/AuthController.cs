@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Seeders;
 using OpenSkyHRM.Application.DTOs.Auth;
 using OpenSkyHRM.Application.Interfaces;
 
@@ -11,10 +13,23 @@ namespace OpenSkyHRM.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly ILicensingService _licensing;
+    private readonly ILogger<AuthController> _logger;
+    private readonly IWebHostEnvironment _env;
+    private readonly IConfiguration _config;
 
-    public AuthController(IAuthService authService)
+    public AuthController(
+        IAuthService authService,
+        ILicensingService licensing,
+        ILogger<AuthController> logger,
+        IWebHostEnvironment env,
+        IConfiguration config)
     {
         _authService = authService;
+        _licensing = licensing;
+        _logger = logger;
+        _env = env;
+        _config = config;
     }
 
     [HttpPost("login")]
@@ -30,6 +45,50 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new { message = ex.Message });
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Login failed unexpectedly.");
+            return StatusCode(500, new { message = "Sign-in failed. Check API logs or database connectivity." });
+        }
+    }
+
+    public record BootstrapAdminRequest(string ConfirmPhrase, string? Password);
+
+    /// <summary>
+    /// Dev-only safety valve: recreate a usable admin account if the database was reset and no admins remain.
+    /// Guarded by a confirmation phrase and localhost-only usage.
+    /// </summary>
+    [HttpPost("bootstrap-admin")]
+    [AllowAnonymous]
+    public async Task<IActionResult> BootstrapAdmin(
+        [FromBody] BootstrapAdminRequest body,
+        [FromServices] AppDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!_env.IsDevelopment())
+            return NotFound();
+
+        var remoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "";
+        if (remoteIp != "127.0.0.1" && remoteIp != "::1" && remoteIp != "localhost")
+            return Forbid();
+
+        var requiredPhrase = _config["CustomerReset:ConfirmPhrase"];
+        if (string.IsNullOrWhiteSpace(requiredPhrase))
+            requiredPhrase = "ERASE CUSTOMER DATA";
+
+        if (!string.Equals((body.ConfirmPhrase ?? "").Trim(), requiredPhrase.Trim(), StringComparison.Ordinal))
+            return Unauthorized(new { message = "Invalid confirmation phrase." });
+
+        var password = string.IsNullOrWhiteSpace(body.Password)
+            ? (_config["CustomerReset:BootstrapAdminPassword"] ?? "Admin@123")
+            : body.Password!;
+
+        await AdminBootstrapSeeder.EnsureAsync(
+            db,
+            adminPassword: password,
+            forceResetPassword: true,
+            cancellationToken: cancellationToken);
+        return Ok(new { message = "Admin bootstrap ensured.", username = "admin" });
     }
 
     [HttpGet("me")]
@@ -82,21 +141,9 @@ public class AuthController : ControllerBase
 
     [HttpGet("roles/available-modules")]
     [Authorize(Roles = "ADMIN")]
-    public IActionResult GetAvailableModules()
+    public async Task<IActionResult> GetAvailableModules(CancellationToken cancellationToken)
     {
-        var modules = new[] {
-            new { module = "Dashboard", label = "Dashboard" },
-            new { module = "People", label = "People Hub" },
-            new { module = "Leave", label = "Leave & Absence" },
-            new { module = "Attendance", label = "Time & Attendance" },
-            new { module = "Payroll", label = "Payroll" },
-            new { module = "Performance", label = "Performance" },
-            new { module = "Learning", label = "Learning & Skills" },
-            new { module = "OrgStructure", label = "Org Structure" },
-            new { module = "Analytics", label = "Analytics" },
-            new { module = "Settings", label = "Policy & Settings" },
-            new { module = "Administration", label = "Administration" },
-        };
+        var modules = await _licensing.GetLicensedModulesForRoleAssignmentAsync(cancellationToken);
         return Ok(modules);
     }
 

@@ -1,0 +1,6273 @@
+[
+  {
+    "ContainingType": "Program\u002B\u003C\u003Ec",
+    "Method": "\u003C\u003CMain\u003E$\u003Eb__0_14",
+    "RelativePath": "",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.CustomerDataResetController",
+    "Method": "Reset",
+    "RelativePath": "api/admin/customer-reset",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Api.Controllers.CustomerDataResetController\u002BCustomerResetRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.CustomerDataResetController",
+    "Method": "GetConfirmPhraseEndpoint",
+    "RelativePath": "api/admin/customer-reset/confirm-phrase",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AnalyticsController",
+    "Method": "GetExecutiveDashboard",
+    "RelativePath": "api/analytics/executive-dashboard",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AnalyticsController",
+    "Method": "GetExecutiveDashboardSnapshot",
+    "RelativePath": "api/analytics/executive-dashboard/snapshot",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AnalyticsController",
+    "Method": "GetHeadcount",
+    "RelativePath": "api/analytics/headcount",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AnalyticsController",
+    "Method": "GetReports",
+    "RelativePath": "api/analytics/reports",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "Acknowledge",
+    "RelativePath": "api/appraisal/{appraisalId}/acknowledge",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "appraisalId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.AcknowledgeAppraisalDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "Calibrate",
+    "RelativePath": "api/appraisal/{appraisalId}/calibrate",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "appraisalId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CalibrateAppraisalDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetAppraisalForm",
+    "RelativePath": "api/appraisal/{appraisalId}/form/{reviewerId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "appraisalId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "reviewerId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "SubmitAppraisal",
+    "RelativePath": "api/appraisal/{appraisalId}/respond/{reviewerId}",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "appraisalId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "reviewerId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.SubmitAppraisalDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "AddReviewer",
+    "RelativePath": "api/appraisal/{appraisalId}/reviewers",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "appraisalId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.AddReviewerDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetAppraisal",
+    "RelativePath": "api/appraisal/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "CreateCompetency",
+    "RelativePath": "api/appraisal/competencies",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateCompetencyDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "UpdateCompetency",
+    "RelativePath": "api/appraisal/competencies/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateCompetencyDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "DeleteCompetency",
+    "RelativePath": "api/appraisal/competencies/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetCompetencyCategories",
+    "RelativePath": "api/appraisal/competency-categories",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "CreateCompetencyCategory",
+    "RelativePath": "api/appraisal/competency-categories",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateCompetencyCategoryDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "UpdateCompetencyCategory",
+    "RelativePath": "api/appraisal/competency-categories/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateCompetencyCategoryDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "DeleteCompetencyCategory",
+    "RelativePath": "api/appraisal/competency-categories/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetCycles",
+    "RelativePath": "api/appraisal/cycles",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "CreateCycle",
+    "RelativePath": "api/appraisal/cycles",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateAppraisalCycleDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetCycle",
+    "RelativePath": "api/appraisal/cycles/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "UpdateCycle",
+    "RelativePath": "api/appraisal/cycles/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateAppraisalCycleDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "DeleteCycle",
+    "RelativePath": "api/appraisal/cycles/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "ActivateCycle",
+    "RelativePath": "api/appraisal/cycles/{id}/activate",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "AdvancePhase",
+    "RelativePath": "api/appraisal/cycles/{id}/advance",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetAppraisalsForCycle",
+    "RelativePath": "api/appraisal/cycles/{id}/appraisals",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetCycleDashboard",
+    "RelativePath": "api/appraisal/cycles/{id}/dashboard",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetMyAppraisals",
+    "RelativePath": "api/appraisal/my-appraisals",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetMyReviewTasks",
+    "RelativePath": "api/appraisal/my-reviews",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetRatingScales",
+    "RelativePath": "api/appraisal/rating-scales",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "CreateRatingScale",
+    "RelativePath": "api/appraisal/rating-scales",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateRatingScaleDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "UpdateRatingScale",
+    "RelativePath": "api/appraisal/rating-scales/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateRatingScaleDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "DeleteRatingScale",
+    "RelativePath": "api/appraisal/rating-scales/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "RemoveReviewer",
+    "RelativePath": "api/appraisal/reviewers/{reviewerId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "reviewerId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetTemplates",
+    "RelativePath": "api/appraisal/templates",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "CreateTemplate",
+    "RelativePath": "api/appraisal/templates",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateAppraisalTemplateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "GetTemplate",
+    "RelativePath": "api/appraisal/templates/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "UpdateTemplate",
+    "RelativePath": "api/appraisal/templates/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Appraisal.CreateAppraisalTemplateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AppraisalController",
+    "Method": "DeleteTemplate",
+    "RelativePath": "api/appraisal/templates/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AttendanceController",
+    "Method": "GetAttendance",
+    "RelativePath": "api/Attendance",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "from",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "to",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AttendanceController",
+    "Method": "Create",
+    "RelativePath": "api/Attendance",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.CreateAttendanceRecordDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AttendanceController",
+    "Method": "Update",
+    "RelativePath": "api/Attendance/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.UpdateAttendanceRecordDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AttendanceController",
+    "Method": "Delete",
+    "RelativePath": "api/Attendance/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AttendanceController",
+    "Method": "GetOvertimeNopay",
+    "RelativePath": "api/Attendance/overtime-nopay",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "from",
+        "Type": "System.DateTime",
+        "IsRequired": false
+      },
+      {
+        "Name": "to",
+        "Type": "System.DateTime",
+        "IsRequired": false
+      },
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AttendanceController",
+    "Method": "Punch",
+    "RelativePath": "api/Attendance/punch",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.PunchRequestDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AttendanceController",
+    "Method": "GetSummary",
+    "RelativePath": "api/Attendance/summary",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "from",
+        "Type": "System.DateTime",
+        "IsRequired": false
+      },
+      {
+        "Name": "to",
+        "Type": "System.DateTime",
+        "IsRequired": false
+      },
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AuthController",
+    "Method": "BootstrapAdmin",
+    "RelativePath": "api/Auth/bootstrap-admin",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "body",
+        "Type": "OpenSkyHRM.Api.Controllers.AuthController\u002BBootstrapAdminRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AuthController",
+    "Method": "ChangePassword",
+    "RelativePath": "api/Auth/change-password",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Auth.ChangePasswordDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AuthController",
+    "Method": "Login",
+    "RelativePath": "api/Auth/login",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Auth.LoginDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AuthController",
+    "Method": "Me",
+    "RelativePath": "api/Auth/me",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AuthController",
+    "Method": "GetRoles",
+    "RelativePath": "api/Auth/roles",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AuthController",
+    "Method": "UpdateRolePermissions",
+    "RelativePath": "api/Auth/roles/{id}/permissions",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Auth.UpdateRolePermissionsDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.AuthController",
+    "Method": "GetAvailableModules",
+    "RelativePath": "api/Auth/roles/available-modules",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BiometricController",
+    "Method": "GetDevices",
+    "RelativePath": "api/biometric/devices",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BiometricController",
+    "Method": "CreateDevice",
+    "RelativePath": "api/biometric/devices",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.TimeAttendance.CreateBiometricDeviceDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BiometricController",
+    "Method": "GetDevice",
+    "RelativePath": "api/biometric/devices/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BiometricController",
+    "Method": "UpdateDevice",
+    "RelativePath": "api/biometric/devices/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.TimeAttendance.UpdateBiometricDeviceDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BiometricController",
+    "Method": "DeleteDevice",
+    "RelativePath": "api/biometric/devices/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BiometricController",
+    "Method": "ImportPunches",
+    "RelativePath": "api/biometric/import",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Api.Controllers.ImportPunchesRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BiometricController",
+    "Method": "GetImportHistory",
+    "RelativePath": "api/biometric/import-history",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "deviceId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BulkUploadController",
+    "Method": "UploadEmployees",
+    "RelativePath": "api/BulkUpload/employees",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BulkUploadController",
+    "Method": "DownloadLeaveBalanceTemplate",
+    "RelativePath": "api/BulkUpload/leave-balance-template",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BulkUploadController",
+    "Method": "UploadLeaveBalances",
+    "RelativePath": "api/BulkUpload/leave-balances",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BulkUploadController",
+    "Method": "DownloadTemplate",
+    "RelativePath": "api/BulkUpload/template",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.DocumentTemplatesController",
+    "Method": "GetAll",
+    "RelativePath": "api/DocumentTemplates",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.DocumentTemplatesController",
+    "Method": "GetById",
+    "RelativePath": "api/DocumentTemplates/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.DocumentTemplatesController",
+    "Method": "Put",
+    "RelativePath": "api/DocumentTemplates/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.DocumentTemplatesController\u002BUpdateTemplateRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.DocumentTemplatesController",
+    "Method": "PostUpdate",
+    "RelativePath": "api/DocumentTemplates/{id}",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.DocumentTemplatesController\u002BUpdateTemplateRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.DocumentTemplatesController",
+    "Method": "Render",
+    "RelativePath": "api/DocumentTemplates/render/{templateKey}/{employeeId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "templateKey",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmailDeliveryLogsController",
+    "Method": "GetList",
+    "RelativePath": "api/email-delivery-logs",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "status",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "CreateFromTemplate",
+    "RelativePath": "api/employee-tasks/create-from-template",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.CreateFromTemplateRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "UpdateItem",
+    "RelativePath": "api/employee-tasks/items/{itemId}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "itemId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.CreateEmployeeTaskTemplateItemDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "DeleteItem",
+    "RelativePath": "api/employee-tasks/items/{itemId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "itemId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "Lookup",
+    "RelativePath": "api/employee-tasks/lookup",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "type",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "GetMyTasks",
+    "RelativePath": "api/employee-tasks/my-tasks",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "GetOnboardingTasks",
+    "RelativePath": "api/employee-tasks/onboarding/{employeeId}/tasks",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "GetActiveOnboardings",
+    "RelativePath": "api/employee-tasks/onboarding/active",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "AssignOnboardingTask",
+    "RelativePath": "api/employee-tasks/onboarding/tasks/{taskId}/assign",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "taskId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.AssignOnboardingTaskRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "CompleteOnboardingTask",
+    "RelativePath": "api/employee-tasks/onboarding/tasks/{taskId}/complete",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "taskId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "GetTemplates",
+    "RelativePath": "api/employee-tasks/templates",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "type",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "CreateTemplate",
+    "RelativePath": "api/employee-tasks/templates",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.CreateEmployeeTaskTemplateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "GetTemplate",
+    "RelativePath": "api/employee-tasks/templates/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "UpdateTemplate",
+    "RelativePath": "api/employee-tasks/templates/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.CreateEmployeeTaskTemplateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "DeleteTemplate",
+    "RelativePath": "api/employee-tasks/templates/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "AddItem",
+    "RelativePath": "api/employee-tasks/templates/{templateId}/items",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "templateId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.CreateEmployeeTaskTemplateItemDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTasksController",
+    "Method": "GetUsers",
+    "RelativePath": "api/employee-tasks/users",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "GetAll",
+    "RelativePath": "api/Employees",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "search",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "departmentId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "jobTitleId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "locationId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "managerId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "status",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "employmentType",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "excludeTerminated",
+        "Type": "System.Boolean",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "Create",
+    "RelativePath": "api/Employees",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateEmployeeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeAttachmentsController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/attachments",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeAttachmentsController",
+    "Method": "Upload",
+    "RelativePath": "api/employees/{employeeId}/attachments",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      },
+      {
+        "Name": "description",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeAttachmentsController",
+    "Method": "UpdateDescription",
+    "RelativePath": "api/employees/{employeeId}/attachments/{attachmentId}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "attachmentId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.UpdateAttachmentRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeAttachmentsController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/attachments/{attachmentId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "attachmentId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeAttachmentsController",
+    "Method": "Download",
+    "RelativePath": "api/employees/{employeeId}/attachments/{attachmentId}/download",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "attachmentId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BankAccountsController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/bank-accounts",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BankAccountsController",
+    "Method": "Create",
+    "RelativePath": "api/employees/{employeeId}/bank-accounts",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.BankAccountRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BankAccountsController",
+    "Method": "Update",
+    "RelativePath": "api/employees/{employeeId}/bank-accounts/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.BankAccountRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.BankAccountsController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/bank-accounts/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeBenefitsController",
+    "Method": "Get",
+    "RelativePath": "api/employees/{employeeId}/benefit",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeBenefitsController",
+    "Method": "Upsert",
+    "RelativePath": "api/employees/{employeeId}/benefit",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.BenefitRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeCertificationsController",
+    "Method": "List",
+    "RelativePath": "api/employees/{employeeId}/certifications",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeCertificationsController",
+    "Method": "Create",
+    "RelativePath": "api/employees/{employeeId}/certifications",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.CreateEmployeeCertificationRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeCertificationsController",
+    "Method": "Update",
+    "RelativePath": "api/employees/{employeeId}/certifications/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.UpdateEmployeeCertificationRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeCertificationsController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/certifications/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.DependentsController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/dependents",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.DependentsController",
+    "Method": "Create",
+    "RelativePath": "api/employees/{employeeId}/dependents",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.CreateDependentRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.DependentsController",
+    "Method": "Update",
+    "RelativePath": "api/employees/{employeeId}/dependents/{dependentId}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dependentId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.CreateDependentRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.DependentsController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/dependents/{dependentId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dependentId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EducationsController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/educations",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EducationsController",
+    "Method": "Create",
+    "RelativePath": "api/employees/{employeeId}/educations",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.EducationRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EducationsController",
+    "Method": "Update",
+    "RelativePath": "api/employees/{employeeId}/educations/{educationId}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "educationId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.EducationRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EducationsController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/educations/{educationId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "educationId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmergencyContactsController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/emergency-contacts",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmergencyContactsController",
+    "Method": "Create",
+    "RelativePath": "api/employees/{employeeId}/emergency-contacts",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.CreateEmergencyContactRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmergencyContactsController",
+    "Method": "Update",
+    "RelativePath": "api/employees/{employeeId}/emergency-contacts/{contactId}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "contactId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.CreateEmergencyContactRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmergencyContactsController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/emergency-contacts/{contactId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "contactId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ImmigrationDocumentsController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/immigration-documents",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ImmigrationDocumentsController",
+    "Method": "Upload",
+    "RelativePath": "api/employees/{employeeId}/immigration-documents",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      },
+      {
+        "Name": "description",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ImmigrationDocumentsController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/immigration-documents/{docId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "docId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ImmigrationDocumentsController",
+    "Method": "Download",
+    "RelativePath": "api/employees/{employeeId}/immigration-documents/{docId}/download",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "docId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ImmigrationsController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/immigrations",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ImmigrationsController",
+    "Method": "Create",
+    "RelativePath": "api/employees/{employeeId}/immigrations",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.ImmigrationRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ImmigrationsController",
+    "Method": "Update",
+    "RelativePath": "api/employees/{employeeId}/immigrations/{immId}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "immId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.ImmigrationRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ImmigrationsController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/immigrations/{immId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "immId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeLanguagesController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/languages",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeLanguagesController",
+    "Method": "Create",
+    "RelativePath": "api/employees/{employeeId}/languages",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.LanguageRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeLanguagesController",
+    "Method": "Update",
+    "RelativePath": "api/employees/{employeeId}/languages/{langId}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "langId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.LanguageRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeLanguagesController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/languages/{langId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "langId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeSkillsController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/skills",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeSkillsController",
+    "Method": "Create",
+    "RelativePath": "api/employees/{employeeId}/skills",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.SkillRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeSkillsController",
+    "Method": "Update",
+    "RelativePath": "api/employees/{employeeId}/skills/{skillId}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "skillId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.SkillRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeSkillsController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/skills/{skillId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "skillId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeeTrainingController",
+    "Method": "ListForEmployee",
+    "RelativePath": "api/employees/{employeeId}/training-assignments",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "status",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.WorkExperiencesController",
+    "Method": "GetAll",
+    "RelativePath": "api/employees/{employeeId}/work-experiences",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.WorkExperiencesController",
+    "Method": "Create",
+    "RelativePath": "api/employees/{employeeId}/work-experiences",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.WorkExperienceRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.WorkExperiencesController",
+    "Method": "Update",
+    "RelativePath": "api/employees/{employeeId}/work-experiences/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.WorkExperienceRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.WorkExperiencesController",
+    "Method": "Delete",
+    "RelativePath": "api/employees/{employeeId}/work-experiences/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "GetById",
+    "RelativePath": "api/Employees/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "Update",
+    "RelativePath": "api/Employees/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.UpdateEmployeeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "Delete",
+    "RelativePath": "api/Employees/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "UploadPhoto",
+    "RelativePath": "api/Employees/{id}/photo",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "Reactivate",
+    "RelativePath": "api/Employees/{id}/reactivate",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.ReactivateRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "GetSubordinates",
+    "RelativePath": "api/Employees/{id}/subordinates",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "AddSubordinate",
+    "RelativePath": "api/Employees/{id}/subordinates",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.AddSubordinateRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "RemoveSubordinate",
+    "RelativePath": "api/Employees/{id}/subordinates/{entryId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "entryId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "GetSupervisors",
+    "RelativePath": "api/Employees/{id}/supervisors",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "AddSupervisor",
+    "RelativePath": "api/Employees/{id}/supervisors",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.AddSupervisorRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "RemoveSupervisor",
+    "RelativePath": "api/Employees/{id}/supervisors/{entryId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "entryId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "Terminate",
+    "RelativePath": "api/Employees/{id}/terminate",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.TerminateRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.EmployeesController",
+    "Method": "GetPeopleAuditTrail",
+    "RelativePath": "api/Employees/audit-trail",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "GetCertificationSummaries",
+    "RelativePath": "api/learning/certification-summaries",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "GetCertificationCatalog",
+    "RelativePath": "api/learning/certifications",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "CreateCertificationCatalogEntry",
+    "RelativePath": "api/learning/certifications",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.CreateCertificationRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "UpdateCertificationCatalogEntry",
+    "RelativePath": "api/learning/certifications/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.UpdateCertificationRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "DeleteCertificationCatalogEntry",
+    "RelativePath": "api/learning/certifications/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "GetCourses",
+    "RelativePath": "api/learning/courses",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "CreateCourse",
+    "RelativePath": "api/learning/courses",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.CreateCourseRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "UpdateCourse",
+    "RelativePath": "api/learning/courses/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.UpdateCourseRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "DeleteCourse",
+    "RelativePath": "api/learning/courses/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "GetSkillCoverage",
+    "RelativePath": "api/learning/skill-coverage",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "GetSkillMatrix",
+    "RelativePath": "api/learning/skill-matrix",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "CreateSkillMatrix",
+    "RelativePath": "api/learning/skill-matrix",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.CreateSkillMatrixRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "UpdateSkillMatrix",
+    "RelativePath": "api/learning/skill-matrix/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.UpdateSkillMatrixRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "DeleteSkillMatrix",
+    "RelativePath": "api/learning/skill-matrix/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "GetSkills",
+    "RelativePath": "api/learning/skills",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LearningController",
+    "Method": "CreateSkill",
+    "RelativePath": "api/learning/skills",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.CreateSkillRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.TrainingAssignmentsController",
+    "Method": "List",
+    "RelativePath": "api/learning/training-assignments",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "courseId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "status",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "overdueOnly",
+        "Type": "System.Boolean",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.TrainingAssignmentsController",
+    "Method": "Create",
+    "RelativePath": "api/learning/training-assignments",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.CreateTrainingAssignmentRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.TrainingAssignmentsController",
+    "Method": "GetById",
+    "RelativePath": "api/learning/training-assignments/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.TrainingAssignmentsController",
+    "Method": "Update",
+    "RelativePath": "api/learning/training-assignments/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.UpdateTrainingAssignmentRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.TrainingAssignmentsController",
+    "Method": "Delete",
+    "RelativePath": "api/learning/training-assignments/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.TrainingAssignmentsController",
+    "Method": "BulkCreate",
+    "RelativePath": "api/learning/training-assignments/bulk",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Learning.BulkCreateTrainingAssignmentRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetApprovalConfig",
+    "RelativePath": "api/leave/approval-config",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "SetApprovalConfig",
+    "RelativePath": "api/leave/approval-config",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Api.Controllers.LeaveController\u002BApprovalConfigRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "CreateBalance",
+    "RelativePath": "api/leave/balances",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.CreateLeaveBalanceDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetBalances",
+    "RelativePath": "api/leave/balances/{employeeId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "year",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "UpdateBalance",
+    "RelativePath": "api/leave/balances/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.UpdateLeaveBalanceDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetBalanceSummary",
+    "RelativePath": "api/leave/balances/summary",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "year",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetCalendar",
+    "RelativePath": "api/leave/calendar",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "month",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "year",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "ProcessCarryForward",
+    "RelativePath": "api/leave/carry-forward",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.CarryForwardRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetDashboard",
+    "RelativePath": "api/leave/dashboard",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetEntitlementRules",
+    "RelativePath": "api/leave/entitlement-rules",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "CreateEntitlementRule",
+    "RelativePath": "api/leave/entitlement-rules",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Api.Controllers.LeaveController\u002BCreateRuleRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "UpdateEntitlementRule",
+    "RelativePath": "api/leave/entitlement-rules/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Api.Controllers.LeaveController\u002BUpdateRuleRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "DeleteEntitlementRule",
+    "RelativePath": "api/leave/entitlement-rules/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetHolidays",
+    "RelativePath": "api/leave/holidays",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "year",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "CreateHoliday",
+    "RelativePath": "api/leave/holidays",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.CreateHolidayDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "UpdateHoliday",
+    "RelativePath": "api/leave/holidays/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.UpdateHolidayDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "DeleteHoliday",
+    "RelativePath": "api/leave/holidays/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetPolicies",
+    "RelativePath": "api/leave/policies",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "CreatePolicy",
+    "RelativePath": "api/leave/policies",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.CreateLeavePolicyDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "UpdatePolicy",
+    "RelativePath": "api/leave/policies/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.UpdateLeavePolicyDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "DeletePolicy",
+    "RelativePath": "api/leave/policies/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "Program\u002B\u003C\u003Ec",
+    "Method": "\u003C\u003CMain\u003E$\u003Eb__0_13",
+    "RelativePath": "api/leave/process-carry-forward",
+    "HttpMethod": "POST",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "RecalculateAll",
+    "RelativePath": "api/leave/recalculate-all",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "year",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "Recalculate",
+    "RelativePath": "api/leave/recalculate/{employeeId}",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "year",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetRequests",
+    "RelativePath": "api/leave/requests",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "status",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "fromDate",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "toDate",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "excludeSelf",
+        "Type": "System.Boolean",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "CreateRequest",
+    "RelativePath": "api/leave/requests",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.CreateLeaveRequestDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "Approve",
+    "RelativePath": "api/leave/requests/{id}/approve",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.ApproveRejectLeaveDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "Reject",
+    "RelativePath": "api/leave/requests/{id}/reject",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.ApproveRejectLeaveDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetSupervisors",
+    "RelativePath": "api/leave/supervisors/{employeeId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "GetTypes",
+    "RelativePath": "api/leave/types",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "CreateType",
+    "RelativePath": "api/leave/types",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.CreateLeaveTypeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "UpdateType",
+    "RelativePath": "api/leave/types/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.LeaveAttendance.UpdateLeaveTypeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LeaveController",
+    "Method": "DeleteType",
+    "RelativePath": "api/leave/types/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LicensingController",
+    "Method": "GetAdmin",
+    "RelativePath": "api/Licensing/admin",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "OpenSkyHRM.Application.DTOs.Licensing.LicensingAdminDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LicensingController",
+    "Method": "GetEffectiveModules",
+    "RelativePath": "api/Licensing/effective-modules",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "OpenSkyHRM.Application.DTOs.Licensing.EffectiveModulesDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LicensingController",
+    "Method": "UpdateEntitlements",
+    "RelativePath": "api/Licensing/entitlements",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Licensing.UpdateModuleEntitlementsDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LicensingController",
+    "Method": "UpdateSubscription",
+    "RelativePath": "api/Licensing/subscription",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Licensing.UpdateInstanceSubscriptionDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "OpenSkyHRM.Application.DTOs.Licensing.InstanceSubscriptionDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.LicensingController",
+    "Method": "GetSummary",
+    "RelativePath": "api/Licensing/summary",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "OpenSkyHRM.Application.DTOs.Licensing.LicensingSummaryDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "GetTasks",
+    "RelativePath": "api/Offboarding/{employeeId}/tasks",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "GetActive",
+    "RelativePath": "api/Offboarding/active",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "GetMyTasks",
+    "RelativePath": "api/Offboarding/my-tasks",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "AssignTask",
+    "RelativePath": "api/Offboarding/tasks/{taskId}/assign",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "taskId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.AssignTaskRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "CompleteTask",
+    "RelativePath": "api/Offboarding/tasks/{taskId}/complete",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "taskId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "GetTemplates",
+    "RelativePath": "api/Offboarding/templates",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "CreateTemplate",
+    "RelativePath": "api/Offboarding/templates",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.CreateOffboardingTaskTemplateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "UpdateTemplate",
+    "RelativePath": "api/Offboarding/templates/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.CreateOffboardingTaskTemplateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "DeleteTemplate",
+    "RelativePath": "api/Offboarding/templates/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OffboardingController",
+    "Method": "GetUsers",
+    "RelativePath": "api/Offboarding/users",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OnboardingController",
+    "Method": "GetTasks",
+    "RelativePath": "api/Onboarding/{employeeId}/tasks",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OnboardingController",
+    "Method": "CompleteTask",
+    "RelativePath": "api/Onboarding/tasks/{taskId}/complete",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "taskId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetBusinessUnits",
+    "RelativePath": "api/Organization/business-units",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "CreateBusinessUnit",
+    "RelativePath": "api/Organization/business-units",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateLookupDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "UpdateBusinessUnit",
+    "RelativePath": "api/Organization/business-units/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateLookupDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "DeleteBusinessUnit",
+    "RelativePath": "api/Organization/business-units/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetDepartments",
+    "RelativePath": "api/Organization/departments",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "CreateDepartment",
+    "RelativePath": "api/Organization/departments",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateDepartmentDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetDepartment",
+    "RelativePath": "api/Organization/departments/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "UpdateDepartment",
+    "RelativePath": "api/Organization/departments/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.UpdateDepartmentDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "DeleteDepartment",
+    "RelativePath": "api/Organization/departments/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetEmployeeStatusTypes",
+    "RelativePath": "api/Organization/employee-statuses",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "CreateEmployeeStatusType",
+    "RelativePath": "api/Organization/employee-statuses",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateEmploymentStatusTypeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "UpdateEmployeeStatusType",
+    "RelativePath": "api/Organization/employee-statuses/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateEmploymentStatusTypeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "DeleteEmployeeStatusType",
+    "RelativePath": "api/Organization/employee-statuses/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetEmploymentStatusTypes",
+    "RelativePath": "api/Organization/employment-statuses",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "CreateEmploymentStatusType",
+    "RelativePath": "api/Organization/employment-statuses",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateEmploymentStatusTypeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "UpdateEmploymentStatusType",
+    "RelativePath": "api/Organization/employment-statuses/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateEmploymentStatusTypeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "DeleteEmploymentStatusType",
+    "RelativePath": "api/Organization/employment-statuses/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetGrades",
+    "RelativePath": "api/Organization/grades",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "CreateGrade",
+    "RelativePath": "api/Organization/grades",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateGradeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "UpdateGrade",
+    "RelativePath": "api/Organization/grades/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateGradeDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "DeleteGrade",
+    "RelativePath": "api/Organization/grades/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetJobTitles",
+    "RelativePath": "api/Organization/job-titles",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "CreateJobTitle",
+    "RelativePath": "api/Organization/job-titles",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateJobTitleDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "UpdateJobTitle",
+    "RelativePath": "api/Organization/job-titles/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateJobTitleDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "DeleteJobTitle",
+    "RelativePath": "api/Organization/job-titles/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetLocations",
+    "RelativePath": "api/Organization/locations",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "CreateLocation",
+    "RelativePath": "api/Organization/locations",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateLocationDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "UpdateLocation",
+    "RelativePath": "api/Organization/locations/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Organization.CreateLocationDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "DeleteLocation",
+    "RelativePath": "api/Organization/locations/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetPositions",
+    "RelativePath": "api/Organization/positions",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "departmentId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.OrganizationController",
+    "Method": "GetReportingHierarchy",
+    "RelativePath": "api/Organization/reporting-hierarchy",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetActiveEmployees",
+    "RelativePath": "api/Payroll/active-employees",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetBatches",
+    "RelativePath": "api/Payroll/batches",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "CreateBatch",
+    "RelativePath": "api/Payroll/batches",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Payroll.CreatePayrollBatchDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetBatch",
+    "RelativePath": "api/Payroll/batches/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "DeleteBatch",
+    "RelativePath": "api/Payroll/batches/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "ApproveBatch",
+    "RelativePath": "api/Payroll/batches/{id}/approve",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "CalculateBatch",
+    "RelativePath": "api/Payroll/batches/{id}/calculate",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "FinalizeBatch",
+    "RelativePath": "api/Payroll/batches/{id}/finalize",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetCompensation",
+    "RelativePath": "api/Payroll/compensation/{employeeId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "CreateCompensation",
+    "RelativePath": "api/Payroll/compensation/{employeeId}",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Payroll.CreateEmployeeCompensationDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "ImportCompensation",
+    "RelativePath": "api/Payroll/compensation/import",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      },
+      {
+        "Name": "effectiveFrom",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "batchId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "DownloadImportTemplate",
+    "RelativePath": "api/Payroll/compensation/import-template",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "category",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "UpdateCompensation",
+    "RelativePath": "api/Payroll/compensation/line/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Payroll.UpdateEmployeeCompensationDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "DeleteCompensation",
+    "RelativePath": "api/Payroll/compensation/line/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetVariableCompensation",
+    "RelativePath": "api/Payroll/compensation/variable",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "batchId",
+        "Type": "System.Guid",
+        "IsRequired": false
+      },
+      {
+        "Name": "componentId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "BulkUpdateVariable",
+    "RelativePath": "api/Payroll/compensation/variable/bulk",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Application.DTOs.Payroll.BulkVariableUpdateRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetComponents",
+    "RelativePath": "api/Payroll/components",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "CreateComponent",
+    "RelativePath": "api/Payroll/components",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Payroll.CreateComponentDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetComponent",
+    "RelativePath": "api/Payroll/components/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "UpdateComponent",
+    "RelativePath": "api/Payroll/components/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Payroll.UpdateComponentDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "DeleteComponent",
+    "RelativePath": "api/Payroll/components/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetEligibleEmployees",
+    "RelativePath": "api/Payroll/eligible-employees",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetRevisions",
+    "RelativePath": "api/Payroll/revisions",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "CreateRevision",
+    "RelativePath": "api/Payroll/revisions",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Payroll.CreateSalaryRevisionDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "ApproveRevision",
+    "RelativePath": "api/Payroll/revisions/{id}/approve",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "RejectRevision",
+    "RelativePath": "api/Payroll/revisions/{id}/reject",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Api.Controllers.RejectRevisionRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetSettings",
+    "RelativePath": "api/Payroll/settings",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "UpdateSettings",
+    "RelativePath": "api/Payroll/settings",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Payroll.PayrollSettingsDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetStatements",
+    "RelativePath": "api/Payroll/statements",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetStatement",
+    "RelativePath": "api/Payroll/statements/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PayrollController",
+    "Method": "GetStatementsByEmployee",
+    "RelativePath": "api/Payroll/statements/employee/{employeeId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PerformanceController",
+    "Method": "GetCycles",
+    "RelativePath": "api/Performance/cycles",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PerformanceController",
+    "Method": "GetGoals",
+    "RelativePath": "api/Performance/goals",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.PerformanceController",
+    "Method": "GetReviews",
+    "RelativePath": "api/Performance/reviews",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "GetCandidates",
+    "RelativePath": "api/Recruitment/candidates",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "requisitionId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "stage",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "search",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "CreateCandidate",
+    "RelativePath": "api/Recruitment/candidates",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.CreateCandidateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "GetInterviews",
+    "RelativePath": "api/Recruitment/candidates/{candidateId}/interviews",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "candidateId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "GetCandidate",
+    "RelativePath": "api/Recruitment/candidates/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "UpdateCandidate",
+    "RelativePath": "api/Recruitment/candidates/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.UpdateCandidateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "DeleteCandidate",
+    "RelativePath": "api/Recruitment/candidates/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "HireCandidate",
+    "RelativePath": "api/Recruitment/candidates/{id}/hire",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "req",
+        "Type": "OpenSkyHRM.Api.Controllers.RecruitmentController\u002BHireCandidateRequest",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "RejectCandidate",
+    "RelativePath": "api/Recruitment/candidates/{id}/reject",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.RejectCandidateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "ChangeStage",
+    "RelativePath": "api/Recruitment/candidates/{id}/stage",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.ChangeStagetDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "GetDashboard",
+    "RelativePath": "api/Recruitment/dashboard",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "CreateInterview",
+    "RelativePath": "api/Recruitment/interviews",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.CreateInterviewDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "UpdateInterview",
+    "RelativePath": "api/Recruitment/interviews/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.UpdateInterviewDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "DeleteInterview",
+    "RelativePath": "api/Recruitment/interviews/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "CompleteInterview",
+    "RelativePath": "api/Recruitment/interviews/{id}/complete",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.CompleteInterviewDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "GetScorecard",
+    "RelativePath": "api/Recruitment/interviews/{id}/scorecard",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "SubmitScorecard",
+    "RelativePath": "api/Recruitment/interviews/{id}/scorecard",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "items",
+        "Type": "System.Collections.Generic.List\u00601[[OpenSkyHRM.Application.DTOs.Recruitment.ScorecardItemDto, OpenSkyHRM.Application, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "GetUpcomingInterviews",
+    "RelativePath": "api/Recruitment/interviews/upcoming",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "CreateOffer",
+    "RelativePath": "api/Recruitment/offers",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.CreateOfferDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "UpdateOffer",
+    "RelativePath": "api/Recruitment/offers/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.UpdateOfferDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "AcceptOffer",
+    "RelativePath": "api/Recruitment/offers/{id}/accept",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "ApproveOffer",
+    "RelativePath": "api/Recruitment/offers/{id}/approve",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "RejectOffer",
+    "RelativePath": "api/Recruitment/offers/{id}/reject",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.RejectOfferDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "SendOfferEmail",
+    "RelativePath": "api/Recruitment/offers/{id}/send-email",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "GetPipeline",
+    "RelativePath": "api/Recruitment/pipeline/{requisitionId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "requisitionId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "GetRequisitions",
+    "RelativePath": "api/Recruitment/requisitions",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "status",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "departmentId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "priority",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "CreateRequisition",
+    "RelativePath": "api/Recruitment/requisitions",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.CreateRequisitionDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "GetRequisition",
+    "RelativePath": "api/Recruitment/requisitions/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "UpdateRequisition",
+    "RelativePath": "api/Recruitment/requisitions/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Recruitment.UpdateRequisitionDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "DeleteRequisition",
+    "RelativePath": "api/Recruitment/requisitions/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "ApproveRequisition",
+    "RelativePath": "api/Recruitment/requisitions/{id}/approve",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RecruitmentController",
+    "Method": "CloseRequisition",
+    "RelativePath": "api/Recruitment/requisitions/{id}/close",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ReportsController",
+    "Method": "RunReport",
+    "RelativePath": "api/Reports/{category}/{reportKey}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "category",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "reportKey",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "filters",
+        "Type": "System.Collections.Generic.Dictionary\u00602[[System.String, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.String, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ReportsController",
+    "Method": "ExportCsv",
+    "RelativePath": "api/Reports/{category}/{reportKey}/csv",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "category",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "reportKey",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "filters",
+        "Type": "System.Collections.Generic.Dictionary\u00602[[System.String, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.String, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ReportsController",
+    "Method": "GetCatalog",
+    "RelativePath": "api/Reports/catalog",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "GetAssignments",
+    "RelativePath": "api/roster/assignments",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "employeeId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "rosterTemplateId",
+        "Type": "System.Nullable\u00601[[System.Guid, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "effectiveDate",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "CreateAssignment",
+    "RelativePath": "api/roster/assignments",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.TimeAttendance.CreateRosterAssignmentDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "GetAssignment",
+    "RelativePath": "api/roster/assignments/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "UpdateAssignment",
+    "RelativePath": "api/roster/assignments/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.TimeAttendance.UpdateRosterAssignmentDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "DeleteAssignment",
+    "RelativePath": "api/roster/assignments/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "BulkCreateAssignments",
+    "RelativePath": "api/roster/assignments/bulk",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.TimeAttendance.BulkCreateRosterAssignmentDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "GetTemplates",
+    "RelativePath": "api/roster/templates",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "includeInactive",
+        "Type": "System.Boolean",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "CreateTemplate",
+    "RelativePath": "api/roster/templates",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.TimeAttendance.CreateRosterTemplateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "GetTemplate",
+    "RelativePath": "api/roster/templates/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "UpdateTemplate",
+    "RelativePath": "api/roster/templates/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.TimeAttendance.UpdateRosterTemplateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.RosterController",
+    "Method": "DeleteTemplate",
+    "RelativePath": "api/roster/templates/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SettingsController",
+    "Method": "GetAuditLogs",
+    "RelativePath": "api/Settings/audit-logs",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SettingsController",
+    "Method": "GetEmailDeliveryLogs",
+    "RelativePath": "api/Settings/email-delivery-logs",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "status",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SettingsController",
+    "Method": "GetRoles",
+    "RelativePath": "api/Settings/roles",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SettingsController",
+    "Method": "GetWorkflows",
+    "RelativePath": "api/Settings/workflows",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ShiftController",
+    "Method": "GetAll",
+    "RelativePath": "api/Shift",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "includeInactive",
+        "Type": "System.Boolean",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ShiftController",
+    "Method": "Create",
+    "RelativePath": "api/Shift",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.TimeAttendance.CreateShiftPatternDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ShiftController",
+    "Method": "GetById",
+    "RelativePath": "api/Shift/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ShiftController",
+    "Method": "Update",
+    "RelativePath": "api/Shift/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.TimeAttendance.UpdateShiftPatternDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.ShiftController",
+    "Method": "Delete",
+    "RelativePath": "api/Shift/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SystemSettingsController",
+    "Method": "GetAll",
+    "RelativePath": "api/system-settings",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SystemSettingsController",
+    "Method": "Get",
+    "RelativePath": "api/system-settings/{key}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "key",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SystemSettingsController",
+    "Method": "Set",
+    "RelativePath": "api/system-settings/{key}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "key",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Api.Controllers.UpdateSettingDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SystemSettingsController",
+    "Method": "UploadCompanyLogo",
+    "RelativePath": "api/system-settings/company-logo",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SystemSettingsController",
+    "Method": "RemoveCompanyLogo",
+    "RelativePath": "api/system-settings/company-logo",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SystemSettingsController",
+    "Method": "GetEmailDeliveryLogs",
+    "RelativePath": "api/system-settings/email-delivery-logs",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "page",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "pageSize",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "status",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.SystemSettingsController",
+    "Method": "GetNextEmployeeCode",
+    "RelativePath": "api/system-settings/next-employee-code",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.UserController",
+    "Method": "GetAll",
+    "RelativePath": "api/User",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.UserController",
+    "Method": "Create",
+    "RelativePath": "api/User",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Auth.CreateUserDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.UserController",
+    "Method": "GetById",
+    "RelativePath": "api/User/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.UserController",
+    "Method": "Update",
+    "RelativePath": "api/User/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "OpenSkyHRM.Application.DTOs.Auth.UpdateUserDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.UserController",
+    "Method": "Delete",
+    "RelativePath": "api/User/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "OpenSkyHRM.Api.Controllers.UserController",
+    "Method": "ResetPassword",
+    "RelativePath": "api/User/{id}/reset-password",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "OpenSkyHRM.Api.Controllers.ResetPasswordRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "Program\u002B\u003C\u003Ec__DisplayClass0_0",
+    "Method": "\u003C\u003CMain\u003E$\u003Eb__15",
+    "RelativePath": "health",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ]
+  }
+]

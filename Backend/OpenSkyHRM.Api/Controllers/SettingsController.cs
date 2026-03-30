@@ -20,6 +20,13 @@ public class SettingsController : ControllerBase
     public async Task<IActionResult> GetAuditLogs([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
         => Ok(await _settingsService.GetAuditLogsAsync(page, pageSize));
 
+    [HttpGet("email-delivery-logs")]
+    public async Task<IActionResult> GetEmailDeliveryLogs(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? status = null)
+        => Ok(await _settingsService.GetOutboundEmailLogsAsync(page, pageSize, status));
+
     [HttpGet("workflows")]
     public async Task<IActionResult> GetWorkflows()
         => Ok(await _settingsService.GetWorkflowsAsync());

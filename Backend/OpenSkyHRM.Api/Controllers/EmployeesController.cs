@@ -5,12 +5,14 @@ using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Api.Services;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("People")]
 [Route("api/[controller]")]
 public class EmployeesController : ControllerBase
 {
@@ -23,6 +25,18 @@ public class EmployeesController : ControllerBase
         _db = db;
     }
 
+    /// <summary>Paged People Hub audit entries (employee profile, related records, compensation). Respects People:Read scope.</summary>
+    [HttpGet("audit-trail")]
+    public async Task<IActionResult> GetPeopleAuditTrail(
+        [FromQuery] Guid? employeeId = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50)
+    {
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var result = await _employeeService.GetPeopleAuditTrailAsync(employeeId, allowedIds, page, pageSize);
+        return Ok(result);
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetAll(
         [FromQuery] int page = 1,
@@ -32,10 +46,12 @@ public class EmployeesController : ControllerBase
         [FromQuery] Guid? jobTitleId = null,
         [FromQuery] Guid? locationId = null,
         [FromQuery] Guid? managerId = null,
-        [FromQuery] string? status = null)
+        [FromQuery] string? status = null,
+        [FromQuery] string? employmentType = null,
+        [FromQuery] bool excludeTerminated = false)
     {
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, allowedIds);
+        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, employmentType, allowedIds, excludeTerminated);
         return Ok(result);
     }
 
@@ -48,11 +64,15 @@ public class EmployeesController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateEmployeeDto dto)
+    public async Task<IActionResult> Create([FromBody] CreateEmployeeDto dto,
+        [FromServices] IEmployeeTaskService employeeTaskService)
     {
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Create");
         if (allowedIds != null && allowedIds.Count == 0)
             return Forbid();
+
+        var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
+        if (licenseErr != null) return licenseErr;
 
         var created = await _employeeService.CreateAsync(dto);
 
@@ -78,6 +98,12 @@ public class EmployeesController : ControllerBase
             await _db.SaveChangesAsync();
         }
 
+        if (dto.WithOnboarding && dto.OnboardingTemplateId.HasValue)
+        {
+            await employeeTaskService.CreateTasksFromTemplateAsync(
+                created.Id, dto.OnboardingTemplateId.Value, "Onboarding");
+        }
+
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
@@ -87,8 +113,84 @@ public class EmployeesController : ControllerBase
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
         if (allowedIds != null && (allowedIds.Count == 0 || !allowedIds.Contains(id)))
             return Forbid();
+        var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
+        if (licenseErr != null) return licenseErr;
         var updated = await _employeeService.UpdateAsync(id, dto);
         return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpPost("{id:guid}/terminate")]
+    public async Task<IActionResult> Terminate(Guid id, [FromBody] TerminateRequest req,
+        [FromServices] IOffboardingService offboardingService,
+        [FromServices] IEmployeeTaskService employeeTaskService)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+            return Forbid();
+
+        var employee = await _db.Employees.FindAsync(id);
+        if (employee is null) return NotFound();
+
+        employee.Status = "Terminated";
+        employee.TerminationDate = req.TerminationDate;
+        employee.TerminationReason = req.TerminationReason;
+        employee.TerminationNote = req.TerminationNote;
+        await _db.SaveChangesAsync();
+
+        if (req.WithOffboarding && req.TemplateId.HasValue)
+        {
+            await employeeTaskService.CreateTasksFromTemplateAsync(id, req.TemplateId.Value, "Offboarding");
+        }
+        else if (req.WithOffboarding)
+        {
+            await offboardingService.CreateDefaultTasksAsync(id);
+        }
+        else
+        {
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.EmployeeId == id);
+            if (user is not null)
+            {
+                user.IsActive = false;
+                await _db.SaveChangesAsync();
+            }
+        }
+
+        var result = await _employeeService.GetByIdAsync(id);
+        return Ok(result);
+    }
+
+    [HttpPost("{id:guid}/reactivate")]
+    public async Task<IActionResult> Reactivate(Guid id, [FromBody] ReactivateRequest req)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+            return Forbid();
+
+        var employee = await _db.Employees.FindAsync(id);
+        if (employee is null) return NotFound();
+
+        employee.Status = "Active";
+        employee.EmploymentType = "FullTimePermanent";
+        employee.TerminationDate = null;
+        employee.TerminationReason = null;
+        employee.TerminationNote = null;
+        if (req.UpdateJoinDate && req.JoinDate.HasValue)
+            employee.JoinDate = req.JoinDate.Value;
+
+        // Clean up any remaining offboarding tasks
+        var offTasks = _db.OffboardingTasks.Where(t => t.EmployeeId == id);
+        _db.OffboardingTasks.RemoveRange(offTasks);
+
+        await _db.SaveChangesAsync();
+
+        // Re-activate user account
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.EmployeeId == id);
+        if (user is not null)
+        {
+            user.IsActive = true;
+            await _db.SaveChangesAsync();
+        }
+
+        var result = await _employeeService.GetByIdAsync(id);
+        return Ok(result);
     }
 
     [HttpDelete("{id:guid}")]
@@ -178,6 +280,42 @@ public class EmployeesController : ControllerBase
         return Ok(rows);
     }
 
+    /// <summary>Employees who may be assigned as supervisors: active login with SUPERVISOR role (People read scope applies).</summary>
+    [HttpGet("{id:guid}/reporting/supervisor-candidates")]
+    public async Task<IActionResult> GetSupervisorCandidates(Guid id)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Read"))
+            return Forbid();
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+
+        var q = _db.Employees
+            .AsNoTracking()
+            .Where(e => !e.IsDeleted && e.Status != "Terminated" && e.Id != id)
+            .Where(e => _db.Users.Any(u =>
+                !u.IsDeleted
+                && u.IsActive
+                && u.EmployeeId == e.Id
+                && u.UserRoles.Any(ur =>
+                    !ur.IsDeleted
+                    && !ur.Role.IsDeleted
+                    && ur.Role.Code == "SUPERVISOR")));
+
+        if (allowedIds != null)
+            q = q.Where(e => allowedIds.Contains(e.Id));
+
+        var items = await q
+            .OrderBy(e => e.LastName)
+            .ThenBy(e => e.FirstName)
+            .Select(e => new
+            {
+                id = e.Id,
+                fullName = e.FirstName + (e.MiddleName != null ? " " + e.MiddleName : "") + " " + e.LastName,
+            })
+            .ToListAsync();
+
+        return Ok(new { items });
+    }
+
     [HttpPost("{id:guid}/supervisors")]
     public async Task<IActionResult> AddSupervisor(Guid id, [FromBody] AddSupervisorRequest req)
     {
@@ -185,6 +323,18 @@ public class EmployeesController : ControllerBase
         if (employee is null) return NotFound();
         var supervisor = await _db.Employees.FindAsync(req.SupervisorId);
         if (supervisor is null) return BadRequest(new { error = "Supervisor not found." });
+
+        var hasSupervisorRole = await _db.Users
+            .AnyAsync(u =>
+                !u.IsDeleted
+                && u.IsActive
+                && u.EmployeeId == req.SupervisorId
+                && u.UserRoles.Any(ur =>
+                    !ur.IsDeleted
+                    && !ur.Role.IsDeleted
+                    && ur.Role.Code == "SUPERVISOR"));
+        if (!hasSupervisorRole)
+            return BadRequest(new { error = "Only employees with the Supervisor role can be assigned as a supervisor." });
 
         var exists = await _db.EmployeeSupervisors.AnyAsync(x => x.EmployeeId == id && x.SupervisorId == req.SupervisorId);
         if (exists) return BadRequest(new { error = "This supervisor is already assigned." });
@@ -220,6 +370,11 @@ public class EmployeesController : ControllerBase
 
         var exists = await _db.EmployeeSupervisors.AnyAsync(x => x.EmployeeId == req.EmployeeId && x.SupervisorId == id);
         if (exists) return BadRequest(new { error = "This subordinate is already assigned." });
+
+        var theyAreMySupervisor = await _db.EmployeeSupervisors
+            .AnyAsync(x => x.EmployeeId == id && x.SupervisorId == req.EmployeeId);
+        if (theyAreMySupervisor)
+            return BadRequest(new { error = "An employee who is assigned as your supervisor cannot be added as your subordinate." });
 
         var entry = new Domain.Entities.EmployeeSupervisor
         {
@@ -263,6 +418,15 @@ public class EmployeesController : ControllerBase
         await _db.SaveChangesAsync();
         return NoContent();
     }
+
+    private static IActionResult? LicenseDateValidationProblem(DateTime? issue, DateTime? expiry)
+    {
+        if (issue.HasValue && issue.Value.Date > DateTime.UtcNow.Date)
+            return new BadRequestObjectResult(new { message = "License issue date cannot be in the future." });
+        if (issue.HasValue && expiry.HasValue && expiry.Value.Date < issue.Value.Date)
+            return new BadRequestObjectResult(new { message = "License expiry date must be on or after the issue date." });
+        return null;
+    }
 }
 
 public class AddSupervisorRequest
@@ -275,4 +439,20 @@ public class AddSubordinateRequest
 {
     public Guid EmployeeId { get; set; }
     public string? ReportingMethod { get; set; }
+}
+
+public class TerminateRequest
+{
+    public DateTime TerminationDate { get; set; }
+    public string TerminationReason { get; set; } = string.Empty;
+    public string? TerminationNote { get; set; }
+    public bool WithOffboarding { get; set; }
+    public Guid? TemplateId { get; set; }
+}
+
+public class ReactivateRequest
+{
+    public bool UpdateJoinDate { get; set; }
+    public DateTime? JoinDate { get; set; }
+    public bool WithOnboarding { get; set; }
 }

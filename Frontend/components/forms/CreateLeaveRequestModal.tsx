@@ -3,6 +3,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { DatePickerField } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 interface Lookup { id: string; name: string }
@@ -97,11 +98,11 @@ export function CreateLeaveRequestModal({ open, onClose, onCreated }: Props) {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={labelClass}>Start Date *</label>
-            <input name="startDate" type="date" required className={inputClass} />
+            <DatePickerField name="startDate" required className={inputClass} />
           </div>
           <div>
             <label className={labelClass}>End Date *</label>
-            <input name="endDate" type="date" required className={inputClass} />
+            <DatePickerField name="endDate" required className={inputClass} />
           </div>
         </div>
 

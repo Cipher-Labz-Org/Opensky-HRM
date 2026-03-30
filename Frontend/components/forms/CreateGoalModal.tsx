@@ -3,6 +3,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { DatePickerField } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 interface Lookup { id: string; name: string }
@@ -58,7 +59,7 @@ export function CreateGoalModal({ open, onClose, onCreated }: Props) {
         <div><label className={labelClass}>Goal Title *</label><input name="title" required className={inputClass} placeholder="Month-end close accuracy" /></div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className={labelClass}>Weight (%)</label><input name="weight" type="number" min={1} max={100} defaultValue={25} className={inputClass} /></div>
-          <div><label className={labelClass}>Due Date</label><input name="dueDate" type="date" className={inputClass} /></div>
+          <div><label className={labelClass}>Due Date</label><DatePickerField name="dueDate" className={inputClass} /></div>
         </div>
         <div><label className={labelClass}>Description</label><textarea name="description" rows={2} className={inputClass} placeholder="Goal details..." /></div>
         <div className="flex items-center justify-end gap-3 pt-2">

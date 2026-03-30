@@ -9,10 +9,17 @@ public interface IEmployeeService
         int page = 1, int pageSize = 20, string? search = null,
         Guid? departmentId = null, Guid? jobTitleId = null,
         Guid? locationId = null, Guid? managerId = null, string? status = null,
-        IReadOnlyList<Guid>? allowedEmployeeIds = null);
+        string? employmentType = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = false);
     Task<EmployeeDto?> GetByIdAsync(Guid id, IReadOnlyList<Guid>? allowedEmployeeIds = null);
     Task<EmployeeDto> CreateAsync(CreateEmployeeDto dto);
     Task<EmployeeDto?> UpdateAsync(Guid id, UpdateEmployeeDto dto);
     Task<bool> DeleteAsync(Guid id);
     Task<string?> UpdateProfileImageAsync(Guid id, string imageUrl);
+
+    Task<PagedResult<PeopleAuditLogEntryDto>> GetPeopleAuditTrailAsync(
+        Guid? subjectEmployeeId,
+        IReadOnlyList<Guid>? allowedEmployeeIds,
+        int page = 1,
+        int pageSize = 50);
 }

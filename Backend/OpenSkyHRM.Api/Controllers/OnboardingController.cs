@@ -3,12 +3,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Onboarding")]
 [Route("api/[controller]")]
 public class OnboardingController : ControllerBase
 {

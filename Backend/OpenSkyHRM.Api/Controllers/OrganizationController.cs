@@ -2,11 +2,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("OrgStructure")]
 [Route("api/[controller]")]
 public class OrganizationController : ControllerBase
 {
@@ -84,6 +86,31 @@ public class OrganizationController : ControllerBase
     public async Task<IActionResult> GetLocations()
         => Ok(await _orgService.GetLocationsAsync());
 
+    [HttpPost("locations")]
+    public async Task<IActionResult> CreateLocation([FromBody] CreateLocationDto dto)
+        => Ok(await _orgService.CreateLocationAsync(dto));
+
+    [HttpPut("locations/{id:guid}")]
+    public async Task<IActionResult> UpdateLocation(Guid id, [FromBody] CreateLocationDto dto)
+    {
+        var updated = await _orgService.UpdateLocationAsync(id, dto);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("locations/{id:guid}")]
+    public async Task<IActionResult> DeleteLocation(Guid id)
+    {
+        try
+        {
+            var deleted = await _orgService.DeleteLocationAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     // --- Grades ---
 
     [HttpGet("grades")]
@@ -137,4 +164,117 @@ public class OrganizationController : ControllerBase
     [HttpGet("positions")]
     public async Task<IActionResult> GetPositions([FromQuery] Guid? departmentId = null)
         => Ok(await _orgService.GetPositionsAsync(departmentId));
+
+    [HttpGet("reporting-hierarchy")]
+    public async Task<IActionResult> GetReportingHierarchy()
+        => Ok(await _orgService.GetReportingHierarchyAsync());
+
+    // --- Employment Status Types ---
+
+    [HttpGet("employment-statuses")]
+    public async Task<IActionResult> GetEmploymentStatusTypes()
+        => Ok(await _orgService.GetEmploymentStatusTypesAsync());
+
+    [HttpPost("employment-statuses")]
+    public async Task<IActionResult> CreateEmploymentStatusType([FromBody] CreateEmploymentStatusTypeDto dto)
+        => Ok(await _orgService.CreateEmploymentStatusTypeAsync(dto));
+
+    [HttpPut("employment-statuses/{id:guid}")]
+    public async Task<IActionResult> UpdateEmploymentStatusType(Guid id, [FromBody] CreateEmploymentStatusTypeDto dto)
+    {
+        var updated = await _orgService.UpdateEmploymentStatusTypeAsync(id, dto);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("employment-statuses/{id:guid}")]
+    public async Task<IActionResult> DeleteEmploymentStatusType(Guid id)
+    {
+        try
+        {
+            var deleted = await _orgService.DeleteEmploymentStatusTypeAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    // --- Employee Status Types ---
+
+    [HttpGet("employee-statuses")]
+    public async Task<IActionResult> GetEmployeeStatusTypes()
+        => Ok(await _orgService.GetEmployeeStatusTypesAsync());
+
+    [HttpPost("employee-statuses")]
+    public async Task<IActionResult> CreateEmployeeStatusType([FromBody] CreateEmploymentStatusTypeDto dto)
+        => Ok(await _orgService.CreateEmployeeStatusTypeAsync(dto));
+
+    [HttpPut("employee-statuses/{id:guid}")]
+    public async Task<IActionResult> UpdateEmployeeStatusType(Guid id, [FromBody] CreateEmploymentStatusTypeDto dto)
+    {
+        var updated = await _orgService.UpdateEmployeeStatusTypeAsync(id, dto);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("employee-statuses/{id:guid}")]
+    public async Task<IActionResult> DeleteEmployeeStatusType(Guid id)
+    {
+        try
+        {
+            var deleted = await _orgService.DeleteEmployeeStatusTypeAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    // --- Skills catalog (People qualifications, Learning matrix) ---
+
+    [HttpGet("skills")]
+    public async Task<IActionResult> GetSkillsCatalog()
+        => Ok(await _orgService.GetSkillsCatalogAsync());
+
+    [HttpPost("skills")]
+    public async Task<IActionResult> CreateSkillCatalog([FromBody] CreateSkillCatalogDto dto)
+    {
+        try
+        {
+            return Ok(await _orgService.CreateSkillCatalogAsync(dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("skills/{id:guid}")]
+    public async Task<IActionResult> UpdateSkillCatalog(Guid id, [FromBody] CreateSkillCatalogDto dto)
+    {
+        try
+        {
+            var updated = await _orgService.UpdateSkillCatalogAsync(id, dto);
+            return updated is null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpDelete("skills/{id:guid}")]
+    public async Task<IActionResult> DeleteSkillCatalog(Guid id)
+    {
+        try
+        {
+            var deleted = await _orgService.DeleteSkillCatalogAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }

@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 
 namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
+[RequireLicensedModule("Settings")]
 [Route("api/system-settings")]
 public class SystemSettingsController : ControllerBase
 {
@@ -21,6 +23,15 @@ public class SystemSettingsController : ControllerBase
     {
         return Ok(await _service.GetAllAsync());
     }
+
+    /// <summary>Must be registered before the literal route so "email-delivery-logs" is not handled as a setting key (404).</summary>
+    [HttpGet("email-delivery-logs")]
+    public async Task<IActionResult> GetEmailDeliveryLogs(
+        [FromServices] ISettingsService settingsService,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? status = null)
+        => Ok(await settingsService.GetOutboundEmailLogsAsync(page, pageSize, status));
 
     [HttpGet("{key}")]
     public async Task<IActionResult> Get(string key)
@@ -42,6 +53,45 @@ public class SystemSettingsController : ControllerBase
     {
         var code = await _service.GenerateNextEmployeeCodeAsync();
         return Ok(new { code });
+    }
+
+    [HttpPost("company-logo")]
+    public async Task<IActionResult> UploadCompanyLogo(IFormFile file, [FromServices] IWebHostEnvironment env)
+    {
+        if (file is null || file.Length == 0)
+            return BadRequest(new { error = "No file uploaded." });
+
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml" };
+        if (!allowedTypes.Contains(file.ContentType.ToLower()))
+            return BadRequest(new { error = "Only JPEG, PNG, WebP, GIF and SVG images are allowed." });
+
+        if (file.Length > 5 * 1024 * 1024)
+            return BadRequest(new { error = "File size must be less than 5 MB." });
+
+        var uploadsDir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "branding");
+        Directory.CreateDirectory(uploadsDir);
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (string.IsNullOrEmpty(ext)) ext = ".png";
+        var fileName = $"company_logo_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
+
+        var filePath = Path.Combine(uploadsDir, fileName);
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        var logoUrl = $"/uploads/branding/{fileName}";
+        await _service.SetAsync("CompanyLogoUrl", logoUrl);
+
+        return Ok(new { logoUrl });
+    }
+
+    [HttpDelete("company-logo")]
+    public async Task<IActionResult> RemoveCompanyLogo()
+    {
+        await _service.SetAsync("CompanyLogoUrl", "");
+        return Ok(new { logoUrl = "" });
     }
 }
 

@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback, type FormEvent } from "react";
+import { useState, useEffect, useCallback, useRef, type FormEvent } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { DatePickerField, DateTimePickerField } from "@/components/ui";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 
 // ──────────────────────────── Tabs ────────────────────────────
 
@@ -42,6 +44,27 @@ interface ShiftItem {
   lateGraceMinutes: number;
   earlyDepartureGraceMinutes: number;
   halfDayHours: number;
+  appliesOnMonday: boolean;
+  appliesOnTuesday: boolean;
+  appliesOnWednesday: boolean;
+  appliesOnThursday: boolean;
+  appliesOnFriday: boolean;
+  appliesOnSaturday: boolean;
+  appliesOnSunday: boolean;
+  mondayStartTime: string | null;
+  mondayEndTime: string | null;
+  tuesdayStartTime: string | null;
+  tuesdayEndTime: string | null;
+  wednesdayStartTime: string | null;
+  wednesdayEndTime: string | null;
+  thursdayStartTime: string | null;
+  thursdayEndTime: string | null;
+  fridayStartTime: string | null;
+  fridayEndTime: string | null;
+  saturdayStartTime: string | null;
+  saturdayEndTime: string | null;
+  sundayStartTime: string | null;
+  sundayEndTime: string | null;
   isActive: boolean;
 }
 
@@ -69,6 +92,12 @@ function timeInputToSpan(hhmm: string): string {
   return `${String(h ?? 0).padStart(2, "0")}:${String(m ?? 0).padStart(2, "0")}:00`;
 }
 
+function timeOrNull(hhmm: string): string | null {
+  const t = (hhmm || "").trim();
+  if (!t) return null;
+  return timeInputToSpan(t);
+}
+
 function dateOnlyForInput(iso: string): string {
   if (!iso) return "";
   return iso.includes("T") ? (iso.split("T")[0] ?? "") : iso.slice(0, 10);
@@ -81,8 +110,7 @@ function fmtTime(iso: string | null): string {
 }
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString();
+  return formatDate(iso);
 }
 
 function fmtTimeSpan(ts: string | null): string {
@@ -227,8 +255,11 @@ function AttendanceListTab() {
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const [filterEmployee, setFilterEmployee] = useState("");
-  const [filterFrom, setFilterFrom] = useState("");
-  const [filterTo, setFilterTo] = useState("");
+  const [filterFrom, setFilterFrom] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split("T")[0] ?? "";
+  });
+  const [filterTo, setFilterTo] = useState(() => new Date().toISOString().split("T")[0] ?? "");
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -306,11 +337,11 @@ function AttendanceListTab() {
         </div>
         <div>
           <label className={labelClass}>From</label>
-          <input type="date" value={filterFrom} onChange={(e) => { setFilterFrom(e.target.value); setPage(1); }} className={`${inputClass} w-40`} />
+          <DatePickerField value={filterFrom} onChange={(v) => { setFilterFrom(v); setPage(1); }} className={`${inputClass} w-40`} />
         </div>
         <div>
           <label className={labelClass}>To</label>
-          <input type="date" value={filterTo} onChange={(e) => { setFilterTo(e.target.value); setPage(1); }} className={`${inputClass} w-40`} />
+          <DatePickerField value={filterTo} onChange={(v) => { setFilterTo(v); setPage(1); }} className={`${inputClass} w-40`} />
         </div>
         <Button variant="secondary" onClick={() => { setFilterEmployee(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}>Clear</Button>
         <div className="ml-auto"><Button onClick={() => setShowCreate(true)}>+ Log Attendance</Button></div>
@@ -401,11 +432,21 @@ function AttendanceListTab() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>Punch In</label>
-                <input name="punchIn" type="datetime-local" defaultValue={editingRecord.punchIn ? editingRecord.punchIn.slice(0, 16) : ""} className={inputClass} />
+                <DateTimePickerField
+                  name="punchIn"
+                  defaultValue={editingRecord.punchIn ? editingRecord.punchIn.slice(0, 16) : ""}
+                  className={inputClass}
+                  rowClassName="sm:col-span-1"
+                />
               </div>
               <div>
                 <label className={labelClass}>Punch Out</label>
-                <input name="punchOut" type="datetime-local" defaultValue={editingRecord.punchOut ? editingRecord.punchOut.slice(0, 16) : ""} className={inputClass} />
+                <DateTimePickerField
+                  name="punchOut"
+                  defaultValue={editingRecord.punchOut ? editingRecord.punchOut.slice(0, 16) : ""}
+                  className={inputClass}
+                  rowClassName="sm:col-span-1"
+                />
               </div>
             </div>
             <div>
@@ -569,7 +610,7 @@ function DevicesTab() {
                   <td className="px-4 py-3 text-slate-600">{d.location ?? "—"}</td>
                   <td className="px-4 py-3 text-slate-600">{d.deviceType}</td>
                   <td className="px-4 py-3">{d.isActive ? <span className="text-green-600">Active</span> : <span className="text-slate-400">Inactive</span>}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{d.lastSyncAt ? new Date(d.lastSyncAt).toLocaleString() : "Never"}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{d.lastSyncAt ? formatDateTime(d.lastSyncAt) : "Never"}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
                       <button type="button" onClick={() => { setEditingDevice(d); setDeviceModal(true); }} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
@@ -604,7 +645,7 @@ function DevicesTab() {
                   <tr key={h.id} className="hover:bg-slate-50/50">
                     <td className="px-4 py-3 text-slate-700">{h.fileName}</td>
                     <td className="px-4 py-3 text-slate-600">{h.deviceName ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">{new Date(h.importedAt).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-600 text-xs">{formatDateTime(h.importedAt)}</td>
                     <td className="px-4 py-3 text-slate-600">{h.totalRecords}</td>
                     <td className="px-4 py-3 text-green-600">{h.successCount}</td>
                     <td className="px-4 py-3 text-red-600">{h.failCount}</td>
@@ -748,11 +789,11 @@ function OtNopayTab() {
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className={labelClass}>From *</label>
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={`${inputClass} w-40`} />
+          <DatePickerField value={fromDate} onChange={setFromDate} className={`${inputClass} w-40`} />
         </div>
         <div>
           <label className={labelClass}>To *</label>
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={`${inputClass} w-40`} />
+          <DatePickerField value={toDate} onChange={setToDate} className={`${inputClass} w-40`} />
         </div>
         <div>
           <label className={labelClass}>Employee</label>
@@ -830,6 +871,7 @@ function ShiftsTab() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formShiftType, setFormShiftType] = useState("Regular");
+  const editingIdRef = useRef<string | null>(null);
 
   const load = useCallback(() => {
     setError(null);
@@ -839,8 +881,20 @@ function ShiftsTab() {
   }, [includeInactive]);
   useEffect(() => { load(); }, [load]);
 
-  function openAdd() { setEditing(null); setFormShiftType("Regular"); setError(null); setShowModal(true); }
-  function openEdit(item: ShiftItem) { setEditing(item); setFormShiftType(item.shiftType || "Regular"); setError(null); setShowModal(true); }
+  function openAdd() {
+    editingIdRef.current = null;
+    setEditing(null);
+    setFormShiftType("Regular");
+    setError(null);
+    setShowModal(true);
+  }
+  function openEdit(item: ShiftItem) {
+    editingIdRef.current = item.id;
+    setEditing(item);
+    setFormShiftType(item.shiftType || "Regular");
+    setError(null);
+    setShowModal(true);
+  }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -860,6 +914,27 @@ function ShiftsTab() {
       lateGraceMinutes: Number(fd.get("lateGraceMinutes")) || 5,
       earlyDepartureGraceMinutes: Number(fd.get("earlyDepartureGraceMinutes")) || 5,
       halfDayHours: Number(fd.get("halfDayHours")) || 4,
+      appliesOnMonday: fd.get("appliesOnMonday") === "on",
+      appliesOnTuesday: fd.get("appliesOnTuesday") === "on",
+      appliesOnWednesday: fd.get("appliesOnWednesday") === "on",
+      appliesOnThursday: fd.get("appliesOnThursday") === "on",
+      appliesOnFriday: fd.get("appliesOnFriday") === "on",
+      appliesOnSaturday: fd.get("appliesOnSaturday") === "on",
+      appliesOnSunday: fd.get("appliesOnSunday") === "on",
+      mondayStartTime: timeOrNull((fd.get("mondayStartTime") as string) || ""),
+      mondayEndTime: timeOrNull((fd.get("mondayEndTime") as string) || ""),
+      tuesdayStartTime: timeOrNull((fd.get("tuesdayStartTime") as string) || ""),
+      tuesdayEndTime: timeOrNull((fd.get("tuesdayEndTime") as string) || ""),
+      wednesdayStartTime: timeOrNull((fd.get("wednesdayStartTime") as string) || ""),
+      wednesdayEndTime: timeOrNull((fd.get("wednesdayEndTime") as string) || ""),
+      thursdayStartTime: timeOrNull((fd.get("thursdayStartTime") as string) || ""),
+      thursdayEndTime: timeOrNull((fd.get("thursdayEndTime") as string) || ""),
+      fridayStartTime: timeOrNull((fd.get("fridayStartTime") as string) || ""),
+      fridayEndTime: timeOrNull((fd.get("fridayEndTime") as string) || ""),
+      saturdayStartTime: timeOrNull((fd.get("saturdayStartTime") as string) || ""),
+      saturdayEndTime: timeOrNull((fd.get("saturdayEndTime") as string) || ""),
+      sundayStartTime: timeOrNull((fd.get("sundayStartTime") as string) || ""),
+      sundayEndTime: timeOrNull((fd.get("sundayEndTime") as string) || ""),
       session2StartTime: null as string | null,
       session2EndTime: null as string | null,
       flexiWindowStart: null as string | null,
@@ -875,13 +950,17 @@ function ShiftsTab() {
       payload.flexiWindowEnd = timeInputToSpan((fd.get("flexiWindowEnd") as string) || "20:00");
       payload.minimumWorkHours = Number(fd.get("minimumWorkHours")) || 8;
     }
+    const isEdit = editingIdRef.current != null;
+    const editId = editingIdRef.current;
     try {
-      if (editing) {
-        await apiFetch(`/api/shift/${editing.id}`, { method: "PUT", body: JSON.stringify(payload) });
+      if (isEdit && editId) {
+        await apiFetch(`/api/shift/${editId}`, { method: "PUT", body: JSON.stringify(payload) });
       } else {
         await apiFetch("/api/shift", { method: "POST", body: JSON.stringify(payload) });
       }
+      editingIdRef.current = null;
       setShowModal(false);
+      setEditing(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -911,6 +990,25 @@ function ShiftsTab() {
     }
   };
 
+  function formatApplicableDays(s: ShiftItem): string {
+    const dayData = [
+      { applies: s.appliesOnMonday, start: s.mondayStartTime, end: s.mondayEndTime, abbr: "Mon" },
+      { applies: s.appliesOnTuesday, start: s.tuesdayStartTime, end: s.tuesdayEndTime, abbr: "Tue" },
+      { applies: s.appliesOnWednesday, start: s.wednesdayStartTime, end: s.wednesdayEndTime, abbr: "Wed" },
+      { applies: s.appliesOnThursday, start: s.thursdayStartTime, end: s.thursdayEndTime, abbr: "Thu" },
+      { applies: s.appliesOnFriday, start: s.fridayStartTime, end: s.fridayEndTime, abbr: "Fri" },
+      { applies: s.appliesOnSaturday, start: s.saturdayStartTime, end: s.saturdayEndTime, abbr: "Sat" },
+      { applies: s.appliesOnSunday, start: s.sundayStartTime, end: s.sundayEndTime, abbr: "Sun" },
+    ];
+    const applicable = dayData.filter((d) => d.applies);
+    if (applicable.length === 0) return "—";
+    const parts = applicable.map((d) => {
+      if (d.start && d.end) return `${d.abbr} ${timeSpanToInput(d.start)}-${timeSpanToInput(d.end)}`;
+      return d.abbr;
+    });
+    return parts.join(", ");
+  }
+
   const showTimes = formShiftType !== "Open";
   const showSession2 = formShiftType === "Split";
   const showFlexi = formShiftType === "Flexi";
@@ -937,13 +1035,14 @@ function ShiftsTab() {
               <th className="px-4 py-2.5 font-semibold text-slate-600">Code</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Type</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Times</th>
+              <th className="px-4 py-2.5 font-semibold text-slate-600">Days</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Break</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Grace</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Active</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
             </tr></thead>
             <tbody className="divide-y divide-slate-100">
-              {items.length === 0 && <tr><td colSpan={8} className="px-6 py-8 text-center text-slate-400">No shifts defined. Add a shift to get started.</td></tr>}
+              {items.length === 0 && <tr><td colSpan={9} className="px-6 py-8 text-center text-slate-400">No shifts defined. Add a shift to get started.</td></tr>}
               {items.map((s) => (
                 <tr key={s.id} className="hover:bg-slate-50/50">
                   <td className="px-6 py-3 font-medium text-slate-700">{s.name}</td>
@@ -966,6 +1065,9 @@ function ShiftsTab() {
                       </>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-slate-600 text-xs">
+                    <span>{formatApplicableDays(s)}</span>
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{s.breakHours}h</td>
                   <td className="px-4 py-3 text-slate-500 text-xs">
                     <span>Late: {s.lateGraceMinutes}m</span>
@@ -985,7 +1087,16 @@ function ShiftsTab() {
         </div>
       </div>
 
-      <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Shift" : "Add Shift"}>
+      <Modal
+          open={showModal}
+          onClose={() => {
+            editingIdRef.current = null;
+            setEditing(null);
+            setShowModal(false);
+          }}
+          title={editing ? "Edit Shift" : "Add Shift"}
+          wide
+        >
         <form key={editing?.id ?? "new-shift"} onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
             <div><label className={labelClass}>Name *</label><input name="name" required defaultValue={editing?.name ?? ""} className={inputClass} /></div>
@@ -1041,8 +1152,86 @@ function ShiftsTab() {
             </div>
           </div>
 
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <h4 className="mb-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Applicable Days</h4>
+            <p className="mb-3 text-xs text-slate-500">Select which days this shift applies. Optionally set custom start/end times per day (e.g. 7h or 4h); leave blank to use default times above.</p>
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+              <table className="w-full min-w-[420px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/80">
+                    <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Day</th>
+                    <th className="w-14 px-2 py-2.5 text-center font-semibold text-slate-600">Apply</th>
+                    <th className="w-28 px-2 py-2.5 text-left font-semibold text-slate-600">Start</th>
+                    <th className="w-28 px-2 py-2.5 text-left font-semibold text-slate-600">End</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {[
+                    { day: "Monday", key: "monday", defaultApplies: true },
+                    { day: "Tuesday", key: "tuesday", defaultApplies: true },
+                    { day: "Wednesday", key: "wednesday", defaultApplies: true },
+                    { day: "Thursday", key: "thursday", defaultApplies: true },
+                    { day: "Friday", key: "friday", defaultApplies: true },
+                    { day: "Saturday", key: "saturday", defaultApplies: false },
+                    { day: "Sunday", key: "sunday", defaultApplies: false },
+                  ].map(({ day, key, defaultApplies }) => {
+                    const appliesKey = `appliesOn${key.charAt(0).toUpperCase() + key.slice(1)}` as keyof ShiftItem;
+                    const startKey = `${key}StartTime` as keyof ShiftItem;
+                    const endKey = `${key}EndTime` as keyof ShiftItem;
+                    const appliesChecked = editing ? (editing[appliesKey] as boolean) : defaultApplies;
+                    const startVal = editing ? (editing[startKey] as string | null) ?? "" : "";
+                    const endVal = editing ? (editing[endKey] as string | null) ?? "" : "";
+                    const appliesId = `applies-${key}`;
+                    return (
+                      <tr key={key} className="hover:bg-slate-50/50">
+                        <td className="px-4 py-2 font-medium text-slate-700">{day}</td>
+                        <td className="px-2 py-2 text-center">
+                          <label className="inline-flex cursor-pointer items-center justify-center">
+                            <input
+                              type="checkbox"
+                              id={appliesId}
+                              name={`appliesOn${key.charAt(0).toUpperCase() + key.slice(1)}`}
+                              defaultChecked={appliesChecked}
+                              className="h-4 w-4 rounded border-slate-300"
+                            />
+                          </label>
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            type="time"
+                            name={`${key}StartTime`}
+                            defaultValue={timeSpanToInput(startVal || "")}
+                            className="w-full min-w-0 rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-700"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            type="time"
+                            name={`${key}EndTime`}
+                            defaultValue={timeSpanToInput(endVal || "")}
+                            className="w-full min-w-0 rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-700"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={() => setShowModal(false)} type="button">Cancel</Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                editingIdRef.current = null;
+                setEditing(null);
+                setShowModal(false);
+              }}
+              type="button"
+            >
+              Cancel
+            </Button>
             <Button type="submit" disabled={saving}>{saving ? "Saving..." : editing ? "Update" : "Create"}</Button>
           </div>
         </form>
@@ -1533,8 +1722,8 @@ function RosterTab() {
               <span className="font-medium">{editingAssign.employeeName}</span> &mdash; {editingAssign.rosterTemplateName}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><label className={labelClass}>Effective from *</label><input name="effectiveFrom" type="date" required defaultValue={dateOnlyForInput(editingAssign.effectiveFrom)} className={inputClass} /></div>
-              <div><label className={labelClass}>Effective to</label><input name="effectiveTo" type="date" defaultValue={editingAssign.effectiveTo ? dateOnlyForInput(editingAssign.effectiveTo) : ""} className={inputClass} /></div>
+              <div><label className={labelClass}>Effective from *</label><DatePickerField name="effectiveFrom" required defaultValue={dateOnlyForInput(editingAssign.effectiveFrom)} className={inputClass} /></div>
+              <div><label className={labelClass}>Effective to</label><DatePickerField name="effectiveTo" defaultValue={editingAssign.effectiveTo ? dateOnlyForInput(editingAssign.effectiveTo) : ""} className={inputClass} /></div>
             </div>
             <div><label className={labelClass}>Notes</label><textarea name="notes" rows={2} defaultValue={editingAssign.notes ?? ""} className={inputClass} /></div>
             <div className="flex justify-end gap-3 pt-2">
@@ -1567,8 +1756,8 @@ function RosterTab() {
                 </select>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div><label className={labelClass}>Effective from *</label><input type="date" value={bulkFrom} onChange={(e) => setBulkFrom(e.target.value)} className={inputClass} /></div>
-                <div><label className={labelClass}>Effective to</label><input type="date" value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className={inputClass} /></div>
+                <div><label className={labelClass}>Effective from *</label><DatePickerField value={bulkFrom} onChange={setBulkFrom} className={inputClass} /></div>
+                <div><label className={labelClass}>Effective to</label><DatePickerField value={bulkTo} onChange={setBulkTo} className={inputClass} /></div>
               </div>
               <div><label className={labelClass}>Notes</label><textarea rows={2} value={bulkNotes} onChange={(e) => setBulkNotes(e.target.value)} className={inputClass} /></div>
               <div className="flex justify-end gap-3 pt-2">

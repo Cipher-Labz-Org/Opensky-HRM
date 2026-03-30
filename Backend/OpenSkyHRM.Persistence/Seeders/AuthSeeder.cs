@@ -38,7 +38,7 @@ public static class AuthSeeder
             Description = "Manage people, leave, settings, and administration",
             IsSystemRole = true
         };
-        var hrModules = new[] { "Dashboard", "People", "Leave", "Attendance", "Payroll", "Settings", "Administration", "OrgStructure", "Analytics" };
+        var hrModules = new[] { "Dashboard", "People", "Leave", "Attendance", "Payroll", "Settings", "Administration", "OrgStructure", "Analytics", "Learning" };
         foreach (var module in hrModules)
             foreach (var action in allActions)
                 hrManager.Permissions.Add(new Permission { Module = module, Action = action, Scope = "All" });

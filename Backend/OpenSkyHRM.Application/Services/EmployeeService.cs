@@ -5,6 +5,7 @@ using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Auditing;
 
 namespace OpenSkyHRM.Application.Services;
 
@@ -21,21 +22,24 @@ public class EmployeeService : IEmployeeService
         _entitlementService = entitlementService;
     }
 
-    private async Task<Dictionary<Guid, bool>> GetDirectSupervisorMapAsync(IEnumerable<Guid> employeeIds)
+    private async Task<Dictionary<Guid, string>> GetDirectSupervisorMapAsync(IEnumerable<Guid> employeeIds)
     {
-        var idsWithSupervisor = await _db.Set<EmployeeSupervisor>()
+        var supervisors = await _db.Set<EmployeeSupervisor>()
+            .Include(s => s.Supervisor)
             .Where(s => !s.IsDeleted && s.ReportingMethod == "Direct" && employeeIds.Contains(s.EmployeeId))
-            .Select(s => s.EmployeeId)
-            .Distinct()
+            .Select(s => new { s.EmployeeId, SupervisorName = s.Supervisor.FirstName + " " + s.Supervisor.LastName })
             .ToListAsync();
-        return idsWithSupervisor.ToDictionary(id => id, _ => true);
+        return supervisors
+            .GroupBy(s => s.EmployeeId)
+            .ToDictionary(g => g.Key, g => g.First().SupervisorName);
     }
 
     public async Task<PagedResult<EmployeeDto>> GetAllAsync(
         int page = 1, int pageSize = 20, string? search = null,
         Guid? departmentId = null, Guid? jobTitleId = null,
         Guid? locationId = null, Guid? managerId = null, string? status = null,
-        IReadOnlyList<Guid>? allowedEmployeeIds = null)
+        string? employmentType = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = false)
     {
         var query = _db.Employees
             .Include(e => e.Department)
@@ -70,25 +74,36 @@ public class EmployeeService : IEmployeeService
         if (managerId.HasValue)
             query = query.Where(e => e.ManagerId == managerId.Value);
 
-        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<EmploymentStatus>(status, true, out var st))
-            query = query.Where(e => e.Status == st);
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(e => e.Status == status);
+
+        if (!string.IsNullOrWhiteSpace(employmentType))
+            query = query.Where(e => e.EmploymentType == employmentType);
+
+        if (excludeTerminated && string.IsNullOrWhiteSpace(status))
+            query = query.Where(e => e.Status != "Terminated");
 
         if (allowedEmployeeIds != null && allowedEmployeeIds.Count > 0)
             query = query.Where(e => allowedEmployeeIds.Contains(e.Id));
 
         var totalCount = await query.CountAsync();
 
-        var items = await query
+        var entities = await query
             .OrderBy(e => e.FirstName)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(e => MapToDto(e))
             .ToListAsync();
+
+        var items = entities.Select(e => MapToDto(e)).ToList();
 
         var empIds = items.Select(i => i.Id).ToList();
         var supMap = await GetDirectSupervisorMapAsync(empIds);
         foreach (var item in items)
+        {
             item.HasDirectSupervisor = supMap.ContainsKey(item.Id);
+            if (supMap.TryGetValue(item.Id, out var supName))
+                item.ManagerName = supName;
+        }
 
         return new PagedResult<EmployeeDto>
         {
@@ -118,6 +133,8 @@ public class EmployeeService : IEmployeeService
         var dto = MapToDto(employee);
         var supMap = await GetDirectSupervisorMapAsync(new[] { employee.Id });
         dto.HasDirectSupervisor = supMap.ContainsKey(employee.Id);
+        if (supMap.TryGetValue(employee.Id, out var supName))
+            dto.ManagerName = supName;
         return dto;
     }
 
@@ -147,6 +164,8 @@ public class EmployeeService : IEmployeeService
             EpfNumber = dto.EpfNumber,
             EtfNumber = dto.EtfNumber,
             DriversLicenseNumber = dto.DriversLicenseNumber,
+            DriversLicenseType = dto.DriversLicenseType,
+            LicenseIssueDate = dto.LicenseIssueDate,
             LicenseExpiryDate = dto.LicenseExpiryDate,
             DriversLicenseIssuingCountry = dto.DriversLicenseIssuingCountry,
             AddressStreet1 = dto.AddressStreet1,
@@ -155,6 +174,7 @@ public class EmployeeService : IEmployeeService
             Country = dto.Country,
             StateProvince = dto.StateProvince,
             ZipPostalCode = dto.ZipPostalCode,
+            District = dto.District,
             PollingDivision = dto.PollingDivision,
             DistanceToOffice = dto.DistanceToOffice,
             ModeOfTransport = dto.ModeOfTransport,
@@ -167,12 +187,14 @@ public class EmployeeService : IEmployeeService
             PermanentCountry = dto.PermanentCountry,
             PermanentStateProvince = dto.PermanentStateProvince,
             PermanentZipPostalCode = dto.PermanentZipPostalCode,
+            PermanentDistrict = dto.PermanentDistrict,
             PermanentPollingDivision = dto.PermanentPollingDivision,
             PermanentDistanceToOffice = dto.PermanentDistanceToOffice,
             JoinDate = dto.JoinDate,
             ProbationEndDate = dto.ProbationEndDate,
             DateOfPermanency = dto.DateOfPermanency,
-            Status = EmploymentStatus.FullTimePermanent,
+            Status = "Active",
+            EmploymentType = "FullTimePermanent",
             DepartmentId = dto.DepartmentId,
             BusinessUnitId = dto.BusinessUnitId,
             PositionId = dto.PositionId,
@@ -185,6 +207,11 @@ public class EmployeeService : IEmployeeService
         _db.Employees.Add(employee);
         await _db.SaveChangesAsync();
 
+        var calendarYear = DateTime.UtcNow.Year;
+        await _entitlementService.CalculateAndApplyAsync(employee.Id, calendarYear);
+        if (employee.JoinDate.Year != calendarYear)
+            await _entitlementService.CalculateAndApplyAsync(employee.Id, employee.JoinDate.Year);
+
         return (await GetByIdAsync(employee.Id))!;
     }
 
@@ -193,7 +220,10 @@ public class EmployeeService : IEmployeeService
         var employee = await _db.Employees.FindAsync(id);
         if (employee is null) return null;
 
-        var previousPermanencyDate = employee.DateOfPermanency;
+        var snapJoin = employee.JoinDate;
+        var snapEmploymentType = employee.EmploymentType;
+        var snapProbationEnd = employee.ProbationEndDate;
+        var snapPermanency = employee.DateOfPermanency;
 
         employee.FirstName = dto.FirstName;
         employee.MiddleName = dto.MiddleName;
@@ -212,6 +242,8 @@ public class EmployeeService : IEmployeeService
         employee.EpfNumber = dto.EpfNumber;
         employee.EtfNumber = dto.EtfNumber;
         employee.DriversLicenseNumber = dto.DriversLicenseNumber;
+        employee.DriversLicenseType = dto.DriversLicenseType;
+        employee.LicenseIssueDate = dto.LicenseIssueDate;
         employee.LicenseExpiryDate = dto.LicenseExpiryDate;
         employee.DriversLicenseIssuingCountry = dto.DriversLicenseIssuingCountry;
         employee.AddressStreet1 = dto.AddressStreet1;
@@ -220,6 +252,7 @@ public class EmployeeService : IEmployeeService
         employee.Country = dto.Country;
         employee.StateProvince = dto.StateProvince;
         employee.ZipPostalCode = dto.ZipPostalCode;
+        employee.District = dto.District;
         employee.PollingDivision = dto.PollingDivision;
         employee.DistanceToOffice = dto.DistanceToOffice;
         employee.ModeOfTransport = dto.ModeOfTransport;
@@ -232,13 +265,17 @@ public class EmployeeService : IEmployeeService
         employee.PermanentCountry = dto.PermanentCountry;
         employee.PermanentStateProvince = dto.PermanentStateProvince;
         employee.PermanentZipPostalCode = dto.PermanentZipPostalCode;
+        employee.PermanentDistrict = dto.PermanentDistrict;
         employee.PermanentPollingDivision = dto.PermanentPollingDivision;
         employee.PermanentDistanceToOffice = dto.PermanentDistanceToOffice;
         if (dto.JoinDate.HasValue) employee.JoinDate = dto.JoinDate.Value;
         employee.ProbationEndDate = dto.ProbationEndDate;
         employee.DateOfPermanency = dto.DateOfPermanency;
-        employee.Status = Enum.Parse<EmploymentStatus>(dto.Status, true);
+        employee.Status = dto.Status;
+        employee.EmploymentType = dto.EmploymentType;
         employee.TerminationDate = dto.TerminationDate;
+        employee.TerminationReason = dto.TerminationReason;
+        employee.TerminationNote = dto.TerminationNote;
         employee.DepartmentId = dto.DepartmentId;
         employee.BusinessUnitId = dto.BusinessUnitId;
         employee.PositionId = dto.PositionId;
@@ -250,10 +287,16 @@ public class EmployeeService : IEmployeeService
 
         await _db.SaveChangesAsync();
 
-        // Auto-generate leave balances when Date of Permanency is first set
-        if (previousPermanencyDate is null && employee.DateOfPermanency is not null)
+        var joinChanged = dto.JoinDate.HasValue && employee.JoinDate != snapJoin;
+        var employmentChanged = !string.Equals(employee.EmploymentType, snapEmploymentType, StringComparison.Ordinal);
+        var probationEndChanged = employee.ProbationEndDate != snapProbationEnd;
+        var permanencyChanged = employee.DateOfPermanency != snapPermanency;
+
+        if (joinChanged || employmentChanged || probationEndChanged || permanencyChanged)
         {
-            await _entitlementService.CalculateAndApplyAsync(id, DateTime.UtcNow.Year);
+            var years = new SortedSet<int> { DateTime.UtcNow.Year, DateTime.UtcNow.Year - 1 };
+            foreach (var y in years)
+                await _entitlementService.CalculateAndApplyAsync(id, y);
         }
 
         return (await GetByIdAsync(id))!;
@@ -279,6 +322,65 @@ public class EmployeeService : IEmployeeService
         return imageUrl;
     }
 
+    public async Task<PagedResult<PeopleAuditLogEntryDto>> GetPeopleAuditTrailAsync(
+        Guid? subjectEmployeeId,
+        IReadOnlyList<Guid>? allowedEmployeeIds,
+        int page = 1,
+        int pageSize = 50)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 50;
+        if (pageSize > 200) pageSize = 200;
+
+        if (subjectEmployeeId.HasValue && allowedEmployeeIds != null && !allowedEmployeeIds.Contains(subjectEmployeeId.Value))
+        {
+            return new PagedResult<PeopleAuditLogEntryDto>
+            {
+                Items = Array.Empty<PeopleAuditLogEntryDto>(),
+                TotalCount = 0,
+                Page = page,
+                PageSize = pageSize,
+            };
+        }
+
+        var query = _db.AuditLogs.AsNoTracking()
+            .Where(a => !a.IsDeleted && a.Module == PeopleHubAuditSaveChangesInterceptor.PeopleModule);
+
+        if (subjectEmployeeId.HasValue)
+            query = query.Where(a => a.SubjectEmployeeId == subjectEmployeeId.Value);
+        else if (allowedEmployeeIds != null)
+            query = query.Where(a => a.SubjectEmployeeId != null && allowedEmployeeIds.Contains(a.SubjectEmployeeId.Value));
+
+        var total = await query.CountAsync();
+        var items = await query.OrderByDescending(a => a.Timestamp)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(a => new PeopleAuditLogEntryDto
+            {
+                Id = a.Id,
+                EntityName = a.EntityName,
+                EntityId = a.EntityId,
+                Action = a.Action,
+                SubjectEmployeeId = a.SubjectEmployeeId,
+                UserId = a.UserId,
+                UserName = a.UserName,
+                Timestamp = a.Timestamp,
+                OldValues = a.OldValues,
+                NewValues = a.NewValues,
+            })
+            .ToListAsync();
+
+        await PeopleAuditTrailEnricher.EnrichAsync(items, _db);
+
+        return new PagedResult<PeopleAuditLogEntryDto>
+        {
+            Items = items,
+            TotalCount = total,
+            Page = page,
+            PageSize = pageSize,
+        };
+    }
+
     private static EmployeeDto MapToDto(Employee e) => new()
     {
         Id = e.Id,
@@ -295,6 +397,7 @@ public class EmployeeService : IEmployeeService
         Country = e.Country,
         StateProvince = e.StateProvince,
         ZipPostalCode = e.ZipPostalCode,
+        District = e.District,
         PollingDivision = e.PollingDivision,
         DistanceToOffice = e.DistanceToOffice,
         ModeOfTransport = e.ModeOfTransport,
@@ -307,6 +410,7 @@ public class EmployeeService : IEmployeeService
         PermanentCountry = e.PermanentCountry,
         PermanentStateProvince = e.PermanentStateProvince,
         PermanentZipPostalCode = e.PermanentZipPostalCode,
+        PermanentDistrict = e.PermanentDistrict,
         PermanentPollingDivision = e.PermanentPollingDivision,
         PermanentDistanceToOffice = e.PermanentDistanceToOffice,
         DateOfBirth = e.DateOfBirth,
@@ -321,13 +425,18 @@ public class EmployeeService : IEmployeeService
         EpfNumber = e.EpfNumber,
         EtfNumber = e.EtfNumber,
         DriversLicenseNumber = e.DriversLicenseNumber,
+        DriversLicenseType = e.DriversLicenseType,
+        LicenseIssueDate = e.LicenseIssueDate,
         LicenseExpiryDate = e.LicenseExpiryDate,
         DriversLicenseIssuingCountry = e.DriversLicenseIssuingCountry,
         JoinDate = e.JoinDate,
         ProbationEndDate = e.ProbationEndDate,
         DateOfPermanency = e.DateOfPermanency,
         TerminationDate = e.TerminationDate,
+        TerminationReason = e.TerminationReason,
+        TerminationNote = e.TerminationNote,
         Status = e.Status.ToString(),
+        EmploymentType = e.EmploymentType,
         DepartmentId = e.DepartmentId,
         DepartmentName = e.Department?.Name,
         BusinessUnitId = e.BusinessUnitId,

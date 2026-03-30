@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Domain.Entities;
 
@@ -32,30 +33,17 @@ public static class LeaveSeeder
             await context.SaveChangesAsync();
         }
 
-        // Seed entitlement rules if none exist
+        // Seed entitlement rules if none exist (Sri Lanka Shop & Office Act — calendar year, continuous service)
         if (!await context.LeaveEntitlementRules.AnyAsync())
         {
             var annualLeave = await context.LeaveTypes.FirstOrDefaultAsync(lt => lt.Code == "LT-ANN");
             if (annualLeave != null)
             {
-                var ruleConfig = """
-                {
-                  "year1Days": 0,
-                  "year2ProRata": [
-                    { "joinMonthStart": 1, "joinMonthEnd": 3, "days": 14 },
-                    { "joinMonthStart": 4, "joinMonthEnd": 6, "days": 10 },
-                    { "joinMonthStart": 7, "joinMonthEnd": 9, "days": 7 },
-                    { "joinMonthStart": 10, "joinMonthEnd": 12, "days": 4 }
-                  ],
-                  "year3PlusDays": 14
-                }
-                """;
-
                 context.LeaveEntitlementRules.Add(new LeaveEntitlementRule
                 {
                     LeaveTypeId = annualLeave.Id,
-                    RuleType = "ServiceYearBased",
-                    RuleConfig = ruleConfig.Trim(),
+                    RuleType = "ShopOfficeAnnual",
+                    RuleConfig = "{}",
                     IsActive = true,
                 });
             }
@@ -63,24 +51,70 @@ public static class LeaveSeeder
             var casualLeave = await context.LeaveTypes.FirstOrDefaultAsync(lt => lt.Code == "LT-CAS");
             if (casualLeave != null)
             {
-                var clRuleConfig = """
-                {
-                  "year1Days": 0,
-                  "year1MonthlyRate": 0.5,
-                  "year3PlusDays": 7
-                }
-                """;
-
                 context.LeaveEntitlementRules.Add(new LeaveEntitlementRule
                 {
                     LeaveTypeId = casualLeave.Id,
-                    RuleType = "ServiceYearBased",
-                    RuleConfig = clRuleConfig.Trim(),
+                    RuleType = "ShopOfficeCasual",
+                    RuleConfig = "{}",
                     IsActive = true,
                 });
             }
 
             await context.SaveChangesAsync();
         }
+    }
+
+    /// <summary>
+    /// Migrates LT-ANN / LT-CAS rules from legacy ServiceYearBased JSON to Shop &amp; Office Act rule types (idempotent).
+    /// </summary>
+    public static async Task PatchShopOfficeLeaveRulesAsync(AppDbContext context)
+    {
+        var rules = await context.LeaveEntitlementRules
+            .Include(r => r.LeaveType)
+            .Where(r => !r.IsDeleted && r.LeaveType != null)
+            .ToListAsync();
+
+        foreach (var rule in rules)
+        {
+            var code = rule.LeaveType!.Code;
+            if (rule.RuleType != "ServiceYearBased")
+                continue;
+
+            if (code == "LT-ANN")
+            {
+                rule.RuleType = "ShopOfficeAnnual";
+                rule.RuleConfig = "{}";
+            }
+            else if (code == "LT-CAS")
+            {
+                rule.RuleType = "ShopOfficeCasual";
+                rule.RuleConfig = "{}";
+            }
+        }
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// One-time style patch: enable 0.5 days × each calendar month worked for Casual Leave (every year), for DBs seeded before this flag existed.
+    /// </summary>
+    public static async Task PatchCasualLeaveMonthlyEveryYearAsync(AppDbContext context)
+    {
+        var rule = await context.LeaveEntitlementRules
+            .Include(r => r.LeaveType)
+            .FirstOrDefaultAsync(r => !r.IsDeleted && r.LeaveType != null && r.LeaveType.Code == "LT-CAS");
+        if (rule == null || string.IsNullOrWhiteSpace(rule.RuleConfig)) return;
+
+        JsonNode? root;
+        try { root = JsonNode.Parse(rule.RuleConfig); }
+        catch { return; }
+
+        if (root is not JsonObject obj) return;
+        if (obj.TryGetPropertyValue("monthlyAccrualEveryYear", out var existing) && existing is JsonValue jv && jv.TryGetValue<bool>(out var on) && on)
+            return;
+
+        obj["monthlyAccrualEveryYear"] = true;
+        rule.RuleConfig = obj.ToJsonString();
+        await context.SaveChangesAsync();
     }
 }

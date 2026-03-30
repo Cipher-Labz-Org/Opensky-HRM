@@ -13,6 +13,8 @@ const APP_PATHS = [
   "/employee-profile",
   "/recruitment",
   "/onboarding",
+  "/offboarding",
+  "/employee-tasks",
   "/leave",
   "/attendance",
   "/payroll",
@@ -21,6 +23,7 @@ const APP_PATHS = [
   "/org-structure",
   "/analytics",
   "/settings",
+  "/email-templates",
   "/billing",
 ];
 
@@ -68,6 +71,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         { href: ROUTES.employeeProfile, label: "Employee 360" },
         { href: ROUTES.recruitment, label: "Recruitment" },
         { href: ROUTES.onboarding, label: "Onboarding" },
+        { href: ROUTES.offboarding, label: "Offboarding" },
       ],
     },
     {
@@ -75,7 +79,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       items: [
         { href: ROUTES.leave, label: "Leave & Absence" },
         { href: ROUTES.attendance, label: "Time & Attendance" },
-        { href: ROUTES.payroll, label: "Payroll Bridge" },
+        { href: ROUTES.payroll, label: "Payroll" },
         { href: ROUTES.performance, label: "Performance" },
         { href: ROUTES.learning, label: "Learning & Skills" },
       ],
@@ -86,6 +90,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
         { href: ROUTES.orgStructure, label: "Org Structure" },
         { href: ROUTES.analytics, label: "Analytics" },
         { href: ROUTES.settings, label: "Policy & Settings" },
+        { href: ROUTES.emailTemplates, label: "Email templates" },
+        { href: ROUTES.emailDeliveryLog, label: "Email delivery log" },
         { href: ROUTES.billing, label: "Billing" },
       ],
     },

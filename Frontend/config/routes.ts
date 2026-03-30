@@ -13,9 +13,12 @@ export const ROUTES = {
   // App – Core (under /app so one layout wraps all)
   dashboard: "/app/dashboard",
   people: "/app/people",
+  peopleAuditTrail: "/app/people/audit-trail",
   employeeProfile: "/app/employee-profile",
   recruitment: "/app/recruitment",
   onboarding: "/app/onboarding",
+  offboarding: "/app/offboarding",
+  employeeTasks: "/app/employee-tasks",
 
   // App – Workforce
   leave: "/app/leave",
@@ -25,10 +28,13 @@ export const ROUTES = {
   learning: "/app/learning",
 
   // App – Intelligence
+  reports: "/app/reports",
   orgStructure: "/app/org-structure",
   analytics: "/app/analytics",
   settings: "/app/settings",
   billing: "/app/billing",
+  emailDeliveryLog: "/app/email-delivery-log",
+  emailTemplates: "/app/email-templates",
 
   // App – Administration
   administration: "/app/administration",

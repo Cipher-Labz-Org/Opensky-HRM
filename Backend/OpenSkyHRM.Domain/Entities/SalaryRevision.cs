@@ -12,6 +12,9 @@ public class SalaryRevision : AuditableEntity
     public string? Justification { get; set; }
     public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
     public DateTime EffectiveDate { get; set; }
+    public string? ApprovedBy { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+    public string? Remarks { get; set; }
 
     public Guid EmployeeId { get; set; }
     public Employee Employee { get; set; } = null!;

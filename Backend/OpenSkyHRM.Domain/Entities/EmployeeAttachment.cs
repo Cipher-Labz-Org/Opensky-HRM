@@ -12,4 +12,9 @@ public class EmployeeAttachment : AuditableEntity
     public long Size { get; set; }
     public string ContentType { get; set; } = string.Empty;
     public string? AddedBy { get; set; }
+
+    public Guid? AttachmentTypeId { get; set; }
+    public EmployeeAttachmentType? AttachmentType { get; set; }
+
+    public DateTime? ExpiryDate { get; set; }
 }

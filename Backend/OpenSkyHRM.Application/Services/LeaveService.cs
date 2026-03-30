@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
@@ -11,10 +12,14 @@ namespace OpenSkyHRM.Application.Services;
 public class LeaveService : ILeaveService
 {
     private readonly AppDbContext _db;
+    private readonly IEmailService _emailService;
+    private readonly ILogger<LeaveService> _logger;
 
-    public LeaveService(AppDbContext db)
+    public LeaveService(AppDbContext db, IEmailService emailService, ILogger<LeaveService> logger)
     {
         _db = db;
+        _emailService = emailService;
+        _logger = logger;
     }
 
     // ───── Dashboard ─────
@@ -125,6 +130,16 @@ public class LeaveService : ILeaveService
         if (hasOverlap)
             throw new InvalidOperationException("Leave already exists for one or more of the selected dates. Please choose different dates.");
 
+        var leaveType = await _db.Set<LeaveType>().AsNoTracking().FirstOrDefaultAsync(lt => lt.Id == dto.LeaveTypeId);
+        if (leaveType != null && string.Equals(leaveType.Code, "LT-ANN", StringComparison.OrdinalIgnoreCase))
+        {
+            var start = dto.StartDate.Date;
+            var end = dto.EndDate.Date;
+            var calendarSpanDays = (end - start).TotalDays + 1;
+            if (calendarSpanDays < 7 || dto.TotalDays < 7)
+                throw new InvalidOperationException("Annual leave must be at least 7 consecutive calendar days with at least 7 leave days (Shop & Office Act).");
+        }
+
         // Validate leave balance - find balance whose period contains the leave start date
         var startDate = dto.StartDate.Date;
         var balances = await _db.Set<LeaveBalance>()
@@ -167,7 +182,36 @@ public class LeaveService : ILeaveService
             .Include(r => r.Employee).Include(r => r.LeaveType)
             .FirstAsync(r => r.Id == request.Id);
 
-        return MapToDto(created);
+        var result = MapToDto(created);
+
+        var recipientEmail = await ResolveLeaveNotificationEmailAsync(employee.Id, employee.Email);
+        if (string.IsNullOrWhiteSpace(recipientEmail))
+        {
+            _logger.LogInformation(
+                "Leave request {LeaveRequestId} created; no confirmation email (employee has no work email and no linked user email).",
+                request.Id);
+        }
+        else
+        {
+            try
+            {
+                await _emailService.SendLeaveApplicationConfirmationAsync(
+                    recipientEmail,
+                    employee.FullName,
+                    created.LeaveType?.Name ?? "Leave",
+                    created.StartDate,
+                    created.EndDate,
+                    created.TotalDays,
+                    created.Status.ToString(),
+                    created.Reason);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Leave request {LeaveRequestId} saved but confirmation email to {Email} failed.", request.Id, recipientEmail);
+            }
+        }
+
+        return result;
     }
 
     public async Task<LeaveRequestDto?> ApproveLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto)
@@ -262,6 +306,22 @@ public class LeaveService : ILeaveService
         await _db.SaveChangesAsync();
 
         return await GetLeaveRequestByIdAsync(id);
+    }
+
+    /// <summary>Work email on the employee record, or login email from a user linked to that employee.</summary>
+    private async Task<string?> ResolveLeaveNotificationEmailAsync(Guid employeeId, string? employeeWorkEmail)
+    {
+        if (!string.IsNullOrWhiteSpace(employeeWorkEmail))
+            return employeeWorkEmail.Trim();
+
+        var userEmail = await _db.Users.AsNoTracking()
+            .Where(u => u.EmployeeId == employeeId && !u.IsDeleted && !string.IsNullOrWhiteSpace(u.Email))
+            .OrderByDescending(u => u.IsActive)
+            .ThenByDescending(u => u.LastLoginAt)
+            .Select(u => u.Email)
+            .FirstOrDefaultAsync();
+
+        return string.IsNullOrWhiteSpace(userEmail) ? null : userEmail.Trim();
     }
 
     private async Task<int> GetApprovalLevels()

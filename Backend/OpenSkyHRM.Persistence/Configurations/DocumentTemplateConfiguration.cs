@@ -13,6 +13,7 @@ public class DocumentTemplateConfiguration : IEntityTypeConfiguration<DocumentTe
 
         builder.Property(d => d.Name).HasMaxLength(200).IsRequired();
         builder.Property(d => d.TemplateKey).HasMaxLength(100).IsRequired();
+        builder.Property(d => d.Subject).HasMaxLength(500);
         builder.Property(d => d.HtmlContent).IsRequired();
 
         builder.HasIndex(d => d.TemplateKey).IsUnique();

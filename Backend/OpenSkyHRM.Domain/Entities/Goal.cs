@@ -16,4 +16,10 @@ public class Goal : AuditableEntity
 
     public Guid? ReviewCycleId { get; set; }
     public ReviewCycle? ReviewCycle { get; set; }
+
+    public Guid? AppraisalCycleId { get; set; }
+    public AppraisalCycle? AppraisalCycle { get; set; }
+
+    public int? SelfRating { get; set; }
+    public int? ManagerRating { get; set; }
 }

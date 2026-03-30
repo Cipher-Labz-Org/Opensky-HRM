@@ -19,6 +19,9 @@ public interface IOrganizationService
 
     // Locations
     Task<List<LocationDto>> GetLocationsAsync();
+    Task<LocationDto> CreateLocationAsync(CreateLocationDto dto);
+    Task<LocationDto?> UpdateLocationAsync(Guid id, CreateLocationDto dto);
+    Task<bool> DeleteLocationAsync(Guid id);
 
     // Grades
     Task<List<GradeDto>> GetGradesAsync();
@@ -34,4 +37,29 @@ public interface IOrganizationService
 
     // Positions
     Task<List<PositionDto>> GetPositionsAsync(Guid? departmentId = null);
+    Task<List<ReportingHierarchyNodeDto>> GetReportingHierarchyAsync();
+
+    // Employment Status Types
+    Task<List<EmploymentStatusTypeDto>> GetEmploymentStatusTypesAsync();
+    Task<EmploymentStatusTypeDto> CreateEmploymentStatusTypeAsync(CreateEmploymentStatusTypeDto dto);
+    Task<EmploymentStatusTypeDto?> UpdateEmploymentStatusTypeAsync(Guid id, CreateEmploymentStatusTypeDto dto);
+    Task<bool> DeleteEmploymentStatusTypeAsync(Guid id);
+
+    // Employee Status Types
+    Task<List<EmploymentStatusTypeDto>> GetEmployeeStatusTypesAsync();
+    Task<EmploymentStatusTypeDto> CreateEmployeeStatusTypeAsync(CreateEmploymentStatusTypeDto dto);
+    Task<EmploymentStatusTypeDto?> UpdateEmployeeStatusTypeAsync(Guid id, CreateEmploymentStatusTypeDto dto);
+    Task<bool> DeleteEmployeeStatusTypeAsync(Guid id);
+
+    // Skills catalog (People qualifications + Learning)
+    Task<List<SkillCatalogDto>> GetSkillsCatalogAsync();
+    Task<SkillCatalogDto> CreateSkillCatalogAsync(CreateSkillCatalogDto dto);
+    Task<SkillCatalogDto?> UpdateSkillCatalogAsync(Guid id, CreateSkillCatalogDto dto);
+    Task<bool> DeleteSkillCatalogAsync(Guid id);
+
+    // People profile attachment types (Personal details)
+    Task<List<EmployeeAttachmentTypeCatalogDto>> GetEmployeeAttachmentTypesCatalogAsync();
+    Task<EmployeeAttachmentTypeCatalogDto> CreateEmployeeAttachmentTypeAsync(CreateEmployeeAttachmentTypeDto dto);
+    Task<EmployeeAttachmentTypeCatalogDto?> UpdateEmployeeAttachmentTypeAsync(Guid id, CreateEmployeeAttachmentTypeDto dto);
+    Task<bool> DeleteEmployeeAttachmentTypeAsync(Guid id);
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "PayStatementLines" ALTER COLUMN "UpdatedAt" DROP NOT NULL;

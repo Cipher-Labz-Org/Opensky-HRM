@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj": {}
+    "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj": {}
   },
   "projects": {
-    "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj": {
+    "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj",
+        "projectUniqueName": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj",
         "projectName": "OpenSkyHRM.Api",
-        "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj",
+        "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj",
         "packagesPath": "C:\\Users\\HP\\.nuget\\packages\\",
-        "outputPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\obj\\",
+        "outputPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Api\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\HP\\AppData\\Roaming\\NuGet\\NuGet.Config",
@@ -28,11 +28,11 @@
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
-              "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj": {
-                "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj"
+              "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj": {
+                "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj"
               },
-              "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
-                "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj"
+              "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
+                "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj"
               }
             }
           }
@@ -111,14 +111,14 @@
         }
       }
     },
-    "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj": {
+    "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj",
+        "projectUniqueName": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj",
         "projectName": "OpenSkyHRM.Application",
-        "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj",
+        "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj",
         "packagesPath": "C:\\Users\\HP\\.nuget\\packages\\",
-        "outputPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\obj\\",
+        "outputPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Application\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\HP\\AppData\\Roaming\\NuGet\\NuGet.Config",
@@ -135,11 +135,11 @@
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
-              "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
-                "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
+              "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
+                "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
               },
-              "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
-                "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj"
+              "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
+                "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj"
               }
             }
           }
@@ -167,6 +167,14 @@
             "Microsoft.EntityFrameworkCore": {
               "target": "Package",
               "version": "[8.0.11, )"
+            },
+            "Microsoft.Extensions.Caching.Memory": {
+              "target": "Package",
+              "version": "[8.0.1, )"
+            },
+            "Microsoft.Extensions.Http": {
+              "target": "Package",
+              "version": "[8.0.1, )"
             },
             "Microsoft.IdentityModel.Tokens": {
               "target": "Package",
@@ -197,14 +205,14 @@
         }
       }
     },
-    "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
+    "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
+        "projectUniqueName": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
         "projectName": "OpenSkyHRM.Domain",
-        "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
+        "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
         "packagesPath": "C:\\Users\\HP\\.nuget\\packages\\",
-        "outputPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\obj\\",
+        "outputPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\HP\\AppData\\Roaming\\NuGet\\NuGet.Config",
@@ -258,14 +266,14 @@
         }
       }
     },
-    "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
+    "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
+        "projectUniqueName": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
         "projectName": "OpenSkyHRM.Persistence",
-        "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
+        "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
         "packagesPath": "C:\\Users\\HP\\.nuget\\packages\\",
-        "outputPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\obj\\",
+        "outputPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\HP\\AppData\\Roaming\\NuGet\\NuGet.Config",
@@ -282,8 +290,8 @@
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
-              "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
-                "projectPath": "C:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
+              "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
+                "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
               }
             }
           }
@@ -317,6 +325,18 @@
               "suppressParent": "All",
               "target": "Package",
               "version": "[8.0.11, )"
+            },
+            "Microsoft.Extensions.Configuration": {
+              "target": "Package",
+              "version": "[8.0.0, )"
+            },
+            "Microsoft.Extensions.Configuration.EnvironmentVariables": {
+              "target": "Package",
+              "version": "[8.0.0, )"
+            },
+            "Microsoft.Extensions.Configuration.Json": {
+              "target": "Package",
+              "version": "[8.0.0, )"
             },
             "Npgsql.EntityFrameworkCore.PostgreSQL": {
               "target": "Package",

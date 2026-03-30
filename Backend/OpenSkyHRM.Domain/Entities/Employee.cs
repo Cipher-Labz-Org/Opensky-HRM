@@ -17,6 +17,7 @@ public class Employee : AuditableEntity
     public string? Country { get; set; }
     public string? StateProvince { get; set; }
     public string? ZipPostalCode { get; set; }
+    public string? District { get; set; }
     public string? PollingDivision { get; set; }
     public string? DistanceToOffice { get; set; }
     public string? ModeOfTransport { get; set; }
@@ -29,6 +30,7 @@ public class Employee : AuditableEntity
     public string? PermanentCountry { get; set; }
     public string? PermanentStateProvince { get; set; }
     public string? PermanentZipPostalCode { get; set; }
+    public string? PermanentDistrict { get; set; }
     public string? PermanentPollingDivision { get; set; }
     public string? PermanentDistanceToOffice { get; set; }
     public DateTime DateOfBirth { get; set; }
@@ -43,13 +45,18 @@ public class Employee : AuditableEntity
     public string? EpfNumber { get; set; }
     public string? EtfNumber { get; set; }
     public string? DriversLicenseNumber { get; set; }
+    public string? DriversLicenseType { get; set; }
+    public DateTime? LicenseIssueDate { get; set; }
     public DateTime? LicenseExpiryDate { get; set; }
     public string? DriversLicenseIssuingCountry { get; set; }
     public DateTime JoinDate { get; set; }
     public DateTime? ProbationEndDate { get; set; }
     public DateTime? DateOfPermanency { get; set; }
     public DateTime? TerminationDate { get; set; }
-    public EmploymentStatus Status { get; set; } = EmploymentStatus.FullTimePermanent;
+    public string? TerminationReason { get; set; }
+    public string? TerminationNote { get; set; }
+    public string Status { get; set; } = "Active";
+    public string EmploymentType { get; set; } = "FullTimePermanent";
     public string? ProfileImageUrl { get; set; }
     public bool IsTopOfHierarchy { get; set; }
 
