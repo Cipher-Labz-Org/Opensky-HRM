@@ -26,6 +26,11 @@ public class UserProfileDto
     public List<PermissionDto> Permissions { get; set; } = new();
     /// <summary>Instance entitlements: RBAC still applies per user.</summary>
     public List<string> LicensedModules { get; set; } = new();
+    /// <summary>When non-empty, People access is limited to employees at these work locations.</summary>
+    public List<Guid> AssignedLocationIds { get; set; } = new();
+    public List<Guid> AssignedBusinessUnitIds { get; set; } = new();
+    public List<Guid> AssignedGradeIds { get; set; } = new();
+    public List<Guid> AssignedJobTitleIds { get; set; } = new();
 }
 
 public class PermissionDto
@@ -49,6 +54,11 @@ public class CreateUserDto
     public bool IsActive { get; set; } = true;
     public Guid? EmployeeId { get; set; }
     public List<Guid> RoleIds { get; set; } = new();
+    /// <summary>Optional. When set and non-empty, restricts People (and related) access to these locations.</summary>
+    public List<Guid>? AssignedLocationIds { get; set; }
+    public List<Guid>? AssignedBusinessUnitIds { get; set; }
+    public List<Guid>? AssignedGradeIds { get; set; }
+    public List<Guid>? AssignedJobTitleIds { get; set; }
 }
 
 public class UpdateUserDto
@@ -58,6 +68,14 @@ public class UpdateUserDto
     public bool? IsActive { get; set; }
     public Guid? EmployeeId { get; set; }
     public List<Guid>? RoleIds { get; set; }
+    /// <summary>When null, assigned locations are unchanged. When set (including empty), replaces all assignments.</summary>
+    public List<Guid>? AssignedLocationIds { get; set; }
+    /// <summary>When null, business unit scope unchanged. When set (including empty), replaces.</summary>
+    public List<Guid>? AssignedBusinessUnitIds { get; set; }
+    /// <summary>When null, grade scope unchanged. When set (including empty), replaces.</summary>
+    public List<Guid>? AssignedGradeIds { get; set; }
+    /// <summary>When null, job title scope unchanged. When set (including empty), replaces.</summary>
+    public List<Guid>? AssignedJobTitleIds { get; set; }
 }
 
 public class UserListDto
@@ -71,6 +89,10 @@ public class UserListDto
     public List<string> Roles { get; set; } = new();
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    public List<Guid> AssignedLocationIds { get; set; } = new();
+    public List<Guid> AssignedBusinessUnitIds { get; set; } = new();
+    public List<Guid> AssignedGradeIds { get; set; } = new();
+    public List<Guid> AssignedJobTitleIds { get; set; } = new();
 }
 
 public class SecurityRoleDto

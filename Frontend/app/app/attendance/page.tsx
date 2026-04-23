@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type FormEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -8,6 +8,7 @@ import { DatePickerField, DateTimePickerField } from "@/components/ui";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 
 // ──────────────────────────── Tabs ────────────────────────────
 
@@ -21,6 +22,14 @@ const PAGE_TABS: { key: PageTab; label: string }[] = [
   { key: "devices", label: "Devices" },
   { key: "ot-nopay", label: "OT / No-Pay" },
 ];
+
+interface AttendanceSummary {
+  totalPresent: number;
+  totalAbsent: number;
+  totalLate: number;
+  totalNoPunch: number;
+  averageWorkHours: number;
+}
 
 const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 const inputClass = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20";
@@ -123,6 +132,7 @@ function fmtTimeSpan(ts: string | null): string {
 export default function AttendancePage() {
   const [pageTab, setPageTab] = useState<PageTab>("dashboard");
   const [showCreate, setShowCreate] = useState(false);
+  const [dashRefresh, setDashRefresh] = useState(0);
 
   return (
     <>
@@ -131,31 +141,53 @@ export default function AttendancePage() {
         subtitle="Shift patterns, rosters, mobile/web punch, biometrics integration, overtime, and anomaly detection."
       />
 
-      <div className="mb-5 flex items-center gap-2 flex-wrap">
+      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
+        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
+        <div className="relative z-10">
+          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+            Time workspace
+          </p>
+          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Workforce time intelligence</h2>
+          <p className="mt-3 max-w-2xl text-sm text-slate-600">
+            Live attendance summaries and punch activity. Configure shifts, rosters, and devices from the tabs below — the
+            same visual language as your Command Center dashboard.
+          </p>
+        </div>
+      </section>
+
+      <div className="mt-6 mb-6 flex flex-wrap items-center gap-2">
         {PAGE_TABS.map((t) => (
           <button
             key={t.key}
+            type="button"
             onClick={() => setPageTab(t.key)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pageTab === t.key ? "bg-blue-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            className={`rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${
+              pageTab === t.key
+                ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+            }`}
           >
             {t.label}
           </button>
         ))}
       </div>
 
+      <CreateAttendanceModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => {
+          setShowCreate(false);
+          setDashRefresh((k) => k + 1);
+        }}
+      />
+
       {pageTab === "dashboard" && (
-        <>
-          <div className="mb-6 flex items-center justify-between">
-            <div />
-            <Button onClick={() => setShowCreate(true)}>+ Log Attendance</Button>
-          </div>
-          <CreateAttendanceModal
-            open={showCreate}
-            onClose={() => setShowCreate(false)}
-            onCreated={() => window.location.reload()}
-          />
-          <DashboardTab />
-        </>
+        <DashboardTab
+          key={dashRefresh}
+          onOpenTab={setPageTab}
+          onLogAttendance={() => setShowCreate(true)}
+        />
       )}
 
       {pageTab === "shifts" && <ShiftsTab />}
@@ -169,54 +201,303 @@ export default function AttendancePage() {
 
 // ──────────────────────────── Dashboard ────────────────────────────
 
-function DashboardTab() {
-  const [summary, setSummary] = useState<{
-    totalPresent: number; totalAbsent: number; totalLate: number; totalNoPunch: number; averageWorkHours: number;
-  } | null>(null);
+function DashboardTab({
+  onOpenTab,
+  onLogAttendance,
+}: {
+  onOpenTab: (tab: PageTab) => void;
+  onLogAttendance: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<AttendanceSummary | null>(null);
+  const [weekActivity, setWeekActivity] = useState<{ label: string; count: number }[]>([]);
+  const [recentRows, setRecentRows] = useState<
+    { id: string; employeeName: string; status: string; punchIn: string | null; punchOut: string | null; date: string }[]
+  >([]);
 
   useEffect(() => {
-    const today = new Date().toISOString().split("T")[0];
-    apiFetch<{ totalPresent: number; totalAbsent: number; totalLate: number; totalNoPunch: number; averageWorkHours: number }>(
-      `/api/attendance/summary?from=${today}&to=${today}`
-    ).then(setSummary).catch(() => {});
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      const today = new Date().toISOString().split("T")[0] ?? "";
+      const dayKeys: string[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        dayKeys.push(d.toISOString().split("T")[0] ?? "");
+      }
+      try {
+        const [todaySummary, weekSummaries, recentRes] = await Promise.all([
+          apiFetch<AttendanceSummary>(`/api/attendance/summary?from=${today}&to=${today}`).catch(() => null),
+          Promise.all(
+            dayKeys.map((d) => apiFetch<AttendanceSummary>(`/api/attendance/summary?from=${d}&to=${d}`).catch(() => null))
+          ),
+          apiFetch<{ items: AttendanceRecord[] }>(`/api/attendance?pageSize=8&from=${today}&to=${today}`).catch(() => ({
+            items: [] as AttendanceRecord[],
+          })),
+        ]);
+        if (cancelled) return;
+        setSummary(todaySummary);
+        setWeekActivity(
+          weekSummaries.map((s, i) => ({
+            label: new Date(`${dayKeys[i]}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" }),
+            count: s?.totalPresent ?? 0,
+          }))
+        );
+        const items = recentRes.items ?? [];
+        setRecentRows(
+          [...items]
+            .sort((a, b) => {
+              const ta = a.punchIn ? new Date(a.punchIn).getTime() : 0;
+              const tb = b.punchIn ? new Date(b.punchIn).getTime() : 0;
+              return tb - ta;
+            })
+            .slice(0, 8)
+        );
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  const statusBars = useMemo(() => {
+    if (!summary) return [];
+    const onTime = Math.max(0, summary.totalPresent - summary.totalLate);
+    return [
+      { label: "On time / present", value: onTime, color: "#22c55e" },
+      { label: "Late", value: summary.totalLate, color: "#f59e0b" },
+      { label: "Absent", value: summary.totalAbsent, color: "#ef4444" },
+      { label: "No punch", value: summary.totalNoPunch, color: "#94a3b8" },
+    ];
+  }, [summary]);
+
+  const donutValues = useMemo(() => statusBars.filter((x) => x.value > 0), [statusBars]);
+
+  const kpis = useMemo(() => {
+    if (!summary) return [];
+    const avg =
+      summary.averageWorkHours != null && Number.isFinite(summary.averageWorkHours)
+        ? summary.averageWorkHours.toFixed(1)
+        : "—";
+    const denom = Math.max(1, summary.totalPresent + summary.totalAbsent);
+    const presentRate = Math.round((summary.totalPresent / denom) * 100);
+    return [
+      {
+        label: "Present (incl. late)",
+        value: formatInt(summary.totalPresent),
+        sub: `${presentRate}% of present + absent records today`,
+      },
+      {
+        label: "Late arrivals",
+        value: formatInt(summary.totalLate),
+        sub: "Marked late for today’s window",
+      },
+      {
+        label: "Absent",
+        value: formatInt(summary.totalAbsent),
+        sub: "No check-in for scheduled work",
+      },
+      {
+        label: "Avg. work hours",
+        value: avg,
+        sub: "Mean recorded hours where punches exist",
+      },
+    ];
+  }, [summary]);
+
+  const quickLinks: { tab: PageTab; title: string; sub: string }[] = [
+    { tab: "shifts", title: "Shifts", sub: "Shift patterns and timings" },
+    { tab: "roster", title: "Roster", sub: "Assignments and coverage" },
+    { tab: "attendance", title: "Attendance log", sub: "Punch history and corrections" },
+    { tab: "devices", title: "Devices", sub: "Biometric and integration endpoints" },
+    { tab: "ot-nopay", title: "OT / No-pay", sub: "Overtime and unpaid time rules" },
+  ];
+
+  const timelineItems = useMemo(
+    () =>
+      recentRows.map((r) => ({
+        at: r.punchIn ?? r.date,
+        title: `${r.employeeName} · ${r.status}`,
+        body: `${fmtDate(r.date)} · In ${fmtTime(r.punchIn)}${r.punchOut ? ` · Out ${fmtTime(r.punchOut)}` : ""}`,
+      })),
+    [recentRows]
+  );
+
+  if (loading) {
+    return (
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <p className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-sm text-slate-500 shadow-sm">
+        Unable to load attendance summary. Check your connection and Attendance module access.
+      </p>
+    );
+  }
 
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="hris-card">
-          <div className="section-title"><h3>Today Attendance</h3><span>Live status</span></div>
-          <div className="hris-list">
-            <div className="hris-list-item">
-              <div><strong>Present</strong><small>{summary ? `${summary.totalPresent} employees` : "Loading..."}</small></div>
-              <span className="badge badge-green">{summary ? `${summary.totalPresent > 0 ? Math.round((summary.totalPresent / Math.max(1, summary.totalPresent + summary.totalAbsent)) * 100) : 0}%` : "—"}</span>
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {kpis.map((kpi) => (
+          <div
+            key={kpi.label}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
+            <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
+            <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Check-in volume</h3>
+            <span className="text-xs text-slate-500">Last 7 days</span>
+          </div>
+          <WeeklyActivityBars data={weekActivity} />
+          <p className="mt-2 text-[11px] text-slate-500">Daily count of present + late records from the attendance summary API.</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Today’s mix</h3>
+            <span className="text-xs text-slate-500">By status</span>
+          </div>
+          {statusBars.every((x) => x.value === 0) ? (
+            <p className="py-8 text-center text-sm text-slate-500">No attendance rows for today yet.</p>
+          ) : (
+            <HorizontalCompareBars items={statusBars} />
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Status distribution</h3>
+            <span className="text-xs text-slate-500">Today</span>
+          </div>
+          {donutValues.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">No distribution data.</p>
+          ) : (
+            <DonutMixChart values={donutValues} />
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-slate-800">Capture channels</h3>
+          <span className="text-xs text-slate-500">Supported</span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {[
+            ["Biometric devices", "Fingerprint / face terminals"],
+            ["Mobile geo-punch", "Field and remote workers"],
+            ["Web punch", "Desk and back office"],
+          ].map(([t, s]) => (
+            <div
+              key={t}
+              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 text-slate-700"
+            >
+              <div>
+                <div className="font-semibold text-slate-800">{t}</div>
+                <div className="text-xs text-slate-500">{s}</div>
+              </div>
+              <span className="shrink-0 text-emerald-600">✓</span>
             </div>
-            <div className="hris-list-item">
-              <div><strong>Late Punches</strong><small>{summary ? `${summary.totalLate} employees` : "Loading..."}</small></div>
-              <span className="badge badge-orange">Watch</span>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">Recent punches</h3>
+              <p className="text-xs text-slate-500">Latest activity for today (where available)</p>
             </div>
-            <div className="hris-list-item">
-              <div><strong>No Punch</strong><small>{summary ? `${summary.totalNoPunch} employees` : "Loading..."}</small></div>
-              <span className="badge badge-red">Action</span>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+                {timelineItems.length} shown
+              </span>
+              <Button
+                variant="secondary"
+                className="min-h-0 rounded-lg px-3 py-1.5 text-xs"
+                onClick={() => onOpenTab("attendance")}
+              >
+                Full log
+              </Button>
+              <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={onLogAttendance}>
+                + Log attendance
+              </Button>
             </div>
           </div>
+          {timelineItems.length === 0 ? (
+            <p className="py-10 text-center text-sm text-slate-500">No punch rows returned for today yet.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {timelineItems.map((ev, i) => (
+                <div
+                  key={`${ev.at}-${i}`}
+                  className="group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
+                >
+                  <div className="pt-0.5 text-[11px] font-medium text-slate-500">{formatDateTime(ev.at)}</div>
+                  <div className="min-w-0">
+                    <div className="mb-0.5 flex items-center gap-2">
+                      <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-cyan-500" />
+                      <strong className="truncate text-sm text-slate-800">{ev.title}</strong>
+                    </div>
+                    <div className="line-clamp-2 text-sm text-slate-600">{ev.body}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="hris-card">
-          <div className="section-title"><h3>Average Work Hours</h3><span>Today</span></div>
-          <div className="flex items-center justify-center py-6">
-            <span className="text-4xl font-bold text-blue-600">{summary ? summary.averageWorkHours.toFixed(1) : "—"}</span>
-            <span className="ml-2 text-sm text-slate-500">hrs</span>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
+            <p className="text-xs text-slate-500">Jump to time and attendance workflows</p>
           </div>
-        </div>
-        <div className="hris-card">
-          <div className="section-title"><h3>Integration Sources</h3><span>Capture channels</span></div>
-          <div className="hris-list">
-            <div className="hris-list-item"><div><strong>Biometric devices</strong><small>Fingerprint / face</small></div><span>✓</span></div>
-            <div className="hris-list-item"><div><strong>Mobile geo-punch</strong><small>Field teams</small></div><span>✓</span></div>
-            <div className="hris-list-item"><div><strong>Web punch</strong><small>Back office</small></div><span>✓</span></div>
+          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
+            {quickLinks.map((link) => (
+              <button
+                key={link.title}
+                type="button"
+                onClick={() => onOpenTab(link.tab)}
+                className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
+                    <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{link.sub}</div>
+                  </div>
+                  <span className="mt-0.5 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
+                    →
+                  </span>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       </div>
+
+      <p className="footer-note">
+        Summary and charts use today’s date in your browser timezone. Weekly bars call the attendance summary API per day;
+        open Attendance for filtered history and exports.
+      </p>
     </>
   );
 }

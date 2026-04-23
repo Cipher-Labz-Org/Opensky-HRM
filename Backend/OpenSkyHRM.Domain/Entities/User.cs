@@ -14,4 +14,8 @@ public class User : AuditableEntity
     public Employee? Employee { get; set; }
 
     public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+    public ICollection<UserAssignedLocation> AssignedLocations { get; set; } = new List<UserAssignedLocation>();
+    public ICollection<UserAssignedBusinessUnit> AssignedBusinessUnits { get; set; } = new List<UserAssignedBusinessUnit>();
+    public ICollection<UserAssignedGrade> AssignedGrades { get; set; } = new List<UserAssignedGrade>();
+    public ICollection<UserAssignedJobTitle> AssignedJobTitles { get; set; } = new List<UserAssignedJobTitle>();
 }

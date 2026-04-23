@@ -1,8 +1,11 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
@@ -11,15 +14,27 @@ namespace OpenSkyHRM.Application.Services;
 
 public class LeaveService : ILeaveService
 {
+    private const string CarryForwardAvailabilityMonthsKey = "CarryForwardAvailabilityMonths";
+    private const string CarryForwardNarrativeKey = "CarryForwardNarrativeJson";
+
     private readonly AppDbContext _db;
     private readonly IEmailService _emailService;
     private readonly ILogger<LeaveService> _logger;
+    private readonly ISystemSettingService _systemSettings;
+    private readonly IBusinessClock _clock;
 
-    public LeaveService(AppDbContext db, IEmailService emailService, ILogger<LeaveService> logger)
+    public LeaveService(
+        AppDbContext db,
+        IEmailService emailService,
+        ILogger<LeaveService> logger,
+        ISystemSettingService systemSettings,
+        IBusinessClock clock)
     {
         _db = db;
         _emailService = emailService;
         _logger = logger;
+        _systemSettings = systemSettings;
+        _clock = clock;
     }
 
     // ───── Dashboard ─────
@@ -107,7 +122,7 @@ public class LeaveService : ILeaveService
         return new PagedResult<LeaveRequestDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
 
-    public async Task<LeaveRequestDto> CreateLeaveRequestAsync(CreateLeaveRequestDto dto)
+    public async Task<LeaveRequestDto> CreateLeaveRequestAsync(CreateLeaveRequestDto dto, string? medicalCertificateUrl = null)
     {
         var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == dto.EmployeeId && !e.IsDeleted);
         if (employee is null)
@@ -130,8 +145,19 @@ public class LeaveService : ILeaveService
         if (hasOverlap)
             throw new InvalidOperationException("Leave already exists for one or more of the selected dates. Please choose different dates.");
 
-        var leaveType = await _db.Set<LeaveType>().AsNoTracking().FirstOrDefaultAsync(lt => lt.Id == dto.LeaveTypeId);
-        if (leaveType != null && string.Equals(leaveType.Code, "LT-ANN", StringComparison.OrdinalIgnoreCase))
+        var leaveType = await _db.Set<LeaveType>().AsNoTracking().FirstOrDefaultAsync(lt => lt.Id == dto.LeaveTypeId && !lt.IsDeleted);
+        if (leaveType is null)
+            throw new InvalidOperationException("Leave type not found.");
+
+        var isSickLeave = string.Equals(leaveType.Code, "LT-SIC", StringComparison.OrdinalIgnoreCase);
+        var sickLeaveRequiresMedicalPdf = isSickLeave && dto.TotalDays > 2;
+        if (sickLeaveRequiresMedicalPdf && string.IsNullOrWhiteSpace(medicalCertificateUrl))
+            throw new InvalidOperationException("A medical certificate (PDF) is required for sick leave longer than 2 days.");
+
+        if (!isSickLeave)
+            medicalCertificateUrl = null;
+
+        if (string.Equals(leaveType.Code, "LT-ANN", StringComparison.OrdinalIgnoreCase))
         {
             var start = dto.StartDate.Date;
             var end = dto.EndDate.Date;
@@ -140,28 +166,71 @@ public class LeaveService : ILeaveService
                 throw new InvalidOperationException("Annual leave must be at least 7 consecutive calendar days with at least 7 leave days (Shop & Office Act).");
         }
 
-        // Validate leave balance - find balance whose period contains the leave start date
+        var skipEntireBalanceCheck = string.Equals(leaveType.Code, "LT-NPL", StringComparison.OrdinalIgnoreCase);
+        /** Sick leave may be submitted with a medical certificate even when no balance row exists; maternity requires HR assignment (balance). */
+        var sickLeaveAllowsMissingBalance =
+            string.Equals(leaveType.Code, "LT-SIC", StringComparison.OrdinalIgnoreCase);
         var startDate = dto.StartDate.Date;
-        var balances = await _db.Set<LeaveBalance>()
-            .Where(b => b.EmployeeId == dto.EmployeeId && b.LeaveTypeId == dto.LeaveTypeId)
-            .ToListAsync();
-        var balance = balances.FirstOrDefault(b =>
-            b.PeriodStart.HasValue && b.PeriodEnd.HasValue
-                ? startDate >= b.PeriodStart.Value.Date && startDate <= b.PeriodEnd.Value.Date
-                : b.Year == startDate.Year);
-        if (balance is null)
-            throw new InvalidOperationException($"No leave balance found for this leave type covering {startDate:d MMM yyyy}. Assign a balance for the relevant period first.");
 
-        var periodStart = balance.PeriodStart ?? new DateTime(balance.Year, 1, 1);
-        var periodEnd = balance.PeriodEnd ?? new DateTime(balance.Year, 12, 31);
-        var pendingDays = await _db.Set<LeaveRequest>()
-            .Where(r => r.EmployeeId == dto.EmployeeId && r.LeaveTypeId == dto.LeaveTypeId &&
-                r.StartDate.Date >= periodStart && r.StartDate.Date <= periodEnd &&
-                (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2))
-            .SumAsync(r => r.TotalDays);
-        var effectiveRemaining = balance.Entitled + balance.CarriedForward - balance.Used - pendingDays;
-        if (dto.TotalDays > effectiveRemaining)
-            throw new InvalidOperationException($"Insufficient leave balance. Available: {effectiveRemaining:F1} days, requested: {dto.TotalDays:F1} days.");
+        if (!skipEntireBalanceCheck)
+        {
+            var balances = await _db.Set<LeaveBalance>()
+                .Where(b => b.EmployeeId == dto.EmployeeId && b.LeaveTypeId == dto.LeaveTypeId)
+                .ToListAsync();
+            var balance = balances.FirstOrDefault(b =>
+                b.PeriodStart.HasValue && b.PeriodEnd.HasValue
+                    ? startDate >= b.PeriodStart.Value.Date && startDate <= b.PeriodEnd.Value.Date
+                    : b.Year == startDate.Year);
+            if (balance is null)
+            {
+                if (!sickLeaveAllowsMissingBalance)
+                    throw new InvalidOperationException($"No leave balance found for this leave type covering {startDate:d MMM yyyy}. Assign a balance for the relevant period first.");
+            }
+            else
+            {
+                var asOf = _clock.Now.Date;
+                var avM = await GetCarryForwardAvailabilityMonthsAsync();
+                var openingSaved = EnsureBroughtForwardOpeningRecorded(balance);
+                var forfeitSaved = TryForfeitCarryAfterWindowEnded(balance, avM, asOf, out var oldCf);
+                if (forfeitSaved)
+                {
+                    _logger.LogInformation(
+                        "Forfeited unused carry on balance {BalanceId}: CarriedForward {From} -> {To}.",
+                        balance.Id, oldCf, balance.CarriedForward);
+                }
+                if (openingSaved || forfeitSaved)
+                    await _db.SaveChangesAsync();
+
+                var periodStart = balance.PeriodStart ?? new DateTime(balance.Year, 1, 1);
+                var periodEnd = balance.PeriodEnd ?? new DateTime(balance.Year, 12, 31);
+                var pendingDays = await _db.Set<LeaveRequest>()
+                    .Where(r => r.EmployeeId == dto.EmployeeId && r.LeaveTypeId == dto.LeaveTypeId &&
+                        r.StartDate.Date >= periodStart && r.StartDate.Date <= periodEnd &&
+                        (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2))
+                    .SumAsync(r => r.TotalDays);
+                var fullRemaining = balance.Entitled + balance.CarriedForward - balance.Used - pendingDays;
+                decimal effectiveRemaining = fullRemaining;
+                if (balance.CarriedForward > 0)
+                {
+                    var avMonths = await GetCarryForwardAvailabilityMonthsAsync();
+                    if (avMonths < 12 && !IsInCarryForwardUseWindow(startDate, balance, avMonths))
+                    {
+                        var entitledPortion = balance.Entitled - balance.Used - pendingDays;
+                        effectiveRemaining = Math.Max(0, entitledPortion);
+                        if (dto.TotalDays > effectiveRemaining)
+                        {
+                            var wEnd = GetCarryForwardWindowEndDisplay(balance, avMonths);
+                            throw new InvalidOperationException(
+                                $"Carried-forward leave is only available during the first {avMonths} month(s) of the balance period (up to {wEnd}). " +
+                                $"On this start date, days from carry forward cannot be used; entitlement-only available: {effectiveRemaining:F1} day(s), requested: {dto.TotalDays:F1}.");
+                        }
+                    }
+                }
+
+                if (dto.TotalDays > effectiveRemaining)
+                    throw new InvalidOperationException($"Insufficient leave balance. Available: {effectiveRemaining:F1} days, requested: {dto.TotalDays:F1} days.");
+            }
+        }
 
         var request = new LeaveRequest
         {
@@ -172,6 +241,7 @@ public class LeaveService : ILeaveService
             TotalDays = dto.TotalDays,
             Reason = dto.Reason,
             CoveragePerson = dto.CoveragePerson,
+            MedicalCertificateUrl = string.IsNullOrWhiteSpace(medicalCertificateUrl) ? null : medicalCertificateUrl.Trim(),
             Status = ApprovalStatus.Pending,
         };
 
@@ -275,7 +345,13 @@ public class LeaveService : ILeaveService
                     ? startDate >= b.PeriodStart.Value.Date && startDate <= b.PeriodEnd.Value.Date
                     : b.Year == startDate.Year);
             if (bal != null)
+            {
                 bal.Used += request.TotalDays;
+                var avM = await GetCarryForwardAvailabilityMonthsAsync();
+                EnsureBroughtForwardOpeningRecorded(bal);
+                if (TryForfeitCarryAfterWindowEnded(bal, avM, _clock.Now.Date, out var beforeCf))
+                    _logger.LogInformation("Carry forfeit on approve for balance {BalanceId}: {From} -> {To}.", bal.Id, beforeCf, bal.CarriedForward);
+            }
         }
 
         await _db.SaveChangesAsync();
@@ -374,6 +450,7 @@ public class LeaveService : ILeaveService
         Level2Remarks = r.Level2Remarks,
         Level2ApprovedAt = r.Level2ApprovedAt,
         ApproverName = r.Approver != null ? r.Approver.FirstName + " " + r.Approver.LastName : null,
+        MedicalCertificateUrl = r.MedicalCertificateUrl,
     };
 
     private async Task<string?> GetResponsibleUserNameAsync(LeaveRequest r)
@@ -522,10 +599,43 @@ public class LeaveService : ILeaveService
         return b.Year.ToString();
     }
 
+    private static LeaveBalanceDto MapLeaveBalanceToDto(LeaveBalance b, int carryAvailabilityMonths, DateTime asOfDate)
+    {
+        var storedCf = b.CarriedForward;
+        var opening = Math.Max(b.BroughtForwardDays, storedCf);
+        var effectiveCf = storedCf;
+        if (storedCf > 0 && IsCarryForwardWindowClosedAsOf(b, carryAvailabilityMonths, asOfDate))
+            effectiveCf = Math.Min(storedCf, Math.Max(0, b.Used - b.Entitled));
+
+        return new LeaveBalanceDto
+        {
+            Id = b.Id,
+            LeaveTypeId = b.LeaveTypeId,
+            LeaveTypeName = b.LeaveType.Name,
+            Year = b.Year,
+            PeriodStart = b.PeriodStart,
+            PeriodEnd = b.PeriodEnd,
+            PeriodLabel = GetPeriodLabel(b),
+            Entitled = b.Entitled,
+            Used = b.Used,
+            CarriedForward = effectiveCf,
+            BroughtForwardDays = opening,
+            Remaining = b.Entitled + effectiveCf - b.Used,
+        };
+    }
+
+    private static bool EnsureBroughtForwardOpeningRecorded(LeaveBalance b)
+    {
+        if (b.CarriedForward <= 0 || b.BroughtForwardDays >= b.CarriedForward)
+            return false;
+        b.BroughtForwardDays = b.CarriedForward;
+        return true;
+    }
+
     private static bool PeriodOverlaps(DateTime startA, DateTime endA, DateTime startB, DateTime endB)
         => startA <= endB && startB <= endA;
 
-    public async Task<List<LeaveBalanceDto>> GetEmployeeBalancesAsync(Guid employeeId, int year)
+    public async Task<List<LeaveBalanceDto>> GetEmployeeBalancesAsync(Guid employeeId, int year, DateTime? asOfDate = null)
     {
         var yearStart = new DateTime(year, 1, 1);
         var yearEnd = new DateTime(year, 12, 31);
@@ -535,16 +645,13 @@ public class LeaveService : ILeaveService
                 (b.PeriodStart == null && b.Year == year) ||
                 (b.PeriodStart != null && b.PeriodEnd != null && b.PeriodStart <= yearEnd && b.PeriodEnd >= yearStart)))
             .ToListAsync();
-        return list.Select(b => new LeaveBalanceDto
-        {
-            Id = b.Id, LeaveTypeName = b.LeaveType.Name, Year = b.Year,
-            PeriodStart = b.PeriodStart, PeriodEnd = b.PeriodEnd, PeriodLabel = GetPeriodLabel(b),
-            Entitled = b.Entitled, Used = b.Used, CarriedForward = b.CarriedForward,
-            Remaining = b.Entitled + b.CarriedForward - b.Used
-        }).ToList();
+        var av = await GetCarryForwardAvailabilityMonthsAsync();
+        var asOf = (asOfDate ?? _clock.Now).Date;
+        await ForfeitExpiredCarryOnTrackedBalancesAsync(list, asOf, av);
+        return list.Select(b => MapLeaveBalanceToDto(b, av, asOf)).ToList();
     }
 
-    public async Task<List<LeaveBalanceSummaryDto>> GetBalanceSummaryAsync(int year)
+    public async Task<List<LeaveBalanceSummaryDto>> GetBalanceSummaryAsync(int year, DateTime? asOfDate = null)
     {
         var yearStart = new DateTime(year, 1, 1);
         var yearEnd = new DateTime(year, 12, 31);
@@ -560,18 +667,16 @@ public class LeaveService : ILeaveService
                 (b.PeriodStart != null && b.PeriodEnd != null && b.PeriodStart <= yearEnd && b.PeriodEnd >= yearStart))
             .ToListAsync();
 
+        var av = await GetCarryForwardAvailabilityMonthsAsync();
+        var asOf = (asOfDate ?? _clock.Now).Date;
+        await ForfeitExpiredCarryOnTrackedBalancesAsync(balances, asOf, av);
+
         return employees.Select(e => new LeaveBalanceSummaryDto
         {
             EmployeeId = e.Id,
             EmployeeName = $"{e.FirstName} {e.LastName}",
             EmployeeCode = e.EmployeeCode,
-            Balances = balances.Where(b => b.EmployeeId == e.Id).Select(b => new LeaveBalanceDto
-            {
-                Id = b.Id, LeaveTypeName = b.LeaveType.Name, Year = b.Year,
-                PeriodStart = b.PeriodStart, PeriodEnd = b.PeriodEnd, PeriodLabel = GetPeriodLabel(b),
-                Entitled = b.Entitled, Used = b.Used, CarriedForward = b.CarriedForward,
-                Remaining = b.Entitled + b.CarriedForward - b.Used,
-            }).ToList(),
+            Balances = balances.Where(b => b.EmployeeId == e.Id).Select(b => MapLeaveBalanceToDto(b, av, asOf)).ToList(),
         }).Where(s => s.Balances.Count > 0).ToList();
     }
 
@@ -625,23 +730,14 @@ public class LeaveService : ILeaveService
             Entitled = dto.Entitled,
             Used = dto.Used,
             CarriedForward = dto.CarriedForward,
+            BroughtForwardDays = dto.CarriedForward,
         };
         _db.Set<LeaveBalance>().Add(balance);
         await _db.SaveChangesAsync();
 
-        return new LeaveBalanceDto
-        {
-            Id = balance.Id,
-            LeaveTypeName = leaveType.Name,
-            Year = balance.Year,
-            PeriodStart = balance.PeriodStart,
-            PeriodEnd = balance.PeriodEnd,
-            PeriodLabel = GetPeriodLabel(balance),
-            Entitled = balance.Entitled,
-            Used = balance.Used,
-            CarriedForward = balance.CarriedForward,
-            Remaining = balance.Entitled + balance.CarriedForward - balance.Used,
-        };
+        var created = await _db.Set<LeaveBalance>().Include(b => b.LeaveType).FirstAsync(b => b.Id == balance.Id);
+        var av = await GetCarryForwardAvailabilityMonthsAsync();
+        return MapLeaveBalanceToDto(created, av, _clock.Now.Date);
     }
 
     public async Task<LeaveBalanceDto?> UpdateLeaveBalanceAsync(Guid id, UpdateLeaveBalanceDto dto)
@@ -651,66 +747,86 @@ public class LeaveService : ILeaveService
         balance.Entitled = dto.Entitled;
         balance.Used = dto.Used;
         balance.CarriedForward = dto.CarriedForward;
+        balance.BroughtForwardDays = Math.Max(balance.BroughtForwardDays, dto.CarriedForward);
         await _db.SaveChangesAsync();
-        return new LeaveBalanceDto
-        {
-            Id = balance.Id,
-            LeaveTypeName = balance.LeaveType.Name,
-            Year = balance.Year,
-            PeriodStart = balance.PeriodStart,
-            PeriodEnd = balance.PeriodEnd,
-            PeriodLabel = GetPeriodLabel(balance),
-            Entitled = balance.Entitled,
-            Used = balance.Used,
-            CarriedForward = balance.CarriedForward,
-            Remaining = balance.Entitled + balance.CarriedForward - balance.Used,
-        };
+        var av = await GetCarryForwardAvailabilityMonthsAsync();
+        return MapLeaveBalanceToDto(balance, av, _clock.Now.Date);
     }
 
     /// <summary>
     /// Processes leave carry forward from one year to the next. Run at the beginning of a new year.
-    /// Only leave types with AllowCarryForward in policy are processed. Carried days = min(remaining, MaxCarryForwardDays).
+    /// Carry cap: leave policy (allow carry) when set; else leave type default days/year; else all remaining (so balances without policies still move forward).
     /// </summary>
-    public async Task<CarryForwardResult> ProcessCarryForwardAsync(int fromYear, int toYear)
+    public async Task<CarryForwardResult> ProcessCarryForwardAsync(int fromYear, int toYear, IReadOnlySet<Guid>? onlyEmployeeIds = null)
     {
         if (toYear != fromYear + 1)
             throw new InvalidOperationException("Carry forward is only allowed from one year to the next (e.g. 2025 → 2026).");
 
-        var policies = await _db.Set<LeavePolicy>()
-            .Where(p => !p.IsDeleted && p.AllowCarryForward && p.MaxCarryForwardDays > 0)
-            .Select(p => new { p.LeaveTypeId, p.MaxCarryForwardDays })
+        if (onlyEmployeeIds is not null && onlyEmployeeIds.Count == 0)
+            return new CarryForwardResult { FromYear = fromYear, ToYear = toYear, BalancesProcessed = 0, BalancesUpdated = 0, BalancesCreated = 0, TotalDaysCarried = 0, InfoMessage = "No employees selected for carry forward." };
+
+        // Per–leave-type cap from policy (when configured).
+        var policyRows = await _db.Set<LeavePolicy>()
+            .Where(p => !p.IsDeleted && p.AllowCarryForward)
             .ToListAsync();
 
-        if (policies.Count == 0)
-            return new CarryForwardResult { FromYear = fromYear, ToYear = toYear, BalancesProcessed = 0, BalancesUpdated = 0, BalancesCreated = 0, TotalDaysCarried = 0 };
+        var policyByLeaveType = new Dictionary<Guid, int>();
+        foreach (var g in policyRows.GroupBy(p => p.LeaveTypeId))
+        {
+            var p = g.OrderByDescending(x => x.MaxCarryForwardDays).First();
+            var cap = p.MaxCarryForwardDays > 0 ? p.MaxCarryForwardDays : p.MaxDaysPerYear;
+            if (cap > 0)
+                policyByLeaveType[p.LeaveTypeId] = cap;
+        }
 
-        var policyByLeaveType = policies.GroupBy(p => p.LeaveTypeId).ToDictionary(g => g.Key, g => g.First().MaxCarryForwardDays);
-
+        // Same year resolution as GetBalanceSummaryAsync / GetEmployeeBalancesAsync: calendar year overlap, not b.Year == fromYear only.
+        // Include all active leave types (not only those with a carry policy) so carry works for balances that have no policy row yet.
+        var fromYearStart = new DateTime(fromYear, 1, 1);
+        var fromYearEnd = new DateTime(fromYear, 12, 31);
         var fromBalances = await _db.Set<LeaveBalance>()
-            .Where(b => b.Year == fromYear && policyByLeaveType.ContainsKey(b.LeaveTypeId))
+            .Include(b => b.LeaveType)
+            .Where(b => !b.IsDeleted
+                && b.LeaveType != null
+                && !b.LeaveType.IsDeleted
+                && ((b.PeriodStart == null && b.Year == fromYear) ||
+                    (b.PeriodStart != null && b.PeriodEnd != null && b.PeriodStart <= fromYearEnd && b.PeriodEnd >= fromYearStart)))
             .ToListAsync();
+
+        if (onlyEmployeeIds is not null)
+            fromBalances = fromBalances.Where(b => onlyEmployeeIds.Contains(b.EmployeeId)).ToList();
 
         int created = 0, updated = 0;
         decimal totalCarried = 0;
+        var anyUsedOpenRemainingCap = false;
 
         var toYearStart = new DateTime(toYear, 1, 1);
         var toYearEnd = new DateTime(toYear, 12, 31);
 
         foreach (var fromBal in fromBalances)
         {
-            var maxCarry = policyByLeaveType[fromBal.LeaveTypeId];
+            var maxCarry = GetMaxCarryableDays(fromBal, policyByLeaveType, out var usedOpenRemaining);
+            if (usedOpenRemaining) anyUsedOpenRemainingCap = true;
+
             var remaining = fromBal.Entitled + fromBal.CarriedForward - fromBal.Used;
             if (remaining <= 0) continue;
 
-            var carryDays = Math.Min(remaining, (decimal)maxCarry);
+            var carryDays = Math.Min(remaining, maxCarry);
             if (carryDays <= 0) continue;
 
             var toBalance = await _db.Set<LeaveBalance>()
-                .FirstOrDefaultAsync(b => b.EmployeeId == fromBal.EmployeeId && b.LeaveTypeId == fromBal.LeaveTypeId && b.Year == toYear);
+                .Where(b => b.EmployeeId == fromBal.EmployeeId
+                    && b.LeaveTypeId == fromBal.LeaveTypeId
+                    && !b.IsDeleted
+                    && ((b.PeriodStart == null && b.Year == toYear)
+                        || (b.PeriodStart != null && b.PeriodEnd != null && b.PeriodStart <= toYearEnd && b.PeriodEnd >= toYearStart)))
+                .OrderBy(b => b.Year)
+                .ThenBy(b => b.Id)
+                .FirstOrDefaultAsync();
 
             if (toBalance != null)
             {
                 toBalance.CarriedForward = carryDays;
+                toBalance.BroughtForwardDays = carryDays;
                 updated++;
             }
             else
@@ -725,6 +841,7 @@ public class LeaveService : ILeaveService
                     Entitled = 0,
                     Used = 0,
                     CarriedForward = carryDays,
+                    BroughtForwardDays = carryDays,
                 });
                 created++;
             }
@@ -732,6 +849,14 @@ public class LeaveService : ILeaveService
         }
 
         await _db.SaveChangesAsync();
+
+        string? info = null;
+        if (fromBalances.Count == 0)
+            info = "No source-year leave balances were found for the selected year and employees. Add leave balances (Leave Balances / assign) for the source year first.";
+        else if (totalCarried == 0)
+            info = "Source rows were found, but every one had 0 days remaining (nothing unused to move).";
+        if (anyUsedOpenRemainingCap && totalCarried > 0)
+            info = (string.IsNullOrEmpty(info) ? "" : info + " ") + "Some amounts used the full remaining balance (no carry policy and leave type default days is 0). Add a policy with 'Allow carry forward' to set explicit caps per leave type.";
 
         return new CarryForwardResult
         {
@@ -741,8 +866,204 @@ public class LeaveService : ILeaveService
             BalancesUpdated = updated,
             BalancesCreated = created,
             TotalDaysCarried = totalCarried,
+            InfoMessage = string.IsNullOrWhiteSpace(info) ? null : info.Trim(),
         };
     }
+
+    /// <summary>Max days that may move in one run: policy cap, else leave type default per year, else all remaining (no artificial cap).</summary>
+    private static decimal GetMaxCarryableDays(LeaveBalance fromBal, IReadOnlyDictionary<Guid, int> policyByLeaveType, out bool usedOpenRemainingCap)
+    {
+        usedOpenRemainingCap = false;
+        if (policyByLeaveType.TryGetValue(fromBal.LeaveTypeId, out var pcap) && pcap > 0)
+            return pcap;
+        var d = fromBal.LeaveType?.DefaultDaysPerYear ?? 0;
+        if (d > 0) return d;
+        usedOpenRemainingCap = true;
+        return 9999m;
+    }
+
+    public async Task<CarryForwardAvailabilitySettingsDto> GetCarryForwardAvailabilitySettingsAsync()
+    {
+        var months = await GetCarryForwardAvailabilityMonthsAsync();
+        var desc = months >= 12
+            ? "Carry-forward days may be used for the full 12 months of the balance period."
+            : "Carried-from days on a balance may only be used for leave with a start date in the first " + months
+              + " month(s) of that balance period (for a full calendar year, from 1 January). "
+              + "After that window, new requests are limited to standard entitlement (excluding the carried amount).";
+        var (intro, points) = await GetCarryForwardNarrativeDisplayAsync();
+        return new CarryForwardAvailabilitySettingsDto
+        {
+            AvailabilityMonths = months,
+            WindowDescription = desc,
+            NarrativeIntro = intro,
+            NarrativePoints = points,
+        };
+    }
+
+    public async Task<CarryForwardAvailabilitySettingsDto> SetCarryForwardAvailabilitySettingsAsync(UpdateCarryForwardAvailabilitySettingsDto dto)
+    {
+        var m = Math.Clamp(dto.AvailabilityMonths, 1, 12);
+        await _systemSettings.SetAsync(CarryForwardAvailabilityMonthsKey, m.ToString());
+        if (dto.NarrativeIntro is not null || dto.NarrativePoints is not null)
+        {
+            var (defIntro, defPointArr) = GetDefaultCarryForwardNarrative();
+            var (curIntro, curPl) = await GetCarryForwardNarrativeDisplayAsync();
+            var intro = dto.NarrativeIntro is not null
+                ? (string.IsNullOrWhiteSpace(dto.NarrativeIntro) ? defIntro : dto.NarrativeIntro.Trim())
+                : curIntro;
+            var outPoints = new List<string>(3);
+            for (var i = 0; i < 3; i++)
+            {
+                if (dto.NarrativePoints is not null && i < dto.NarrativePoints.Length)
+                {
+                    var s = (dto.NarrativePoints[i] ?? "").Trim();
+                    outPoints.Add(string.IsNullOrEmpty(s) ? defPointArr[i] : s);
+                }
+                else
+                {
+                    outPoints.Add(curPl[i]);
+                }
+            }
+            var payload = JsonSerializer.Serialize(
+                new CarryNarrativeStored { Intro = intro, Points = outPoints },
+                CarryNarrativeJsonOptions);
+            await _systemSettings.SetAsync(CarryForwardNarrativeKey, payload);
+        }
+        return await GetCarryForwardAvailabilitySettingsAsync();
+    }
+
+    private static readonly JsonSerializerOptions CarryNarrativeJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    private static (string intro, string[] points) GetDefaultCarryForwardNarrative() =>
+    (
+        "Not a separate leave type — unused days from a completed balance year can be moved into the next year for leave types that your policy allows (for example annual leave), up to the limits you set.",
+        new[]
+        {
+            "In Leave → Policies, enable Allow carry forward and set Max carry forward days (and max days per year) for that leave type.",
+            "At the start of a new year, use Leave → Carry Forward to run the process: remaining days (within policy limits) are written to the new year as carried forward on the balance.",
+            "Carried days are then used with the same balance, subject to that leave type’s policy and approval rules.",
+        }
+    );
+
+    private async Task<(string intro, List<string> points)> GetCarryForwardNarrativeDisplayAsync()
+    {
+        var (defIntro, defArr) = GetDefaultCarryForwardNarrative();
+        var defPoints = defArr.ToList();
+        var raw = await _systemSettings.GetAsync(CarryForwardNarrativeKey);
+        if (string.IsNullOrWhiteSpace(raw))
+            return (defIntro, defPoints);
+        try
+        {
+            var s = JsonSerializer.Deserialize<CarryNarrativeStored>(raw, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                ReadCommentHandling = JsonCommentHandling.Disallow,
+            });
+            if (s is null)
+                return (defIntro, defPoints);
+            var intro = string.IsNullOrWhiteSpace(s.Intro) ? defIntro : s.Intro;
+            var pts = new List<string>(3);
+            for (var i = 0; i < 3; i++)
+            {
+                if (s.Points != null && i < s.Points.Count && !string.IsNullOrWhiteSpace(s.Points[i]))
+                    pts.Add(s.Points[i]!);
+                else
+                    pts.Add(defPoints[i]);
+            }
+            return (intro, pts);
+        }
+        catch
+        {
+            return (defIntro, defPoints);
+        }
+    }
+
+    private sealed class CarryNarrativeStored
+    {
+        public string? Intro { get; set; }
+        public List<string>? Points { get; set; }
+    }
+
+    private async Task<int> GetCarryForwardAvailabilityMonthsAsync()
+    {
+        var raw = await _systemSettings.GetAsync(CarryForwardAvailabilityMonthsKey);
+        if (string.IsNullOrWhiteSpace(raw) || !int.TryParse(raw, out var m) || m < 1) m = 3;
+        return Math.Clamp(m, 1, 12);
+    }
+
+    /// <summary>Last day (inclusive) of the “use carried-forward” window for this balance, using the first N months from the period (or year) start.</summary>
+    private static DateTime GetCarryForwardWindowEndInclusive(LeaveBalance balance, int months)
+    {
+        var start = balance.PeriodStart.HasValue
+            ? balance.PeriodStart.Value.Date
+            : new DateTime(balance.Year, 1, 1);
+        var end = start.AddMonths(months).AddDays(-1);
+        if (balance.PeriodEnd.HasValue)
+        {
+            var cap = balance.PeriodEnd.Value.Date;
+            if (end > cap) end = cap;
+        }
+        return end;
+    }
+
+    private static bool IsCarryForwardWindowClosedAsOf(LeaveBalance balance, int months, DateTime asOfDate)
+    {
+        var end = GetCarryForwardWindowEndInclusive(balance, months);
+        return asOfDate.Date > end.Date;
+    }
+
+    /// <summary>
+    /// When the use window has passed, any carried-forward days that were not used (could not be attributed
+    /// to <see cref="LeaveBalance.Used"/> in excess of <see cref="LeaveBalance.Entitled"/>) are removed.
+    /// Remaining "carry" stored on the line reflects only the part that explains use above entitlement, so totals stay non-negative.
+    /// </summary>
+    private static bool TryForfeitCarryAfterWindowEnded(LeaveBalance b, int avMonths, DateTime asOfDate, out decimal previousCarriedForward)
+    {
+        previousCarriedForward = b.CarriedForward;
+        if (b.CarriedForward <= 0) return false;
+        if (!IsCarryForwardWindowClosedAsOf(b, avMonths, asOfDate)) return false;
+        var newCf = Math.Min(b.CarriedForward, Math.Max(0, b.Used - b.Entitled));
+        if (newCf == b.CarriedForward) return false;
+        b.CarriedForward = newCf;
+        return true;
+    }
+
+    private async Task ForfeitExpiredCarryOnTrackedBalancesAsync(List<LeaveBalance> balances, DateTime asOfDate, int carryAvailabilityMonths)
+    {
+        var any = false;
+        foreach (var b in balances)
+        {
+            if (EnsureBroughtForwardOpeningRecorded(b))
+                any = true;
+        }
+        foreach (var b in balances)
+        {
+            if (TryForfeitCarryAfterWindowEnded(b, carryAvailabilityMonths, asOfDate, out var _))
+                any = true;
+        }
+        if (any)
+        {
+            await _db.SaveChangesAsync();
+            _logger.LogInformation("Saved carry-forward opening/forfeits for at least one balance in this batch.");
+        }
+    }
+
+    private static bool IsInCarryForwardUseWindow(DateTime requestStart, LeaveBalance balance, int months)
+    {
+        if (months >= 12) return true;
+        var end = GetCarryForwardWindowEndInclusive(balance, months);
+        var start = balance.PeriodStart.HasValue
+            ? balance.PeriodStart.Value.Date
+            : new DateTime(balance.Year, 1, 1);
+        return requestStart.Date >= start && requestStart.Date <= end;
+    }
+
+    private static string GetCarryForwardWindowEndDisplay(LeaveBalance balance, int months)
+        => GetCarryForwardWindowEndInclusive(balance, months).ToString("d MMM yyyy");
 
     // ───── Holidays ─────
 

@@ -60,8 +60,72 @@ public static class LeaveSeeder
                 });
             }
 
+            var sickLeave = await context.LeaveTypes.FirstOrDefaultAsync(lt => lt.Code == "LT-SIC");
+            if (sickLeave != null)
+            {
+                context.LeaveEntitlementRules.Add(new LeaveEntitlementRule
+                {
+                    LeaveTypeId = sickLeave.Id,
+                    RuleType = "ShopOfficeSick",
+                    RuleConfig = "{}",
+                    IsActive = true,
+                });
+            }
+
             await context.SaveChangesAsync();
         }
+    }
+
+    /// <summary>Ensures Sick Leave has a Shop &amp; Office display rule (for DBs created before this rule existed).</summary>
+    public static async Task EnsureShopOfficeSickLeaveRuleAsync(AppDbContext context)
+    {
+        var sick = await context.LeaveTypes.FirstOrDefaultAsync(lt => lt.Code == "LT-SIC" && !lt.IsDeleted);
+        if (sick == null) return;
+
+        var existing = await context.LeaveEntitlementRules
+            .FirstOrDefaultAsync(r => r.LeaveTypeId == sick.Id && !r.IsDeleted);
+        if (existing == null)
+        {
+            context.LeaveEntitlementRules.Add(new LeaveEntitlementRule
+            {
+                LeaveTypeId = sick.Id,
+                RuleType = "ShopOfficeSick",
+                RuleConfig = "{}",
+                IsActive = true,
+            });
+            await context.SaveChangesAsync();
+            return;
+        }
+
+        if (existing.RuleType == "ServiceYearBased")
+        {
+            existing.RuleType = "ShopOfficeSick";
+            existing.RuleConfig = "{}";
+            await context.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>Ensures the standard catalog leave types exist (for databases created before Sick/Maternity/No-Pay were added).</summary>
+    public static async Task EnsureCatalogLeaveTypesAsync(AppDbContext context)
+    {
+        var catalog = new[]
+        {
+            new LeaveType { Name = "Annual Leave", Code = "LT-ANN", DefaultDaysPerYear = 14, IsPaid = true, Description = "Annual vacation leave" },
+            new LeaveType { Name = "Casual Leave", Code = "LT-CAS", DefaultDaysPerYear = 7, IsPaid = true, Description = "Short-notice casual leave" },
+            new LeaveType { Name = "Sick Leave", Code = "LT-SIC", DefaultDaysPerYear = 14, IsPaid = true, Description = "Medical sick leave" },
+            new LeaveType { Name = "Maternity Leave", Code = "LT-MAT", DefaultDaysPerYear = 84, IsPaid = true, Description = "Maternity leave" },
+            new LeaveType { Name = "No-Pay Leave", Code = "LT-NPL", DefaultDaysPerYear = 0, IsPaid = false, Description = "Unpaid leave" },
+        };
+
+        foreach (var lt in catalog)
+        {
+            var exists = await context.LeaveTypes.AnyAsync(x => x.Code == lt.Code && !x.IsDeleted);
+            if (exists)
+                continue;
+            context.LeaveTypes.Add(lt);
+        }
+
+        await context.SaveChangesAsync();
     }
 
     /// <summary>
@@ -88,6 +152,11 @@ public static class LeaveSeeder
             else if (code == "LT-CAS")
             {
                 rule.RuleType = "ShopOfficeCasual";
+                rule.RuleConfig = "{}";
+            }
+            else if (code == "LT-SIC" && rule.RuleType == "ServiceYearBased")
+            {
+                rule.RuleType = "ShopOfficeSick";
                 rule.RuleConfig = "{}";
             }
         }

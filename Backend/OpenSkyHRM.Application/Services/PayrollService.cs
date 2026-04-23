@@ -232,6 +232,8 @@ public class PayrollService : IPayrollService
     {
         var entity = await _db.SalaryRevisions.Include(s => s.Employee).FirstOrDefaultAsync(s => s.Id == id);
         if (entity is null) return null;
+        if (entity.Status != ApprovalStatus.Pending)
+            throw new InvalidOperationException("Only pending salary revisions can be approved.");
 
         entity.Status = ApprovalStatus.Approved;
         entity.ApprovedBy = approvedBy;
@@ -254,6 +256,8 @@ public class PayrollService : IPayrollService
     {
         var entity = await _db.SalaryRevisions.Include(s => s.Employee).FirstOrDefaultAsync(s => s.Id == id);
         if (entity is null) return null;
+        if (entity.Status != ApprovalStatus.Pending)
+            throw new InvalidOperationException("Only pending salary revisions can be rejected.");
 
         entity.Status = ApprovalStatus.Rejected;
         entity.ApprovedBy = rejectedBy;

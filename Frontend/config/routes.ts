@@ -16,9 +16,11 @@ export const ROUTES = {
   peopleAuditTrail: "/app/people/audit-trail",
   employeeProfile: "/app/employee-profile",
   recruitment: "/app/recruitment",
+  recruitmentRequisition: (id: string) => `/app/recruitment/requisition/${id}`,
   onboarding: "/app/onboarding",
   offboarding: "/app/offboarding",
   employeeTasks: "/app/employee-tasks",
+  employeeActions: "/app/employee-actions",
 
   // App – Workforce
   leave: "/app/leave",

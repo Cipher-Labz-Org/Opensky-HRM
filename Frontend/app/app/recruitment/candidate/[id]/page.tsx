@@ -1,17 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, DateTimePickerField } from "@/components/ui";
-import { apiFetch } from "@/lib/api";
+import { DatePickerField, DateTimePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { apiFetch, apiFetchBlob } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 
 interface CandidateDetail {
   id: string; firstName: string; lastName: string; fullName: string; email: string;
-  phone?: string; resumeUrl?: string; source: string; stage: string; appliedAt: string;
+  phone?: string; resumeUrl?: string; hasUploadedResume?: boolean; source: string; stage: string; appliedAt: string;
   currentTitle?: string; currentCompany?: string; expectedSalary?: number;
   noticePeriod?: string; notes?: string; rating?: number; rejectionReason?: string;
   tags?: string; requisitionId: string; requisitionTitle?: string; employeeId?: string;
@@ -44,6 +44,32 @@ const STAGE_COLORS: Record<string, string> = {
 const STAGES = ["Sourced", "Screening", "Phone Screen", "Interview", "Evaluation", "Offer", "Hired"];
 const INPUT = "w-full rounded-xl border border-[var(--border)] px-3 py-2 text-sm focus:ring-2 focus:ring-[var(--primary)] outline-none";
 
+const INTERVIEW_TYPE_TITLE: Record<string, string> = {
+  Phone: "Phone interview",
+  Video: "Video interview",
+  Onsite: "On-site interview",
+  Technical: "Technical interview",
+  HR: "HR interview",
+};
+
+function defaultScheduleTitle(interviewType: string | undefined, candidateFullName: string | undefined): string {
+  const base =
+    interviewType && INTERVIEW_TYPE_TITLE[interviewType] ? INTERVIEW_TYPE_TITLE[interviewType] : "Interview";
+  if (candidateFullName) return `${base} — ${candidateFullName}`;
+  return base;
+}
+
+const INTERVIEW_TYPE_OPTS: FormSelectOption[] = [
+  { value: "", label: "Select type…" },
+  { value: "Phone", label: "Phone" },
+  { value: "Video", label: "Video" },
+  { value: "Onsite", label: "Onsite" },
+  { value: "Technical", label: "Technical" },
+  { value: "HR", label: "HR" },
+];
+
+const SCHEDULE_LOCATION_OTHER = "__custom_location__";
+
 export default function CandidateDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -57,7 +83,22 @@ export default function CandidateDetailPage() {
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [scheduleModal, setScheduleModal] = useState(false);
-  const [interviewForm, setInterviewForm] = useState({ title: "", scheduledAt: "", duration: 60, location: "", interviewType: "In-person", interviewerName: "" });
+  const [interviewForm, setInterviewForm] = useState({
+    title: "",
+    scheduledAt: "",
+    duration: 60,
+    location: "",
+    interviewType: "Onsite",
+    interviewerId: "",
+    interviewerName: "",
+  });
+  const [scheduleLocationOther, setScheduleLocationOther] = useState("");
+  const [scheduleLookups, setScheduleLookups] = useState<{
+    locations: { id: string; name: string }[];
+    interviewers: { id: string; name: string }[];
+  }>({ locations: [], interviewers: [] });
+  const [notifyInterviewCandidateEmail, setNotifyInterviewCandidateEmail] = useState(true);
+  const [notifyInterviewInterviewerEmail, setNotifyInterviewInterviewerEmail] = useState(true);
   const [hireModal, setHireModal] = useState(false);
   const [hireLoading, setHireLoading] = useState(false);
   const [hireResult, setHireResult] = useState<HireResult | null>(null);
@@ -68,6 +109,22 @@ export default function CandidateDetailPage() {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [resumeOpening, setResumeOpening] = useState(false);
+
+  const openStoredResumePdf = useCallback(async () => {
+    if (!candidate?.id) return;
+    setResumeOpening(true);
+    try {
+      const blob = await apiFetchBlob(`/api/recruitment/candidates/${candidate.id}/resume`);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not open the resume PDF.");
+    } finally {
+      setResumeOpening(false);
+    }
+  }, [candidate?.id]);
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +136,84 @@ export default function CandidateDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const scheduleTitleOpts = useMemo<FormSelectOption[]>(() => {
+    const name = candidate?.fullName ?? "";
+    const titles = new Set<string>();
+    titles.add(defaultScheduleTitle(undefined, name));
+    for (const k of Object.keys(INTERVIEW_TYPE_TITLE)) {
+      titles.add(defaultScheduleTitle(k, name));
+    }
+    return [
+      { value: "", label: "Select title…" },
+      ...Array.from(titles).sort((a, b) => a.localeCompare(b)).map((t) => ({ value: t, label: t })),
+    ];
+  }, [candidate?.fullName]);
+
+  const scheduleLocationOpts = useMemo<FormSelectOption[]>(() => {
+    const rows = scheduleLookups.locations.map((l) => ({ value: l.name, label: l.name }));
+    return [
+      { value: "", label: "Select location…" },
+      ...rows,
+      { value: "Remote", label: "Remote" },
+      { value: "Video conference", label: "Video conference" },
+      { value: SCHEDULE_LOCATION_OTHER, label: "Other (room or link)…" },
+    ];
+  }, [scheduleLookups.locations]);
+
+  const scheduleInterviewerOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "Select interviewer…" },
+      ...scheduleLookups.interviewers.map((e) => ({ value: e.id, label: e.name })),
+    ],
+    [scheduleLookups.interviewers]
+  );
+
+  useEffect(() => {
+    if (!scheduleModal) {
+      setScheduleLocationOther("");
+      setNotifyInterviewCandidateEmail(true);
+      setNotifyInterviewInterviewerEmail(true);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      apiFetch<{ id: string; name: string }[]>("/api/organization/locations").catch(() => []),
+      apiFetch<{ items: { id: string; firstName: string; lastName: string; fullName?: string }[] }>(
+        "/api/employees?pageSize=500&excludeTerminated=true"
+      ).catch(() => ({ items: [] as { id: string; firstName: string; lastName: string; fullName?: string }[] })),
+    ]).then(([locs, empRes]) => {
+      if (cancelled) return;
+      const items = empRes.items ?? [];
+      setScheduleLookups({
+        locations: Array.isArray(locs) ? locs : [],
+        interviewers: items.map((e) => ({
+          id: e.id,
+          name: (e.fullName?.trim() || `${e.firstName ?? ""} ${e.lastName ?? ""}`.trim()) || e.id,
+        })),
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [scheduleModal]);
+
+  function openScheduleModal() {
+    const name = candidate?.fullName ?? "";
+    setNotifyInterviewCandidateEmail(true);
+    setNotifyInterviewInterviewerEmail(true);
+    setScheduleLocationOther("");
+    setInterviewForm({
+      title: defaultScheduleTitle("Onsite", name),
+      scheduledAt: "",
+      duration: 60,
+      location: "",
+      interviewType: "Onsite",
+      interviewerId: "",
+      interviewerName: "",
+    });
+    setScheduleModal(true);
+  }
 
   async function handleStageChange(newStage: string) {
     try {
@@ -101,6 +236,8 @@ export default function CandidateDetailPage() {
   }
 
   async function handleHire() {
+    if (hireLoading) return;
+    if (!confirm("Create an employee from this candidate? Confirm offer and compliance steps are complete.")) return;
     setHireLoading(true);
     try {
       const body: Record<string, unknown> = {};
@@ -113,15 +250,45 @@ export default function CandidateDetailPage() {
 
   async function handleScheduleInterview() {
     if (!interviewForm.title || !interviewForm.scheduledAt) return;
+    const locationResolved =
+      interviewForm.location === SCHEDULE_LOCATION_OTHER ? scheduleLocationOther.trim() || null : interviewForm.location || null;
+    const interviewer = scheduleLookups.interviewers.find((e) => e.id === interviewForm.interviewerId);
     try {
-      await apiFetch("/api/recruitment/interviews", { method: "POST", body: JSON.stringify({ ...interviewForm, candidateId: id }) });
-      setScheduleModal(false); setInterviewForm({ title: "", scheduledAt: "", duration: 60, location: "", interviewType: "In-person", interviewerName: "" });
+      await apiFetch("/api/recruitment/interviews", {
+        method: "POST",
+        body: JSON.stringify({
+          title: interviewForm.title,
+          scheduledAt: interviewForm.scheduledAt,
+          duration: interviewForm.duration,
+          location: locationResolved,
+          interviewType: interviewForm.interviewType || null,
+          candidateId: id,
+          interviewerId: interviewForm.interviewerId || null,
+          interviewerName: interviewer?.name ?? (interviewForm.interviewerName || null),
+          notifyCandidateByEmail: notifyInterviewCandidateEmail,
+          notifyInterviewerByEmail: notifyInterviewInterviewerEmail && !!interviewForm.interviewerId,
+        }),
+      });
+      setScheduleModal(false);
+      setInterviewForm({
+        title: "",
+        scheduledAt: "",
+        duration: 60,
+        location: "",
+        interviewType: "Onsite",
+        interviewerId: "",
+        interviewerName: "",
+      });
+      setScheduleLocationOther("");
+      setNotifyInterviewCandidateEmail(true);
+      setNotifyInterviewInterviewerEmail(true);
       await load();
     } catch { /* */ }
   }
 
   async function handleCreateOffer() {
     if (!offerForm.salaryOffered) return;
+    if (!confirm("Create this offer? You can approve it internally, then email the candidate and record acceptance.")) return;
     try {
       await apiFetch("/api/recruitment/offers", {
         method: "POST",
@@ -137,6 +304,7 @@ export default function CandidateDetailPage() {
 
   async function handleSendOfferEmail() {
     if (!candidate?.offer) return;
+    if (!confirm("Send the offer details by email to the candidate?")) return;
     setSendingEmail(true); setEmailSent(false);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/send-email`, { method: "POST" });
@@ -145,8 +313,27 @@ export default function CandidateDetailPage() {
     finally { setSendingEmail(false); }
   }
 
+  async function handleApproveOffer() {
+    if (!candidate?.offer) return;
+    if (!confirm("Approve this offer internally? Only approved offers can be emailed; acceptance is recorded only after approval.")) return;
+    setActionLoading(true);
+    try {
+      await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/approve`, { method: "POST" });
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to approve offer");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function handleAcceptOffer() {
     if (!candidate?.offer) return;
+    if (candidate.offer.status !== "Approved") {
+      alert("Approve the offer first, then record the candidate’s acceptance.");
+      return;
+    }
+    if (!confirm("Mark this offer as accepted? The candidate will be moved to Hired.")) return;
     setActionLoading(true);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/accept`, { method: "POST" });
@@ -157,6 +344,7 @@ export default function CandidateDetailPage() {
 
   async function handleRejectOffer() {
     if (!candidate?.offer) return;
+    if (!confirm("Reject or withdraw this offer? Use this when the candidate declines or the offer is pulled.")) return;
     const reason = prompt("Reason for rejecting the offer:");
     if (reason === null) return;
     setActionLoading(true);
@@ -252,7 +440,7 @@ export default function CandidateDetailPage() {
                   )}
                 </div>
                 {["Sourced", "Screening", "Phone Screen", "Interview"].includes(c.stage) && (
-                  <Button variant="secondary" onClick={() => setScheduleModal(true)}>Schedule Interview</Button>
+                  <Button variant="secondary" onClick={openScheduleModal}>Schedule Interview</Button>
                 )}
                 <Button variant="secondary" className="text-red-600" onClick={() => setRejectModal(true)}>Reject</Button>
               </>
@@ -311,6 +499,28 @@ export default function CandidateDetailPage() {
                 <div><dt className="text-[var(--text-muted)]">Rating</dt><dd className="font-medium">{c.rating ? "★".repeat(c.rating) + "☆".repeat(5 - c.rating) : "Not rated"}</dd></div>
               </dl>
               {c.notes && <div className="mt-4"><dt className="text-sm text-[var(--text-muted)]">Notes</dt><dd className="mt-1 text-sm whitespace-pre-wrap">{c.notes}</dd></div>}
+              {(c.hasUploadedResume || (c.resumeUrl && /^https?:\/\//i.test(c.resumeUrl))) && (
+                <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[var(--border)] pt-4">
+                  {c.hasUploadedResume && (
+                    <Button type="button" variant="secondary" disabled={resumeOpening} onClick={() => void openStoredResumePdf()}>
+                      {resumeOpening ? "Opening…" : "View resume (PDF)"}
+                    </Button>
+                  )}
+                  {c.resumeUrl && /^https?:\/\//i.test(c.resumeUrl) && (
+                    <a
+                      href={c.resumeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-medium text-[var(--primary)] underline-offset-2 hover:underline"
+                    >
+                      External resume link
+                    </a>
+                  )}
+                  {c.resumeUrl && c.hasUploadedResume && !/^https?:\/\//i.test(c.resumeUrl) && (
+                    <span className="text-xs text-[var(--text-muted)]">Original file name: {c.resumeUrl}</span>
+                  )}
+                </div>
+              )}
               {c.rejectionReason && (
                 <div className="mt-4 rounded-lg bg-red-50 p-3">
                   <dt className="text-sm font-medium text-red-700">Rejection Reason</dt>
@@ -327,7 +537,7 @@ export default function CandidateDetailPage() {
             {c.interviews.length === 0 ? (
               <div className="rounded-2xl border border-[var(--border)] bg-white p-8 text-center text-[var(--text-muted)] shadow-sm">
                 No interviews scheduled yet.
-                <div className="mt-3"><Button variant="secondary" onClick={() => setScheduleModal(true)}>Schedule Interview</Button></div>
+                <div className="mt-3"><Button variant="secondary" onClick={openScheduleModal}>Schedule Interview</Button></div>
               </div>
             ) : c.interviews.map((iv) => (
               <div key={iv.id} className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
@@ -396,17 +606,31 @@ export default function CandidateDetailPage() {
                 )}
 
                 {/* Offer action buttons */}
-                {c.offer.status !== "Approved" && c.offer.status !== "Rejected" && (
+                {c.offer.status !== "Rejected" && (
                   <div className="mt-6 flex flex-wrap items-center gap-3 pt-4 border-t border-[var(--border)]">
-                    <Button onClick={handleSendOfferEmail} disabled={sendingEmail} variant="secondary">
-                      {sendingEmail ? "Sending..." : "Send Offer Email"}
-                    </Button>
-                    <Button onClick={handleAcceptOffer} disabled={actionLoading}>
-                      {actionLoading ? "Processing..." : "Mark as Accepted"}
-                    </Button>
-                    <Button variant="secondary" className="text-red-600" onClick={handleRejectOffer} disabled={actionLoading}>
-                      Mark as Rejected
-                    </Button>
+                    {c.offer.status === "Pending" && (
+                      <>
+                        <Button onClick={handleApproveOffer} disabled={actionLoading}>
+                          {actionLoading ? "Processing..." : "Approve offer"}
+                        </Button>
+                        <Button variant="secondary" className="text-red-600" onClick={handleRejectOffer} disabled={actionLoading}>
+                          Reject offer
+                        </Button>
+                      </>
+                    )}
+                    {c.offer.status === "Approved" && !c.offer.acceptedAt && (
+                      <>
+                        <Button onClick={handleSendOfferEmail} disabled={sendingEmail} variant="secondary">
+                          {sendingEmail ? "Sending..." : "Send Offer Email"}
+                        </Button>
+                        <Button onClick={handleAcceptOffer} disabled={actionLoading}>
+                          {actionLoading ? "Processing..." : "Mark as Accepted"}
+                        </Button>
+                        <Button variant="secondary" className="text-red-600" onClick={handleRejectOffer} disabled={actionLoading}>
+                          Withdraw offer
+                        </Button>
+                      </>
+                    )}
                     {emailSent && <span className="text-sm text-green-600 font-medium">Offer email sent to {c.email}</span>}
                   </div>
                 )}
@@ -518,24 +742,101 @@ export default function CandidateDetailPage() {
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
             <h2 className="mb-4 text-lg font-semibold">Schedule Interview</h2>
             <div className="space-y-3">
-              <div><label className="block text-sm font-medium mb-1">Title *</label>
-                <input value={interviewForm.title} onChange={(e) => setInterviewForm({ ...interviewForm, title: e.target.value })} className={INPUT} /></div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Title *</label>
+                <FormSelect
+                  value={interviewForm.title}
+                  onValueChange={(v) => setInterviewForm((prev) => ({ ...prev, title: v }))}
+                  options={scheduleTitleOpts}
+                  placeholder="Select title…"
+                />
+                <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  Default matches interview type below; pick another title or change type to adjust.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="block text-sm font-medium mb-1">Date & Time *</label>
+                <div><label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Date & Time *</label>
                   <DateTimePickerField value={interviewForm.scheduledAt} onChange={(v) => setInterviewForm({ ...interviewForm, scheduledAt: v })} className={INPUT} /></div>
-                <div><label className="block text-sm font-medium mb-1">Duration (min)</label>
+                <div><label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Duration (min)</label>
                   <input type="number" value={interviewForm.duration} onChange={(e) => setInterviewForm({ ...interviewForm, duration: Number(e.target.value) })} className={INPUT} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="block text-sm font-medium mb-1">Type</label>
-                  <select value={interviewForm.interviewType} onChange={(e) => setInterviewForm({ ...interviewForm, interviewType: e.target.value })} className={INPUT}>
-                    <option>In-person</option><option>Virtual</option><option>Phone</option><option>Panel</option><option>Technical</option>
-                  </select></div>
-                <div><label className="block text-sm font-medium mb-1">Location</label>
-                  <input value={interviewForm.location} onChange={(e) => setInterviewForm({ ...interviewForm, location: e.target.value })} className={INPUT} /></div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Type</label>
+                  <FormSelect
+                    value={interviewForm.interviewType || ""}
+                    onValueChange={(v) => {
+                      const name = candidate?.fullName ?? "";
+                      setInterviewForm((prev) => ({
+                        ...prev,
+                        interviewType: v,
+                        title: defaultScheduleTitle(v || undefined, name),
+                      }));
+                    }}
+                    options={INTERVIEW_TYPE_OPTS}
+                    placeholder="Select type…"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Location</label>
+                  <FormSelect
+                    value={interviewForm.location === SCHEDULE_LOCATION_OTHER ? SCHEDULE_LOCATION_OTHER : interviewForm.location || ""}
+                    onValueChange={(v) => {
+                      setInterviewForm({ ...interviewForm, location: v });
+                      if (v !== SCHEDULE_LOCATION_OTHER) setScheduleLocationOther("");
+                    }}
+                    options={scheduleLocationOpts}
+                    placeholder="Select location…"
+                  />
+                  {interviewForm.location === SCHEDULE_LOCATION_OTHER && (
+                    <input
+                      className={`${INPUT} mt-2`}
+                      placeholder="Room name, floor, or meeting link"
+                      value={scheduleLocationOther}
+                      onChange={(e) => setScheduleLocationOther(e.target.value)}
+                    />
+                  )}
+                </div>
               </div>
-              <div><label className="block text-sm font-medium mb-1">Interviewer Name</label>
-                <input value={interviewForm.interviewerName} onChange={(e) => setInterviewForm({ ...interviewForm, interviewerName: e.target.value })} className={INPUT} /></div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Interviewer</label>
+                <FormSelect
+                  value={interviewForm.interviewerId || ""}
+                  onValueChange={(v) =>
+                    setInterviewForm({
+                      ...interviewForm,
+                      interviewerId: v,
+                      interviewerName: v ? scheduleLookups.interviewers.find((e) => e.id === v)?.name ?? "" : "",
+                    })
+                  }
+                  options={scheduleInterviewerOpts}
+                  placeholder="Select interviewer…"
+                />
+              </div>
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--soft)]/50 px-3 py-3">
+                <p className="mb-2 text-xs font-semibold text-[var(--text)]">Email notifications</p>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/25"
+                    checked={notifyInterviewCandidateEmail}
+                    onChange={(e) => setNotifyInterviewCandidateEmail(e.target.checked)}
+                  />
+                  <span>
+                    Email interview details to {c.email ? <strong>{c.email}</strong> : "the candidate"}
+                  </span>
+                </label>
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/25"
+                    disabled={!interviewForm.interviewerId}
+                    checked={notifyInterviewInterviewerEmail && !!interviewForm.interviewerId}
+                    onChange={(e) => setNotifyInterviewInterviewerEmail(e.target.checked)}
+                  />
+                  <span>Email interview details to the interviewer (employee work email)</span>
+                </label>
+              </div>
             </div>
             <div className="mt-5 flex justify-end gap-3">
               <Button variant="secondary" onClick={() => setScheduleModal(false)}>Cancel</Button>

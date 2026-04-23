@@ -2,6 +2,18 @@ namespace OpenSkyHRM.Application.DTOs.Recruitment;
 
 // ── Requisition ──────────────────────────────────────────────────
 
+public class RequisitionTimelineEntryDto
+{
+    public string Title { get; set; } = string.Empty;
+    public string Period { get; set; } = string.Empty;
+    public string Details { get; set; } = string.Empty;
+}
+
+public class SaveRequisitionProfileDto
+{
+    public List<RequisitionTimelineEntryDto> Timeline { get; set; } = new();
+}
+
 public class RequisitionDto
 {
     public Guid Id { get; set; }
@@ -30,6 +42,13 @@ public class RequisitionDto
     public string? PositionTitle { get; set; }
     public Guid? PositionId { get; set; }
     public int CandidateCount { get; set; }
+
+    public List<RequisitionTimelineEntryDto> Timeline { get; set; } = new();
+    public string? SupportingPdfOriginalFileName { get; set; }
+    public bool HasSupportingPdf { get; set; }
+
+    /// <summary>Inbox for new application emails for this requisition.</summary>
+    public string? ApplicationNotificationEmail { get; set; }
 }
 
 public class CreateRequisitionDto
@@ -51,11 +70,29 @@ public class CreateRequisitionDto
     public Guid? HiringManagerId { get; set; }
     public Guid? LocationId { get; set; }
     public Guid? PositionId { get; set; }
+
+    /// <summary>Inbox for new candidate applications (optional; else global Recruitment:ApplicationNotificationEmail).</summary>
+    public string? ApplicationNotificationEmail { get; set; }
 }
 
 public class UpdateRequisitionDto : CreateRequisitionDto
 {
     public Guid Id { get; set; }
+}
+
+public class RejectRequisitionDto
+{
+    public string? Remarks { get; set; }
+}
+
+/// <summary>Outcome of hiring a candidate (convert to employee).</summary>
+public record HireCandidateResult(Guid EmployeeId, bool CreatedNewEmployee);
+
+/// <summary>Outcome when notifying HR about a new job application (for API diagnostics).</summary>
+public sealed class JobApplicationEmailNotificationResultDto
+{
+    public string Status { get; set; } = "";
+    public string? Message { get; set; }
 }
 
 // ── Candidate ────────────────────────────────────────────────────
@@ -83,6 +120,9 @@ public class CandidateDto
     public Guid RequisitionId { get; set; }
     public string? RequisitionTitle { get; set; }
     public Guid? EmployeeId { get; set; }
+
+    /// <summary>Uploaded PDF resume available at GET /api/recruitment/candidates/{id}/resume.</summary>
+    public bool HasUploadedResume { get; set; }
 }
 
 public class CandidateDetailDto : CandidateDto
@@ -158,6 +198,12 @@ public class CreateInterviewDto
     public Guid CandidateId { get; set; }
     public Guid? InterviewerId { get; set; }
     public string? InterviewerName { get; set; }
+
+    /// <summary>When true, sends the interview details to the candidate email (if mail is configured and the candidate has an email).</summary>
+    public bool NotifyCandidateByEmail { get; set; } = true;
+
+    /// <summary>When true, sends the interview details to the assigned interviewer work email (employee record).</summary>
+    public bool NotifyInterviewerByEmail { get; set; } = true;
 }
 
 public class UpdateInterviewDto : CreateInterviewDto
@@ -241,6 +287,8 @@ public class RejectOfferDto
 
 public class OfferEmailInfoDto
 {
+    /// <summary>Offer workflow status (e.g. Pending, Approved).</summary>
+    public string Status { get; set; } = string.Empty;
     public string CandidateEmail { get; set; } = string.Empty;
     public string CandidateName { get; set; } = string.Empty;
     public string? PositionTitle { get; set; }

@@ -195,6 +195,7 @@ public class LeaveEntitlementService : ILeaveEntitlementService
             "ChildOrderBased" => CalculateChildOrderEntitlement(ruleConfigJson),
             "ShopOfficeAnnual" => CalculateShopOfficeAnnual(joinDate, forYear, asOf, employmentType, dateOfPermanency, probationEndDate),
             "ShopOfficeCasual" => CalculateShopOfficeCasual(joinDate, forYear, asOf),
+            "ShopOfficeSick" => CalculateShopOfficeSickEntitlement(ruleConfigJson),
             _ => CalculateServiceYearEntitlement(joinDate, forYear, ruleConfigJson, asOf),
         };
     }
@@ -501,6 +502,25 @@ public class LeaveEntitlementService : ILeaveEntitlementService
     {
         var config = JsonSerializer.Deserialize<ChildOrderConfig>(ruleConfigJson, JsonOpts);
         return config?.DefaultDays ?? 0;
+    }
+
+    /// <summary>Display rules may add <c>narrative</c> JSON; entitlement days default to 14 or <c>sickEntitlementDays</c> in config.</summary>
+    private static decimal CalculateShopOfficeSickEntitlement(string ruleConfigJson)
+    {
+        if (string.IsNullOrWhiteSpace(ruleConfigJson)) return 14m;
+        try
+        {
+            using var doc = JsonDocument.Parse(ruleConfigJson);
+            if (doc.RootElement.TryGetProperty("sickEntitlementDays", out var el) && el.ValueKind == JsonValueKind.Number)
+            {
+                if (el.TryGetDecimal(out var n) && n >= 0 && n <= 366) return n;
+            }
+        }
+        catch
+        {
+            /* treat as default */
+        }
+        return 14m;
     }
 
     /// <summary>

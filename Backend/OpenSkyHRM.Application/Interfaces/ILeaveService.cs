@@ -10,7 +10,7 @@ public interface ILeaveService
 
     // Leave Requests
     Task<PagedResult<LeaveRequestDto>> GetLeaveRequestsAsync(int page = 1, int pageSize = 20, string? status = null, Guid? employeeId = null, DateTime? fromDate = null, DateTime? toDate = null, IReadOnlyList<Guid>? allowedEmployeeIds = null, Guid? excludeEmployeeId = null);
-    Task<LeaveRequestDto> CreateLeaveRequestAsync(CreateLeaveRequestDto dto);
+    Task<LeaveRequestDto> CreateLeaveRequestAsync(CreateLeaveRequestDto dto, string? medicalCertificateUrl = null);
     Task<LeaveRequestDto?> ApproveLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto);
     Task<LeaveRequestDto?> RejectLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto);
 
@@ -27,11 +27,13 @@ public interface ILeaveService
     Task<bool> DeleteLeavePolicyAsync(Guid id);
 
     // Leave Balances
-    Task<List<LeaveBalanceDto>> GetEmployeeBalancesAsync(Guid employeeId, int year);
-    Task<List<LeaveBalanceSummaryDto>> GetBalanceSummaryAsync(int year);
+    Task<List<LeaveBalanceDto>> GetEmployeeBalancesAsync(Guid employeeId, int year, DateTime? asOfDate = null);
+    Task<List<LeaveBalanceSummaryDto>> GetBalanceSummaryAsync(int year, DateTime? asOfDate = null);
     Task<LeaveBalanceDto> CreateLeaveBalanceAsync(CreateLeaveBalanceDto dto);
     Task<LeaveBalanceDto?> UpdateLeaveBalanceAsync(Guid id, UpdateLeaveBalanceDto dto);
-    Task<CarryForwardResult> ProcessCarryForwardAsync(int fromYear, int toYear);
+    Task<CarryForwardResult> ProcessCarryForwardAsync(int fromYear, int toYear, IReadOnlySet<Guid>? onlyEmployeeIds = null);
+    Task<CarryForwardAvailabilitySettingsDto> GetCarryForwardAvailabilitySettingsAsync();
+    Task<CarryForwardAvailabilitySettingsDto> SetCarryForwardAvailabilitySettingsAsync(UpdateCarryForwardAvailabilitySettingsDto dto);
 
     // Holidays
     Task<List<HolidayDto>> GetHolidaysAsync(int year);

@@ -1,13 +1,19 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useId, Fragment, type FormEvent, type ReactNode } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField } from "@/components/ui";
+import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
-import { formatDate } from "@/lib/date-utils";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
+import {
+  DonutMixChart,
+  formatInt,
+  HorizontalCompareBars,
+  WeeklyActivityBars,
+} from "@/lib/workspace-charts";
 import { useAuth } from "@/contexts/auth-context";
 
 // ──────────────────────────── Types ────────────────────────────
@@ -80,6 +86,8 @@ interface PolicyItem {
 
 interface BalanceItem {
   id: string;
+  /** Present when API returns it; used to match catalog rows. */
+  leaveTypeId?: string;
   leaveTypeName: string;
   year: number;
   periodLabel?: string;
@@ -88,6 +96,8 @@ interface BalanceItem {
   entitled: number;
   used: number;
   carriedForward: number;
+  /** Opening carry from prior period (stays for display when current pool has expired). */
+  broughtForwardDays?: number;
   remaining: number;
 }
 
@@ -131,6 +141,72 @@ interface EntitlementRuleConfigDisplay {
   applicableGender?: string;
   brackets?: { childFrom: number; childTo: number | null; days: number }[];
   defaultDays?: number;
+  narrative?: { intro?: string; points?: string[] };
+  sickEntitlementDays?: number;
+}
+
+interface CarryForwardAvailability {
+  availabilityMonths: number;
+  windowDescription: string;
+  narrativeIntro?: string;
+  narrativePoints?: string[];
+}
+
+/** In-app fallbacks; must stay aligned with `LeaveService.GetDefaultCarryForwardNarrative` in the API. */
+const DEFAULT_CARRY_NARRATIVE: { intro: string; points: [string, string, string] } = {
+  intro: "Not a separate leave type — unused days from a completed balance year can be moved into the next year for leave types that your policy allows (for example annual leave), up to the limits you set.",
+  points: [
+    "In Leave → Policies, enable Allow carry forward and set Max carry forward days (and max days per year) for that leave type.",
+    "At the start of a new year, use Leave → Carry Forward to run the process: remaining days (within policy limits) are written to the new year as carried forward on the balance.",
+    "Carried days are then used with the same balance, subject to that leave type’s policy and approval rules.",
+  ],
+};
+
+function carryNarrativePointsTuple(raw: string[] | undefined | null): [string, string, string] {
+  const a = raw ?? [];
+  const t: [string, string, string] = [a[0] ?? "", a[1] ?? "", a[2] ?? ""];
+  if (!t[0].trim() && !t[1].trim() && !t[2].trim()) return DEFAULT_CARRY_NARRATIVE.points;
+  return t;
+}
+
+/** Display message for failed carry-forward save (403 = no permission). */
+function carryForwardSaveErrorMessage(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/^API\s+403\b/i.test(msg) || /\b403\b/i.test(msg)) {
+    return "You don't have permission to save these settings. You need Leave (organization-wide) update access or the Supervisor role.";
+  }
+  return msg;
+}
+
+function buildCarryWindowDescription(months: number): string {
+  if (months >= 12) return "Carry-forward days may be used for the full 12 months of the balance period.";
+  return `Carried-from days on a balance may only be used for leave with a start date in the first ${months} month(s) of that balance period (for a full calendar year, from 1 January). After that window, new requests are limited to standard entitlement (excluding the carried amount).`;
+}
+
+/** Handles PascalCase or camelCase API property names and fills empty narrative. */
+function normalizeCarrySettingsFromApi(raw: unknown): CarryForwardAvailability {
+  const r = raw as Record<string, unknown>;
+  const months = Number(
+    (r as { availabilityMonths?: number }).availabilityMonths ?? (r as { AvailabilityMonths?: number }).AvailabilityMonths ?? 3,
+  );
+  const m = Number.isFinite(months) ? Math.min(12, Math.max(1, months)) : 3;
+  const fromApiIntro = (r as { narrativeIntro?: string; NarrativeIntro?: string }).narrativeIntro
+    ?? (r as { NarrativeIntro?: string }).NarrativeIntro;
+  const fromApiPoints = (r as { narrativePoints?: string[]; NarrativePoints?: string[] }).narrativePoints
+    ?? (r as { NarrativePoints?: string[] }).NarrativePoints;
+  const fromApiWd = (r as { windowDescription?: string; WindowDescription?: string }).windowDescription
+    ?? (r as { WindowDescription?: string }).WindowDescription;
+  const intro = (typeof fromApiIntro === "string" && fromApiIntro.trim() ? fromApiIntro : DEFAULT_CARRY_NARRATIVE.intro).trim();
+  const points = carryNarrativePointsTuple(fromApiPoints);
+  const windowDescription = (typeof fromApiWd === "string" && fromApiWd.trim()
+    ? fromApiWd
+    : buildCarryWindowDescription(m)).trim();
+  return {
+    availabilityMonths: m,
+    windowDescription,
+    narrativeIntro: intro,
+    narrativePoints: [...points],
+  };
 }
 
 interface RecalcResult {
@@ -141,7 +217,7 @@ interface RecalcResult {
 
 // ──────────────────────────── Tabs ────────────────────────────
 
-type PageTab = "dashboard" | "applyLeave" | "requests" | "approvals" | "balances" | "carryForward" | "leaveTypes" | "policies" | "holidays" | "calendar";
+type PageTab = "dashboard" | "applyLeave" | "requests" | "approvals" | "balances" | "carryForward" | "assignLeaveType" | "leaveTypes" | "policies" | "holidays" | "calendar";
 
 const PAGE_TABS: { key: PageTab; label: string }[] = [
   { key: "dashboard", label: "Dashboard" },
@@ -149,22 +225,35 @@ const PAGE_TABS: { key: PageTab; label: string }[] = [
   { key: "requests", label: "Leave Requests" },
   { key: "balances", label: "Leave Balances" },
   { key: "carryForward", label: "Carry Forward" },
+  { key: "assignLeaveType", label: "Assign Leave Type" },
   { key: "leaveTypes", label: "Leave Types" },
   { key: "policies", label: "Policies" },
   { key: "holidays", label: "Holidays" },
   { key: "calendar", label: "Team Calendar" },
 ];
 
+/** Subtitles for overflow menu — same tone as Dashboard “Quick actions” */
+const OVERFLOW_TAB_HINTS: Partial<Record<PageTab, string>> = {
+  balances: "Entitlements and usage by employee",
+  carryForward: "Roll remaining days into a new year",
+  assignLeaveType: "Create a balance line for an employee and leave type",
+  leaveTypes: "Paid, unpaid, and custom leave categories",
+  policies: "Approvals, limits, and carry-forward rules",
+  holidays: "Company holidays and restricted dates",
+  calendar: "Team leave on a shared calendar",
+};
+
 const EMPLOYEE_TABS: { key: PageTab; label: string }[] = [
   { key: "applyLeave", label: "Apply Leave" },
   { key: "requests", label: "My Leave" },
 ];
 
-// Supervisor (Team scope): own leave + team approvals only
+// Supervisor (Team scope): own leave, team approvals, and Policies (carry-forward / policy reference)
 const SUPERVISOR_TABS: { key: PageTab; label: string }[] = [
   { key: "applyLeave", label: "Apply Leave" },
   { key: "requests", label: "My Leave" },
   { key: "approvals", label: "Pending Approvals" },
+  { key: "policies", label: "Policies" },
 ];
 
 // ──────────────────────────── Helpers ────────────────────────────
@@ -212,10 +301,17 @@ function CardHeader({ title, children }: { title: string; children?: React.React
 // ──────────────────────────── Page ────────────────────────────
 
 export default function LeavePage() {
-  const { getLeaveReadScope, user } = useAuth();
+  const { getLeaveReadScope, user, hasRole } = useAuth();
   const leaveScope = getLeaveReadScope();
-  const isEmployeeView = leaveScope === "Own";
-  const isSupervisorView = leaveScope === "Team";
+  /** Full HR / admin leave workspace (all tabs). */
+  const isHrWideAccess = leaveScope === "All";
+  /** Self-service only. */
+  const isEmployeeView = Boolean(user) && leaveScope === "Own" && !isHrWideAccess;
+  /** Team approvals + Policies (carry-forward); includes users with Supervisor role even if Leave Read scope is missing from the profile. */
+  const isSupervisorView =
+    Boolean(user) &&
+    !isHrWideAccess &&
+    (leaveScope === "Team" || hasRole("SUPERVISOR"));
 
   const [pageTab, setPageTab] = useState<PageTab>(
     isEmployeeView ? "applyLeave" : isSupervisorView ? "applyLeave" : "dashboard"
@@ -224,7 +320,11 @@ export default function LeavePage() {
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if ((isEmployeeView || isSupervisorView) && (pageTab === "dashboard" || pageTab === "balances" || pageTab === "carryForward" || pageTab === "leaveTypes" || pageTab === "policies" || pageTab === "holidays" || pageTab === "calendar")) {
+    const adminOnlyTabs: PageTab[] = ["dashboard", "balances", "carryForward", "assignLeaveType", "leaveTypes", "holidays", "calendar"];
+    if (isEmployeeView && (adminOnlyTabs.includes(pageTab) || pageTab === "policies")) {
+      setPageTab("applyLeave");
+    }
+    if (isSupervisorView && adminOnlyTabs.includes(pageTab)) {
       setPageTab("applyLeave");
     }
   }, [isEmployeeView, isSupervisorView, pageTab]);
@@ -255,13 +355,36 @@ export default function LeavePage() {
         }
       />
 
-      {/* ─── Tab Navigation ─── */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
+        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
+        <div className="relative z-10">
+          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+            Leave workspace
+          </p>
+          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Absence intelligence</h2>
+          <p className="mt-3 max-w-2xl text-sm text-slate-600">
+            {isEmployeeView
+              ? "Submit requests and track approvals in one place. Admin configuration tabs are hidden for your role."
+              : isSupervisorView
+                ? "Submit requests, track your leave, approve your team, and open Policies for carry-forward and policy reference text. Other admin-only tabs stay hidden."
+                : "KPIs and charts load from the leave API. Use the tabs below to apply leave, manage approvals, balances, policies, and calendars."}
+          </p>
+        </div>
+      </section>
+
+      {/* ─── Tab Navigation (Command Center–style pills; overflow panel matches Dashboard “Quick actions”) ─── */}
+      <div className="relative z-40 isolate mt-6 mb-6 flex flex-wrap items-center gap-2">
         {primaryTabs.map((t) => (
           <button
             key={t.key}
+            type="button"
             onClick={() => setPageTab(t.key)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition sm:px-4 sm:py-1.5 sm:text-sm ${pageTab === t.key ? "bg-blue-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            className={`rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${
+              pageTab === t.key
+                ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+            }`}
           >
             {t.label}
           </button>
@@ -269,19 +392,63 @@ export default function LeavePage() {
         {!isEmployeeView && !isSupervisorView && overflowTabs.length > 0 && (
           <div className="relative" ref={moreMenuRef}>
             <button
+              type="button"
               onClick={() => setShowMoreMenu((p) => !p)}
-              className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition sm:px-4 sm:py-1.5 sm:text-sm ${isOverflow ? "bg-blue-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+              aria-expanded={showMoreMenu}
+              aria-haspopup="menu"
+              className={`flex items-center gap-1 rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${
+                isOverflow
+                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                  : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+              }`}
             >
               {isOverflow ? PAGE_TABS.find((t) => t.key === pageTab)!.label : "More"}
-              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
             </button>
             {showMoreMenu && (
-              <div className="absolute left-0 top-full z-30 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                {overflowTabs.map((t) => (
-                  <button key={t.key} onClick={() => { setPageTab(t.key); setShowMoreMenu(false); }} className={`block w-full px-4 py-2 text-left text-sm transition hover:bg-slate-50 ${pageTab === t.key ? "font-semibold text-blue-600" : "text-slate-600"}`}>
-                    {t.label}
-                  </button>
-                ))}
+              <div
+                className="absolute left-0 top-full z-50 mt-2 w-[min(calc(100vw-2rem),20rem)] rounded-2xl border border-slate-200 bg-white p-2 shadow-sm ring-1 ring-slate-900/5"
+                role="menu"
+              >
+                <div className="grid gap-2">
+                  {overflowTabs.map((t) => {
+                    const active = pageTab === t.key;
+                    const hint = OVERFLOW_TAB_HINTS[t.key];
+                    return (
+                      <button
+                        key={t.key}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setPageTab(t.key);
+                          setShowMoreMenu(false);
+                        }}
+                        className={`group flex w-full items-start justify-between gap-3 rounded-xl border px-3.5 py-3 text-left transition ${
+                          active
+                            ? "border-slate-300 bg-slate-50 shadow-sm"
+                            : "border-slate-200/90 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className={`truncate text-sm ${active ? "font-semibold text-slate-900" : "font-semibold text-slate-800"}`}>
+                            {t.label}
+                          </div>
+                          {hint ? (
+                            <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{hint}</div>
+                          ) : null}
+                        </div>
+                        <span
+                          className={`mt-0.5 shrink-0 transition group-hover:translate-x-0.5 ${active ? "text-slate-600" : "text-slate-400 group-hover:text-slate-700"}`}
+                          aria-hidden
+                        >
+                          →
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -289,12 +456,15 @@ export default function LeavePage() {
       </div>
 
       {/* ─── Tab Content ─── */}
-      {pageTab === "dashboard" && <DashboardTab onApplyLeave={() => setPageTab("applyLeave")} />}
+      {pageTab === "dashboard" && (
+        <DashboardTab onApplyLeave={() => setPageTab("applyLeave")} onOpenTab={(tab) => setPageTab(tab)} />
+      )}
       {pageTab === "applyLeave" && <ApplyLeaveTab isEmployeeView={isEmployeeView || isSupervisorView} currentEmployeeId={user?.employeeId ?? null} />}
       {pageTab === "requests" && <RequestsTab onApplyLeave={() => setPageTab("applyLeave")} isEmployeeView={isEmployeeView || isSupervisorView} currentEmployeeId={user?.employeeId ?? null} showApprovalActions={!isEmployeeView && !isSupervisorView} />}
       {pageTab === "approvals" && <RequestsTab onApplyLeave={() => setPageTab("applyLeave")} isEmployeeView={false} currentEmployeeId={user?.employeeId ?? null} showApprovalActions={true} teamOnly />}
       {pageTab === "balances" && <BalancesTab />}
       {pageTab === "carryForward" && <CarryForwardTab />}
+      {pageTab === "assignLeaveType" && <AssignLeaveTypeTab />}
       {pageTab === "leaveTypes" && <LeaveTypesTab />}
       {pageTab === "policies" && <PoliciesTab />}
       {pageTab === "holidays" && <HolidaysTab />}
@@ -307,88 +477,259 @@ export default function LeavePage() {
 //  PHASE 1 – Dashboard Tab
 // ═══════════════════════════════════════════════════════════════
 
-function DashboardTab({ onApplyLeave }: { onApplyLeave: () => void }) {
+function DashboardTab({
+  onApplyLeave,
+  onOpenTab,
+}: {
+  onApplyLeave: () => void;
+  onOpenTab: (tab: PageTab) => void;
+}) {
   const [dash, setDash] = useState<Dashboard | null>(null);
+  const [dashLoading, setDashLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch<Dashboard>("/api/leave/dashboard").then(setDash);
+    setDashLoading(true);
+    apiFetch<Dashboard>("/api/leave/dashboard")
+      .then(setDash)
+      .catch(() => setDash(null))
+      .finally(() => setDashLoading(false));
   }, []);
 
-  if (!dash) return <div className="py-10 text-center text-sm text-slate-400">Loading dashboard...</div>;
+  const leaveStatusBars = useMemo(() => {
+    const requests = dash?.recentRequests ?? [];
+    if (requests.length === 0) return [];
+    const tally = new Map<string, number>();
+    for (const r of requests) {
+      const s = r.status || "Unknown";
+      tally.set(s, (tally.get(s) ?? 0) + 1);
+    }
+    const colorFor = (status: string) => {
+      const u = status.toLowerCase();
+      if (u.includes("pending")) return "#f59e0b";
+      if (u.includes("approved")) return "#22c55e";
+      if (u.includes("reject")) return "#ef4444";
+      if (u.includes("cancel")) return "#94a3b8";
+      return "#3b82f6";
+    };
+    return Array.from(tally.entries())
+      .map(([label, value]) => ({ label, value, color: colorFor(label) }))
+      .sort((a, b) => b.value - a.value);
+  }, [dash]);
 
-  const kpis = [
-    { label: "Total Requests", value: dash.totalRequests, icon: "M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z", color: "bg-blue-100 text-blue-600" },
-    { label: "Pending Approvals", value: dash.pendingApprovals, icon: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z", color: "bg-amber-100 text-amber-600" },
-    { label: "Approved This Month", value: dash.approvedThisMonth, icon: "M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z", color: "bg-green-100 text-green-600" },
-    { label: "Upcoming Holidays", value: dash.upcomingHolidays, icon: "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5", color: "bg-purple-100 text-purple-600" },
+  const activityLast7Days = useMemo(() => {
+    const keys: string[] = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      keys.push(d.toISOString().slice(0, 10));
+    }
+    const counts = new Map<string, number>();
+    for (const k of keys) counts.set(k, 0);
+    dash?.recentRequests?.forEach((r) => {
+      const k = new Date(r.createdAt).toISOString().slice(0, 10);
+      if (counts.has(k)) counts.set(k, (counts.get(k) ?? 0) + 1);
+    });
+    return keys.map((key) => ({
+      label: new Date(`${key}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" }),
+      count: counts.get(key) ?? 0,
+    }));
+  }, [dash]);
+
+  const timelineItems = useMemo(() => {
+    if (!dash?.recentRequests?.length) return [];
+    return [...dash.recentRequests]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 8)
+      .map((r) => ({
+        at: r.createdAt,
+        title: `${r.leaveTypeName} · ${r.status}`,
+        body: `${r.employeeName} — ${fmtDate(r.startDate)} to ${fmtDate(r.endDate)} (${r.totalDays}d)`,
+      }));
+  }, [dash]);
+
+  const kpis = useMemo(() => {
+    if (!dash) return [];
+    return [
+      {
+        label: "Total leave requests",
+        value: formatInt(dash.totalRequests),
+        sub: `${formatInt(dash.activeLeaveTypes)} active leave types in catalog`,
+      },
+      {
+        label: "Pending approvals",
+        value: formatInt(dash.pendingApprovals),
+        sub: "Awaiting manager or HR action",
+      },
+      {
+        label: "Approved this month",
+        value: formatInt(dash.approvedThisMonth),
+        sub: "Accepted in the current calendar month",
+      },
+      {
+        label: "Upcoming holidays",
+        value: formatInt(dash.upcomingHolidays),
+        sub: "Scheduled company holidays ahead",
+      },
+    ];
+  }, [dash]);
+
+  const quickLinks: { tab: PageTab; title: string; sub: string }[] = [
+    { tab: "applyLeave", title: "Apply leave", sub: "Submit a new leave request" },
+    { tab: "requests", title: "Leave requests", sub: "Review and track submissions" },
+    { tab: "balances", title: "Leave balances", sub: "Entitlements and usage by employee" },
+    { tab: "holidays", title: "Holidays", sub: "Company holidays and restricted days" },
   ];
 
+  if (dashLoading) {
+    return (
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!dash) {
+    return (
+      <p className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-sm text-slate-500 shadow-sm">
+        Unable to load leave dashboard. Check your connection and Leave module access.
+      </p>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {kpis.map((k) => (
-          <div key={k.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${k.color}`}>
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d={k.icon} /></svg>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-slate-800">{k.value}</p>
-                <p className="text-xs text-slate-500">{k.label}</p>
-              </div>
-            </div>
+    <>
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {kpis.map((kpi) => (
+          <div
+            key={kpi.label}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
+            <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
+            <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
           </div>
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Recent Requests */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
-          <CardHeader title="Recent Leave Requests">
-            <Button onClick={onApplyLeave}>+ New Request</Button>
-          </CardHeader>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="bg-slate-50 text-left">
-                <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Type</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Dates</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Days</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Status</th>
-              </tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {dash.recentRequests.length === 0 && <tr><td colSpan={5} className="px-6 py-6 text-center text-slate-400">No leave requests yet.</td></tr>}
-                {dash.recentRequests.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50/50">
-                    <td className="px-6 py-3 font-medium text-slate-700">{r.employeeName}</td>
-                    <td className="px-4 py-3 text-slate-600">{r.leaveTypeName}</td>
-                    <td className="px-4 py-3 text-slate-600">{fmtDate(r.startDate)} - {fmtDate(r.endDate)}</td>
-                    <td className="px-4 py-3 text-slate-600">{r.totalDays}</td>
-                    <td className="px-4 py-3"><StatusBadge status={r.status} responsibleUser={r.responsibleUserName} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Leave activity</h3>
+            <span className="text-xs text-slate-500">Last 7 days</span>
           </div>
+          <WeeklyActivityBars data={activityLast7Days} />
+          <p className="mt-2 text-[11px] text-slate-500">
+            Counts from recently submitted leave in the dashboard payload.
+          </p>
         </div>
 
-        {/* Quick Actions */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <CardHeader title="Quick Actions" />
-          <div className="space-y-3 p-6">
-            <button onClick={onApplyLeave} className="flex w-full items-center gap-3 rounded-xl border border-slate-200 p-3.5 text-left transition hover:bg-slate-50">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100"><svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg></div>
-              <div><p className="text-sm font-semibold text-slate-700">New Leave Request</p><p className="text-xs text-slate-400">Submit a leave application</p></div>
-            </button>
-            <div className="flex w-full items-center gap-3 rounded-xl border border-slate-200 p-3.5 text-left">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-100"><svg className="h-4 w-4 text-green-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg></div>
-              <div><p className="text-sm font-semibold text-slate-700">Leave Types: {dash.activeLeaveTypes}</p><p className="text-xs text-slate-400">Active leave categories</p></div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Recent leave by status</h3>
+            <span className="text-xs text-slate-500">Sample</span>
+          </div>
+          {leaveStatusBars.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">No recent requests in the sample.</p>
+          ) : (
+            <HorizontalCompareBars items={leaveStatusBars} />
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Status mix</h3>
+            <span className="text-xs text-slate-500">Same window</span>
+          </div>
+          {leaveStatusBars.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">No distribution data.</p>
+          ) : (
+            <DonutMixChart values={leaveStatusBars} />
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">Recent leave</h3>
+              <p className="text-xs text-slate-500">Latest submissions and statuses</p>
             </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+                {timelineItems.length} shown
+              </span>
+              <Button
+                variant="secondary"
+                className="min-h-0 rounded-lg px-3 py-1.5 text-xs"
+                onClick={() => onOpenTab("requests")}
+              >
+                All requests
+              </Button>
+              <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={onApplyLeave}>
+                + New request
+              </Button>
+            </div>
+          </div>
+          {timelineItems.length === 0 ? (
+            <p className="py-10 text-center text-sm text-slate-500">No leave requests in the dashboard sample yet.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {timelineItems.map((ev, i) => (
+                <div
+                  key={`${ev.at}-${i}`}
+                  className="group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
+                >
+                  <div className="pt-0.5 text-[11px] font-medium text-slate-500">{formatDateTime(ev.at)}</div>
+                  <div className="min-w-0">
+                    <div className="mb-0.5 flex items-center gap-2">
+                      <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-amber-400" />
+                      <strong className="truncate text-sm text-slate-800">{ev.title}</strong>
+                    </div>
+                    <div className="line-clamp-2 text-sm text-slate-600">{ev.body}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
+            <p className="text-xs text-slate-500">Jump to common leave workflows</p>
+          </div>
+          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
+            {quickLinks.map((link) => (
+              <button
+                key={link.title}
+                type="button"
+                onClick={() => onOpenTab(link.tab)}
+                className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
+                    <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{link.sub}</div>
+                  </div>
+                  <span className="mt-0.5 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
+                    →
+                  </span>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-    </div>
+      <p className="footer-note">
+        Figures come from the leave dashboard API. Charts aggregate the recent-request sample; open Leave Requests for the
+        full ledger.
+      </p>
+    </>
   );
 }
 
@@ -397,6 +738,14 @@ function DashboardTab({ onApplyLeave }: { onApplyLeave: () => void }) {
 // ═══════════════════════════════════════════════════════════════
 
 interface EmployeeLookup { id: string; firstName: string; lastName: string; profileImageUrl: string | null; employeeCode?: string }
+
+/** Sparse fields from GET /api/employees?search= for coverage name suggestions */
+interface EmployeeSuggestHit {
+  id: string;
+  fullName: string;
+  employeeCode: string;
+  departmentName?: string | null;
+}
 
 const BALANCE_COLORS = [
   { bg: "from-blue-500 to-blue-600", ring: "ring-blue-200" },
@@ -421,7 +770,120 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   const [coveragePerson, setCoveragePerson] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [medicalFile, setMedicalFile] = useState<File | null>(null);
+  const [medicalDrag, setMedicalDrag] = useState(false);
+  const medicalInputId = useId();
+  const coverageInputId = useId();
+  const coverageListId = useId();
+  const coverageWrapRef = useRef<HTMLDivElement>(null);
+  const coverageDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [coverageOpen, setCoverageOpen] = useState(false);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [coverageHits, setCoverageHits] = useState<EmployeeSuggestHit[]>([]);
   const currentYear = new Date().getFullYear();
+
+  const catalogLeaveTypes = useMemo(
+    () => [...leaveTypes].filter((t) => t.isActive).sort((a, b) => a.name.localeCompare(b.name)),
+    [leaveTypes]
+  );
+
+  /** Maternity only appears once HR has assigned a balance for that employee (same as catalog row). */
+  const leaveTypesForApply = useMemo(() => {
+    return catalogLeaveTypes.filter((t) => {
+      if (t.code?.toUpperCase() !== "LT-MAT") return true;
+      return balances.some(
+        (x) => (x.leaveTypeId && x.leaveTypeId === t.id) || x.leaveTypeName === t.name
+      );
+    });
+  }, [catalogLeaveTypes, balances]);
+
+  useEffect(() => {
+    if (!selectedTypeId) return;
+    if (leaveTypesForApply.some((t) => t.id === selectedTypeId)) return;
+    setSelectedTypeId("");
+    setMessage(null);
+  }, [selectedTypeId, leaveTypesForApply]);
+
+  const employeeFormOptions = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "Select employee…" },
+      ...employees.map((e) => ({
+        value: e.id,
+        label: `${e.firstName} ${e.lastName}${e.employeeCode ? ` (${e.employeeCode})` : ` (${e.id.slice(0, 8)})`}`,
+      })),
+    ],
+    [employees]
+  );
+
+  useEffect(() => {
+    setMedicalFile(null);
+    setMedicalDrag(false);
+  }, [selectedTypeId]);
+
+  useEffect(
+    () => () => {
+      if (coverageDebounceRef.current) clearTimeout(coverageDebounceRef.current);
+    },
+    []
+  );
+
+  useEffect(() => {
+    function onDocMouseDown(e: MouseEvent) {
+      if (!coverageWrapRef.current?.contains(e.target as Node)) setCoverageOpen(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, []);
+
+  const fetchCoverageSuggestions = useCallback(
+    async (query: string) => {
+      const q = query.trim();
+      if (q.length < 2) {
+        setCoverageHits([]);
+        setCoverageOpen(false);
+        return;
+      }
+      setCoverageLoading(true);
+      try {
+        const res = await apiFetch<{ items: EmployeeSuggestHit[] }>(
+          `/api/employees?search=${encodeURIComponent(q)}&pageSize=12&excludeTerminated=true`
+        );
+        let items = res.items ?? [];
+        if (selectedEmpId) items = items.filter((h) => h.id !== selectedEmpId);
+        setCoverageHits(items);
+        setCoverageOpen(items.length > 0);
+      } catch {
+        setCoverageHits([]);
+        setCoverageOpen(false);
+      } finally {
+        setCoverageLoading(false);
+      }
+    },
+    [selectedEmpId]
+  );
+
+  function onCoverageInputChange(next: string) {
+    setCoveragePerson(next);
+    if (coverageDebounceRef.current) clearTimeout(coverageDebounceRef.current);
+    const t = next.trim();
+    if (t.length < 2) {
+      setCoverageHits([]);
+      setCoverageOpen(false);
+      return;
+    }
+    coverageDebounceRef.current = setTimeout(() => {
+      void fetchCoverageSuggestions(next);
+    }, 280);
+  }
+
+  function pickCoverageHit(hit: EmployeeSuggestHit) {
+    const label = hit.employeeCode?.trim()
+      ? `${hit.fullName.trim()} (${hit.employeeCode.trim()})`
+      : hit.fullName.trim();
+    setCoveragePerson(label);
+    setCoverageHits([]);
+    setCoverageOpen(false);
+  }
 
   useEffect(() => {
     if (isEmployeeView && currentEmployeeId) setSelectedEmpId(currentEmployeeId);
@@ -450,43 +912,122 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
       .finally(() => setLoadingBal(false));
   }, [selectedEmpId, currentYear]);
 
+  useEffect(() => {
+    setCoverageHits([]);
+    setCoverageOpen(false);
+  }, [selectedEmpId]);
+
   const totalDays = startDate && endDate
     ? Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1)
     : 0;
 
-  const selectedBalance = balances.find((b) => {
-    const lt = leaveTypes.find((t) => t.id === selectedTypeId);
-    return lt && b.leaveTypeName === lt.name;
-  });
+  const selectedLeaveType = leaveTypes.find((t) => t.id === selectedTypeId);
+  const selectedBalance = selectedLeaveType
+    ? balances.find(
+        (b) =>
+          (b.leaveTypeId && b.leaveTypeId === selectedLeaveType.id) || b.leaveTypeName === selectedLeaveType.name
+      )
+    : undefined;
+  const isNoPayLeave = selectedLeaveType?.code?.toUpperCase() === "LT-NPL";
+  const isSickLeave = selectedLeaveType?.code?.toUpperCase() === "LT-SIC";
+  /** More than 2 calendar days of sick leave requires a medical certificate PDF. */
+  const sickLeaveRequiresMedicalPdf = isSickLeave && totalDays > 2;
+  /** Sick leave can be applied even when no balance row exists; all other paid types need an assigned balance. */
+  const allowApplyWithoutAssignedBalance = isNoPayLeave || isSickLeave;
+  const missingBalance = Boolean(
+    selectedLeaveType && !allowApplyWithoutAssignedBalance && !selectedBalance
+  );
+  const exceedsBalance =
+    !isNoPayLeave && selectedBalance ? totalDays > selectedBalance.remaining : false;
 
-  const exceedsBalance = selectedBalance ? totalDays > selectedBalance.remaining : false;
+  const pickMedical = useCallback((file: File | null) => {
+    if (!file) {
+      setMedicalFile(null);
+      return;
+    }
+    const ok = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!ok) {
+      setMessage({ type: "err", text: "Please upload a PDF file for the medical certificate." });
+      return;
+    }
+    setMedicalFile(file);
+    setMessage(null);
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (exceedsBalance) {
-      setMessage({ type: "err", text: `Insufficient leave balance. Available: ${selectedBalance!.remaining} days, requested: ${totalDays} days.` });
+    if (missingBalance) {
+      setMessage({
+        type: "err",
+        text: `No leave balance is assigned for this type for ${currentYear}. Ask HR to assign a balance before applying.`,
+      });
+      return;
+    }
+    if (sickLeaveRequiresMedicalPdf && !medicalFile) {
+      setMessage({
+        type: "err",
+        text: "Sick leave longer than 2 calendar days requires a medical certificate (PDF).",
+      });
+      return;
+    }
+    if (exceedsBalance && selectedBalance) {
+      setMessage({
+        type: "err",
+        text: `Insufficient leave balance. Available: ${selectedBalance.remaining} days, requested: ${totalDays} days.`,
+      });
+      return;
+    }
+    const typeName = selectedLeaveType?.name ?? "leave";
+    if (
+      !confirm(
+        `Submit this ${totalDays}-day ${typeName} request from ${startDate} to ${endDate}? It will go to your approver if required.`
+      )
+    ) {
       return;
     }
     setMessage(null);
     setSubmitting(true);
     try {
-      await apiFetch("/api/leave/requests", {
-        method: "POST",
-        body: JSON.stringify({
-          employeeId: selectedEmpId,
-          leaveTypeId: selectedTypeId,
-          startDate, endDate, totalDays,
-          reason: reason || null,
-          coveragePerson: coveragePerson || null,
-        }),
-      });
+      if (isSickLeave && medicalFile) {
+        const fd = new FormData();
+        fd.set("employeeId", selectedEmpId);
+        fd.set("leaveTypeId", selectedTypeId);
+        fd.set("startDate", startDate);
+        fd.set("endDate", endDate);
+        fd.set("totalDays", String(totalDays));
+        if (reason.trim()) fd.set("reason", reason.trim());
+        if (coveragePerson.trim()) fd.set("coveragePerson", coveragePerson.trim());
+        fd.set("medicalCertificate", medicalFile, medicalFile.name);
+        await apiFetch("/api/leave/requests/with-document", { method: "POST", body: fd });
+      } else {
+        await apiFetch("/api/leave/requests", {
+          method: "POST",
+          body: JSON.stringify({
+            employeeId: selectedEmpId,
+            leaveTypeId: selectedTypeId,
+            startDate,
+            endDate,
+            totalDays,
+            reason: reason || null,
+            coveragePerson: coveragePerson || null,
+          }),
+        });
+      }
       setMessage({ type: "ok", text: "Leave request submitted successfully!" });
-      setSelectedTypeId(""); setStartDate(""); setEndDate(""); setReason(""); setCoveragePerson("");
-      // Refresh balances
+      setSelectedTypeId("");
+      setStartDate("");
+      setEndDate("");
+      setReason("");
+      setCoveragePerson("");
+      setCoverageHits([]);
+      setCoverageOpen(false);
+      setMedicalFile(null);
       apiFetch<BalanceItem[]>(`/api/leave/balances/${selectedEmpId}?year=${currentYear}`).then(setBalances);
     } catch (err) {
       setMessage({ type: "err", text: err instanceof Error ? err.message : "Failed to submit request" });
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const selectedEmp = employees.find((e) => e.id === selectedEmpId);
@@ -507,23 +1048,18 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
           </p>
         </div>
         {!isEmployeeView && (
-          <select
-            value={selectedEmpId}
-            onChange={(e) => {
-              setSelectedEmpId(e.target.value);
-              setSelectedTypeId("");
-              setMessage(null);
-            }}
-            className="w-full shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 sm:max-w-xs sm:min-w-[220px]"
-          >
-            <option value="">Select employee…</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.firstName} {e.lastName}
-                {e.employeeCode ? ` (${e.employeeCode})` : ` (${e.id.slice(0, 8)})`}
-              </option>
-            ))}
-          </select>
+          <div className="w-full shrink-0 sm:max-w-xs sm:min-w-[220px]">
+            <FormSelect
+              value={selectedEmpId}
+              onValueChange={(v) => {
+                setSelectedEmpId(v);
+                setSelectedTypeId("");
+                setMessage(null);
+              }}
+              options={employeeFormOptions}
+              placeholder="Select employee…"
+            />
+          </div>
         )}
         {isEmployeeView && !currentEmployeeId && (
           <p className="text-xs text-amber-700">Account not linked to an employee profile.</p>
@@ -560,27 +1096,45 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
             )}
 
             {loadingBal && <p className="py-2 text-center text-xs text-slate-400">Loading balances…</p>}
-            {!loadingBal && balances.length === 0 && selectedEmpId && (
+            {!loadingBal && catalogLeaveTypes.length === 0 && selectedEmpId && (
               <p className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-xs text-slate-500">
-                No balances for this year. Run <span className="font-medium">Recalculate Balances</span> (admin).
+                No active leave types in the catalog. Add types under <span className="font-medium">Leave Types</span> (admin).
               </p>
             )}
-            {!loadingBal && balances.length > 0 && (
+            {!loadingBal && catalogLeaveTypes.length > 0 && leaveTypesForApply.length === 0 && selectedEmpId && (
+              <p className="rounded-lg border border-dashed border-amber-100 bg-amber-50/80 px-3 py-4 text-center text-xs text-amber-900">
+                No leave types you can apply for yet for {currentYear}. HR must assign leave types (for example Maternity)
+                under <span className="font-medium">Leave balances</span> before they appear here.
+              </p>
+            )}
+            {!loadingBal && leaveTypesForApply.length > 0 && (
               <div className="max-h-[32vh] overflow-y-auto overflow-x-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:max-h-[min(52vh,28rem)]">
                 <p className="sticky top-0 z-[1] border-b border-slate-100 bg-slate-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   Leave types
                 </p>
+                <p className="border-b border-slate-100 bg-slate-50/90 px-2.5 py-1 text-[10px] font-medium text-slate-500">Name</p>
                 <ul className="divide-y divide-slate-100 p-1">
-                  {balances.map((b, i) => {
+                  {leaveTypesForApply.map((t, i) => {
                     const color = BALANCE_COLORS[i % BALANCE_COLORS.length];
-                    const lt = leaveTypes.find((t) => t.name === b.leaveTypeName);
-                    const isSelected = Boolean(lt && lt.id === selectedTypeId);
+                    const b = balances.find(
+                      (x) => (x.leaveTypeId && x.leaveTypeId === t.id) || x.leaveTypeName === t.name
+                    );
+                    const cfOpening =
+                      b != null
+                        ? Math.max(Number(b.broughtForwardDays ?? 0), Number(b.carriedForward ?? 0))
+                        : 0;
+                    const carryExpired = b != null && cfOpening > 0 && Number(b.carriedForward ?? 0) < cfOpening;
+                    const isNoPayRow = t.code?.toUpperCase() === "LT-NPL";
+                    const isSickRow = t.code?.toUpperCase() === "LT-SIC";
+                    const catalogMaxDays = Number.isFinite(t.defaultDaysPerYear) ? t.defaultDaysPerYear : 0;
+                    const rowDisabled = !isNoPayRow && !b && !isSickRow;
+                    const isSelected = t.id === selectedTypeId;
                     return (
-                      <li key={b.id}>
+                      <li key={t.id}>
                         <button
                           type="button"
-                          disabled={!lt}
-                          onClick={() => lt && setSelectedTypeId(lt.id)}
+                          disabled={rowDisabled}
+                          onClick={() => setSelectedTypeId(t.id)}
                           className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition ${
                             isSelected
                               ? `bg-gradient-to-r ${color.bg} text-white shadow-sm`
@@ -591,29 +1145,52 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                             <p
                               className={`truncate text-xs font-semibold ${isSelected ? "text-white" : "text-slate-700"}`}
                             >
-                              {b.leaveTypeName}
+                              {t.name}
                             </p>
                             <p className={`text-[10px] ${isSelected ? "text-white/75" : "text-slate-400"}`}>
-                              Ent. {b.entitled} · Used {b.used}
-                              {b.carriedForward ? ` · CF ${b.carriedForward}` : ""}
+                              {b ? (
+                                <>
+                                  Ent. {b.entitled} · Used {b.used}
+                                  {cfOpening > 0
+                                    ? ` · CF ${cfOpening}${carryExpired ? " (expired)" : ""}`
+                                    : ""}
+                                </>
+                              ) : isNoPayRow ? (
+                                <>Unpaid — no balance pool</>
+                              ) : isSickRow ? (
+                                <>
+                                  PDF required if &gt; 2 days · balance optional
+                                  {catalogMaxDays > 0 ? (
+                                    <> · type default {catalogMaxDays}d/year</>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <>No balance for {currentYear}</>
+                              )}
                             </p>
                           </div>
                           <span
                             className={`shrink-0 tabular-nums text-lg font-bold ${isSelected ? "text-white" : "text-slate-800"}`}
                           >
-                            {b.remaining}
+                            {b ? b.remaining : "—"}
                           </span>
                         </button>
                       </li>
                     );
                   })}
                 </ul>
+                {!loadingBal && balances.length === 0 && (
+                  <p className="border-t border-slate-100 px-2.5 py-2 text-[10px] leading-snug text-slate-500">
+                    No balances loaded for {currentYear}. HR can assign balances or run{" "}
+                    <span className="font-medium">Recalculate Balances</span> (admin).
+                  </p>
+                )}
               </div>
             )}
           </div>
 
           <div className="min-w-0 lg:col-span-8 xl:col-span-9">
-            {!selectedTypeId && balances.length > 0 && (
+            {!selectedTypeId && leaveTypesForApply.length > 0 && (
               <div className="flex min-h-[180px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center lg:min-h-[min(52vh,28rem)]">
                 <p className="max-w-sm text-sm text-slate-500">
                   Select a <span className="font-medium text-slate-700">leave type</span> from the list to open the
@@ -637,7 +1214,25 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </div>
               )}
 
-              {selectedBalance && (
+              {isNoPayLeave && selectedLeaveType && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-100 bg-gradient-to-r from-slate-50 to-slate-100/80 px-3 py-2">
+                  <span className="text-xs font-semibold text-slate-800">{selectedLeaveType.name}</span>
+                  <span className="text-[11px] text-slate-600">No-pay leave does not use an annual balance pool.</span>
+                </div>
+              )}
+
+              {isSickLeave && selectedLeaveType && !selectedBalance && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-blue-100 bg-gradient-to-r from-slate-50 to-blue-50/60 px-3 py-2">
+                  <span className="text-xs font-semibold text-slate-800">{selectedLeaveType.name}</span>
+                  <span className="text-[11px] text-slate-600">
+                    No balance row for {currentYear} — you can still submit. A medical certificate (PDF) is required when
+                    the absence is more than 2 calendar days. If HR assigns a balance later, limits will apply
+                    automatically.
+                  </span>
+                </div>
+              )}
+
+              {selectedBalance && !isNoPayLeave && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-100 bg-gradient-to-r from-slate-50 to-blue-50/80 px-3 py-2">
                   <span className="text-xs font-semibold text-slate-800">{selectedBalance.leaveTypeName}</span>
                   <span className="hidden h-4 w-px bg-slate-200 sm:block" />
@@ -668,9 +1263,15 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </div>
               )}
 
-              {exceedsBalance && totalDays > 0 && (
+              {missingBalance && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                  No leave balance for this type for {currentYear}. Ask HR to assign a balance before submitting.
+                </div>
+              )}
+
+              {exceedsBalance && totalDays > 0 && selectedBalance && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-                  Not enough balance: {selectedBalance!.remaining} available vs {totalDays} requested.
+                  Not enough balance: {selectedBalance.remaining} available vs {totalDays} requested.
                 </div>
               )}
 
@@ -685,6 +1286,61 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </div>
               </div>
 
+              {isSickLeave && (
+                <div>
+                  <label className={`${applyLabel} text-slate-700`} htmlFor={medicalInputId}>
+                    Medical certificate (PDF)
+                    {sickLeaveRequiresMedicalPdf ? (
+                      <span className="text-red-500"> *</span>
+                    ) : (
+                      <span className="font-normal text-slate-400"> — optional for 1–2 day sick leave</span>
+                    )}
+                  </label>
+                  <input
+                    id={medicalInputId}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    className="sr-only"
+                    onChange={(e) => pickMedical(e.target.files?.[0] ?? null)}
+                  />
+                  <label
+                    htmlFor={medicalInputId}
+                    onDragOver={(ev) => {
+                      ev.preventDefault();
+                      setMedicalDrag(true);
+                    }}
+                    onDragLeave={() => setMedicalDrag(false)}
+                    onDrop={(ev) => {
+                      ev.preventDefault();
+                      setMedicalDrag(false);
+                      const f = ev.dataTransfer.files?.[0];
+                      if (f) pickMedical(f);
+                    }}
+                    className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition sm:px-6 sm:py-10 ${
+                      medicalDrag ? "border-blue-500 bg-blue-50/50" : "border-slate-300 bg-slate-50/80 hover:border-slate-400"
+                    }`}
+                  >
+                    <svg className="mb-2 h-9 w-9 text-blue-600 sm:mb-3 sm:h-10 sm:w-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={1.5}
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                      />
+                    </svg>
+                    <span className="text-xs font-medium text-slate-800 sm:text-sm">
+                      Click or drag a PDF here {sickLeaveRequiresMedicalPdf ? "(required for this duration)" : ""}.
+                    </span>
+                    <span className="mt-1 text-[10px] text-slate-500 sm:text-xs">
+                      Required when sick leave is more than 2 calendar days.
+                    </span>
+                    {medicalFile ? (
+                      <span className="mt-2 break-all font-mono text-xs text-blue-700 sm:text-sm">{medicalFile.name}</span>
+                    ) : null}
+                  </label>
+                </div>
+              )}
+
               <div className="grid gap-3 lg:grid-cols-2">
                 <div>
                   <label className={applyLabel}>Comments</label>
@@ -696,21 +1352,75 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                     placeholder="Optional"
                   />
                 </div>
-                <div>
-                  <label className={applyLabel}>Coverage person</label>
-                  <input
-                    value={coveragePerson}
-                    onChange={(e) => setCoveragePerson(e.target.value)}
-                    className={applyInput}
-                    placeholder="Who covers while away?"
-                  />
+                <div className="relative" ref={coverageWrapRef}>
+                  <label className={applyLabel} htmlFor={coverageInputId}>
+                    Coverage person
+                  </label>
+                  <div className="relative">
+                    <input
+                      id={coverageInputId}
+                      type="text"
+                      value={coveragePerson}
+                      onChange={(e) => onCoverageInputChange(e.target.value)}
+                      onFocus={() => {
+                        if (coverageHits.length > 0) setCoverageOpen(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setCoverageOpen(false);
+                      }}
+                      autoComplete="off"
+                      aria-autocomplete="list"
+                      aria-expanded={coverageOpen}
+                      aria-controls={coverageListId}
+                      className={applyInput + " pr-[5.25rem]"}
+                      placeholder="Start typing a colleague’s name…"
+                    />
+                    {coverageLoading && (
+                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+                        Search…
+                      </span>
+                    )}
+                  </div>
+                  {coverageOpen && coverageHits.length > 0 && (
+                    <ul
+                      id={coverageListId}
+                      role="listbox"
+                      className="absolute z-30 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                    >
+                      {coverageHits.map((hit) => (
+                        <li key={hit.id} role="presentation">
+                          <button
+                            type="button"
+                            role="option"
+                            className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => pickCoverageHit(hit)}
+                          >
+                            <span className="font-medium text-slate-800">{hit.fullName}</span>
+                            <span className="text-[11px] text-slate-500">
+                              {[hit.employeeCode ? hit.employeeCode : null, hit.departmentName?.trim() || null]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
 
               <div className="flex justify-end border-t border-slate-100 pt-2">
                 <button
                   type="submit"
-                  disabled={submitting || !startDate || !endDate || exceedsBalance}
+                  disabled={
+                    submitting ||
+                    !startDate ||
+                    !endDate ||
+                    exceedsBalance ||
+                    missingBalance ||
+                    (sickLeaveRequiresMedicalPdf && !medicalFile)
+                  }
                   className="inline-flex min-w-[8.5rem] items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50"
                 >
                   {submitting && (
@@ -770,6 +1480,19 @@ function RequestsTab({
   useEffect(() => { load(); }, [load]);
 
   const totalPages = data ? Math.ceil(data.totalCount / pageSize) : 1;
+  const showEmployeeCol = !isEmployeeView || teamOnly;
+  const nCols = 5 + (showEmployeeCol ? 1 : 0) + (showApprovalActions ? 1 : 0);
+  const tableTitle = teamOnly
+    ? "Team leave — pending review"
+    : isEmployeeView
+      ? "My leave requests"
+      : "Leave requests";
+  const tableSub =
+    teamOnly
+      ? "Requests from your team that need approval or that match your filters."
+      : isEmployeeView
+        ? "Your submitted requests and their current status."
+        : "All employees’ leave requests. Filter by status and dates as needed.";
 
   function openAction(id: string, type: "approve" | "reject") {
     setActionId(id);
@@ -798,11 +1521,17 @@ function RequestsTab({
 
   return (
     <div className="space-y-5">
-      {/* Filters */}
       <div className="flex flex-wrap items-end gap-4">
         <div>
           <label className={labelClass}>Status</label>
-          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className={inputClass + " w-48"}>
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
+            className={inputClass + " w-48 shadow-sm"}
+          >
             <option value="">All</option>
             <option value="Pending">Pending L1</option>
             <option value="PendingLevel2">Pending L2</option>
@@ -813,64 +1542,194 @@ function RequestsTab({
         </div>
         <div>
           <label className={labelClass}>From Date</label>
-          <DatePickerField value={fromDate} onChange={(v) => { setFromDate(v); setPage(1); }} className={inputClass + " w-40"} />
+          <DatePickerField
+            value={fromDate}
+            onChange={(v) => {
+              setFromDate(v);
+              setPage(1);
+            }}
+            className={inputClass + " w-40 shadow-sm"}
+          />
         </div>
         <div>
           <label className={labelClass}>To Date</label>
-          <DatePickerField value={toDate} onChange={(v) => { setToDate(v); setPage(1); }} className={inputClass + " w-40"} />
+          <DatePickerField
+            value={toDate}
+            onChange={(v) => {
+              setToDate(v);
+              setPage(1);
+            }}
+            className={inputClass + " w-40 shadow-sm"}
+          />
         </div>
         <Button onClick={onApplyLeave}>+ New Request</Button>
       </div>
 
-      {/* Table */}
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="bg-slate-50 text-left">
-              {(!isEmployeeView || teamOnly) && <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>}
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Type</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Start</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">End</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Days</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Status</th>
-              {showApprovalActions && <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>}
-            </tr></thead>
-            <tbody className="divide-y divide-slate-100">
-              {!data && <tr><td colSpan={5 + ((!isEmployeeView || teamOnly) ? 1 : 0) + (showApprovalActions ? 1 : 0)} className="px-6 py-8 text-center text-slate-400">Loading...</td></tr>}
-              {data && data.items.length === 0 && <tr><td colSpan={5 + ((!isEmployeeView || teamOnly) ? 1 : 0) + (showApprovalActions ? 1 : 0)} className="px-6 py-8 text-center text-slate-400">{teamOnly ? "No pending requests from your team." : "No requests found."}</td></tr>}
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
+        <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
+          <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">{tableTitle}</h2>
+          <p className="mt-1 text-xs text-slate-500 sm:text-sm">{tableSub}</p>
+        </div>
+        <div className="max-h-[min(70vh,48rem)] overflow-x-auto overflow-y-auto">
+          <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                {showEmployeeCol && (
+                  <th
+                    className="sticky top-0 z-10 min-w-[8.5rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
+                    scope="col"
+                  >
+                    Employee
+                  </th>
+                )}
+                <th
+                  className="sticky top-0 z-10 min-w-[7.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Type
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[7.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Start
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[7.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  End
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[4.5rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pr-2"
+                  scope="col"
+                >
+                  Days
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[8.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Status
+                </th>
+                {showApprovalActions && (
+                  <th
+                    className="sticky top-0 z-10 w-28 border-b border-slate-200/90 bg-slate-100/95 py-3 pl-1 pr-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur sm:pr-3"
+                    scope="col"
+                  >
+                    Actions
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {!data && (
+                <tr>
+                  <td colSpan={nCols} className="px-6 py-16 text-center">
+                    <div className="inline-flex items-center gap-2 text-slate-500">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" />
+                      <span>Loading requests…</span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {data && data.items.length === 0 && (
+                <tr>
+                  <td colSpan={nCols} className="px-6 py-16 text-center text-slate-500">
+                    <p className="text-sm">
+                      {teamOnly ? "No team requests match these filters." : "No requests found."}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">Try adjusting status or date range.</p>
+                  </td>
+                </tr>
+              )}
               {data?.items.map((r) => (
-                <tr key={r.id} className="hover:bg-slate-50/50">
-                  {(!isEmployeeView || teamOnly) && <td className="px-6 py-3"><p className="font-medium text-slate-700">{r.employeeName}</p><p className="text-xs text-slate-400">{r.employeeCode}</p></td>}
-                  <td className="px-4 py-3 text-slate-600">{r.leaveTypeName}</td>
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(r.startDate)}</td>
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(r.endDate)}</td>
-                  <td className="px-4 py-3 text-slate-600">{r.totalDays}</td>
-                  <td className="px-4 py-3"><StatusBadge status={r.status} responsibleUser={r.responsibleUserName} /></td>
-                  <td className="px-4 py-3">
-                    {showApprovalActions && (r.status === "Pending" || r.status === "PendingLevel2") && (
-                      <div className="flex gap-2">
-                        <button onClick={() => openAction(r.id, "approve")} className="rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-100">Approve</button>
-                        <button onClick={() => openAction(r.id, "reject")} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Reject</button>
+                <tr key={r.id} className="group border-b border-slate-100/90 transition hover:bg-sky-50/35">
+                  {showEmployeeCol && (
+                    <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-2 pr-2 transition group-hover:border-sky-500/60 sm:pl-3 sm:pr-2">
+                      <p className="font-medium text-slate-800">{r.employeeName}</p>
+                      <p className="text-xs text-slate-500 tabular-nums">{r.employeeCode}</p>
+                    </td>
+                  )}
+                  <td
+                    className={
+                      (showEmployeeCol ? "px-2" : "border-l-4 border-sky-400/45 bg-slate-50/25 pl-2 pr-2 transition group-hover:border-sky-500/60 sm:pl-3") + " py-2.5 font-medium text-slate-800 sm:pr-2"
+                    }
+                  >
+                    {r.leaveTypeName}
+                  </td>
+                  <td className="px-2 py-2.5 sm:px-3">
+                    <span className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                      {fmtDate(r.startDate)}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2.5 sm:px-3">
+                    <span className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                      {fmtDate(r.endDate)}
+                    </span>
+                  </td>
+                  <td className="min-w-[4.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pr-2 text-right sm:pl-1 sm:pr-3">
+                    <span className="text-base font-semibold tabular-nums text-emerald-800">{r.totalDays}</span>
+                  </td>
+                  <td className="px-2 py-2.5 sm:pl-1 sm:pr-3">
+                    <StatusBadge status={r.status} responsibleUser={r.responsibleUserName} />
+                  </td>
+                  {showApprovalActions && (
+                    <td className="py-2.5 pl-0 pr-1 text-right sm:pr-2">
+                      {r.status === "Pending" || r.status === "PendingLevel2" ? (
+                        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openAction(r.id, "approve")}
+                            className="rounded-lg border border-emerald-200/90 bg-emerald-50/70 px-2.5 py-1 text-xs font-medium text-emerald-900 transition hover:bg-emerald-100/80"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openAction(r.id, "reject")}
+                            className="rounded-lg border border-rose-200/80 bg-rose-50/50 px-2.5 py-1 text-xs font-medium text-rose-800 transition hover:bg-rose-100/80"
+                          >
+                            Reject
+                          </button>
                       </div>
+                      ) : (
+                        <span className="text-xs text-slate-300">—</span>
                     )}
                   </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         {data && totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-100 px-6 py-3">
-            <p className="text-xs text-slate-500">Page {page} of {totalPages} ({data.totalCount} total)</p>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/30 px-4 py-3 sm:px-6">
+            <p className="text-xs text-slate-500">
+              Page {page} of {totalPages} ({data.totalCount} total)
+            </p>
             <div className="flex gap-2">
-              <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200 disabled:opacity-50">Prev</button>
-              <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="rounded bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200 disabled:opacity-50">Next</button>
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                disabled={page >= totalPages}
+                onClick={() => setPage(page + 1)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Next
+              </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Approve/Reject Modal */}
       <Modal open={!!actionId} onClose={() => { setActionId(null); setActionError(null); }} title={actionType === "approve" ? "Approve Request" : "Reject Request"}>
         <div className="space-y-4">
           {(() => {
@@ -907,51 +1766,48 @@ function RequestsTab({
 // ═══════════════════════════════════════════════════════════════
 
 function BalancesTab() {
-  const [year, setYear] = useState(new Date().getFullYear());
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [asOfMonth, setAsOfMonth] = useState(now.getMonth() + 1);
   const [summaries, setSummaries] = useState<BalanceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcMsg, setRecalcMsg] = useState("");
 
-  const [showAddModal, setShowAddModal] = useState(false);
   const [editingBalance, setEditingBalance] = useState<BalanceItem | null>(null);
-  const [employees, setEmployees] = useState<{ id: string; firstName: string; lastName: string; employeeCode?: string }[]>([]);
-  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
-  const [addEmployeeId, setAddEmployeeId] = useState("");
-  const [addLeaveTypeId, setAddLeaveTypeId] = useState("");
-  const [addPeriodKind, setAddPeriodKind] = useState<"year" | "custom">("year");
-  const [addYear, setAddYear] = useState(new Date().getFullYear());
-  const [addPeriodStart, setAddPeriodStart] = useState("");
-  const [addPeriodEnd, setAddPeriodEnd] = useState("");
-  const [addEntitled, setAddEntitled] = useState("0");
-  const [addUsed, setAddUsed] = useState("0");
-  const [addCarriedForward, setAddCarriedForward] = useState("0");
   const [editEntitled, setEditEntitled] = useState("0");
   const [editUsed, setEditUsed] = useState("0");
   const [editCarriedForward, setEditCarriedForward] = useState("0");
   const [balanceSaving, setBalanceSaving] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
 
+  const monthOptions = useMemo(
+    () => [
+      { value: 1, label: "Jan" },
+      { value: 2, label: "Feb" },
+      { value: 3, label: "Mar" },
+      { value: 4, label: "Apr" },
+      { value: 5, label: "May" },
+      { value: 6, label: "Jun" },
+      { value: 7, label: "Jul" },
+      { value: 8, label: "Aug" },
+      { value: 9, label: "Sep" },
+      { value: 10, label: "Oct" },
+      { value: 11, label: "Nov" },
+      { value: 12, label: "Dec" },
+    ],
+    [],
+  );
+  const asOfMonthLabel = monthOptions.find((m) => m.value === asOfMonth)?.label ?? `Month ${asOfMonth}`;
+
   const loadBalances = useCallback(() => {
     setLoading(true);
-    apiFetch<BalanceSummary[]>(`/api/leave/balances/summary?year=${year}`)
+    apiFetch<BalanceSummary[]>(`/api/leave/balances/summary?year=${year}&asOfMonth=${asOfMonth}`)
       .then(setSummaries)
       .finally(() => setLoading(false));
-  }, [year]);
+  }, [year, asOfMonth]);
 
   useEffect(() => { loadBalances(); }, [loadBalances]);
-
-  useEffect(() => {
-    if (showAddModal && employees.length === 0) {
-      Promise.all([
-        apiFetch<{ items: { id: string; firstName: string; lastName: string; employeeCode?: string }[] }>("/api/employees?pageSize=500").then((r) => r.items),
-        apiFetch<LeaveTypeItem[]>("/api/leave/types"),
-      ]).then(([emps, types]) => {
-        setEmployees(emps);
-        setLeaveTypes(types);
-      });
-    }
-  }, [showAddModal, employees.length]);
 
   async function handleRecalculate() {
     setRecalculating(true);
@@ -964,65 +1820,12 @@ function BalancesTab() {
     finally { setRecalculating(false); }
   }
 
-  function openAddBalance() {
-    setAddEmployeeId("");
-    setAddLeaveTypeId("");
-    setAddPeriodKind("year");
-    setAddYear(year);
-    setAddPeriodStart("");
-    setAddPeriodEnd("");
-    setAddEntitled("0");
-    setAddUsed("0");
-    setAddCarriedForward("0");
-    setBalanceError(null);
-    setShowAddModal(true);
-  }
-
   function openEditBalance(b: BalanceItem) {
     setEditingBalance(b);
     setEditEntitled(String(b.entitled));
     setEditUsed(String(b.used));
     setEditCarriedForward(String(b.carriedForward));
     setBalanceError(null);
-  }
-
-  async function submitAddBalance(e: React.FormEvent) {
-    e.preventDefault();
-    if (addPeriodKind === "custom" && (!addPeriodStart || !addPeriodEnd)) {
-      setBalanceError("Please enter both period start and end dates.");
-      return;
-    }
-    if (addPeriodKind === "custom" && addPeriodStart > addPeriodEnd) {
-      setBalanceError("Period start must be before or equal to period end.");
-      return;
-    }
-    setBalanceSaving(true);
-    setBalanceError(null);
-    try {
-      const payload: Record<string, unknown> = {
-        employeeId: addEmployeeId,
-        leaveTypeId: addLeaveTypeId,
-        entitled: Number(addEntitled) || 0,
-        used: Number(addUsed) || 0,
-        carriedForward: Number(addCarriedForward) || 0,
-      };
-      if (addPeriodKind === "year") {
-        payload.year = addYear;
-      } else {
-        payload.periodStart = addPeriodStart;
-        payload.periodEnd = addPeriodEnd;
-      }
-      await apiFetch("/api/leave/balances", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      setShowAddModal(false);
-      loadBalances();
-    } catch (err) {
-      setBalanceError(err instanceof Error ? err.message : "Failed to add balance");
-    } finally {
-      setBalanceSaving(false);
-    }
   }
 
   async function submitEditBalance(e: React.FormEvent) {
@@ -1050,129 +1853,194 @@ function BalancesTab() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <label className={labelClass}>Year</label>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={inputClass + " w-32"}>
-            {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className={labelClass}>Year</label>
+            <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={inputClass + " w-36 shadow-sm"}>
+              {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>As-of month</label>
+            <select value={asOfMonth} onChange={(e) => setAsOfMonth(Number(e.target.value))} className={inputClass + " w-32 shadow-sm"}>
+              {monthOptions.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          {recalcMsg && <p className={`text-xs ${recalcMsg.startsWith("Done") ? "text-green-600" : "text-red-500"}`}>{recalcMsg}</p>}
-          <Button onClick={openAddBalance}>+ Assign Leave Type</Button>
-          <button onClick={handleRecalculate} disabled={recalculating} className="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50">
-            {recalculating && <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700" />}
-            {recalculating ? "Recalculating..." : "Recalculate Balances"}
+        <div className="flex min-w-0 flex-1 flex-col items-stretch gap-3 sm:max-w-xl sm:flex-row sm:items-center sm:justify-end">
+          {recalcMsg && (
+            <div
+              className={
+                `flex min-w-0 items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm ${
+                  recalcMsg.startsWith("Done")
+                    ? "border-emerald-200/80 bg-gradient-to-r from-emerald-50/90 to-white text-emerald-900"
+                    : "border-rose-200/80 bg-gradient-to-r from-rose-50/90 to-white text-rose-800"
+                }`
+              }
+            >
+              {recalcMsg.startsWith("Done") ? (
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700" aria-hidden>
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                </span>
+              ) : (
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-700" aria-hidden>
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </span>
+              )}
+              <p className="min-w-0 leading-relaxed">{recalcMsg}</p>
+            </div>
+          )}
+          <button
+            onClick={handleRecalculate}
+            disabled={recalculating}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-sky-200 bg-gradient-to-b from-sky-50 to-sky-50/80 px-4 py-2.5 text-sm font-semibold text-sky-900 shadow-sm transition hover:border-sky-300 hover:from-sky-100/90 hover:to-sky-50 disabled:opacity-50"
+            type="button"
+          >
+            {recalculating && <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-200 border-t-sky-800" aria-hidden />}
+            {recalculating ? "Recalculating…" : "Recalculate Balances"}
           </button>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <CardHeader title={`Leave Balances — ${year}`} />
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="bg-slate-50 text-left">
-              <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Leave Type</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Period</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600 text-right">Entitled</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600 text-right">Used</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600 text-right">Carried Fwd</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600 text-right">Remaining</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600 w-20">Actions</th>
-            </tr></thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading && <tr><td colSpan={8} className="px-6 py-8 text-center text-slate-400">Loading...</td></tr>}
-              {!loading && summaries.length === 0 && <tr><td colSpan={8} className="px-6 py-8 text-center text-slate-400">No balances found for {year}.</td></tr>}
-              {summaries.map((s) =>
-                s.balances.map((b, i) => (
-                  <tr key={`${s.employeeId}-${b.id}`} className="hover:bg-slate-50/50">
-                    {i === 0 && <td className="px-6 py-3 font-medium text-slate-700" rowSpan={s.balances.length}><p>{s.employeeName}</p><p className="text-xs text-slate-400">{s.employeeCode}</p></td>}
-                    <td className="px-4 py-3 text-slate-600">{b.leaveTypeName}</td>
-                    <td className="px-4 py-3 text-slate-600 text-sm">{b.periodLabel ?? b.year}</td>
-                    <td className="px-4 py-3 text-right text-slate-600">{b.entitled}</td>
-                    <td className="px-4 py-3 text-right text-slate-600">{b.used}</td>
-                    <td className="px-4 py-3 text-right text-slate-600">{b.carriedForward}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-700">{b.remaining}</td>
-                    <td className="px-4 py-3">
-                      <button type="button" onClick={() => openEditBalance(b)} className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Edit</button>
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
+        <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
+          <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Leave Balances — {year} (as of {asOfMonthLabel})</h2>
+          <p className="mt-1 text-xs text-slate-500 sm:text-sm">
+            Entitlement, usage, and days remaining. <span className="font-medium text-slate-600">Carried</span> is the
+            usable carry pool (it goes to 0 after the configured use-months window if unused). Values are shown for the selected month. Rows are grouped by employee.
+          </p>
+        </div>
+        <div className="max-h-[min(70vh,48rem)] overflow-x-auto overflow-y-auto">
+          <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th
+                  className="sticky top-0 z-10 min-w-[10rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
+                  scope="col"
+                >
+                  Leave type
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[6.5rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Period
+                </th>
+                <th
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Entitled
+                </th>
+                <th
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Used
+                </th>
+                <th
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Carried
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[5.5rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur"
+                  scope="col"
+                >
+                  Remaining
+                </th>
+                <th
+                  className="sticky top-0 z-10 w-11 border-b border-slate-200/90 bg-slate-100/95 py-3 pl-1 pr-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur sm:pr-3"
+                  scope="col"
+                  aria-label="Actions"
+                />
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-16 text-center">
+                    <div className="inline-flex items-center gap-2 text-slate-500">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" />
+                      <span>Loading balances…</span>
+                    </div>
                     </td>
                   </tr>
-                ))
               )}
+              {!loading && summaries.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-16 text-center">
+                    <p className="text-sm text-slate-500">No balances for <span className="font-semibold text-slate-700">{year}</span> as of <span className="font-semibold text-slate-700">{asOfMonthLabel}</span>.</p>
+                    <p className="mt-1 text-xs text-slate-400">Assign leave types or run recalculation to populate this view.</p>
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                summaries.map((s) => (
+                  <Fragment key={s.employeeId}>
+                    <tr className="hover:bg-slate-50/30">
+                      <td colSpan={7} className="border-b border-slate-200/80 bg-gradient-to-r from-slate-100/80 via-slate-50/50 to-white px-4 py-2.5 sm:px-6">
+                        <div className="flex min-w-0 items-baseline justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="text-sm font-semibold text-slate-800">{s.employeeName}</span>
+                            {s.employeeCode ? <span className="ml-2 text-xs font-medium text-slate-500 tabular-nums">{s.employeeCode}</span> : null}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                    {s.balances.map((b) => {
+                      const rem = b.remaining;
+                      const remClass =
+                        rem > 0 ? "text-emerald-800" : rem < 0 ? "text-rose-700" : "text-slate-500";
+                      return (
+                        <tr
+                          key={`${s.employeeId}-${b.id}`}
+                          className="group border-b border-slate-100/90 transition hover:bg-sky-50/35"
+                        >
+                          <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-3 pr-2 align-middle transition group-hover:border-sky-500/60 group-hover:bg-sky-50/20 sm:pl-4 sm:pr-3">
+                            <span className="font-medium text-slate-800">{b.leaveTypeName}</span>
+                          </td>
+                          <td className="px-2 py-2.5 align-middle sm:px-3">
+                            <span className="inline-flex max-w-full items-center rounded-lg bg-slate-100/80 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                              {b.periodLabel ?? b.year}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-slate-600 sm:px-3">{b.entitled}</td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-slate-600 sm:px-3">{b.used}</td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-slate-500 sm:px-3">{b.carriedForward}</td>
+                          <td className="min-w-[5.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/50 to-transparent px-2 py-2.5 text-right sm:px-3">
+                            <span className={`text-base font-semibold tabular-nums ${remClass}`}>{b.remaining}</span>
+                          </td>
+                          <td className="w-11 py-2.5 pl-0 pr-1 text-right sm:pr-3">
+                            <button
+                              type="button"
+                              onClick={() => openEditBalance(b)}
+                              className="inline-flex items-center justify-center rounded-lg p-1.5 text-slate-400 transition hover:bg-white hover:text-sky-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
+                              title="Edit this balance"
+                            >
+                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125"
+                                />
+                              </svg>
+                              <span className="sr-only">Edit</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                ))}
             </tbody>
           </table>
         </div>
       </div>
-
-      <Modal open={showAddModal} onClose={() => setShowAddModal(false)} title="Assign Leave Type to Employee">
-        <form onSubmit={submitAddBalance} className="space-y-4">
-          {balanceError && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{balanceError}</div>}
-          <div>
-            <label className={labelClass}>Employee *</label>
-            <select value={addEmployeeId} onChange={(e) => setAddEmployeeId(e.target.value)} required className={inputClass + " w-full"}>
-              <option value="">Select employee...</option>
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}{e.employeeCode ? ` (${e.employeeCode})` : ""}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Leave Type *</label>
-            <select value={addLeaveTypeId} onChange={(e) => setAddLeaveTypeId(e.target.value)} required className={inputClass + " w-full"}>
-              <option value="">Select leave type...</option>
-              {leaveTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Leave period *</label>
-            <div className="space-y-3">
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="periodKind" checked={addPeriodKind === "year"} onChange={() => setAddPeriodKind("year")} className="rounded border-slate-300 text-blue-600" />
-                  <span className="text-sm text-slate-700">Calendar year</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="periodKind" checked={addPeriodKind === "custom"} onChange={() => setAddPeriodKind("custom")} className="rounded border-slate-300 text-blue-600" />
-                  <span className="text-sm text-slate-700">Custom period</span>
-                </label>
-              </div>
-              {addPeriodKind === "year" ? (
-                <select value={addYear} onChange={(e) => setAddYear(Number(e.target.value))} className={inputClass + " w-full"}>
-                  {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
-                </select>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-slate-500">From</label>
-                    <DatePickerField value={addPeriodStart} onChange={setAddPeriodStart} className={inputClass + " w-full"} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500">To</label>
-                    <DatePickerField value={addPeriodEnd} onChange={setAddPeriodEnd} className={inputClass + " w-full"} />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className={labelClass}>Entitled (days)</label>
-              <input type="number" min={0} step={0.5} value={addEntitled} onChange={(e) => setAddEntitled(e.target.value)} className={inputClass + " w-full"} />
-            </div>
-            <div>
-              <label className={labelClass}>Used</label>
-              <input type="number" min={0} step={0.5} value={addUsed} onChange={(e) => setAddUsed(e.target.value)} className={inputClass + " w-full"} />
-            </div>
-            <div>
-              <label className={labelClass}>Carried Forward</label>
-              <input type="number" min={0} step={0.5} value={addCarriedForward} onChange={(e) => setAddCarriedForward(e.target.value)} className={inputClass + " w-full"} />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" type="button" onClick={() => setShowAddModal(false)}>Cancel</Button>
-            <Button type="submit" disabled={balanceSaving}>{balanceSaving ? "Saving..." : "Assign"}</Button>
-          </div>
-        </form>
-      </Modal>
 
       <Modal open={!!editingBalance} onClose={() => setEditingBalance(null)} title={`Edit balance: ${editingBalance?.leaveTypeName ?? ""}`}>
         <form onSubmit={submitEditBalance} className="space-y-4">
@@ -1202,6 +2070,219 @@ function BalancesTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  Assign Leave Type (admin — create balance row)
+// ═══════════════════════════════════════════════════════════════
+
+function AssignLeaveTypeTab() {
+  const [employees, setEmployees] = useState<{ id: string; firstName: string; lastName: string; employeeCode?: string }[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [addEmployeeId, setAddEmployeeId] = useState("");
+  const [addLeaveTypeId, setAddLeaveTypeId] = useState("");
+  const [addPeriodKind, setAddPeriodKind] = useState<"year" | "custom">("year");
+  const [addYear, setAddYear] = useState(new Date().getFullYear());
+  const [addPeriodStart, setAddPeriodStart] = useState("");
+  const [addPeriodEnd, setAddPeriodEnd] = useState("");
+  const [addEntitled, setAddEntitled] = useState("0");
+  const [addUsed, setAddUsed] = useState("0");
+  const [addCarriedForward, setAddCarriedForward] = useState("0");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const addEmployeeFormOptions = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "Select employee…" },
+      ...employees.map((e) => ({
+        value: e.id,
+        label: `${e.firstName} ${e.lastName}${e.employeeCode ? ` (${e.employeeCode})` : ""}`,
+      })),
+    ],
+    [employees]
+  );
+
+  const addLeaveTypeFormOptions = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "Select leave type…" },
+      ...leaveTypes.map((t) => ({ value: t.id, label: t.name })),
+    ],
+    [leaveTypes]
+  );
+
+  const addYearFormOptions = useMemo<FormSelectOption[]>(
+    () => [2024, 2025, 2026, 2027].map((y) => ({ value: String(y), label: String(y) })),
+    []
+  );
+
+  useEffect(() => {
+    setCatalogLoading(true);
+    Promise.all([
+      apiFetch<{ items: { id: string; firstName: string; lastName: string; employeeCode?: string }[] }>("/api/employees?pageSize=500").then((r) => r.items),
+      apiFetch<LeaveTypeItem[]>("/api/leave/types"),
+    ])
+      .then(([emps, types]) => {
+        setEmployees(emps);
+        setLeaveTypes(types);
+      })
+      .catch(() => setFormError("Could not load employees or leave types."))
+      .finally(() => setCatalogLoading(false));
+  }, []);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (addPeriodKind === "custom" && (!addPeriodStart || !addPeriodEnd)) {
+      setFormError("Please enter both period start and end dates.");
+      return;
+    }
+    if (addPeriodKind === "custom" && addPeriodStart > addPeriodEnd) {
+      setFormError("Period start must be before or equal to period end.");
+      return;
+    }
+    setSaving(true);
+    setFormError(null);
+    setSuccessMsg(null);
+    try {
+      const payload: Record<string, unknown> = {
+        employeeId: addEmployeeId,
+        leaveTypeId: addLeaveTypeId,
+        entitled: Number(addEntitled) || 0,
+        used: Number(addUsed) || 0,
+        carriedForward: Number(addCarriedForward) || 0,
+      };
+      if (addPeriodKind === "year") {
+        payload.year = addYear;
+      } else {
+        payload.periodStart = addPeriodStart;
+        payload.periodEnd = addPeriodEnd;
+      }
+      await apiFetch("/api/leave/balances", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setAddEmployeeId("");
+      setAddLeaveTypeId("");
+      setAddPeriodKind("year");
+      setAddYear(new Date().getFullYear());
+      setAddPeriodStart("");
+      setAddPeriodEnd("");
+      setAddEntitled("0");
+      setAddUsed("0");
+      setAddCarriedForward("0");
+      setSuccessMsg("Balance line created. Open “Leave Balances” (from More) to review and edit if needed.");
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to add balance");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-1 text-lg font-bold text-slate-800">Assign leave type</h2>
+        <p className="mb-6 text-sm text-slate-600">
+          Create a leave balance line for a specific employee and leave type, for a calendar year or a custom period. Use
+          <span className="font-medium"> Leave Balances</span> to view the grid and run recalculation.
+        </p>
+        {catalogLoading ? (
+          <p className="py-8 text-center text-sm text-slate-500">Loading employees and leave types…</p>
+        ) : (
+          <form onSubmit={handleSubmit} className="max-w-2xl space-y-4">
+            {formError && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</div>}
+            {successMsg && <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{successMsg}</div>}
+          <div>
+            <label className={labelClass}>Employee *</label>
+            <FormSelect
+              value={addEmployeeId}
+              onValueChange={setAddEmployeeId}
+              options={addEmployeeFormOptions}
+              placeholder="Select employee…"
+              required
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Leave Type *</label>
+            <FormSelect
+              value={addLeaveTypeId}
+              onValueChange={setAddLeaveTypeId}
+              options={addLeaveTypeFormOptions}
+              placeholder="Select leave type…"
+              required
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Leave period *</label>
+            <div className="space-y-3">
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="periodKindAssign"
+                      checked={addPeriodKind === "year"}
+                      onChange={() => setAddPeriodKind("year")}
+                      className="rounded border-slate-300 text-blue-600"
+                    />
+                  <span className="text-sm text-slate-700">Calendar year</span>
+                </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="periodKindAssign"
+                      checked={addPeriodKind === "custom"}
+                      onChange={() => setAddPeriodKind("custom")}
+                      className="rounded border-slate-300 text-blue-600"
+                    />
+                  <span className="text-sm text-slate-700">Custom period</span>
+                </label>
+              </div>
+              {addPeriodKind === "year" ? (
+                <FormSelect
+                  value={String(addYear)}
+                  onValueChange={(v) => setAddYear(Number(v))}
+                  options={addYearFormOptions}
+                  placeholder={String(addYear)}
+                />
+              ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs text-slate-500">From</label>
+                    <DatePickerField value={addPeriodStart} onChange={setAddPeriodStart} className={inputClass + " w-full"} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">To</label>
+                    <DatePickerField value={addPeriodEnd} onChange={setAddPeriodEnd} className={inputClass + " w-full"} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <label className={labelClass}>Entitled (days)</label>
+              <input type="number" min={0} step={0.5} value={addEntitled} onChange={(e) => setAddEntitled(e.target.value)} className={inputClass + " w-full"} />
+            </div>
+            <div>
+              <label className={labelClass}>Used</label>
+              <input type="number" min={0} step={0.5} value={addUsed} onChange={(e) => setAddUsed(e.target.value)} className={inputClass + " w-full"} />
+            </div>
+            <div>
+              <label className={labelClass}>Carried Forward</label>
+              <input type="number" min={0} step={0.5} value={addCarriedForward} onChange={(e) => setAddCarriedForward(e.target.value)} className={inputClass + " w-full"} />
+            </div>
+          </div>
+            <div className="pt-2">
+              <Button type="submit" disabled={saving}>
+                {saving ? "Saving..." : "Assign leave type"}
+              </Button>
+          </div>
+        </form>
+        )}
+            </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  Carry Forward Tab (run at beginning of new year)
 // ═══════════════════════════════════════════════════════════════
 
@@ -1212,6 +2293,7 @@ interface CarryForwardResult {
   balancesUpdated: number;
   balancesCreated: number;
   totalDaysCarried: number;
+  infoMessage?: string | null;
 }
 
 function CarryForwardTab() {
@@ -1221,14 +2303,88 @@ function CarryForwardTab() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<CarryForwardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [employees, setEmployees] = useState<{ id: string; firstName: string; lastName: string; employeeCode?: string }[]>([]);
+  const [includeById, setIncludeById] = useState<Record<string, boolean>>({});
+  const [empLoading, setEmpLoading] = useState(true);
+  const [availableByEmployeeId, setAvailableByEmployeeId] = useState<Record<string, number>>({});
+  const [balanceLoading, setBalanceLoading] = useState(true);
+  const headerIncludeRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setToYear(fromYear + 1);
   }, [fromYear]);
 
+  useEffect(() => {
+    setEmpLoading(true);
+    apiFetch<{ items: { id: string; firstName: string; lastName: string; employeeCode?: string }[] }>("/api/employees?pageSize=1000")
+      .then((r) => {
+        setError(null);
+        setEmployees(r.items);
+        setIncludeById((prev) => {
+          const next: Record<string, boolean> = {};
+          for (const e of r.items) next[e.id] = prev[e.id] ?? true;
+          return next;
+        });
+      })
+      .catch(() => setError("Could not load employees."))
+      .finally(() => setEmpLoading(false));
+  }, []);
+
+  useEffect(() => {
+    setBalanceLoading(true);
+    apiFetch<BalanceSummary[]>(`/api/leave/balances/summary?year=${fromYear}`)
+      .then((rows) => {
+        const m: Record<string, number> = {};
+        for (const s of rows) {
+          m[s.employeeId] = s.balances.reduce((sum, b) => sum + (b.remaining ?? 0), 0);
+        }
+        setAvailableByEmployeeId(m);
+      })
+      .catch(() => setAvailableByEmployeeId({}))
+      .finally(() => setBalanceLoading(false));
+  }, [fromYear]);
+
+  const allSelected = useMemo(
+    () => employees.length > 0 && employees.every((e) => includeById[e.id]),
+    [employees, includeById]
+  );
+  const someSelected = useMemo(
+    () => employees.some((e) => includeById[e.id]),
+    [employees, includeById]
+  );
+
+  useEffect(() => {
+    const el = headerIncludeRef.current;
+    if (el) el.indeterminate = someSelected && !allSelected;
+  }, [someSelected, allSelected]);
+
+  function setAllIncluded(checked: boolean) {
+    setIncludeById((prev) => {
+      const next = { ...prev };
+      for (const e of employees) next[e.id] = checked;
+      return next;
+    });
+  }
+
+  const totalAvailableListed = useMemo(
+    () => employees.reduce((sum, e) => sum + (availableByEmployeeId[e.id] ?? 0), 0),
+    [employees, availableByEmployeeId]
+  );
+
+  function fmtDays(n: number) {
+    if (n === 0) return "0";
+    if (Number.isInteger(n)) return String(n);
+    return n.toFixed(1);
+  }
+
   async function handleRun() {
     if (toYear !== fromYear + 1) {
       setError("To year must be the year after From year (e.g. 2025 → 2026).");
+      return;
+    }
+    const employeeIds = employees.filter((e) => includeById[e.id]).map((e) => e.id);
+    if (employeeIds.length === 0) {
+      setError("Select at least one employee. Unchecked employees are excluded from carry forward.");
       return;
     }
     setRunning(true);
@@ -1237,7 +2393,7 @@ function CarryForwardTab() {
     try {
       const res = await apiFetch<CarryForwardResult>("/api/leave/process-carry-forward", {
         method: "POST",
-        body: JSON.stringify({ fromYear, toYear }),
+        body: JSON.stringify({ fromYear, toYear, employeeIds }),
       });
       setResult(res);
     } catch (err) {
@@ -1250,16 +2406,16 @@ function CarryForwardTab() {
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-800 mb-1">Leave Carry Forward</h2>
-        <p className="text-sm text-slate-600 mb-4">
-          Run this process at the beginning of a new year to carry unused leave from the previous year into the new year.
-          Only leave types with <strong>Allow carry forward</strong> enabled in Policies are processed. The number of days
-          carried is limited by each policy&apos;s <strong>Max carry forward days</strong>.
+        <h2 className="mb-1 text-lg font-bold text-slate-800">Leave Carry Forward</h2>
+        <p className="mb-4 text-sm text-slate-600">
+          Run this at the start of a new year to move unused leave from the <strong>source</strong> year into the <strong>target</strong> year.
+          Only leave types with <strong>Allow carry forward</strong> in Policies are processed; days are capped by each policy&apos;s{" "}
+          <strong>Max carry forward days</strong>. Use the table to include or exclude employees—unchecked employees are not carried forward.
         </p>
-        <div className="flex flex-wrap items-end gap-4">
+        <div className="mb-4 flex flex-wrap items-end gap-4">
           <div>
             <label className={labelClass}>From year (source)</label>
-            <select value={fromYear} onChange={(e) => setFromYear(Number(e.target.value))} className={inputClass + " w-32"}>
+            <select value={fromYear} onChange={(e) => setFromYear(Number(e.target.value))} className={inputClass + " w-32 shadow-sm"}>
               {[currentYear - 3, currentYear - 2, currentYear - 1, currentYear].map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
@@ -1267,26 +2423,150 @@ function CarryForwardTab() {
           </div>
           <div>
             <label className={labelClass}>To year (target)</label>
-            <select value={toYear} onChange={(e) => setToYear(Number(e.target.value))} className={inputClass + " w-32"}>
+            <select value={toYear} onChange={(e) => setToYear(Number(e.target.value))} className={inputClass + " w-32 shadow-sm"}>
               {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
           </div>
-          <Button onClick={handleRun} disabled={running || toYear !== fromYear + 1}>
-            {running ? "Processing..." : "Run Carry Forward"}
+          <Button onClick={handleRun} disabled={running || toYear !== fromYear + 1 || empLoading}>
+            {running ? "Processing…" : "Run Carry Forward"}
           </Button>
         </div>
         {toYear !== fromYear + 1 && (
-          <p className="mt-3 text-sm text-amber-600">To year must be exactly one year after From year.</p>
+          <p className="mb-4 text-sm text-amber-600">To year must be exactly one year after From year.</p>
         )}
+
+        {!empLoading && employees.length > 0 && (
+          <div className="mb-4 rounded-xl border border-slate-200/90 bg-gradient-to-r from-slate-50/90 to-sky-50/30 px-4 py-3 sm:px-5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Source year — available leave (preview)</p>
+            <p className="mt-1 text-sm text-slate-700">
+              Total <span className="font-semibold">remaining</span> days in <span className="font-semibold">{fromYear}</span> (all leave types, after usage), across everyone in the list:{" "}
+              {balanceLoading ? (
+                <span className="inline-block h-4 w-8 animate-pulse rounded bg-slate-200 align-middle" />
+              ) : (
+                <span className="text-lg font-semibold tabular-nums text-emerald-800">{fmtDays(totalAvailableListed)}</span>
+              )}
+              <span className="text-slate-500"> days</span>
+            </p>
+          </div>
+        )}
+
+        <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
+          <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
+            <h3 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Carry forward selection — {fromYear} → {toYear}</h3>
+            <p className="mt-1 text-xs text-slate-500 sm:text-sm">
+              Checked = include. <span className="font-medium text-slate-600">Available</span> = total days remaining in {fromYear} (Leave Balances, all types).
+            </p>
+          </div>
+          <div className="max-h-[min(55vh,32rem)] overflow-x-auto overflow-y-auto">
+            <table className="w-full min-w-[32rem] border-separate border-spacing-0 text-sm">
+              <thead>
+                <tr>
+                  <th
+                    className="sticky top-0 z-10 w-12 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 backdrop-blur"
+                    scope="col"
+                  >
+                    <span className="sr-only">Include</span>
+                    <input
+                      ref={headerIncludeRef}
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={(e) => setAllIncluded(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30"
+                      title="Select or clear all"
+                    />
+                  </th>
+                  <th
+                    className="sticky top-0 z-10 min-w-[8rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
+                    scope="col"
+                  >
+                    Employee
+                  </th>
+                  <th
+                    className="sticky top-0 z-10 min-w-[5.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                    scope="col"
+                  >
+                    ID
+                  </th>
+                  <th
+                    className="sticky top-0 z-10 min-w-[7rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pr-3"
+                    scope="col"
+                  >
+                    Available
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {empLoading && (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-16 text-center">
+                      <div className="inline-flex items-center gap-2 text-slate-500">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" />
+                        <span>Loading…</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {!empLoading &&
+                  employees.map((e) => {
+                    const n = availableByEmployeeId[e.id] ?? 0;
+                    const remClass = n > 0 ? "text-emerald-800" : n < 0 ? "text-rose-700" : "text-slate-500";
+                    return (
+                      <tr key={e.id} className="group border-b border-slate-100/90 transition hover:bg-sky-50/35">
+                        <td className="px-2 py-2.5 align-middle">
+                          <input
+                            type="checkbox"
+                            checked={includeById[e.id] !== false}
+                            onChange={(ev) =>
+                              setIncludeById((prev) => ({ ...prev, [e.id]: ev.target.checked }))
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30"
+                          />
+                        </td>
+                        <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-2 pr-2 text-slate-800 transition group-hover:border-sky-500/60 sm:pl-3">
+                          {e.firstName} {e.lastName}
+                        </td>
+                        <td className="px-2 py-2.5 text-xs text-slate-500 sm:px-3">
+                          {e.employeeCode ?? "—"}
+                        </td>
+                        <td
+                          className="min-w-[5.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pr-2 text-right sm:pl-1 sm:pr-3"
+                        >
+                          {balanceLoading ? (
+                            <span className="inline-block h-4 w-10 animate-pulse rounded bg-slate-200" />
+                          ) : (
+                            <span className={`text-base font-semibold tabular-nums ${remClass}`}>{fmtDays(n)}</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {!empLoading && employees.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-16 text-center text-slate-500">No employees found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {error && (
-          <div className="mt-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
         )}
         {result && (
-          <div className="mt-4 rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800">
+          <div className="mt-4 space-y-2">
+            <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900">
             <p className="font-semibold">Carry forward completed.</p>
-            <p className="mt-1">Source balances considered: {result.balancesProcessed}. New balances created: {result.balancesCreated}. Existing balances updated: {result.balancesUpdated}. Total days carried: {result.totalDaysCarried}.</p>
+              <p className="mt-1">
+                Source balance rows considered: {result.balancesProcessed}. New balances created: {result.balancesCreated}. Balances
+                updated: {result.balancesUpdated}. Total days carried: {result.totalDaysCarried}.
+              </p>
+          </div>
+            {result.infoMessage && (
+              <div className="rounded-xl border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-900">{result.infoMessage}</div>
+            )}
           </div>
         )}
       </div>
@@ -1344,31 +2624,102 @@ function LeaveTypesTab() {
       <div className="flex justify-end">
         <Button onClick={openAdd}>+ Add Leave Type</Button>
       </div>
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <CardHeader title="Leave Types" />
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="bg-slate-50 text-left">
-              <th className="px-6 py-2.5 font-semibold text-slate-600">Name</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Code</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Days/Year</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Paid</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Active</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
-            </tr></thead>
-            <tbody className="divide-y divide-slate-100">
-              {items.length === 0 && <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-400">No leave types defined.</td></tr>}
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
+        <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
+          <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Leave Types</h2>
+          <p className="mt-1 text-xs text-slate-500 sm:text-sm">Catalog of leave categories, default entitlements, and status.</p>
+        </div>
+        <div className="max-h-[min(70vh,48rem)] overflow-x-auto overflow-y-auto">
+          <table className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th
+                  className="sticky top-0 z-10 min-w-[9rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
+                  scope="col"
+                >
+                  Name
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[5rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Code
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[5.5rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pr-2"
+                  scope="col"
+                >
+                  Days / year
+                </th>
+                <th
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Paid
+                </th>
+                <th
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Status
+                </th>
+                <th
+                  className="sticky top-0 z-10 w-28 border-b border-slate-200/90 bg-slate-100/95 py-3 pl-1 pr-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur sm:pr-3"
+                  scope="col"
+                >
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-16 text-center">
+                    <p className="text-sm text-slate-500">No leave types defined yet.</p>
+                    <p className="mt-1 text-xs text-slate-400">Create a type to use it in policies and balances.</p>
+                  </td>
+                </tr>
+              )}
               {items.map((t) => (
-                <tr key={t.id} className="hover:bg-slate-50/50">
-                  <td className="px-6 py-3 font-medium text-slate-700">{t.name}</td>
-                  <td className="px-4 py-3 text-slate-600">{t.code}</td>
-                  <td className="px-4 py-3 text-slate-600">{t.defaultDaysPerYear}</td>
-                  <td className="px-4 py-3">{t.isPaid ? <span className="text-green-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
-                  <td className="px-4 py-3">{t.isActive ? <span className="text-green-600">Active</span> : <span className="text-red-400">Inactive</span>}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <button onClick={() => openEdit(t)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
-                      <button onClick={() => handleDelete(t.id)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Delete</button>
+                <tr key={t.id} className="group border-b border-slate-100/90 transition hover:bg-sky-50/35">
+                  <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-2 pr-2 text-slate-800 transition group-hover:border-sky-500/60 sm:pl-3 sm:pr-2">
+                    <span className="font-medium">{t.name}</span>
+                    {t.description && <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{t.description}</p>}
+                  </td>
+                  <td className="px-2 py-2.5 sm:px-3">
+                    <span className="inline-flex max-w-full rounded-lg bg-slate-100/80 px-2.5 py-0.5 font-mono text-xs font-medium text-slate-700">
+                      {t.code}
+                    </span>
+                  </td>
+                  <td className="min-w-[5.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pr-2 text-right sm:pl-1 sm:pr-3">
+                    <span className="text-base font-semibold tabular-nums text-emerald-800">{t.defaultDaysPerYear}</span>
+                  </td>
+                  <td className="px-2 py-2.5 sm:px-3">
+                    {t.isPaid ? <span className="text-sm font-medium text-emerald-700">Yes</span> : <span className="text-slate-400">No</span>}
+                  </td>
+                  <td className="px-2 py-2.5 sm:px-3">
+                    {t.isActive ? (
+                      <span className="inline-flex rounded-full bg-emerald-100/90 px-2.5 py-0.5 text-xs font-medium text-emerald-800">Active</span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">Inactive</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 pl-1 pr-1 text-right sm:pr-2">
+                    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(t)}
+                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(t.id)}
+                        className="rounded-lg border border-rose-200/80 bg-rose-50/50 px-2.5 py-1 text-xs font-medium text-rose-800 transition hover:bg-rose-100/80"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1404,20 +2755,452 @@ function LeaveTypesTab() {
 //  PHASE 4b – Policies Tab
 // ═══════════════════════════════════════════════════════════════
 
+/** Shared gear icon (matches Annual / Casual / Sick entitlement rows). */
+const ENTITLEMENT_RULE_GEAR_ICON = (
+  <svg className="h-4 w-4 text-indigo-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+);
+
+function EntitlementRuleRowHeader({
+  title,
+  ruleType,
+  inactive,
+  rightSlot,
+  className = "",
+}: {
+  title: string;
+  ruleType: string;
+  inactive?: boolean;
+  rightSlot?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`mb-3 flex min-w-0 items-start justify-between gap-3 ${className}`.trim()}>
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-100">{ENTITLEMENT_RULE_GEAR_ICON}</div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-700">{title}</p>
+          <p className="text-xs text-slate-400">
+            Rule type: {ruleType} {inactive ? <span className="text-red-400">(Inactive)</span> : null}
+          </p>
+        </div>
+      </div>
+      {rightSlot ? <div className="shrink-0 pt-0.5">{rightSlot}</div> : null}
+    </div>
+  );
+}
+
+const DEFAULT_SICK_NARRATIVE = {
+  intro: "Sri Lanka Shop & Office Act — sick leave (medical absences); days follow the Sick leave type and your Leave policies and contract.",
+  points: [
+    "Entitlement: up to 14 days on full pay per calendar year for certified illness, unless your contract or company policy states a different cap.",
+    "Medical evidence: a registered medical practitioner's certificate is usually required for the absence, and for longer or repeated absences as required by company policy.",
+    "Calendar year: sick leave is tracked in the calendar year (or the period on the employee's leave balance, if your setup uses a custom period).",
+    "Separate from annual leave — for illness or injury; approvals and limits are configured under Leave policies for the Sick leave type.",
+  ],
+} as const;
+
+function parseSickNarrativeFromRuleConfig(ruleConfig: string): { intro: string; points: string[]; sickEntitlementDays: number } {
+  try {
+    const o = JSON.parse(ruleConfig) as { narrative?: { intro?: string; points?: string[] }; sickEntitlementDays?: number };
+    const p0 = o.narrative?.points;
+    const points: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      if (p0 && p0[i] && String(p0[i]).trim()) points.push(String(p0[i]).trim());
+      else points.push(DEFAULT_SICK_NARRATIVE.points[i] ?? "");
+    }
+    const intro = (o.narrative?.intro && o.narrative.intro.trim()) ? o.narrative.intro.trim() : DEFAULT_SICK_NARRATIVE.intro;
+    const se = o.sickEntitlementDays;
+    return {
+      intro,
+      points,
+      sickEntitlementDays: typeof se === "number" && se >= 0 && se <= 366 ? se : 14,
+    };
+  } catch {
+    return {
+      intro: DEFAULT_SICK_NARRATIVE.intro,
+      points: [...DEFAULT_SICK_NARRATIVE.points],
+      sickEntitlementDays: 14,
+    };
+  }
+}
+
+function mergeSickEntitlementRuleConfigJson(existing: string, next: { intro: string; points: string[]; sickEntitlementDays: number }): string {
+  let base: Record<string, unknown> = {};
+  try {
+    base = (JSON.parse(existing || "{}") as Record<string, unknown>) ?? {};
+  } catch {
+    /* ignore */
+  }
+  base.narrative = { intro: next.intro, points: next.points.map((x) => x.trim()) };
+  base.sickEntitlementDays = next.sickEntitlementDays;
+  return JSON.stringify(base);
+}
+
+function ShopOfficeSickNarrativeView({ intro, points }: { intro: string; points: string[] }) {
+  return (
+    <div className="ml-11 space-y-1.5 text-xs text-slate-600">
+      <p className="whitespace-pre-wrap text-slate-800">{intro}</p>
+      <ul className="list-disc space-y-0.5 pl-4">
+        {points.slice(0, 4).map((p, i) => (
+          <li key={i} className="whitespace-pre-wrap">
+            <span className="font-medium text-slate-700">{i + 1}.</span> {p}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function CarryForwardNarrativeView({ intro, points, windowDescription }: { intro: string; points: [string, string, string]; windowDescription: string }) {
+  return (
+    <div className="ml-11 space-y-1.5 text-xs text-slate-600">
+      <p className="whitespace-pre-wrap text-slate-800">{intro}</p>
+      <ul className="list-disc space-y-0.5 pl-4">
+        {points.map((p, i) => (
+          <li key={i} className="whitespace-pre-wrap">
+            <span className="font-medium text-slate-700">{i + 1}.</span> {p}
+          </li>
+        ))}
+      </ul>
+      <p className="rounded-md border border-slate-200/80 bg-slate-50/80 px-2.5 py-2 text-[11px] text-slate-600">
+        <span className="font-semibold text-slate-700">System (Apply Leave): </span>
+        {windowDescription}
+      </p>
+    </div>
+  );
+}
+
+function SickNarrativeAdminBlock({
+  mode,
+  rule,
+  sickLeaveTypeId,
+  onUpdated,
+  entitlementHeader,
+  referenceHelperText,
+}: {
+  mode: "rule" | "reference";
+  rule: EntitlementRule | null;
+  sickLeaveTypeId: string | null;
+  onUpdated: () => void | Promise<void>;
+  entitlementHeader: { title: string; ruleType: string; inactive?: boolean };
+  referenceHelperText?: string;
+}) {
+  const initial = useMemo(
+    () => (rule ? parseSickNarrativeFromRuleConfig(rule.ruleConfig) : parseSickNarrativeFromRuleConfig("{}")),
+    [rule?.id, rule?.ruleConfig, mode],
+  );
+  const [editing, setEditing] = useState(false);
+  const [intro, setIntro] = useState(initial.intro);
+  const [points, setPoints] = useState<string[]>(() => [...initial.points]);
+  const [sickDays, setSickDays] = useState(initial.sickEntitlementDays);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const p = rule ? parseSickNarrativeFromRuleConfig(rule.ruleConfig) : parseSickNarrativeFromRuleConfig("{}");
+    if (!editing) {
+      setIntro(p.intro);
+      setPoints([...p.points]);
+      setSickDays(p.sickEntitlementDays);
+    }
+  }, [rule?.id, rule?.ruleConfig, mode, editing]);
+
+  async function save() {
+    setErr(null);
+    setSaving(true);
+    try {
+      const next = { intro, points, sickEntitlementDays: sickDays };
+      const config = mergeSickEntitlementRuleConfigJson(rule?.ruleConfig ?? "{}", next);
+      if (mode === "rule" && rule) {
+        await apiFetch<{ ruleConfig: string }>(`/api/leave/entitlement-rules/${rule.id}`, { method: "PUT", body: JSON.stringify({ ruleConfig: config }) });
+      } else {
+        if (!sickLeaveTypeId) {
+          setErr("Sick leave type (code LT-SIC) not found. Add it under Leave Types first.");
+          return;
+        }
+        await apiFetch("/api/leave/entitlement-rules", {
+          method: "POST",
+          body: JSON.stringify({ leaveTypeId: sickLeaveTypeId, ruleType: "ShopOfficeSick", ruleConfig: config }),
+        });
+      }
+      setEditing(false);
+      try {
+        await Promise.resolve(onUpdated());
+      } catch {
+        /* Saved on server; refresh failed. */
+      }
+    } catch {
+      setErr("Save failed. Check you have access to update entitlement rules.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancelEdit() {
+    const p = rule ? parseSickNarrativeFromRuleConfig(rule.ruleConfig) : parseSickNarrativeFromRuleConfig("{}");
+    setIntro(p.intro);
+    setPoints([...p.points]);
+    setSickDays(p.sickEntitlementDays);
+    setEditing(false);
+    setErr(null);
+  }
+
+  return (
+    <div className="ml-0 space-y-2">
+      <EntitlementRuleRowHeader
+        title={entitlementHeader.title}
+        ruleType={entitlementHeader.ruleType}
+        inactive={entitlementHeader.inactive}
+        rightSlot={!editing
+          ? (
+            <Button variant="secondary" className="text-xs" type="button" onClick={() => { setErr(null); setEditing(true); }}>
+              Edit
+            </Button>
+            )
+          : null}
+      />
+      {referenceHelperText ? <p className="mb-2 text-xs text-slate-500">{referenceHelperText}</p> : null}
+      {editing ? (
+        <div className="ml-11 space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-xs text-slate-700">
+          {err ? <p className="text-red-600">{err}</p> : null}
+          <div>
+            <label className={labelClass}>Intro / lead line</label>
+            <textarea value={intro} onChange={(e) => setIntro(e.target.value)} className={inputClass} rows={2} />
+          </div>
+          {([0, 1, 2, 3] as const).map((i) => (
+            <div key={i}>
+              <label className={labelClass}>Point {i + 1}</label>
+              <textarea value={points[i] ?? ""} onChange={(e) => {
+                const c = [...points];
+                c[i] = e.target.value;
+                setPoints(c);
+              }} className={inputClass} rows={2} />
+            </div>
+          ))}
+          <div>
+            <label className={labelClass}>Sick entitlement days / year (used for balance accrual)</label>
+            <input type="number" min={0} max={366} value={sickDays} onChange={(e) => setSickDays(Number(e.target.value))} className={`${inputClass} max-w-[8rem]`} />
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
+            <Button variant="secondary" type="button" onClick={cancelEdit} disabled={saving}>Cancel</Button>
+            <Button type="button" onClick={() => { void save(); }} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+          </div>
+        </div>
+      ) : (
+        <ShopOfficeSickNarrativeView intro={intro} points={points} />
+      )}
+    </div>
+  );
+}
+
+function CarryForwardNarrativeAdminBlock({
+  settings,
+  onUpdated,
+  canEdit,
+}: {
+  settings: CarryForwardAvailability;
+  onUpdated: () => void | Promise<void>;
+  /** Users who may change carry-forward text/months (aligned with API: Leave update All, or Supervisor). */
+  canEdit: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [availabilityMonths, setAvailabilityMonths] = useState(() => settings.availabilityMonths ?? 3);
+  const [intro, setIntro] = useState(
+    () => (settings.narrativeIntro && settings.narrativeIntro.trim() ? settings.narrativeIntro : DEFAULT_CARRY_NARRATIVE.intro),
+  );
+  const [points, setPoints] = useState<[string, string, string]>(() => carryNarrativePointsTuple(settings.narrativePoints));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [saveOk, setSaveOk] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editing) {
+      setAvailabilityMonths(settings.availabilityMonths ?? 3);
+      setIntro(
+        (settings.narrativeIntro && settings.narrativeIntro.trim() ? settings.narrativeIntro : DEFAULT_CARRY_NARRATIVE.intro),
+      );
+      setPoints(carryNarrativePointsTuple(settings.narrativePoints));
+    }
+  }, [settings, editing]);
+
+  useEffect(() => {
+    if (!canEdit && editing) {
+      setEditing(false);
+      setErr(null);
+    }
+  }, [canEdit, editing]);
+
+  async function save() {
+    setErr(null);
+    setSaveOk(null);
+    setSaving(true);
+    try {
+      await apiFetch<CarryForwardAvailability>("/api/leave/carry-forward-availability", {
+        method: "PUT",
+        body: JSON.stringify({
+          availabilityMonths,
+          narrativeIntro: intro,
+          narrativePoints: points,
+        }),
+      });
+      setEditing(false);
+      setSaveOk("Updated successfully.");
+      try {
+        await Promise.resolve(onUpdated());
+      } catch {
+        /* Saved on server; refresh failed (e.g. network). Values still apply after reload. */
+      }
+    } catch (e) {
+      setErr(carryForwardSaveErrorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="ml-0 space-y-2">
+      <EntitlementRuleRowHeader
+        title="Carry forward (unused days)"
+        ruleType="Balance carry — not a leave type"
+        rightSlot={canEdit && !editing
+          ? <Button variant="secondary" className="text-xs" type="button" onClick={() => { setErr(null); setSaveOk(null); setEditing(true); }}>Edit</Button>
+          : null}
+      />
+      {editing ? (
+        <div className="ml-11 space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-xs text-slate-700">
+          {err ? <p className="text-red-600">{err}</p> : null}
+          <div>
+            <label className={labelClass}>Valid months to use carry-forward (start of each balance period, default 3)</label>
+            <input
+              type="number"
+              min={1}
+              max={12}
+              value={availabilityMonths}
+              onChange={(e) => setAvailabilityMonths(Math.min(12, Math.max(1, Number(e.target.value) || 1)))}
+              className={`${inputClass} max-w-[8rem]`}
+            />
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              This value is enforced when employees apply for leave. Unused carry is removed from the usable pool after the window; balances refresh when the list is loaded. Stored in system settings.
+            </p>
+          </div>
+          <div>
+            <label className={labelClass}>Intro (lead line)</label>
+            <textarea value={intro} onChange={(e) => setIntro(e.target.value)} className={inputClass} rows={2} />
+          </div>
+          {([0, 1, 2] as const).map((i) => (
+            <div key={i}>
+              <label className={labelClass}>Point {i + 1}</label>
+              <textarea
+                value={points[i] ?? ""}
+                onChange={(e) => {
+                  const c: [string, string, string] = [...points] as [string, string, string];
+                  c[i] = e.target.value;
+                  setPoints(c);
+                }}
+                className={inputClass}
+                rows={2}
+              />
+            </div>
+          ))}
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => {
+                setAvailabilityMonths(settings.availabilityMonths ?? 3);
+                setIntro(
+                  (settings.narrativeIntro && settings.narrativeIntro.trim() ? settings.narrativeIntro : DEFAULT_CARRY_NARRATIVE.intro),
+                );
+                setPoints(carryNarrativePointsTuple(settings.narrativePoints));
+                setEditing(false);
+                setErr(null);
+                setSaveOk(null);
+              }}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => { void save(); }} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="ml-0 space-y-2">
+          {!canEdit ? (
+            <p className="ml-11 text-[11px] text-slate-500">
+              Only accounts with organization-wide <strong className="font-medium text-slate-600">Leave</strong> update access (e.g. HR / Admin) or the{" "}
+              <strong className="font-medium text-slate-600">Supervisor</strong> role can edit valid months and this reference text.
+            </p>
+          ) : null}
+          {saveOk ? (
+            <p className="ml-11 text-[12px] font-medium text-emerald-700" role="status">
+              {saveOk}
+            </p>
+          ) : null}
+          <CarryForwardNarrativeView
+            intro={settings.narrativeIntro && settings.narrativeIntro.trim() ? settings.narrativeIntro : DEFAULT_CARRY_NARRATIVE.intro}
+            points={carryNarrativePointsTuple(settings.narrativePoints)}
+            windowDescription={settings.windowDescription?.trim() || buildCarryWindowDescription(settings.availabilityMonths ?? 3)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const ENTITLEMENT_RULE_SORT_ORDER: Record<string, number> = {
+  ShopOfficeAnnual: 0,
+  ShopOfficeCasual: 1,
+  ShopOfficeSick: 2,
+};
+
+function sortEntitlementRulesForDisplay(rules: EntitlementRule[]) {
+  return [...rules].sort((a, b) => {
+    const oa = ENTITLEMENT_RULE_SORT_ORDER[a.ruleType] ?? 50;
+    const ob = ENTITLEMENT_RULE_SORT_ORDER[b.ruleType] ?? 50;
+    if (oa !== ob) return oa - ob;
+    return a.leaveTypeName.localeCompare(b.leaveTypeName);
+  });
+}
+
 function PoliciesTab() {
+  const { hasRole, user, isAdmin } = useAuth();
+  const canEditCarryForwardSettings =
+    isAdmin ||
+    hasRole("HR_MANAGER") ||
+    hasRole("SUPERVISOR") ||
+    (user?.permissions.some(
+      (p) => p.module === "Leave" && p.action === "Update" && (p.scope ?? "Own") === "All",
+    ) ?? false);
   const [items, setItems] = useState<PolicyItem[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<PolicyItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [rules, setRules] = useState<EntitlementRule[]>([]);
+  const [carrySettings, setCarrySettings] = useState<CarryForwardAvailability | null>(null);
+
+  const sortedRules = useMemo(() => sortEntitlementRulesForDisplay(rules), [rules]);
+  const hasShopOfficeSickRule = useMemo(() => rules.some((r) => r.ruleType === "ShopOfficeSick"), [rules]);
+  const sickCatalogLeaveTypeId = useMemo(
+    () => leaveTypes.find((lt) => lt.code === "LT-SIC")?.id ?? null,
+    [leaveTypes],
+  );
 
   const load = useCallback(() => {
-    Promise.all([
+    return Promise.all([
       apiFetch<PolicyItem[]>("/api/leave/policies"),
       apiFetch<LeaveTypeItem[]>("/api/leave/types"),
-      apiFetch<EntitlementRule[]>("/api/leave/entitlement-rules"),
-    ]).then(([p, t, r]) => { setItems(p); setLeaveTypes(t); setRules(r); });
+      apiFetch<EntitlementRule[]>("/api/leave/entitlement-rules").catch(() => [] as EntitlementRule[]),
+      apiFetch<unknown>("/api/leave/carry-forward-availability").catch(() => ({ availabilityMonths: 3 })),
+    ]).then(([p, t, r, rawCf]) => {
+      setItems(p);
+      setLeaveTypes(t);
+      setRules(r);
+      setCarrySettings(normalizeCarrySettingsFromApi(rawCf));
+    });
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -1525,12 +3308,29 @@ function PoliciesTab() {
         </form>
       </Modal>
 
-      {/* Entitlement Rules */}
-      {rules.length > 0 && (
+      {/* Entitlement Rules + carry-forward reference */}
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <CardHeader title="Entitlement Rules" />
+        <p className="border-b border-slate-100 px-6 pb-4 text-xs text-slate-500">
+          Reference text for Shop &amp; Office–style rules linked to leave types. Your <strong className="font-medium text-slate-600">Leave policies</strong> and balances may add limits, approvals, and carry-forward caps.
+        </p>
           <div className="divide-y divide-slate-100">
-            {rules.map((rule) => {
+          {sortedRules.length > 0
+            ? sortedRules.map((rule) => {
+            if (rule.ruleType === "ShopOfficeSick") {
+              return (
+                <div key={rule.id} className="px-6 py-4">
+                  <SickNarrativeAdminBlock
+                    mode="rule"
+                    rule={rule}
+                    sickLeaveTypeId={sickCatalogLeaveTypeId}
+                    onUpdated={load}
+                    entitlementHeader={{ title: rule.leaveTypeName, ruleType: rule.ruleType, inactive: !rule.isActive }}
+                  />
+                </div>
+              );
+            }
+
               let config: EntitlementRuleConfigDisplay | null = null;
               try {
                 config = JSON.parse(rule.ruleConfig) as EntitlementRuleConfigDisplay;
@@ -1538,17 +3338,14 @@ function PoliciesTab() {
                 /* ignore */
               }
               const monthLabel = (m: number) => ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m - 1] ?? "";
-              const gearIcon = <svg className="h-4 w-4 text-indigo-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 
               return (
                 <div key={rule.id} className="px-6 py-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100">{gearIcon}</div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-700">{rule.leaveTypeName}</p>
-                      <p className="text-xs text-slate-400">Rule type: {rule.ruleType} {!rule.isActive && <span className="text-red-400">(Inactive)</span>}</p>
-                    </div>
-                  </div>
+                <EntitlementRuleRowHeader
+                  title={rule.leaveTypeName}
+                  ruleType={rule.ruleType}
+                  inactive={!rule.isActive}
+                />
 
                   {rule.ruleType === "ShopOfficeAnnual" && (
                     <div className="ml-11 space-y-1.5 text-xs text-slate-600">
@@ -1580,8 +3377,12 @@ function PoliciesTab() {
                         <strong className="text-slate-800">Sri Lanka Shop &amp; Office Act</strong> — casual leave (max 7 days).
                       </p>
                       <ul className="list-disc pl-4 space-y-0.5">
-                        <li>Joining year: 0.5 day per completed calendar month from join (partial join month excluded), capped at 7</li>
-                        <li>From the next calendar year: 7 days per year</li>
+                        <li>
+                          <span className="font-medium text-slate-700">1.</span> Joining year: 0.5 day per completed calendar month from join (partial join month excluded), capped at 7
+                        </li>
+                        <li>
+                          <span className="font-medium text-slate-700">2.</span> From the next calendar year: 7 days per year
+                        </li>
                       </ul>
                     </div>
                   )}
@@ -1643,10 +3444,39 @@ function PoliciesTab() {
                   )}
                 </div>
               );
-            })}
+            })
+            : (
+            <div className="px-6 py-4">
+              <p className="text-sm text-slate-500">No entitlement rules are linked to leave types in the database yet. After seeding or admin setup, Annual, Casual, and Sick leave rules can appear here.</p>
           </div>
+            )}
+
+        {!hasShopOfficeSickRule && (
+          <div className="px-6 py-4">
+            <SickNarrativeAdminBlock
+              mode="reference"
+              rule={null}
+              sickLeaveTypeId={sickCatalogLeaveTypeId}
+              onUpdated={load}
+              entitlementHeader={{ title: "Sick Leave", ruleType: "ShopOfficeSick (reference)" }}
+              referenceHelperText="Shown when no ShopOfficeSick rule is present in the database yet. Save your text below to create the rule, or use seeding to add it from the server."
+            />
         </div>
       )}
+
+        <div className="px-6 py-4">
+          {carrySettings
+            ? (
+              <CarryForwardNarrativeAdminBlock
+                settings={carrySettings}
+                onUpdated={load}
+                canEdit={canEditCarryForwardSettings}
+              />
+            )
+            : <p className="ml-2 text-xs text-slate-500 sm:ml-11">Loading carry-forward display settings…</p>}
+        </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1702,42 +3532,116 @@ function HolidaysTab() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <label className={labelClass}>Year</label>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={inputClass + " w-32"}>
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={inputClass + " w-36 shadow-sm"}>
             {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
         <Button onClick={openAdd}>+ Add Holiday</Button>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <CardHeader title={`Company Holidays — ${year}`} />
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="bg-slate-50 text-left">
-              <th className="px-6 py-2.5 font-semibold text-slate-600">Holiday Name</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Date</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Day</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Restricted</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Description</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
-            </tr></thead>
-            <tbody className="divide-y divide-slate-100">
-              {items.length === 0 && <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-400">No holidays for {year}.</td></tr>}
-              {items.map((h) => (
-                <tr key={h.id} className="hover:bg-slate-50/50">
-                  <td className="px-6 py-3 font-medium text-slate-700">{h.name}</td>
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(h.date)}</td>
-                  <td className="px-4 py-3 text-slate-600">{(() => { const [y, m, d] = h.date.split("T")[0].split("-"); return new Date(+y, +m - 1, +d).toLocaleDateString("en-US", { weekday: "long" }); })()}</td>
-                  <td className="px-4 py-3">{h.isRestricted ? <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Restricted</span> : <span className="text-slate-400">No</span>}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{h.description ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <button onClick={() => openEdit(h)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
-                      <button onClick={() => handleDelete(h.id)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Delete</button>
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
+        <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
+          <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Company Holidays — {year}</h2>
+          <p className="mt-1 text-xs text-slate-500 sm:text-sm">Organization-wide dates, restricted days, and notes for leave planning.</p>
                     </div>
+        <div className="max-h-[min(70vh,48rem)] overflow-x-auto overflow-y-auto">
+          <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th
+                  className="sticky top-0 z-10 min-w-[9rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
+                  scope="col"
+                >
+                  Holiday
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[8.5rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pl-2"
+                  scope="col"
+                >
+                  Date
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[6.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Day
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[7rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Restricted
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[8rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Note
+                </th>
+                <th
+                  className="sticky top-0 z-10 w-28 border-b border-slate-200/90 bg-slate-100/95 py-3 pl-1 pr-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur sm:pr-3"
+                  scope="col"
+                >
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-16 text-center">
+                    <p className="text-sm text-slate-500">No holidays for <span className="font-semibold text-slate-700">{year}</span>.</p>
+                    <p className="mt-1 text-xs text-slate-400">Add dates your teams should treat as non-working or restricted.</p>
                   </td>
                 </tr>
-              ))}
+              )}
+              {items.map((h) => {
+                const [yy, mo, da] = h.date.split("T")[0].split("-");
+                const dayName = new Date(+yy, +mo - 1, +da).toLocaleDateString(undefined, { weekday: "long" });
+                return (
+                  <tr key={h.id} className="group border-b border-slate-100/90 transition hover:bg-sky-50/35">
+                    <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-2 pr-2 font-medium text-slate-800 transition group-hover:border-sky-500/60 sm:pl-3 sm:pr-2">
+                      {h.name}
+                    </td>
+                    <td
+                      className="min-w-[8.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pl-2 pr-2 sm:pl-3 sm:pr-2"
+                    >
+                      <span className="text-base font-semibold tabular-nums text-emerald-900">{fmtDate(h.date)}</span>
+                    </td>
+                    <td className="px-2 py-2.5 sm:px-3">
+                      <span className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-0.5 text-xs font-medium text-slate-700">{dayName}</span>
+                    </td>
+                    <td className="px-2 py-2.5 sm:px-3">
+                      {h.isRestricted ? (
+                        <span className="inline-flex rounded-full bg-rose-100/90 px-2.5 py-0.5 text-xs font-medium text-rose-800">Restricted</span>
+                      ) : (
+                        <span className="text-sm text-slate-400">No</span>
+                      )}
+                    </td>
+                    <td className="max-w-[12rem] px-2 py-2.5 text-xs text-slate-600 sm:px-3">
+                      <span className="line-clamp-2">{h.description?.trim() ? h.description : "—"}</span>
+                    </td>
+                    <td className="py-2.5 pl-1 pr-1 text-right sm:pr-2">
+                      <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(h)}
+                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(h.id)}
+                          className="rounded-lg border border-rose-200/80 bg-rose-50/50 px-2.5 py-1 text-xs font-medium text-rose-800 transition hover:bg-rose-100/80"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -1,43 +1,145 @@
 "use client";
 
-import { useState, useEffect, useMemo, type FormEvent } from "react";
+import { useState, useEffect, useMemo, useRef, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField } from "@/components/ui";
+import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { type EmploymentTypeCatalogItem, employmentTypeOptionsFromCatalog } from "@/lib/employment-types";
+import { getSuggestedSkillsForJob } from "@/lib/requisition-skills-by-job";
+import {
+  generateRequisitionDescription,
+  type RequisitionDescriptionSnapshot,
+} from "@/lib/generate-requisition-description";
+import { formatDate } from "@/lib/date-utils";
+
+/** Sparkles — common “AI assist” affordance (inline SVG, no extra dependency). */
+function AiAssistIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423L16.5 15.75l.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
+      />
+    </svg>
+  );
+}
+
+function generateRequisitionCode(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `REQ-${y}${m}${day}-${rand}`;
+}
 
 interface Lookup { id: string; name: string }
 interface LocationLookup { id: string; name: string }
 
-interface Props { open: boolean; onClose: () => void; onCreated?: () => void }
+/** Shape returned by POST /api/recruitment/requisitions (camelCase JSON). */
+export interface CreatedRequisition {
+  id: string;
+  title: string;
+  code: string;
+  status: string;
+}
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  /** Called with the created requisition from the API so the parent can navigate to a detail view. */
+  onCreated?: (requisition: CreatedRequisition) => void;
+}
+
+const REQ_PRIORITY_CREATE_OPTS: FormSelectOption[] = [
+  { value: "", label: "Select…" },
+  { value: "High", label: "High" },
+  { value: "Medium", label: "Medium" },
+  { value: "Low", label: "Low" },
+];
 
 export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
-  const [employees, setEmployees] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<LocationLookup[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [formKey, setFormKey] = useState(0);
+  const [requisitionTitle, setRequisitionTitle] = useState("");
+  const [jobTitleId, setJobTitleId] = useState("");
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [description, setDescription] = useState("");
+  const [applicationNotificationEmail, setApplicationNotificationEmail] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+  const autoCodeRef = useRef("");
 
   const employmentTypeOpts = useMemo(
     () => employmentTypeOptionsFromCatalog(employmentTypes),
     [employmentTypes]
   );
 
+  const employmentTypeFormOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "Select…" }, ...employmentTypeOpts],
+    [employmentTypeOpts]
+  );
+
+  const departmentFormOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "Select…" }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
+    [departments]
+  );
+  const jobTitleFormOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "Select…" }, ...jobTitles.map((j) => ({ value: j.id, label: j.name }))],
+    [jobTitles]
+  );
+  const locationFormOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "Select…" }, ...locations.map((l) => ({ value: l.id, label: l.name }))],
+    [locations]
+  );
+
+  const jobTitleLabel = useMemo(
+    () => jobTitles.find((j) => j.id === jobTitleId)?.name ?? "",
+    [jobTitles, jobTitleId]
+  );
+
+  const suggestedSkills = useMemo(
+    () => getSuggestedSkillsForJob(jobTitleLabel, requisitionTitle),
+    [jobTitleLabel, requisitionTitle]
+  );
+
+  useEffect(() => {
+    setSelectedSkills((prev) => prev.filter((s) => suggestedSkills.includes(s)));
+  }, [suggestedSkills]);
+
   useEffect(() => {
     if (!open) return;
+    setFormKey((k) => k + 1);
+    setRequisitionTitle("");
+    setJobTitleId("");
+    setSelectedSkills([]);
+    setDescription("");
+    setApplicationNotificationEmail("");
+    autoCodeRef.current = generateRequisitionCode();
     Promise.all([
       apiFetch<Lookup[]>("/api/organization/departments"),
       apiFetch<Lookup[]>("/api/organization/job-titles"),
-      apiFetch<{ items: { id: string; firstName: string; lastName: string }[] }>("/api/employees?pageSize=200"),
       apiFetch<LocationLookup[]>("/api/organization/locations"),
       apiFetch<EmploymentTypeCatalogItem[]>("/api/organization/employment-statuses").catch(() => [] as EmploymentTypeCatalogItem[]),
-    ]).then(([d, j, e, l, empTypes]) => {
+    ]).then(([d, j, l, empTypes]) => {
       setDepartments(d);
       setJobTitles(j);
-      setEmployees(e.items.map((x) => ({ id: x.id, name: `${x.firstName} ${x.lastName}` })));
       setLocations(l);
       setEmploymentTypes(empTypes);
     }).catch(() => {});
@@ -50,8 +152,8 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
     const fd = new FormData(e.currentTarget);
     const payload = {
       title: fd.get("title"),
-      code: fd.get("code"),
-      description: fd.get("description") || null,
+      code: autoCodeRef.current || generateRequisitionCode(),
+      description: description.trim() || null,
       vacancies: Number(fd.get("vacancies")) || 1,
       targetDate: fd.get("targetDate") || null,
       priority: fd.get("priority") || null,
@@ -60,15 +162,19 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
       experienceMax: fd.get("experienceMax") ? Number(fd.get("experienceMax")) : null,
       salaryMin: fd.get("salaryMin") ? Number(fd.get("salaryMin")) : null,
       salaryMax: fd.get("salaryMax") ? Number(fd.get("salaryMax")) : null,
-      skills: fd.get("skills") || null,
+      skills: selectedSkills.length ? selectedSkills.join(", ") : null,
       departmentId: fd.get("departmentId"),
-      jobTitleId: fd.get("jobTitleId") || null,
-      hiringManagerId: fd.get("hiringManagerId") || null,
+      jobTitleId: jobTitleId || null,
+      hiringManagerId: null,
       locationId: fd.get("locationId") || null,
+      applicationNotificationEmail: applicationNotificationEmail.trim() || null,
     };
     try {
-      await apiFetch("/api/recruitment/requisitions", { method: "POST", body: JSON.stringify(payload) });
-      onCreated?.();
+      const created = await apiFetch<CreatedRequisition>("/api/recruitment/requisitions", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      onCreated?.(created);
       onClose();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to create requisition");
@@ -77,35 +183,66 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
     }
   }
 
+  function handleGenerateDescription() {
+    const form = formRef.current;
+    if (!form) return;
+    const fd = new FormData(form);
+    const g = (k: string) => String(fd.get(k) ?? "").trim();
+    const deptId = g("departmentId");
+    const locId = g("locationId");
+    const empVal = g("employmentType");
+    const empOpt = employmentTypeFormOpts.find((o) => o.value === empVal);
+    const employmentTypeLabel = empOpt && empOpt.value !== "" ? empOpt.label : "";
+    const targetRaw = g("targetDate");
+    const snapshot: RequisitionDescriptionSnapshot = {
+      title: g("title"),
+      code: autoCodeRef.current || generateRequisitionCode(),
+      vacancies: Number(fd.get("vacancies")) || 1,
+      targetDate: targetRaw ? formatDate(targetRaw) : "",
+      priority: g("priority"),
+      employmentType: empVal,
+      employmentTypeLabel,
+      experienceMin: g("experienceMin"),
+      experienceMax: g("experienceMax"),
+      salaryMin: g("salaryMin"),
+      salaryMax: g("salaryMax"),
+      departmentName: departments.find((d) => d.id === deptId)?.name ?? "",
+      jobTitleName: jobTitleLabel,
+      hiringManagerName: "",
+      locationName: locations.find((l) => l.id === locId)?.name ?? "",
+      skills: [...selectedSkills],
+    };
+    setDescription(generateRequisitionDescription(snapshot));
+  }
+
   const inputClass = "w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20";
   const labelClass = "mb-1 block text-xs font-medium text-[var(--text-muted)]";
 
   return (
     <Modal open={open} onClose={onClose} title="Create Requisition" wide>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form ref={formRef} key={formKey} onSubmit={handleSubmit} className="space-y-4">
         {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div><label className={labelClass}>Title *</label><input name="title" required className={inputClass} placeholder="Senior Developer" /></div>
-          <div><label className={labelClass}>Code *</label><input name="code" required className={inputClass} placeholder="REQ-2026-042" /></div>
+        <div>
+          <label className={labelClass}>Title *</label>
+          <input
+            name="title"
+            required
+            className={inputClass}
+            placeholder="Senior Developer"
+            value={requisitionTitle}
+            onChange={(e) => setRequisitionTitle(e.target.value)}
+          />
+          <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">
+            A requisition code is assigned automatically when you create (e.g. REQ-20260420-ABC12X).
+          </p>
         </div>
-        <div><label className={labelClass}>Description</label><textarea name="description" rows={2} className={inputClass} placeholder="Job description..." /></div>
         <div className="grid gap-4 sm:grid-cols-3">
           <div><label className={labelClass}>Vacancies</label><input name="vacancies" type="number" min={1} defaultValue={1} className={inputClass} /></div>
           <div><label className={labelClass}>Priority</label>
-            <select name="priority" className={inputClass}>
-              <option value="">Select...</option>
-              <option value="High">High</option>
-              <option value="Medium">Medium</option>
-              <option value="Low">Low</option>
-            </select>
+            <FormSelect name="priority" defaultValue="" options={REQ_PRIORITY_CREATE_OPTS} placeholder="Select…" />
           </div>
           <div><label className={labelClass}>Employment Type</label>
-            <select name="employmentType" className={inputClass}>
-              <option value="">Select...</option>
-              {employmentTypeOpts.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+            <FormSelect name="employmentType" defaultValue="" options={employmentTypeFormOpts} placeholder="Select…" />
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
@@ -117,32 +254,100 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
           <div><label className={labelClass}>Salary Min</label><input name="salaryMin" type="number" min={0} className={inputClass} /></div>
           <div><label className={labelClass}>Salary Max</label><input name="salaryMax" type="number" min={0} className={inputClass} /></div>
         </div>
-        <div><label className={labelClass}>Skills (comma-separated)</label><input name="skills" className={inputClass} placeholder="React, TypeScript, C#..." /></div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div><label className={labelClass}>Department *</label>
-            <select name="departmentId" required className={inputClass}>
-              <option value="">Select...</option>
-              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+            <FormSelect name="departmentId" required defaultValue="" options={departmentFormOpts} placeholder="Select…" />
           </div>
           <div><label className={labelClass}>Job Title</label>
-            <select name="jobTitleId" className={inputClass}>
-              <option value="">Select...</option>
-              {jobTitles.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
-            </select>
-          </div>
-          <div><label className={labelClass}>Hiring Manager</label>
-            <select name="hiringManagerId" className={inputClass}>
-              <option value="">Select...</option>
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
+            <FormSelect
+              name="jobTitleId"
+              value={jobTitleId}
+              onValueChange={setJobTitleId}
+              options={jobTitleFormOpts}
+              placeholder="Select…"
+            />
           </div>
           <div><label className={labelClass}>Location</label>
-            <select name="locationId" className={inputClass}>
-              <option value="">Select...</option>
-              {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
+            <FormSelect name="locationId" defaultValue="" options={locationFormOpts} placeholder="Select…" />
           </div>
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="req-application-inbox">
+            Application notification email
+          </label>
+          <input
+            id="req-application-inbox"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            className={inputClass}
+            placeholder="hr@company.com"
+            value={applicationNotificationEmail}
+            onChange={(e) => setApplicationNotificationEmail(e.target.value)}
+          />
+          <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--text-muted)]">
+            When candidates submit an application for this job, OpenSky HRM sends the notification to this address (SendGrid).
+            Leave blank to use the organization default from Policy &amp; Settings / appsettings.
+          </p>
+        </div>
+        <div>
+          <label className={labelClass}>Skills</label>
+          <p className="mb-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
+            Suggestions follow the <strong>job title</strong> and <strong>requisition title</strong> (e.g. &quot;Backend Engineer&quot; vs &quot;HR Generalist&quot;). Choose all that apply; anything not listed can go in the description.
+          </p>
+          <div className="max-h-[220px] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--soft)]/30 p-3 sm:grid sm:grid-cols-2 sm:gap-x-4 sm:gap-y-2">
+            {suggestedSkills.map((skill) => {
+              const checked = selectedSkills.includes(skill);
+              return (
+                <label
+                  key={skill}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg py-1.5 pl-1 text-sm text-[var(--text)] hover:bg-white/60"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 shrink-0 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/25"
+                    checked={checked}
+                    onChange={() =>
+                      setSelectedSkills((prev) =>
+                        checked ? prev.filter((s) => s !== skill) : [...prev, skill]
+                      )
+                    }
+                  />
+                  <span className="min-w-0 leading-snug">{skill}</span>
+                </label>
+              );
+            })}
+          </div>
+          {selectedSkills.length > 0 && (
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
+              {selectedSkills.length} selected: {selectedSkills.join(", ")}
+            </p>
+          )}
+        </div>
+        <div>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-medium text-[var(--text-muted)]">Description</span>
+            <Button
+              variant="secondary"
+              type="button"
+              className="shrink-0 gap-1.5 px-3 py-2 text-xs min-h-0"
+              onClick={handleGenerateDescription}
+            >
+              <AiAssistIcon className="shrink-0 text-slate-600" />
+              <span>Generate from details</span>
+            </Button>
+          </div>
+          <p className="mb-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
+            Fills a draft from title, auto-generated code, department, job title, location, dates, compensation, employment type, and selected skills. Edit freely after generating.
+          </p>
+          <textarea
+            name="description"
+            rows={12}
+            className={`${inputClass} min-h-[200px] font-mono text-[13px] leading-relaxed`}
+            placeholder="Use “Generate from details” after filling the form, or write your own description…"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
         </div>
         <div className="flex items-center justify-end gap-3 pt-2">
           <Button variant="secondary" onClick={onClose} type="button">Cancel</Button>

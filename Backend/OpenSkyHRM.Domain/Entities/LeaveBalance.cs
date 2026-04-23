@@ -11,6 +11,7 @@ public class LeaveBalance : AuditableEntity
     public decimal Entitled { get; set; }
     public decimal Used { get; set; }
     public decimal CarriedForward { get; set; }
+    public decimal BroughtForwardDays { get; set; }
     public decimal Remaining => Entitled + CarriedForward - Used;
 
     public Guid EmployeeId { get; set; }

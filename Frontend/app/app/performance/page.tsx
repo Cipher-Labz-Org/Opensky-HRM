@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { DatePickerField } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { formatDate } from "@/lib/date-utils";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
 import Link from "next/link";
 
 // ── Types ─────────────────────────────────────────────────────
@@ -306,14 +307,121 @@ export default function PerformancePage() {
 
   const selectedCycle = cycles.find(c => c.id === selectedCycleId);
 
+  const deptBars = useMemo(() => {
+    if (!dashboard?.departmentProgress?.length) return [];
+    const colors = ["#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#0ea5e9"];
+    return dashboard.departmentProgress.map((d, i) => ({
+      label: d.department || "—",
+      value: d.completed,
+      color: colors[i % colors.length],
+    }));
+  }, [dashboard]);
+
+  const ratingBars = useMemo(() => {
+    if (!dashboard?.ratingDistribution?.length) return [];
+    const colors = ["#94a3b8", "#64748b", "#3b82f6", "#22c55e", "#eab308", "#f97316", "#ef4444"];
+    return dashboard.ratingDistribution.map((r, i) => ({
+      label: r.label,
+      value: r.count,
+      color: colors[i % colors.length],
+    }));
+  }, [dashboard]);
+
+  const ratingDonut = useMemo(() => ratingBars.filter((x) => x.value > 0), [ratingBars]);
+
+  const pipelineBars = useMemo(() => {
+    if (!dashboard) return [];
+    return [
+      { label: "Self completed", value: dashboard.selfCompleted, color: "#3b82f6" },
+      { label: "Manager completed", value: dashboard.managerCompleted, color: "#8b5cf6" },
+      { label: "Peer completed", value: dashboard.peerCompleted, color: "#f59e0b" },
+      { label: "Fully completed", value: dashboard.fullyCompleted, color: "#22c55e" },
+    ];
+  }, [dashboard]);
+
+  const dashboardKpis = useMemo(() => {
+    if (!dashboard || !selectedCycle) return [];
+    const t = dashboard.totalEmployees;
+    const pct = (n: number) => (t > 0 ? `${Math.round((n / t) * 100)}%` : "—");
+    return [
+      {
+        label: "Total employees",
+        value: formatInt(t),
+        sub: `${selectedCycle.name} · ${formatDate(selectedCycle.startDate)} – ${formatDate(selectedCycle.endDate)}`,
+      },
+      {
+        label: "Self completed",
+        value: formatInt(dashboard.selfCompleted),
+        sub: `${pct(dashboard.selfCompleted)} of roster in this cycle`,
+      },
+      {
+        label: "Manager completed",
+        value: formatInt(dashboard.managerCompleted),
+        sub: `${pct(dashboard.managerCompleted)} with manager review done`,
+      },
+      {
+        label: "Fully completed",
+        value: formatInt(dashboard.fullyCompleted),
+        sub: `${pct(dashboard.fullyCompleted)} appraisal${dashboard.fullyCompleted === 1 ? "" : "s"} closed end-to-end`,
+      },
+    ];
+  }, [dashboard, selectedCycle]);
+
+  const appraisalTimeline = useMemo(() => {
+    return [...cycleAppraisals]
+      .filter((a) => a.reviewers?.some((r) => r.submittedAt))
+      .sort((a, b) => {
+        const ta = Math.max(...a.reviewers.map((r) => (r.submittedAt ? new Date(r.submittedAt).getTime() : 0)));
+        const tb = Math.max(...b.reviewers.map((r) => (r.submittedAt ? new Date(r.submittedAt).getTime() : 0)));
+        return tb - ta;
+      })
+      .slice(0, 8)
+      .map((a) => {
+        const latest = a.reviewers
+          .filter((r) => r.submittedAt)
+          .sort((x, y) => new Date(y.submittedAt!).getTime() - new Date(x.submittedAt!).getTime())[0];
+        return {
+          at: latest?.submittedAt ?? a.acknowledgedAt ?? "",
+          title: `${a.employeeName} · ${latest?.reviewerType ?? "Review"} submitted`,
+          body: `${PHASE_LABELS[a.status] ?? a.status}${a.finalRating != null ? ` · Final ${a.finalRating.toFixed(1)}` : ""}`,
+        };
+      })
+      .filter((x) => x.at);
+  }, [cycleAppraisals]);
+
   return (
     <>
       <AppTopbar title="Performance Appraisal" subtitle="360-degree performance appraisal management — cycles, templates, and reviews." />
 
-      {/* Tab bar */}
-      <div className="mb-6 flex items-center gap-1 rounded-xl bg-slate-100 p-1 w-fit">
+      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
+        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
+        <div className="relative z-10">
+          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+            Performance workspace
+          </p>
+          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Talent & review intelligence</h2>
+          <p className="mt-3 max-w-2xl text-sm text-slate-600">
+            Cycle progress, department completion, and rating distribution share the same layout as your Command Center.
+            Switch tabs for cycles and setup (scales, competencies, templates).
+          </p>
+        </div>
+      </section>
+
+      <div className="mt-6 mb-6 flex flex-wrap gap-2">
         {([["dashboard", "Dashboard"], ["cycles", "Appraisal Cycles"], ["setup", "Setup"]] as const).map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)} className={`rounded-lg px-4 py-2 text-sm font-medium transition ${tab === key ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{label}</button>
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${
+              tab === key
+                ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+            }`}
+          >
+            {label}
+          </button>
         ))}
       </div>
 
@@ -322,18 +430,24 @@ export default function PerformancePage() {
          ═══════════════════════════════════════════════════════════ */}
       {tab === "dashboard" && (
         <div>
-          {/* Cycle selector */}
-          <div className="mb-6 flex items-center gap-3">
-            <label className="text-sm font-medium text-slate-600">Cycle:</label>
-            <select value={selectedCycleId ?? ""} onChange={e => setSelectedCycleId(e.target.value)} className={inputClass + " w-64"}>
-              {cycles.map(c => <option key={c.id} value={c.id}>{c.name} ({PHASE_LABELS[c.phase] ?? c.phase})</option>)}
+          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <label className="text-sm font-semibold text-slate-700">Cycle</label>
+            <select
+              value={selectedCycleId ?? ""}
+              onChange={(e) => setSelectedCycleId(e.target.value)}
+              className={`${inputClass} min-w-[14rem] max-w-full flex-1 sm:max-w-md`}
+            >
+              {cycles.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({PHASE_LABELS[c.phase] ?? c.phase})
+                </option>
+              ))}
             </select>
           </div>
 
           {dashboard && selectedCycle && (
             <>
-              {/* Phase indicator */}
-              <div className="mb-6 flex items-center gap-2">
+              <div className="mb-6 flex flex-wrap items-center gap-2">
                 {["SelfAssessment", "ManagerReview", "PeerReview", "Calibration", "Acknowledgement", "Completed"].map((p, i) => {
                   const phases = ["SelfAssessment", "ManagerReview", "PeerReview", "Calibration", "Acknowledgement", "Completed"];
                   const currentIdx = phases.indexOf(selectedCycle.phase);
@@ -342,8 +456,20 @@ export default function PerformancePage() {
                   if (p === "PeerReview" && !selectedCycle.includePeerReview) return null;
                   return (
                     <div key={p} className="flex items-center gap-2">
-                      <div className={`flex h-8 items-center rounded-full px-3 text-[11px] font-semibold transition ${isCurrent ? PHASE_COLORS[p] ?? "bg-slate-100 text-slate-600" : isActive ? "bg-emerald-50 text-emerald-600" : "bg-slate-50 text-slate-400"}`}>
-                        {isActive && !isCurrent && <svg className="mr-1 h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                      <div
+                        className={`flex h-8 items-center rounded-full px-3 text-[11px] font-semibold transition ${
+                          isCurrent
+                            ? PHASE_COLORS[p] ?? "bg-slate-100 text-slate-600"
+                            : isActive
+                              ? "bg-emerald-50 text-emerald-600"
+                              : "bg-slate-50 text-slate-400"
+                        }`}
+                      >
+                        {isActive && !isCurrent && (
+                          <svg className="mr-1 h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
                         {PHASE_LABELS[p] ?? p}
                       </div>
                       {i < phases.length - 1 && <div className={`h-0.5 w-6 ${isActive ? "bg-emerald-300" : "bg-slate-200"}`} />}
@@ -352,100 +478,269 @@ export default function PerformancePage() {
                 })}
               </div>
 
-              {/* Stats cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                {[
-                  { label: "Total Employees", value: dashboard.totalEmployees, color: "text-slate-800" },
-                  { label: "Self Completed", value: dashboard.selfCompleted, color: "text-blue-600" },
-                  { label: "Manager Completed", value: dashboard.managerCompleted, color: "text-violet-600" },
-                  { label: "Fully Completed", value: dashboard.fullyCompleted, color: "text-emerald-600" },
-                ].map((s) => (
-                  <div key={s.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{s.label}</div>
-                    <div className={`mt-1 text-2xl font-bold ${s.color}`}>{s.value}</div>
-                    {dashboard.totalEmployees > 0 && (
-                      <div className="mt-2 h-1.5 rounded-full bg-slate-100">
-                        <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${Math.round((s.value / dashboard.totalEmployees) * 100)}%` }} />
-                      </div>
-                    )}
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                {dashboardKpis.map((kpi) => (
+                  <div
+                    key={kpi.label}
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
+                    <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
+                    <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
                   </div>
                 ))}
               </div>
 
-              {/* Department progress + Rating distribution */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h4 className="mb-3 text-sm font-semibold text-slate-700">Department Progress</h4>
-                  {dashboard.departmentProgress.map(d => (
-                    <div key={d.department} className="mb-3">
-                      <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
-                        <span>{d.department}</span>
-                        <span>{d.completed}/{d.total}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-slate-100">
-                        <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: d.total > 0 ? `${Math.round((d.completed / d.total) * 100)}%` : "0%" }} />
-                      </div>
-                    </div>
-                  ))}
+              <div className="mt-6 grid gap-6 lg:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-slate-800">Department completion</h3>
+                    <span className="text-xs text-slate-500">Completed count</span>
+                  </div>
+                  {deptBars.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-500">No department breakdown returned.</p>
+                  ) : (
+                    <HorizontalCompareBars items={deptBars} />
+                  )}
+                  <p className="mt-2 text-[11px] text-slate-500">Bar width scales to the largest department completed count in this payload.</p>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h4 className="mb-3 text-sm font-semibold text-slate-700">Rating Distribution</h4>
-                  {dashboard.ratingDistribution.map(r => (
-                    <div key={r.label} className="mb-2 flex items-center gap-3">
-                      <span className="w-32 text-xs text-slate-600 truncate">{r.label}</span>
-                      <div className="flex-1 h-5 rounded bg-slate-100">
-                        <div className="h-full rounded bg-blue-500 transition-all flex items-center justify-end pr-1" style={{ width: dashboard.totalEmployees > 0 ? `${Math.max((r.count / dashboard.totalEmployees) * 100, r.count > 0 ? 8 : 0)}%` : "0%" }}>
-                          {r.count > 0 && <span className="text-[9px] text-white font-bold">{r.count}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-slate-800">Review pipeline</h3>
+                    <span className="text-xs text-slate-500">Counts</span>
+                  </div>
+                  {pipelineBars.every((x) => x.value === 0) ? (
+                    <p className="py-8 text-center text-sm text-slate-500">No completion counts yet.</p>
+                  ) : (
+                    <HorizontalCompareBars items={pipelineBars} />
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-slate-800">Rating distribution</h3>
+                    <span className="text-xs text-slate-500">Donut</span>
+                  </div>
+                  {ratingDonut.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-500">No ratings in the sample.</p>
+                  ) : (
+                    <DonutMixChart values={ratingDonut} />
+                  )}
                 </div>
               </div>
 
-              {/* Appraisals list */}
-              <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-slate-700">Employee Appraisals</h4>
-                  {selectedCycle.phase !== "Completed" && selectedCycle.phase !== "Draft" && (
-                    <Button onClick={() => advanceCycle(selectedCycle.id)}>Advance to Next Phase</Button>
+              <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-slate-800">Ratings by label</h3>
+                  <span className="text-xs text-slate-500">Frequency</span>
+                </div>
+                {ratingBars.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-slate-500">No distribution rows.</p>
+                ) : (
+                  <HorizontalCompareBars items={ratingBars} />
+                )}
+              </div>
+
+              <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4">
+                    <h3 className="text-base font-semibold text-slate-900">Recent review activity</h3>
+                    <p className="text-xs text-slate-500">Latest reviewer submissions (up to 8)</p>
+                  </div>
+                  {appraisalTimeline.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-slate-500">No submitted reviews yet for this cycle.</p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {appraisalTimeline.map((ev, i) => (
+                        <div
+                          key={`${ev.at}-${i}`}
+                          className="group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
+                        >
+                          <div className="pt-0.5 text-[11px] font-medium text-slate-500">{formatDateTime(ev.at)}</div>
+                          <div className="min-w-0">
+                            <div className="mb-0.5 flex items-center gap-2">
+                              <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-violet-500" />
+                              <strong className="truncate text-sm text-slate-800">{ev.title}</strong>
+                            </div>
+                            <div className="line-clamp-2 text-sm text-slate-600">{ev.body}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-                <table className="w-full text-[12px]">
-                  <thead><tr className="border-b border-slate-100 bg-slate-50/60">
-                    <th className="py-2 px-4 text-left text-[10px] font-semibold text-slate-400 uppercase">Employee</th>
-                    <th className="py-2 px-4 text-left text-[10px] font-semibold text-slate-400 uppercase">Department</th>
-                    <th className="py-2 px-4 text-left text-[10px] font-semibold text-slate-400 uppercase">Status</th>
-                    <th className="py-2 px-4 text-left text-[10px] font-semibold text-slate-400 uppercase">Self</th>
-                    <th className="py-2 px-4 text-left text-[10px] font-semibold text-slate-400 uppercase">Manager</th>
-                    <th className="py-2 px-4 text-left text-[10px] font-semibold text-slate-400 uppercase">Final Rating</th>
-                    <th className="py-2 px-4 text-[10px] font-semibold text-slate-400 uppercase w-20"></th>
-                  </tr></thead>
-                  <tbody>
-                    {cycleAppraisals.map(a => {
-                      const selfR = a.reviewers.find(r => r.reviewerType === "Self");
-                      const mgrR = a.reviewers.find(r => r.reviewerType === "Manager");
-                      return (
-                        <tr key={a.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
-                          <td className="py-2 px-4 font-medium text-slate-700">{a.employeeName} <span className="text-slate-400 font-normal">{a.employeeCode}</span></td>
-                          <td className="py-2 px-4 text-slate-500">{a.departmentName ?? "—"}</td>
-                          <td className="py-2 px-4"><span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${PHASE_COLORS[a.status] ?? "bg-slate-100 text-slate-600"}`}>{PHASE_LABELS[a.status] ?? a.status}</span></td>
-                          <td className="py-2 px-4">{selfR ? <StatusBadge status={selfR.status} rating={selfR.overallRating} /> : "—"}</td>
-                          <td className="py-2 px-4">{mgrR ? <StatusBadge status={mgrR.status} rating={mgrR.overallRating} /> : "—"}</td>
-                          <td className="py-2 px-4 font-semibold text-slate-700">{a.finalRating?.toFixed(2) ?? "—"}</td>
-                          <td className="py-2 px-4">
-                            <Link href={`/app/performance/appraisal/${a.id}`} className="text-blue-600 hover:underline text-[11px]">View</Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {cycleAppraisals.length === 0 && <div className="py-12 text-center text-sm text-slate-400">No appraisals in this cycle yet. Activate the cycle to generate them.</div>}
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4">
+                    <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
+                    <p className="text-xs text-slate-500">Configure and run appraisal programs</p>
+                  </div>
+                  <div className="grid gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setTab("cycles")}
+                      className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-800">Appraisal cycles</div>
+                          <div className="mt-0.5 text-xs text-slate-500">Create, activate, and advance phases</div>
+                        </div>
+                        <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
+                          →
+                        </span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSetupTab("scales");
+                        setTab("setup");
+                      }}
+                      className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-800">Rating scales</div>
+                          <div className="mt-0.5 text-xs text-slate-500">Setup workspace · Scales</div>
+                        </div>
+                        <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
+                          →
+                        </span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSetupTab("competencies");
+                        setTab("setup");
+                      }}
+                      className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-800">Competencies</div>
+                          <div className="mt-0.5 text-xs text-slate-500">Setup workspace · Competencies</div>
+                        </div>
+                        <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
+                          →
+                        </span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSetupTab("templates");
+                        setTab("setup");
+                      }}
+                      className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-800">Templates</div>
+                          <div className="mt-0.5 text-xs text-slate-500">Setup workspace · Templates</div>
+                        </div>
+                        <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
+                          →
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                  <div>
+                    <h4 className="text-base font-semibold text-slate-900">Employee appraisals</h4>
+                    <p className="text-xs text-slate-500">Full roster for the selected cycle</p>
+                  </div>
+                  {selectedCycle.phase !== "Completed" && selectedCycle.phase !== "Draft" && (
+                    <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => advanceCycle(selectedCycle.id)}>
+                      Advance to next phase
+                    </Button>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px] text-[12px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50/60">
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Employee
+                        </th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Department
+                        </th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Status
+                        </th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Self
+                        </th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Manager
+                        </th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Final rating
+                        </th>
+                        <th className="w-20 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cycleAppraisals.map((a) => {
+                        const selfR = a.reviewers.find((r) => r.reviewerType === "Self");
+                        const mgrR = a.reviewers.find((r) => r.reviewerType === "Manager");
+                        return (
+                          <tr key={a.id} className="border-b border-slate-50 transition hover:bg-slate-50/50">
+                            <td className="px-4 py-2.5 font-medium text-slate-700">
+                              {a.employeeName}{" "}
+                              <span className="font-normal text-slate-400">{a.employeeCode}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-slate-500">{a.departmentName ?? "—"}</td>
+                            <td className="px-4 py-2.5">
+                              <span
+                                className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${PHASE_COLORS[a.status] ?? "bg-slate-100 text-slate-600"}`}
+                              >
+                                {PHASE_LABELS[a.status] ?? a.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              {selfR ? <StatusBadge status={selfR.status} rating={selfR.overallRating} /> : "—"}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              {mgrR ? <StatusBadge status={mgrR.status} rating={mgrR.overallRating} /> : "—"}
+                            </td>
+                            <td className="px-4 py-2.5 font-semibold text-slate-700">{a.finalRating?.toFixed(2) ?? "—"}</td>
+                            <td className="px-4 py-2.5">
+                              <Link href={`/app/performance/appraisal/${a.id}`} className="text-[11px] text-blue-600 hover:underline">
+                                View
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {cycleAppraisals.length === 0 && (
+                  <div className="py-12 text-center text-sm text-slate-400">
+                    No appraisals in this cycle yet. Activate the cycle to generate them.
+                  </div>
+                )}
+              </div>
+
+              <p className="footer-note">
+                KPIs and charts reflect the selected cycle&apos;s dashboard API. Department bars use completed counts only
+                (not ratio to headcount).
+              </p>
             </>
           )}
-          {cycles.length === 0 && <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center"><p className="text-sm text-slate-400">No appraisal cycles created yet. Go to the Cycles tab to create one.</p></div>}
+          {cycles.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center shadow-sm">
+              <p className="text-sm text-slate-400">No appraisal cycles created yet. Go to the Cycles tab to create one.</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -505,9 +800,20 @@ export default function PerformancePage() {
          ═══════════════════════════════════════════════════════════ */}
       {tab === "setup" && (
         <div>
-          <div className="mb-4 flex items-center gap-1 rounded-lg bg-slate-100 p-1 w-fit">
+          <div className="mb-6 flex flex-wrap gap-2">
             {([["scales", "Rating Scales"], ["competencies", "Competencies"], ["templates", "Templates"]] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setSetupTab(key)} className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${setupTab === key ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{label}</button>
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSetupTab(key)}
+                className={`rounded-xl border px-3.5 py-2 text-xs font-semibold transition sm:text-sm ${
+                  setupTab === key
+                    ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                    : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+                }`}
+              >
+                {label}
+              </button>
             ))}
           </div>
 

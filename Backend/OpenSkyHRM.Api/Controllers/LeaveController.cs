@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
@@ -84,6 +86,68 @@ public class LeaveController : ControllerBase
         try
         {
             var created = await _leaveService.CreateLeaveRequestAsync(dto);
+            return Ok(created);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Creates a leave request with an optional medical certificate PDF (required for sick leave longer than 2 days).</summary>
+    [HttpPost("requests/with-document")]
+    [RequestFormLimits(MultipartBodyLengthLimit = 15_000_000)]
+    public async Task<IActionResult> CreateRequestWithDocument(
+        [FromForm] Guid employeeId,
+        [FromForm] Guid leaveTypeId,
+        [FromForm] DateTime startDate,
+        [FromForm] DateTime endDate,
+        [FromForm] decimal totalDays,
+        [FromForm] string? reason,
+        [FromForm] string? coveragePerson,
+        IFormFile? medicalCertificate,
+        [FromServices] IWebHostEnvironment env)
+    {
+        var scope = LeaveAccessHelper.ResolveScope(User, "Create");
+        if (scope == "Own")
+        {
+            var currentId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+            if (!currentId.HasValue || employeeId != currentId.Value)
+                return Forbid();
+        }
+
+        string? medicalUrl = null;
+        if (medicalCertificate is { Length: > 0 })
+        {
+            var ext = Path.GetExtension(medicalCertificate.FileName).ToLowerInvariant();
+            var isPdf = string.Equals(ext, ".pdf", StringComparison.Ordinal)
+                || string.Equals(medicalCertificate.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
+            if (!isPdf)
+                return BadRequest(new { message = "Medical certificate must be a PDF file." });
+
+            var token = Guid.NewGuid();
+            var dir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "leave-certificates", token.ToString());
+            Directory.CreateDirectory(dir);
+            var physicalPath = Path.Combine(dir, "medical-certificate.pdf");
+            await using (var stream = System.IO.File.Create(physicalPath))
+                await medicalCertificate.CopyToAsync(stream);
+            medicalUrl = $"/uploads/leave-certificates/{token}/medical-certificate.pdf";
+        }
+
+        var dto = new CreateLeaveRequestDto
+        {
+            EmployeeId = employeeId,
+            LeaveTypeId = leaveTypeId,
+            StartDate = startDate,
+            EndDate = endDate,
+            TotalDays = totalDays,
+            Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
+            CoveragePerson = string.IsNullOrWhiteSpace(coveragePerson) ? null : coveragePerson.Trim(),
+        };
+
+        try
+        {
+            var created = await _leaveService.CreateLeaveRequestAsync(dto, medicalUrl);
             return Ok(created);
         }
         catch (InvalidOperationException ex)
@@ -273,19 +337,25 @@ public class LeaveController : ControllerBase
     // ───── Leave Balances ─────
 
     [HttpGet("balances/{employeeId:guid}")]
-    public async Task<IActionResult> GetBalances(Guid employeeId, [FromQuery] int year)
+    public async Task<IActionResult> GetBalances(Guid employeeId, [FromQuery] int year, [FromQuery] int? asOfMonth = null)
     {
         if (!await LeaveAccessHelper.CanAccessEmployeeLeaveAsync(User, _db, employeeId, "Read"))
             return Forbid();
-        return Ok(await _leaveService.GetEmployeeBalancesAsync(employeeId, year));
+        var asOfDate = ResolveAsOfDate(year, asOfMonth);
+        if (asOfMonth.HasValue && asOfDate is null)
+            return BadRequest(new { message = "asOfMonth must be between 1 and 12." });
+        return Ok(await _leaveService.GetEmployeeBalancesAsync(employeeId, year, asOfDate));
     }
 
     [HttpGet("balances/summary")]
-    public async Task<IActionResult> GetBalanceSummary([FromQuery] int year)
+    public async Task<IActionResult> GetBalanceSummary([FromQuery] int year, [FromQuery] int? asOfMonth = null)
     {
         if (LeaveAccessHelper.ResolveScope(User, "Read") == "Own")
             return Forbid();
-        return Ok(await _leaveService.GetBalanceSummaryAsync(year));
+        var asOfDate = ResolveAsOfDate(year, asOfMonth);
+        if (asOfMonth.HasValue && asOfDate is null)
+            return BadRequest(new { message = "asOfMonth must be between 1 and 12." });
+        return Ok(await _leaveService.GetBalanceSummaryAsync(year, asOfDate));
     }
 
     [HttpPost("balances")]
@@ -314,19 +384,44 @@ public class LeaveController : ControllerBase
     }
 
     [HttpPost("carry-forward")]
+    [HttpPost("process-carry-forward")]
     public async Task<IActionResult> ProcessCarryForward([FromBody] CarryForwardRequest request)
     {
         if (LeaveAccessHelper.ResolveScope(User, "Update") != "All")
             return Forbid();
         try
         {
-            var result = await _leaveService.ProcessCarryForwardAsync(request.FromYear, request.ToYear);
+            IReadOnlySet<Guid>? filter = request.EmployeeIds is null
+                ? null
+                : request.EmployeeIds.Count == 0
+                    ? new HashSet<Guid>()
+                    : request.EmployeeIds.ToHashSet();
+            var result = await _leaveService.ProcessCarryForwardAsync(request.FromYear, request.ToYear, filter);
             return Ok(result);
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
         }
+    }
+
+    [HttpGet("carry-forward-availability")]
+    public async Task<IActionResult> GetCarryForwardAvailability()
+    {
+        if (!LeaveAccessHelper.CanReadCarryForwardAvailabilitySettings(User))
+            return Forbid();
+        return Ok(await _leaveService.GetCarryForwardAvailabilitySettingsAsync());
+    }
+
+    [HttpPut("carry-forward-availability")]
+    public async Task<IActionResult> SetCarryForwardAvailability([FromBody] UpdateCarryForwardAvailabilitySettingsDto dto)
+    {
+        if (!LeaveAccessHelper.CanUpdateCarryForwardAvailabilitySettings(User))
+            return Forbid();
+        if (dto is null) return BadRequest();
+        if (dto.AvailabilityMonths is < 1 or > 12)
+            return BadRequest(new { message = "AvailabilityMonths must be between 1 and 12." });
+        return Ok(await _leaveService.SetCarryForwardAvailabilitySettingsAsync(dto));
     }
 
     // ───── Holidays ─────
@@ -448,5 +543,16 @@ public class LeaveController : ControllerBase
         if (LeaveAccessHelper.ResolveScope(User, "Read") != "All")
             return Forbid();
         return Ok(await _leaveService.GetCalendarAsync(month, year));
+    }
+
+    private static DateTime? ResolveAsOfDate(int year, int? asOfMonth)
+    {
+        if (!asOfMonth.HasValue)
+            return null;
+        if (asOfMonth is < 1 or > 12)
+            return null;
+        var m = asOfMonth.Value;
+        var day = DateTime.DaysInMonth(year, m);
+        return new DateTime(year, m, day);
     }
 }

@@ -48,10 +48,12 @@ public class EmployeesController : ControllerBase
         [FromQuery] Guid? managerId = null,
         [FromQuery] string? status = null,
         [FromQuery] string? employmentType = null,
-        [FromQuery] bool excludeTerminated = false)
+        [FromQuery] bool excludeTerminated = false,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null)
     {
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, employmentType, allowedIds, excludeTerminated);
+        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, employmentType, allowedIds, excludeTerminated, sortBy, sortDir);
         return Ok(result);
     }
 
@@ -67,8 +69,12 @@ public class EmployeesController : ControllerBase
     public async Task<IActionResult> Create([FromBody] CreateEmployeeDto dto,
         [FromServices] IEmployeeTaskService employeeTaskService)
     {
+        if (!await PeopleAccessHelper.MayAssignEmployeeLocationAsync(User, _db, dto.LocationId))
+            return Forbid();
+
+        var assignedLocs = await PeopleAccessHelper.GetAssignedLocationIdsAsync(User, _db);
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Create");
-        if (allowedIds != null && allowedIds.Count == 0)
+        if (assignedLocs == null && allowedIds != null && allowedIds.Count == 0)
             return Forbid();
 
         var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
@@ -110,6 +116,9 @@ public class EmployeesController : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateEmployeeDto dto)
     {
+        if (!await PeopleAccessHelper.MayAssignEmployeeLocationAsync(User, _db, dto.LocationId))
+            return Forbid();
+
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
         if (allowedIds != null && (allowedIds.Count == 0 || !allowedIds.Contains(id)))
             return Forbid();
@@ -280,7 +289,7 @@ public class EmployeesController : ControllerBase
         return Ok(rows);
     }
 
-    /// <summary>Employees who may be assigned as supervisors: active login with SUPERVISOR role (People read scope applies).</summary>
+    /// <summary>Employees who may be assigned as supervisors: active non-terminated others in People read scope (same idea as reporting lines elsewhere).</summary>
     [HttpGet("{id:guid}/reporting/supervisor-candidates")]
     public async Task<IActionResult> GetSupervisorCandidates(Guid id)
     {
@@ -290,15 +299,7 @@ public class EmployeesController : ControllerBase
 
         var q = _db.Employees
             .AsNoTracking()
-            .Where(e => !e.IsDeleted && e.Status != "Terminated" && e.Id != id)
-            .Where(e => _db.Users.Any(u =>
-                !u.IsDeleted
-                && u.IsActive
-                && u.EmployeeId == e.Id
-                && u.UserRoles.Any(ur =>
-                    !ur.IsDeleted
-                    && !ur.Role.IsDeleted
-                    && ur.Role.Code == "SUPERVISOR")));
+            .Where(e => !e.IsDeleted && e.Status != "Terminated" && e.Id != id);
 
         if (allowedIds != null)
             q = q.Where(e => allowedIds.Contains(e.Id));
@@ -319,22 +320,19 @@ public class EmployeesController : ControllerBase
     [HttpPost("{id:guid}/supervisors")]
     public async Task<IActionResult> AddSupervisor(Guid id, [FromBody] AddSupervisorRequest req)
     {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+            return Forbid();
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, req.SupervisorId, "Read"))
+            return Forbid();
+
         var employee = await _db.Employees.FindAsync(id);
         if (employee is null) return NotFound();
         var supervisor = await _db.Employees.FindAsync(req.SupervisorId);
         if (supervisor is null) return BadRequest(new { error = "Supervisor not found." });
-
-        var hasSupervisorRole = await _db.Users
-            .AnyAsync(u =>
-                !u.IsDeleted
-                && u.IsActive
-                && u.EmployeeId == req.SupervisorId
-                && u.UserRoles.Any(ur =>
-                    !ur.IsDeleted
-                    && !ur.Role.IsDeleted
-                    && ur.Role.Code == "SUPERVISOR"));
-        if (!hasSupervisorRole)
-            return BadRequest(new { error = "Only employees with the Supervisor role can be assigned as a supervisor." });
+        if (supervisor.IsDeleted || supervisor.Status == "Terminated")
+            return BadRequest(new { error = "That employee cannot be assigned as a supervisor." });
+        if (id == req.SupervisorId)
+            return BadRequest(new { error = "An employee cannot be their own supervisor." });
 
         var exists = await _db.EmployeeSupervisors.AnyAsync(x => x.EmployeeId == id && x.SupervisorId == req.SupervisorId);
         if (exists) return BadRequest(new { error = "This supervisor is already assigned." });

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace OpenSkyHRM.Application.DTOs.LeaveAttendance;
 
 public class LeaveRequestDto
@@ -28,6 +30,9 @@ public class LeaveRequestDto
     public string? ApproverName { get; set; }
     /// <summary>Who is responsible: approver/rejector name, or who needs to approve for Pending states.</summary>
     public string? ResponsibleUserName { get; set; }
+
+    /// <summary>Relative URL to a stored medical certificate PDF, when applicable.</summary>
+    public string? MedicalCertificateUrl { get; set; }
 }
 
 public class CreateLeaveRequestDto
@@ -118,6 +123,7 @@ public class UpdateLeavePolicyDto
 public class LeaveBalanceDto
 {
     public Guid Id { get; set; }
+    public Guid LeaveTypeId { get; set; }
     public string LeaveTypeName { get; set; } = string.Empty;
     public int Year { get; set; }
     public DateTime? PeriodStart { get; set; }
@@ -127,6 +133,7 @@ public class LeaveBalanceDto
     public decimal Entitled { get; set; }
     public decimal Used { get; set; }
     public decimal CarriedForward { get; set; }
+    public decimal BroughtForwardDays { get; set; }
     public decimal Remaining { get; set; }
 }
 
@@ -152,8 +159,13 @@ public class UpdateLeaveBalanceDto
 
 public class CarryForwardRequest
 {
+    [JsonPropertyName("fromYear")]
     public int FromYear { get; set; }
+    [JsonPropertyName("toYear")]
     public int ToYear { get; set; }
+    /// <summary>When set, only these employees are included. When null, all employees with source-year balances are processed. An empty list processes no one.</summary>
+    [JsonPropertyName("employeeIds")]
+    public List<Guid>? EmployeeIds { get; set; }
 }
 
 public class CarryForwardResult
@@ -164,6 +176,31 @@ public class CarryForwardResult
     public int BalancesUpdated { get; set; }
     public int BalancesCreated { get; set; }
     public decimal TotalDaysCarried { get; set; }
+    /// <summary>Non-error hint when the run is a no-op (e.g. no policies, nothing to carry).</summary>
+    public string? InfoMessage { get; set; }
+}
+
+public class CarryForwardAvailabilitySettingsDto
+{
+    [JsonPropertyName("availabilityMonths")]
+    public int AvailabilityMonths { get; set; }
+    [JsonPropertyName("windowDescription")]
+    public string WindowDescription { get; set; } = string.Empty;
+    /// <summary>Intro line(s) for the policy reference. Same values returned for editing (defaults applied when not stored).</summary>
+    [JsonPropertyName("narrativeIntro")]
+    public string NarrativeIntro { get; set; } = string.Empty;
+    [JsonPropertyName("narrativePoints")]
+    public List<string> NarrativePoints { get; set; } = new();
+}
+
+public class UpdateCarryForwardAvailabilitySettingsDto
+{
+    [JsonPropertyName("availabilityMonths")]
+    public int AvailabilityMonths { get; set; }
+    [JsonPropertyName("narrativeIntro")]
+    public string? NarrativeIntro { get; set; }
+    [JsonPropertyName("narrativePoints")]
+    public string[]? NarrativePoints { get; set; }
 }
 
 public class LeaveBalanceSummaryDto

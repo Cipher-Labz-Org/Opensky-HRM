@@ -1,11 +1,9 @@
 "use client";
 
 import { useState, useEffect, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 
 export default function LoginPage() {
-  const router = useRouter();
   const { login, isAuthenticated, isLoading } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -14,8 +12,10 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated) router.replace("/app/dashboard");
-  }, [isAuthenticated, router]);
+    if (isLoading) return;
+    if (!isAuthenticated) return;
+    window.location.replace("/app/dashboard");
+  }, [isAuthenticated, isLoading]);
 
   if (isLoading) {
     return (
@@ -39,7 +39,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login(username, password);
-      router.replace("/app/dashboard");
+      window.location.replace("/app/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

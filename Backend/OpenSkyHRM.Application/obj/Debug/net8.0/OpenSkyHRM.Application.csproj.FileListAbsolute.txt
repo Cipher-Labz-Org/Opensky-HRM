@@ -76,3 +76,24 @@ C:\D Drive\OpenskyHRM\Backend\_buildtmp_api17\OpenSkyHRM.Application.pdb
 C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Application.deps.json
 C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Application.dll
 C:\D Drive\OpenskyHRM\Backend\_buildtmp_api18\OpenSkyHRM.Application.pdb
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Application.deps.json
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Application.dll
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Application.pdb
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Domain.dll
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Persistence.dll
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Domain.pdb
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Persistence.pdb
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.csproj.AssemblyReference.cache
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.GeneratedMSBuildEditorConfig.editorconfig
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.AssemblyInfoInputs.cache
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.AssemblyInfo.cs
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.csproj.CoreCompileInputs.cache
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.sourcelink.json
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyH.35F70ABE.Up2Date
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.dll
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\refint\OpenSkyHRM.Application.dll
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.pdb
+D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\ref\OpenSkyHRM.Application.dll
+D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Application.deps.json
+D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Application.dll
+D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Application.pdb

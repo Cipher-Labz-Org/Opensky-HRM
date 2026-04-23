@@ -271,7 +271,7 @@ const valueCls = "mt-0.5 text-sm font-medium text-slate-800";
 
 function BioSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section id={id} className={card}>
+    <section id={id} className={`${card} scroll-mt-36`}>
       <div className={cardHead}>
         <h2 className={cardTitle}>{title}</h2>
       </div>
@@ -556,9 +556,12 @@ export default function EmployeeProfilePage() {
     (selectedEmployeeId != null || (effectiveEmployeeId != null && effectiveEmployeeId !== employeeId));
 
   const directorySearchBar = !canSearchOthers ? null : (
-    <div ref={searchWrapRef} className="relative mb-6 rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur-sm">
+    <div
+      ref={searchWrapRef}
+      className={`relative mb-6 rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur-sm ${dirOpen ? "z-50" : "z-20"}`}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1 overflow-visible">
           <label htmlFor="emp-bio-search" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
             Find employee
           </label>
@@ -572,7 +575,7 @@ export default function EmployeeProfilePage() {
             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-[#2B7DE9] focus:ring-2 focus:ring-[#2B7DE9]/20"
           />
           {dirOpen && (
-            <ul className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+            <ul className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl ring-1 ring-slate-900/5">
               {dirLoading && <li className="px-4 py-3 text-sm text-slate-500">Searching…</li>}
               {!dirLoading && dirResults.length === 0 && (
                 <li className="px-4 py-3 text-sm text-slate-500">No matches</li>
@@ -623,6 +626,7 @@ export default function EmployeeProfilePage() {
     { id: "bio-emergency", label: "Emergency" },
     { id: "bio-dependents", label: "Dependents" },
     { id: "bio-education", label: "Education" },
+    { id: "bio-qualifications", label: "Qualifications" },
     { id: "bio-skills", label: "Skills" },
     { id: "bio-certs", label: "Certifications" },
     { id: "bio-languages", label: "Languages" },
@@ -713,13 +717,16 @@ export default function EmployeeProfilePage() {
 
       {directorySearchBar}
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
+      <nav
+        className="sticky top-[52px] z-40 -mx-7 mb-6 flex flex-col gap-2 border-b border-slate-200/90 bg-white/95 py-2.5 pl-7 pr-7 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/85 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+        aria-label="Bio sections"
+      >
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80">
           {toc.map((t) => (
             <a
               key={t.id}
               href={`#${t.id}`}
-              className="rounded-full border border-slate-200/60 bg-white/70 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm backdrop-blur-sm transition hover:border-[#2B7DE9]/35 hover:text-[#1565C9]"
+              className="shrink-0 rounded-full border border-slate-200/60 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:border-[#2B7DE9]/35 hover:text-[#1565C9]"
             >
               {t.label}
             </a>
@@ -727,11 +734,11 @@ export default function EmployeeProfilePage() {
         </div>
         <Link
           href={`${ROUTES.people}/${emp.id}`}
-          className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+          className="shrink-0 self-start rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 sm:self-auto"
         >
           Open full profile (edit)
         </Link>
-      </div>
+      </nav>
 
       {/* Hero */}
       <div
@@ -901,17 +908,47 @@ export default function EmployeeProfilePage() {
             empty="No education records."
             columns={[
               { key: "level", header: "Level" },
-              { key: "qual", header: "Qualification" },
               { key: "inst", header: "Institute" },
               { key: "major", header: "Major" },
               { key: "year", header: "Year" },
+              { key: "gpa", header: "GPA / score" },
+              { key: "period", header: "Study period" },
             ]}
             rows={educations.map((r) => ({
               level: r.level,
-              qual: dash(r.qualificationName),
               inst: dash(r.institute),
               major: dash(r.major),
               year: dash(r.year),
+              gpa: dash(r.gpaScore),
+              period:
+                r.startDate || r.endDate
+                  ? `${r.startDate ? formatDate(r.startDate) : "—"} – ${r.endDate ? formatDate(r.endDate) : "—"}`
+                  : "—",
+            }))}
+          />
+        </BioSection>
+
+        <BioSection id="bio-qualifications" title="Qualifications">
+          <DataTable
+            empty="No qualifications on file."
+            columns={[
+              { key: "qual", header: "Qualification" },
+              { key: "level", header: "Level" },
+              { key: "inst", header: "Institute" },
+              { key: "major", header: "Major / field" },
+              { key: "year", header: "Year" },
+              { key: "period", header: "Completed" },
+            ]}
+            rows={educations.map((r) => ({
+              qual: dash(r.qualificationName),
+              level: r.level,
+              inst: dash(r.institute),
+              major: dash(r.major),
+              year: dash(r.year),
+              period:
+                r.startDate || r.endDate
+                  ? `${r.startDate ? formatDate(r.startDate) : "—"} – ${r.endDate ? formatDate(r.endDate) : "—"}`
+                  : "—",
             }))}
           />
         </BioSection>

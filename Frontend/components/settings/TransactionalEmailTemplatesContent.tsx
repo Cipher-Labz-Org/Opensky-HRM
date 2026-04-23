@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
 
-interface TemplateListItem {
+export interface TemplateListItem {
   id: string;
   name: string;
   templateKey: string;
@@ -40,7 +40,12 @@ function normalizeDetail(raw: ApiRow): TemplateDetail {
   };
 }
 
-export function TransactionalEmailTemplatesContent() {
+type TransactionalEmailTemplatesContentProps = {
+  /** Fired whenever the loaded template list changes (including initial load). */
+  onTemplatesChange?: (templates: TemplateListItem[]) => void;
+};
+
+export function TransactionalEmailTemplatesContent({ onTemplatesChange }: TransactionalEmailTemplatesContentProps) {
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [editingTemplate, setEditingTemplate] = useState<TemplateDetail | null>(null);
   const [tplName, setTplName] = useState("");
@@ -67,6 +72,10 @@ export function TransactionalEmailTemplatesContent() {
   useEffect(() => {
     reloadList();
   }, []);
+
+  useEffect(() => {
+    onTemplatesChange?.(templates);
+  }, [templates, onTemplatesChange]);
 
   function openTemplateEditor(tpl: TemplateListItem) {
     setBannerError("");
@@ -130,13 +139,13 @@ export function TransactionalEmailTemplatesContent() {
           {bannerError}
         </div>
       )}
-      <div className="hris-card mb-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="section-title">
           <h3>Transactional email templates</h3>
           <span>Edit subject and HTML for system emails. Changes apply to the next send.</span>
         </div>
         <div className="space-y-2">
-          <p className="text-xs text-[var(--text-muted)] mb-2">
+          <p className="mb-2 text-xs text-slate-600">
             <strong>Leave</strong> (key <code className="text-[10px] bg-slate-100 px-1 rounded">Email_LeaveApplication</code>):{" "}
             <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{EmployeeName}}"}</code>{" "}
             <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{LeaveTypeName}}"}</code>{" "}
@@ -160,15 +169,22 @@ export function TransactionalEmailTemplatesContent() {
             </p>
           ) : (
             templates.map((tpl) => (
-              <div key={tpl.id} className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
+              <div
+                key={tpl.id}
+                className="flex items-center justify-between rounded-xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 transition hover:border-slate-300 hover:bg-white"
+              >
                 <div className="flex items-center gap-3">
-                  <span className={`h-2 w-2 rounded-full ${tpl.isActive ? "bg-green-500" : "bg-slate-300"}`} />
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${tpl.isActive ? "bg-emerald-500" : "bg-slate-300"}`} />
                   <div>
-                    <strong className="text-sm font-semibold text-[var(--text)]">{tpl.name}</strong>
-                    <div className="text-xs text-[var(--text-muted)]">{tpl.templateKey}</div>
+                    <strong className="text-sm font-semibold text-slate-900">{tpl.name}</strong>
+                    <div className="text-xs text-slate-500">{tpl.templateKey}</div>
                   </div>
                 </div>
-                <button type="button" onClick={() => openTemplateEditor(tpl)} className="text-sm font-medium text-[var(--primary)] hover:underline">
+                <button
+                  type="button"
+                  onClick={() => openTemplateEditor(tpl)}
+                  className="text-sm font-medium text-blue-600 hover:underline"
+                >
                   Edit
                 </button>
               </div>

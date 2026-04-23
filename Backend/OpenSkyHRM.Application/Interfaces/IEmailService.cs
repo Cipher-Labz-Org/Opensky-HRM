@@ -13,5 +13,19 @@ public interface IEmailService
 
     Task SendTrainingOverdueReminderAsync(string toEmail, string employeeName, string courseTitle, DateTime dueDate);
 
+    /// <summary>Notifies the candidate that an interview has been scheduled.</summary>
+    Task SendInterviewScheduledToCandidateAsync(string toEmail, string candidateName, string interviewTitle,
+        DateTime scheduledAtUtc, int durationMinutes, string? location, string? interviewType, string? interviewerName,
+        string requisitionTitle);
+
+    /// <summary>Notifies the assigned interviewer that an interview has been scheduled.</summary>
+    Task SendInterviewScheduledToInterviewerAsync(string toEmail, string interviewerName, string candidateName,
+        string interviewTitle, DateTime scheduledAtUtc, int durationMinutes, string? location, string? interviewType,
+        string requisitionTitle);
+
     Task<bool> IsConfiguredAsync();
+
+    /// <summary>Sends HR/recruitment inbox a notice that someone applied (uses SendGrid when SendGrid:ApiKey is set).</summary>
+    Task SendJobApplicationNotificationToInboxAsync(string inboxEmail, string candidateName, string candidateEmail, string? phone,
+        string requisitionTitle, string requisitionCode, Guid candidateId, bool resumePdfUploaded);
 }

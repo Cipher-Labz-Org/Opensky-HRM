@@ -107,6 +107,10 @@ public class AppDbContext : DbContext
     public DbSet<Permission> Permissions => Set<Permission>();
     public DbSet<User> Users => Set<User>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
+    public DbSet<UserAssignedLocation> UserAssignedLocations => Set<UserAssignedLocation>();
+    public DbSet<UserAssignedBusinessUnit> UserAssignedBusinessUnits => Set<UserAssignedBusinessUnit>();
+    public DbSet<UserAssignedGrade> UserAssignedGrades => Set<UserAssignedGrade>();
+    public DbSet<UserAssignedJobTitle> UserAssignedJobTitles => Set<UserAssignedJobTitle>();
     public DbSet<CompanyCalendar> CompanyCalendars => Set<CompanyCalendar>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<OutboundEmailLog> OutboundEmailLogs => Set<OutboundEmailLog>();

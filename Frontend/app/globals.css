@@ -2,11 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* App accent for react-day-picker (see node_modules default blue) */
+/* App accent for react-day-picker — OpenSky brand blue + warm highlight */
 .opensky-day-picker {
-  --rdp-accent-color: #ea580c;
-  --rdp-accent-background-color: #ffedd5;
-  --rdp-today-color: #c2410c;
+  --rdp-accent-color: #2e7bbf;
+  --rdp-accent-background-color: #e3eef8;
+  --rdp-today-color: #1a5f94;
   --rdp-dropdown-gap: 0.5rem;
 }
 
@@ -25,13 +25,17 @@
 }
 
 :root {
-  --bg: #f4f7fb;
+  /* OpenSky logo–aligned palette (SKY blue #2E7BBF, OPEN red #ED1C24, neutral gray) */
+  --bg: #f5f7fa;
   --panel: #ffffff;
-  --soft: #eef3f9;
+  --soft: #eef4f9;
   --text: #1f2937;
   --muted: #6b7280;
-  --primary: #2563eb;
-  --primary-soft: #dbeafe;
+  --primary: #2e7bbf;
+  --primary-deep: #256aa3;
+  --primary-soft: #e3eef8;
+  --accent-hot: #ed1c24;
+  --accent-hot-soft: #fde8ea;
   --success: #0f766e;
   --warning: #b45309;
   --danger: #b91c1c;
@@ -41,8 +45,54 @@
 
 body {
   margin: 0;
-  background: linear-gradient(180deg, #eef4fb 0%, #f8fbff 100%);
+  background: linear-gradient(180deg, #f5f7fa 0%, #f0f4f8 55%, #f8fafc 100%);
   color: var(--text);
+}
+
+/* Command Center cards — layout unchanged; brand hover lift + blue rim */
+.opensky-dashboard-card {
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 1.25rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.opensky-dashboard-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(46, 123, 191, 0.4);
+  box-shadow: 0 14px 36px -16px rgba(46, 123, 191, 0.28);
+}
+
+.opensky-dashboard-quicklink {
+  display: block;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 0.75rem 0.875rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.opensky-dashboard-quicklink:hover {
+  border-color: rgba(46, 123, 191, 0.48);
+  background: linear-gradient(180deg, rgba(46, 123, 191, 0.07) 0%, #fff 55%);
+  box-shadow: 0 10px 28px -12px rgba(46, 123, 191, 0.26);
+  transform: translateY(-1px);
+}
+.opensky-dashboard-quicklink:hover .opensky-quicklink-chev {
+  color: #ed1c24;
+  transform: translateX(4px);
+}
+.opensky-quicklink-chev {
+  display: inline-block;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.opensky-dashboard-timeline-row {
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+.opensky-dashboard-timeline-row:hover {
+  border-color: rgba(46, 123, 191, 0.35) !important;
+  background: rgba(46, 123, 191, 0.045);
 }
 
 /* App shell: responsive override so sidebar stacks on small screens */
@@ -59,12 +109,12 @@ body {
 
 /* HRIS UI patterns from hris_ui_pack */
 .badge { display: inline-flex; align-items: center; padding: 7px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; }
-.badge-blue { background: var(--primary-soft); color: #1d4ed8; }
+.badge-blue { background: var(--primary-soft); color: #1a5f94; }
 .badge-green { background: #d1fae5; color: #047857; }
 .badge-orange { background: #ffedd5; color: #c2410c; }
 .badge-red { background: #fee2e2; color: #b91c1c; }
 .progress-bar { height: 10px; background: #e5edf7; border-radius: 9999px; overflow: hidden; }
-.progress-bar span { display: block; height: 100%; background: linear-gradient(90deg, #2563eb, #38bdf8); border-radius: 9999px; }
+.progress-bar span { display: block; height: 100%; background: linear-gradient(90deg, #2e7bbf, #5ba3d4); border-radius: 9999px; }
 .section-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .section-title h3 { margin: 0; font-size: 18px; }
 .section-title span { color: var(--muted); font-size: 13px; }
@@ -77,9 +127,9 @@ body {
 .hris-timeline-item { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
 .hris-timeline-date { color: var(--muted); font-size: 13px; padding-top: 4px; }
 .hris-timeline-body { background: var(--soft); border-radius: 16px; padding: 14px; }
-.hris-hero { padding: 26px; background: linear-gradient(135deg, #0f172a, #1d4ed8); color: #fff; border-radius: 26px; box-shadow: var(--shadow); }
+.hris-hero { padding: 26px; background: linear-gradient(135deg, #0f172a, #2e7bbf); color: #fff; border-radius: 26px; box-shadow: var(--shadow); }
 .hris-hero h3 { margin: 0 0 10px; font-size: 24px; }
-.hris-hero p { margin: 0; line-height: 1.6; color: #dbeafe; max-width: 860px; }
+.hris-hero p { margin: 0; line-height: 1.6; color: #e3eef8; max-width: 860px; }
 .hris-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .hris-chip { background: rgba(255,255,255,0.12); padding: 9px 12px; border-radius: 9999px; font-size: 12px; }
 .hris-table { width: 100%; border-collapse: collapse; }
@@ -93,7 +143,7 @@ body {
 .hris-field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .hris-field div { font-weight: 600; }
 .hris-profile { display: grid; grid-template-columns: 130px 1fr; gap: 18px; align-items: center; }
-.hris-avatar { width: 118px; height: 118px; border-radius: 24px; background: linear-gradient(135deg, #bfdbfe, #dbeafe); display: grid; place-items: center; font-size: 34px; font-weight: 800; color: #1e3a8a; }
+.hris-avatar { width: 118px; height: 118px; border-radius: 24px; background: linear-gradient(135deg, #cfe4f5, #e3eef8); display: grid; place-items: center; font-size: 34px; font-weight: 800; color: #1a5f94; }
 .footer-note { margin-top: 24px; font-size: 12px; color: var(--muted); }
 .kpi-card .kpi-label { color: var(--muted); font-size: 13px; }
 .kpi-card .kpi-value { font-size: 34px; font-weight: 800; margin: 10px 0 6px; }

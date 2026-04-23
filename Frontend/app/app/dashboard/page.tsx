@@ -4,7 +4,28 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
+import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import Link from "next/link";
+
+/** Command Center charts — OpenSky blue (#2E7BBF) + red (#ED1C24) with cyan, teal, and amber accents. */
+const DASH_WORKFORCE_ROW_GRADIENTS: [string, string][] = [
+  ["#143d5c", "#2E7BBF"],
+  ["#2E7BBF", "#5ba3d4"],
+  ["#0369a1", "#38bdf8"],
+  ["#0f766e", "#2dd4bf"],
+  ["#1d4ed8", "#818cf8"],
+  ["#b45309", "#fbbf24"],
+];
+
+const DASH_ACTIVITY_DAY_GRADIENTS: [string, string][] = [
+  ["#1a5f94", "#2E7BBF"],
+  ["#2563eb", "#60a5fa"],
+  ["#0284c7", "#22d3ee"],
+  ["#0e7490", "#5eead4"],
+  ["#2E7BBF", "#93c5fd"],
+  ["#c2410c", "#fb923c"],
+  ["#b91c1c", "#ED1C24"],
+];
 
 interface MyTask {
   id: string;
@@ -60,104 +81,6 @@ interface DepartmentRow {
   id: string;
   name: string;
   employeeCount: number;
-}
-
-function formatInt(n: number | null | undefined): string {
-  if (n == null || Number.isNaN(n)) return "—";
-  return n.toLocaleString();
-}
-
-function HorizontalCompareBars({ items }: { items: { label: string; value: number; color: string }[] }) {
-  const max = Math.max(...items.map((i) => i.value), 1);
-  if (items.every((i) => i.value === 0)) {
-    return <div className="py-8 text-center text-sm text-slate-400">No data for this view.</div>;
-  }
-  return (
-    <div className="space-y-2.5">
-      {items.map((item) => (
-        <div key={item.label}>
-          <div className="mb-1 flex items-center justify-between text-xs">
-            <span className="truncate text-slate-600">{item.label}</span>
-            <span className="shrink-0 font-semibold tabular-nums text-slate-800">{formatInt(item.value)}</span>
-          </div>
-          <div className="h-2 rounded-full bg-slate-100">
-            <div
-              className="h-2 rounded-full transition-all"
-              style={{
-                width: `${Math.max(6, Math.round((item.value / max) * 100))}%`,
-                backgroundColor: item.color,
-              }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function WeeklyActivityBars({ data }: { data: { label: string; count: number }[] }) {
-  const max = Math.max(...data.map((d) => d.count), 1);
-  const barMaxPx = 88;
-  return (
-    <div className="flex h-[118px] items-end justify-between gap-1.5 px-0.5">
-      {data.map((d) => {
-        const px = Math.round((d.count / max) * barMaxPx);
-        return (
-          <div key={d.label} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1">
-            <div
-              className="w-full max-w-[26px] rounded-t-md bg-gradient-to-t from-blue-600 to-cyan-400 transition-all hover:opacity-90"
-              style={{ height: `${d.count > 0 ? Math.max(6, px) : 2}px` }}
-              title={`${d.count} event${d.count === 1 ? "" : "s"}`}
-            />
-            <span className="text-center text-[10px] font-medium leading-tight text-slate-500">{d.label}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function DonutMixChart({ values }: { values: { label: string; value: number; color: string }[] }) {
-  const total = values.reduce((s, v) => s + v.value, 0);
-  if (total <= 0) {
-    return <div className="py-10 text-center text-sm text-slate-400">No distribution data.</div>;
-  }
-  let cumulative = 0;
-  return (
-    <div className="flex items-center gap-5">
-      <svg viewBox="0 0 42 42" className="h-36 w-36 -rotate-90">
-        <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#e5e7eb" strokeWidth="6" />
-        {values.map((item) => {
-          const pct = (item.value / total) * 100;
-          const dashArray = `${pct} ${100 - pct}`;
-          const dashOffset = -cumulative;
-          cumulative += pct;
-          return (
-            <circle
-              key={item.label}
-              cx="21"
-              cy="21"
-              r="15.915"
-              fill="transparent"
-              stroke={item.color}
-              strokeWidth="6"
-              strokeDasharray={dashArray}
-              strokeDashoffset={dashOffset}
-            />
-          );
-        })}
-      </svg>
-      <div className="space-y-1.5 text-sm">
-        {values.map((v) => (
-          <div key={v.label} className="flex items-center gap-2 text-slate-600">
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: v.color }} />
-            <span className="min-w-28">{v.label}</span>
-            <strong className="text-slate-800">{formatInt(v.value)}</strong>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 export default function DashboardPage() {
@@ -308,11 +231,11 @@ export default function DashboardPage() {
   const recruitPipelineBars = useMemo(() => {
     if (!recruitDash) return [];
     return [
-      { label: "Open requisitions", value: recruitDash.openRequisitions, color: "#6366f1" },
-      { label: "Candidates in pipeline", value: recruitDash.totalCandidates, color: "#8b5cf6" },
-      { label: "Interviews (this week)", value: recruitDash.interviewsThisWeek, color: "#a855f7" },
-      { label: "Offers extended", value: recruitDash.offersExtended, color: "#d946ef" },
-      { label: "Hired this month", value: recruitDash.hiredThisMonth, color: "#22c55e" },
+      { label: "Open requisitions", value: recruitDash.openRequisitions, color: "#143d5c", colorTo: "#2E7BBF" },
+      { label: "Candidates in pipeline", value: recruitDash.totalCandidates, color: "#0284c7", colorTo: "#38bdf8" },
+      { label: "Interviews (this week)", value: recruitDash.interviewsThisWeek, color: "#c2410c", colorTo: "#fbbf24" },
+      { label: "Offers extended", value: recruitDash.offersExtended, color: "#0d9488", colorTo: "#34d399" },
+      { label: "Hired this month", value: recruitDash.hiredThisMonth, color: "#c41e3a", colorTo: "#ED1C24" },
     ];
   }, [recruitDash]);
 
@@ -324,16 +247,16 @@ export default function DashboardPage() {
       const s = r.status || "Unknown";
       tally.set(s, (tally.get(s) ?? 0) + 1);
     }
-    const colorFor = (status: string) => {
+    const colorFor = (status: string): { color: string; colorTo?: string } => {
       const u = status.toLowerCase();
-      if (u.includes("pending")) return "#f59e0b";
-      if (u.includes("approved")) return "#22c55e";
-      if (u.includes("reject")) return "#ef4444";
-      if (u.includes("cancel")) return "#94a3b8";
-      return "#3b82f6";
+      if (u.includes("pending")) return { color: "#b45309", colorTo: "#fbbf24" };
+      if (u.includes("approved")) return { color: "#0f766e", colorTo: "#34d399" };
+      if (u.includes("reject")) return { color: "#991b1b", colorTo: "#ED1C24" };
+      if (u.includes("cancel")) return { color: "#64748b", colorTo: "#cbd5e1" };
+      return { color: "#1d4ed8", colorTo: "#2E7BBF" };
     };
     return Array.from(tally.entries())
-      .map(([label, value]) => ({ label, value, color: colorFor(label) }))
+      .map(([label, value]) => ({ label, value, ...colorFor(label) }))
       .sort((a, b) => b.value - a.value);
   }, [leaveDash]);
 
@@ -363,8 +286,8 @@ export default function DashboardPage() {
 
   const headcountMix = useMemo(() => {
     const rows = [
-      { label: "Active", value: activeCount ?? 0, color: "#22c55e" },
-      { label: "Terminated (records)", value: terminatedCount ?? 0, color: "#94a3b8" },
+      { label: "Active", value: activeCount ?? 0, color: "#1a5f94", colorTo: "#2E7BBF" },
+      { label: "Terminated (records)", value: terminatedCount ?? 0, color: "#475569", colorTo: "#94a3b8" },
     ].filter((r) => r.value > 0);
     return rows;
   }, [activeCount, terminatedCount]);
@@ -377,10 +300,10 @@ export default function DashboardPage() {
       />
 
       {myTasks.length > 0 && (
-        <div className="mb-6 overflow-hidden rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 via-orange-50 to-rose-50 shadow-sm">
-          <div className="flex items-center gap-3 border-b border-amber-200/70 px-6 py-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100/90">
-              <svg className="h-5 w-5 text-amber-700" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <div className="mb-6 overflow-hidden rounded-2xl border border-[#2E7BBF]/25 bg-gradient-to-r from-[#e3eef8] via-white to-[#f0f6fc] shadow-sm">
+          <div className="flex items-center gap-3 border-b border-[#2E7BBF]/20 px-6 py-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2E7BBF]/12">
+              <svg className="h-5 w-5 text-[#2E7BBF]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -389,13 +312,13 @@ export default function DashboardPage() {
               </svg>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-amber-900">My pending tasks</h3>
-              <p className="text-xs text-amber-700">
+              <h3 className="text-sm font-semibold text-slate-900">My pending tasks</h3>
+              <p className="text-xs text-[#2E7BBF]">
                 {myTasks.length} task{myTasks.length !== 1 ? "s" : ""} assigned to you
               </p>
             </div>
           </div>
-          <div className="divide-y divide-amber-100/80">
+          <div className="divide-y divide-slate-100">
             {myTasks.map((task) => (
               <div key={task.id} className="flex items-center gap-3 px-6 py-3.5 backdrop-blur-[2px]">
                 <button
@@ -406,11 +329,11 @@ export default function DashboardPage() {
                     e.stopPropagation();
                     handleComplete(task.id);
                   }}
-                  className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-amber-400 text-amber-500 transition hover:bg-amber-400 hover:text-white"
+                  className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-[#2E7BBF]/50 text-[#2E7BBF] transition hover:border-[#ED1C24] hover:bg-[#ED1C24] hover:text-white"
                   title="Mark as complete"
                 >
                   {completing === task.id ? (
-                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-amber-200 border-t-amber-600" />
+                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-slate-200 border-t-[#2E7BBF]" />
                   ) : (
                     <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -420,7 +343,10 @@ export default function DashboardPage() {
                 <div className="min-w-0 flex-1">
                   <span className="text-sm font-medium text-slate-800">{task.title}</span>
                   <div className="mt-0.5 flex items-center gap-2">
-                    <a href={`/app/people/${task.employeeId}`} className="relative z-10 text-xs text-blue-600 hover:underline">
+                    <a
+                      href={`/app/people/${task.employeeId}`}
+                      className="relative z-10 text-xs font-medium text-[#2E7BBF] underline-offset-2 transition hover:text-[#ED1C24] hover:underline"
+                    >
                       {task.employeeName}
                     </a>
                     <span className="text-xs text-slate-400">({task.employeeCode})</span>
@@ -431,11 +357,11 @@ export default function DashboardPage() {
                 >
                   {task.taskType}
                 </span>
-                <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                <span className="shrink-0 rounded-full bg-[#e3eef8] px-2 py-0.5 text-[10px] font-medium text-[#1a5f94]">
                   {task.category}
                 </span>
                 {task.assignmentType === "Supervisor" && (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#2E7BBF]/25 bg-white/80 px-2 py-0.5 text-[10px] font-medium text-[#2E7BBF]">
                     <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
@@ -452,28 +378,42 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
+      <section className="relative overflow-hidden rounded-3xl border border-[#2E7BBF]/15 bg-gradient-to-br from-white via-[#f7fafc] to-[#eef4fb] px-7 py-8 text-slate-900 shadow-[0_1px_3px_rgba(15,23,42,0.06),0_12px_40px_-12px_rgba(46,123,191,0.12)]">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#2E7BBF] via-[#5ba3d4] to-[#2E7BBF]" aria-hidden />
+        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-[#2E7BBF]/18 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-[#ED1C24]/10 blur-3xl" />
         <div className="relative z-10">
           <div>
-            <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+            <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#2E7BBF]/25 bg-[#2E7BBF]/[0.08] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#1a5f94] shadow-sm">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2E7BBF] opacity-40" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#2E7BBF]" />
+              </span>
               Live workspace
             </p>
-            <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Workforce intelligence</h2>
-            <p className="mt-3 max-w-2xl text-sm text-slate-600">
-              KPIs and snapshots load from the API. Some tiles show &quot;—&quot; if a module is not licensed or your role cannot access that data (e.g. leave dashboard requires org-wide leave access).
-            </p>
+            <div className="flex flex-wrap items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2E7BBF] to-[#256aa3] text-white shadow-md shadow-[#2E7BBF]/25">
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+                </svg>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-2xl font-semibold leading-tight tracking-tight text-slate-900 lg:text-3xl">
+                  Workforce{" "}
+                  <span className="bg-gradient-to-r from-[#1a5f94] to-[#2E7BBF] bg-clip-text text-transparent">intelligence</span>
+                </h2>
+                <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">
+                  KPIs and snapshots load from the API. Some tiles show &quot;—&quot; if a module is not licensed or your role cannot access that data (e.g. leave dashboard requires org-wide leave access).
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((kpi) => (
-          <div
-            key={kpi.label}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-          >
+          <div key={kpi.label} className="opensky-dashboard-card">
             <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
             <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{dashLoading && kpi.value === "—" ? "..." : kpi.value}</div>
             <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
@@ -482,7 +422,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="opensky-dashboard-card">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Workforce distribution</h3>
             <span className="text-xs text-slate-500">{snapshotRows.title}</span>
@@ -493,17 +433,21 @@ export default function DashboardPage() {
             </p>
           ) : (
             <div className="space-y-2.5">
-              {snapshotRows.rows.slice(0, 6).map((r) => {
+              {snapshotRows.rows.slice(0, 6).map((r, rowIdx) => {
                 const max = Math.max(...snapshotRows.rows.map((x) => x.count), 1);
                 const width = `${Math.max(8, Math.round((r.count / max) * 100))}%`;
+                const [g0, g1] = DASH_WORKFORCE_ROW_GRADIENTS[rowIdx % DASH_WORKFORCE_ROW_GRADIENTS.length];
                 return (
                   <div key={r.label}>
                     <div className="mb-1 flex items-center justify-between text-xs">
                       <span className="truncate text-slate-600">{r.label}</span>
                       <span className="font-semibold text-slate-800">{r.count}</span>
                     </div>
-                    <div className="h-2 rounded-full bg-slate-100">
-                      <div className="h-2 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600" style={{ width }} />
+                    <div className="h-2 rounded-full bg-gradient-to-r from-slate-100 to-[#e8f0f8]/90 ring-1 ring-inset ring-slate-200/60">
+                      <div
+                        className="h-2 rounded-full shadow-[0_1px_8px_rgba(15,23,42,0.1),0_0_12px_rgba(46,123,191,0.15)] transition-all duration-300"
+                        style={{ width, background: `linear-gradient(90deg, ${g0}, ${g1})` }}
+                      />
                     </div>
                   </div>
                 );
@@ -512,18 +456,18 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="opensky-dashboard-card">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Activity volume</h3>
             <span className="text-xs text-slate-500">Last 7 days</span>
           </div>
-          <WeeklyActivityBars data={activityLast7Days} />
+          <WeeklyActivityBars data={activityLast7Days} barGradients={DASH_ACTIVITY_DAY_GRADIENTS} />
           <p className="mt-2 text-[11px] text-slate-500">
             Counts from recent leave requests and recruitment activities returned by the API.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="opensky-dashboard-card">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Headcount mix</h3>
             <span className="text-xs text-slate-500">Records</span>
@@ -537,7 +481,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="opensky-dashboard-card">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Recruitment pipeline</h3>
             <span className="text-xs text-slate-500">Scale = largest metric</span>
@@ -548,7 +492,7 @@ export default function DashboardPage() {
             <HorizontalCompareBars items={recruitPipelineBars} />
           )}
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="opensky-dashboard-card">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Recent leave by status</h3>
             <span className="text-xs text-slate-500">Sample</span>
@@ -564,7 +508,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="opensky-dashboard-card">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h3 className="text-base font-semibold text-slate-900">Recent activity</h3>
@@ -585,7 +529,7 @@ export default function DashboardPage() {
                 return (
                   <div
                     key={`${ev.at}-${i}`}
-                    className="group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
+                    className="opensky-dashboard-timeline-row group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5"
                   >
                     <div className="pt-0.5 text-[11px] font-medium text-slate-500">
                       {formatDateTime(ev.at)}
@@ -593,7 +537,7 @@ export default function DashboardPage() {
                     <div className="min-w-0">
                       <div className="mb-0.5 flex items-center gap-2">
                         <span
-                          className={`inline-flex h-2 w-2 shrink-0 rounded-full ${isLeave ? "bg-amber-400" : "bg-violet-500"}`}
+                          className={`inline-flex h-2 w-2 shrink-0 rounded-full ${isLeave ? "bg-amber-400" : "bg-[#2E7BBF]"}`}
                         />
                         <strong className="truncate text-sm text-slate-800">{ev.title}</strong>
                       </div>
@@ -606,24 +550,20 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="opensky-dashboard-card">
           <div className="mb-4">
             <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
             <p className="text-xs text-slate-500">Navigate faster to high-traffic modules</p>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
             {quickLinks.map((link) => (
-              <Link
-                key={link.title}
-                href={link.href}
-                className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
-              >
+              <Link key={link.title} href={link.href} className="opensky-dashboard-quicklink group">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
                     <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{link.sub}</div>
                   </div>
-                  <span className="mt-0.5 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">→</span>
+                  <span className="opensky-quicklink-chev mt-0.5 text-slate-400">→</span>
                 </div>
               </Link>
             ))}

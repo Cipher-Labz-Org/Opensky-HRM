@@ -22,6 +22,34 @@ public class EmployeeService : IEmployeeService
         _entitlementService = entitlementService;
     }
 
+    private static IQueryable<Employee> ApplyEmployeeListSort(IQueryable<Employee> query, string? sortBy, string? sortDir)
+    {
+        var key = (sortBy ?? "employeeCode").Trim().ToLowerInvariant();
+        var asc = !string.Equals(sortDir, "desc", StringComparison.OrdinalIgnoreCase);
+
+        return key switch
+        {
+            "name" or "fullname" => asc
+                ? query.OrderBy(e => e.LastName).ThenBy(e => e.FirstName).ThenBy(e => e.MiddleName)
+                : query.OrderByDescending(e => e.LastName).ThenByDescending(e => e.FirstName).ThenByDescending(e => e.MiddleName),
+            "jobtitle" => asc
+                ? query.OrderBy(e => (e.JobTitle != null ? e.JobTitle.Title : null) ?? (e.Position != null ? e.Position.Title : null) ?? "")
+                : query.OrderByDescending(e => (e.JobTitle != null ? e.JobTitle.Title : null) ?? (e.Position != null ? e.Position.Title : null) ?? ""),
+            "status" => asc ? query.OrderBy(e => e.Status) : query.OrderByDescending(e => e.Status),
+            "employmenttype" => asc ? query.OrderBy(e => e.EmploymentType) : query.OrderByDescending(e => e.EmploymentType),
+            "department" => asc
+                ? query.OrderBy(e => e.Department != null ? e.Department.Name : "")
+                : query.OrderByDescending(e => e.Department != null ? e.Department.Name : ""),
+            "location" => asc
+                ? query.OrderBy(e => e.Location != null ? e.Location.Name : "")
+                : query.OrderByDescending(e => e.Location != null ? e.Location.Name : ""),
+            "supervisor" or "manager" => asc
+                ? query.OrderBy(e => e.Manager != null ? e.Manager.LastName : "").ThenBy(e => e.Manager != null ? e.Manager.FirstName : "")
+                : query.OrderByDescending(e => e.Manager != null ? e.Manager.LastName : "").ThenByDescending(e => e.Manager != null ? e.Manager.FirstName : ""),
+            _ => asc ? query.OrderBy(e => e.EmployeeCode) : query.OrderByDescending(e => e.EmployeeCode),
+        };
+    }
+
     private async Task<Dictionary<Guid, string>> GetDirectSupervisorMapAsync(IEnumerable<Guid> employeeIds)
     {
         var supervisors = await _db.Set<EmployeeSupervisor>()
@@ -39,7 +67,8 @@ public class EmployeeService : IEmployeeService
         Guid? departmentId = null, Guid? jobTitleId = null,
         Guid? locationId = null, Guid? managerId = null, string? status = null,
         string? employmentType = null,
-        IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = false)
+        IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = false,
+        string? sortBy = null, string? sortDir = null)
     {
         var query = _db.Employees
             .Include(e => e.Department)
@@ -86,10 +115,11 @@ public class EmployeeService : IEmployeeService
         if (allowedEmployeeIds != null && allowedEmployeeIds.Count > 0)
             query = query.Where(e => allowedEmployeeIds.Contains(e.Id));
 
+        query = ApplyEmployeeListSort(query, sortBy, sortDir);
+
         var totalCount = await query.CountAsync();
 
         var entities = await query
-            .OrderBy(e => e.FirstName)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();
@@ -449,6 +479,7 @@ public class EmployeeService : IEmployeeService
         GradeName = e.Grade?.Name,
         JobTitleId = e.JobTitleId,
         JobTitleName = e.JobTitle?.Title,
+        JobTitleDescription = e.JobTitle?.Description,
         ManagerId = e.ManagerId,
         ManagerName = e.Manager != null ? $"{e.Manager.FirstName} {e.Manager.LastName}" : null,
         ProfileImageUrl = e.ProfileImageUrl,

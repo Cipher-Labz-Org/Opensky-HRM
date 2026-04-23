@@ -1,15 +1,129 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
-import { API_BASE_URL } from "@/config/constants";
+import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
 
-interface ReportItem { key: string; name: string; description: string; }
+interface ReportItem {
+  key: string;
+  name: string;
+  description: string;
+  supportsDepartmentFilter?: boolean;
+  periodFilterMode?: string;
+}
 interface ReportCategory { key: string; name: string; icon: string; reports: ReportItem[]; }
+interface DepartmentOption { id: string; name: string; }
 interface ReportResult { reportName: string; generatedAt: string; columns: string[]; rows: Record<string, unknown>[]; totalRows: number; }
+
+/** Query keys mirrored in the address bar for shareable report links. */
+const REPORT_URL_FILTER_KEYS = ["departmentId", "from", "to", "year", "month", "date"] as const;
+
+function readUrlReportFilterOverrides(sp: { get: (key: string) => string | null }): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of REPORT_URL_FILTER_KEYS) {
+    const v = sp.get(k);
+    if (v != null && v.trim() !== "") out[k] = v.trim();
+  }
+  return out;
+}
+
+function getDefaultQueryParamsForItem(item: ReportItem | null | undefined): Record<string, string> {
+  const p: Record<string, string> = {};
+  if (!item) return p;
+  const today = new Date();
+  const mode = item.periodFilterMode || "none";
+  const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+  if (mode === "dateRange") {
+    const from = new Date(today);
+    from.setFullYear(from.getFullYear() - 1);
+    p.from = isoDate(from);
+    p.to = isoDate(today);
+  } else if (mode === "yearMonth") {
+    p.year = String(today.getFullYear());
+    p.month = String(today.getMonth() + 1);
+  } else if (mode === "singleDate") {
+    p.date = isoDate(today);
+  } else if (mode === "monthOnly") {
+    p.month = String(today.getMonth() + 1);
+  }
+  return p;
+}
+
+function mergeUrlFiltersIntoReportParams(
+  item: ReportItem | null | undefined,
+  base: Record<string, string>,
+  url: Record<string, string>
+): Record<string, string> {
+  const merged = { ...base };
+  if (!item) return merged;
+  if (item.supportsDepartmentFilter && url.departmentId) merged.departmentId = url.departmentId;
+  const mode = item.periodFilterMode || "none";
+  if (mode === "dateRange") {
+    if (url.from) merged.from = url.from;
+    if (url.to) merged.to = url.to;
+  } else if (mode === "yearMonth") {
+    if (url.year) merged.year = url.year;
+    if (url.month) merged.month = url.month;
+  } else if (mode === "singleDate") {
+    if (url.date) merged.date = url.date;
+  } else if (mode === "monthOnly") {
+    if (url.month) merged.month = url.month;
+  }
+  return merged;
+}
+
+function resolveReportQueryParams(
+  item: ReportItem | null | undefined,
+  urlOverrides?: Record<string, string> | null
+): Record<string, string> {
+  const defaults = getDefaultQueryParamsForItem(item);
+  if (!urlOverrides || Object.keys(urlOverrides).length === 0) return defaults;
+  return mergeUrlFiltersIntoReportParams(item, defaults, urlOverrides);
+}
+
+function filterParamsForUrlSig(params: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of REPORT_URL_FILTER_KEYS) {
+    if (params[k]) out[k] = params[k];
+  }
+  return out;
+}
+
+function canonicalFilterSig(filters: Record<string, string>): string {
+  return Object.keys(filters)
+    .sort()
+    .map((k) => `${k}=${filters[k]}`)
+    .join("&");
+}
+
+function buildReportUrlQuery(
+  catKey: string,
+  rptKey: string,
+  item: ReportItem | null | undefined,
+  mergedParams: Record<string, string>
+): string {
+  const qs = new URLSearchParams();
+  qs.set("category", catKey);
+  qs.set("report", rptKey);
+  if (!item) return qs.toString();
+  if (item.supportsDepartmentFilter && mergedParams.departmentId) qs.set("departmentId", mergedParams.departmentId);
+  const mode = item.periodFilterMode || "none";
+  if (mode === "dateRange") {
+    if (mergedParams.from) qs.set("from", mergedParams.from);
+    if (mergedParams.to) qs.set("to", mergedParams.to);
+  } else if (mode === "yearMonth") {
+    if (mergedParams.year) qs.set("year", mergedParams.year);
+    if (mergedParams.month) qs.set("month", mergedParams.month);
+  } else if (mode === "singleDate") {
+    if (mergedParams.date) qs.set("date", mergedParams.date);
+  } else if (mode === "monthOnly") {
+    if (mergedParams.month) qs.set("month", mergedParams.month);
+  }
+  return qs.toString();
+}
 
 const ICONS: Record<string, string> = {
   users: "M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z",
@@ -77,6 +191,8 @@ function printReport(result: ReportResult, sortedRows: Record<string, unknown>[]
 
 export default function ReportsPage() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const [catalog, setCatalog] = useState<ReportCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [selectedReport, setSelectedReport] = useState<string>("");
@@ -85,7 +201,16 @@ export default function ReportsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
-  const deepLinkConsumed = useRef<string | null>(null);
+  /** Dedupes URL-driven loads (incl. filters) vs. identical `searchParams` after `router.replace`. */
+  const lastHandledReportUrlSig = useRef<string | null>(null);
+
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [filterDepartmentId, setFilterDepartmentId] = useState("");
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  const [filterYear, setFilterYear] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+  const [filterDate, setFilterDate] = useState("");
 
   useEffect(() => {
     apiFetch<ReportCategory[]>("/api/reports/catalog").then((cats) => {
@@ -94,29 +219,108 @@ export default function ReportsPage() {
     }).catch(() => {});
   }, []);
 
-  const runReport = useCallback(async (catKey: string, rptKey: string) => {
-    setSelectedCategory(catKey);
-    setSelectedReport(rptKey);
-    setResult(null);
+  useEffect(() => {
+    apiFetch<DepartmentOption[]>("/api/organization/departments")
+      .then((rows) => setDepartments(Array.isArray(rows) ? rows.map((d) => ({ id: d.id, name: d.name })) : []))
+      .catch(() => setDepartments([]));
+  }, []);
+
+  function syncFilterInputsFromParams(params: Record<string, string>) {
+    setFilterDepartmentId(params.departmentId ?? "");
+    setFilterFrom(params.from ?? "");
+    setFilterTo(params.to ?? "");
+    setFilterYear(params.year ?? "");
+    setFilterMonth(params.month ?? "");
+    setFilterDate(params.date ?? "");
+  }
+
+  function collectParamsFromForm(item: ReportItem | null | undefined): Record<string, string> {
+    const p: Record<string, string> = {};
+    if (!item) return p;
+    if (item.supportsDepartmentFilter && filterDepartmentId.trim())
+      p.departmentId = filterDepartmentId.trim();
+    const mode = item.periodFilterMode || "none";
+    if (mode === "dateRange") {
+      if (filterFrom) p.from = filterFrom;
+      if (filterTo) p.to = filterTo;
+    } else if (mode === "yearMonth") {
+      if (filterYear) p.year = filterYear;
+      if (filterMonth) p.month = filterMonth;
+    } else if (mode === "singleDate") {
+      if (filterDate) p.date = filterDate;
+    } else if (mode === "monthOnly") {
+      if (filterMonth) p.month = filterMonth;
+    }
+    return p;
+  }
+
+  const loadReport = useCallback(async (catKey: string, rptKey: string, queryParams: Record<string, string>) => {
+    const qs = new URLSearchParams(queryParams).toString();
+    const path = `/api/reports/${catKey}/${rptKey}${qs ? `?${qs}` : ""}`;
+    const data = await apiFetch<ReportResult>(path);
+    setResult(data);
+  }, []);
+
+  const runReport = useCallback(
+    async (catKey: string, rptKey: string, urlOverrides?: Record<string, string> | null) => {
+      const cat = catalog.find((c) => c.key === catKey);
+      const item = cat?.reports.find((r) => r.key === rptKey);
+      setSelectedCategory(catKey);
+      setSelectedReport(rptKey);
+      setResult(null);
+      setLoading(true);
+      setSortCol(null);
+      setSearchTerm("");
+      const merged = resolveReportQueryParams(item, urlOverrides);
+      syncFilterInputsFromParams(merged);
+      try {
+        await loadReport(catKey, rptKey, merged);
+        const qs = buildReportUrlQuery(catKey, rptKey, item, merged);
+        const sig = `${catKey}:${rptKey}:${canonicalFilterSig(filterParamsForUrlSig(merged))}`;
+        lastHandledReportUrlSig.current = sig;
+        router.replace(`${pathname}?${qs}`, { scroll: false });
+      } catch { /* ignore */ } finally {
+        setLoading(false);
+      }
+    },
+    [catalog, loadReport, pathname, router]
+  );
+
+  const activeReportDef = useMemo(() => {
+    const c = catalog.find((x) => x.key === selectedCategory);
+    return c?.reports.find((r) => r.key === selectedReport) ?? null;
+  }, [catalog, selectedCategory, selectedReport]);
+
+  async function applyReportFilters() {
+    if (!selectedCategory || !selectedReport) return;
     setLoading(true);
     setSortCol(null);
     setSearchTerm("");
     try {
-      const data = await apiFetch<ReportResult>(`/api/reports/${catKey}/${rptKey}`);
-      setResult(data);
-    } catch { /* ignore */ } finally { setLoading(false); }
-  }, []);
+      const params = collectParamsFromForm(activeReportDef);
+      await loadReport(selectedCategory, selectedReport, params);
+      const qs = buildReportUrlQuery(selectedCategory, selectedReport, activeReportDef, params);
+      const sig = `${selectedCategory}:${selectedReport}:${canonicalFilterSig(filterParamsForUrlSig(params))}`;
+      lastHandledReportUrlSig.current = sig;
+      router.replace(`${pathname}?${qs}`, { scroll: false });
+    } catch { /* ignore */ } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     const cat = searchParams.get("category");
     const rpt = searchParams.get("report");
     if (!cat || !rpt || catalog.length === 0) return;
     const catObj = catalog.find((c) => c.key === cat);
-    if (!catObj?.reports.some((r) => r.key === rpt)) return;
-    const sig = `${cat}:${rpt}`;
-    if (deepLinkConsumed.current === sig) return;
-    deepLinkConsumed.current = sig;
-    void runReport(cat, rpt);
+    const item = catObj?.reports.find((x) => x.key === rpt);
+    if (!item) return;
+    const overrides = readUrlReportFilterOverrides(searchParams);
+    const merged = resolveReportQueryParams(item, overrides);
+    const sig = `${cat}:${rpt}:${canonicalFilterSig(filterParamsForUrlSig(merged))}`;
+    if (lastHandledReportUrlSig.current === sig) return;
+    lastHandledReportUrlSig.current = sig;
+    void runReport(cat, rpt, Object.keys(overrides).length > 0 ? overrides : undefined);
   }, [searchParams, catalog, runReport]);
 
   const handleSort = (col: string) => {
@@ -144,32 +348,107 @@ export default function ReportsPage() {
       })
     : filteredRows;
 
+  const totalReportDefinitions = useMemo(
+    () => catalog.reduce((sum, c) => sum + c.reports.length, 0),
+    [catalog]
+  );
+
+  const reportStatsKpis = useMemo(() => {
+    const inSection = activeCat?.reports.length ?? 0;
+    return [
+      {
+        label: "Report categories",
+        value: formatInt(catalog.length),
+        sub: "From the reports catalog API",
+      },
+      {
+        label: "Standard reports",
+        value: formatInt(totalReportDefinitions),
+        sub: "Across all modules in catalog",
+      },
+      {
+        label: "In this section",
+        value: formatInt(inSection),
+        sub: activeCat ? `${activeCat.name}` : "Select a category",
+      },
+    ];
+  }, [catalog.length, totalReportDefinitions, activeCat]);
+
+  const reportsPerCategoryBars = useMemo(() => {
+    const colors = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#64748b", "#eab308"];
+    return [...catalog]
+      .sort((a, b) => b.reports.length - a.reports.length)
+      .slice(0, 8)
+      .map((c, i) => ({
+        label: c.name,
+        value: c.reports.length,
+        color: colors[i % colors.length],
+      }));
+  }, [catalog]);
+
+  const categoryDonut = useMemo(() => {
+    const palette = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6"];
+    return catalog
+      .filter((c) => c.reports.length > 0)
+      .slice(0, 6)
+      .map((c, i) => ({
+        label: c.name.length > 18 ? `${c.name.slice(0, 16)}…` : c.name,
+        value: c.reports.length,
+        color: palette[i % palette.length],
+      }));
+  }, [catalog]);
+
   return (
     <>
       <AppTopbar title="Reports" subtitle="Generate, view, and export standard HR reports across all modules." />
 
-      <div className="flex gap-6" style={{ minHeight: "calc(100vh - 160px)" }}>
-        {/* Left sidebar */}
-        <div className="w-72 shrink-0">
-          <div className="sticky top-4 space-y-1">
-            {catalog.map(cat => {
+      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
+        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
+        <div className="relative z-10">
+          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+            Analytics workspace
+          </p>
+          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Operational reporting</h2>
+          <p className="mt-3 max-w-2xl text-sm text-slate-600">
+            Browse the catalog by module, run a report in the side panel, then search, sort, export to Excel, or print —
+            styled consistently with your Command Center dashboard.
+          </p>
+        </div>
+      </section>
+
+      <div className="mt-6 flex flex-col gap-6 lg:flex-row" style={{ minHeight: "calc(100vh - 160px)" }}>
+        <div className="w-full shrink-0 lg:w-72">
+          <div className="lg:sticky lg:top-4 space-y-2">
+            {catalog.map((cat) => {
               const isActive = selectedCategory === cat.key;
               return (
                 <button
                   key={cat.key}
-                  onClick={() => { setSelectedCategory(cat.key); setSelectedReport(""); setResult(null); }}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition ${
-                    isActive ? "bg-blue-50 text-blue-700 shadow-sm" : "text-slate-600 hover:bg-slate-50"
+                  type="button"
+                  onClick={() => {
+                    setSelectedCategory(cat.key);
+                    setSelectedReport("");
+                    setResult(null);
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition ${
+                    isActive
+                      ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                      : "border-slate-200/80 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
                   }`}
                 >
-                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${CATEGORY_COLORS[cat.key] ?? "bg-slate-500"} text-white`}>
+                  <span
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${CATEGORY_COLORS[cat.key] ?? "bg-slate-500"} text-white`}
+                  >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d={ICONS[cat.icon] ?? ICONS.users} />
                     </svg>
                   </span>
                   <div className="min-w-0">
                     <div className="truncate">{cat.name}</div>
-                    <div className="text-[10px] text-slate-400 font-normal">{cat.reports.length} report{cat.reports.length !== 1 ? "s" : ""}</div>
+                    <div className="text-[10px] font-normal text-slate-500">
+                      {cat.reports.length} report{cat.reports.length !== 1 ? "s" : ""}
+                    </div>
                   </div>
                 </button>
               );
@@ -177,27 +456,86 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Main content - report cards */}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 space-y-6">
+          {catalog.length > 0 && (
+            <>
+              <div className="grid gap-6 sm:grid-cols-3">
+                {reportStatsKpis.map((kpi) => (
+                  <div
+                    key={kpi.label}
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
+                    <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
+                    <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-slate-800">Reports by category</h3>
+                    <span className="text-xs text-slate-500">Top 8</span>
+                  </div>
+                  {reportsPerCategoryBars.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-500">No catalog data.</p>
+                  ) : (
+                    <HorizontalCompareBars items={reportsPerCategoryBars} />
+                  )}
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-slate-800">Catalog mix</h3>
+                    <span className="text-xs text-slate-500">Up to 6</span>
+                  </div>
+                  {categoryDonut.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-500">No distribution.</p>
+                  ) : (
+                    <DonutMixChart values={categoryDonut} />
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
           {activeCat && (
             <div>
-              <h3 className="mb-4 text-lg font-semibold text-slate-800">{activeCat.name} Reports</h3>
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-slate-900">{activeCat.name} reports</h3>
+                <p className="mt-1 text-xs text-slate-500">Choose a report to generate it in the panel on the right.</p>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {activeCat.reports.map(rpt => (
+                {activeCat.reports.map((rpt) => (
                   <button
                     key={rpt.key}
+                    type="button"
                     onClick={() => runReport(activeCat.key, rpt.key)}
-                    className="group rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md"
+                    className="group rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
                   >
                     <div className="flex items-start gap-3">
-                      <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${CATEGORY_COLORS[activeCat.key] ?? "bg-slate-500"} bg-opacity-10`}>
-                        <svg className={`h-4.5 w-4.5 ${CATEGORY_COLORS[activeCat.key]?.replace("bg-", "text-") ?? "text-slate-500"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                      <span
+                        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${CATEGORY_COLORS[activeCat.key] ?? "bg-slate-500"} bg-opacity-10`}
+                      >
+                        <svg
+                          className={`h-4.5 w-4.5 ${CATEGORY_COLORS[activeCat.key]?.replace("bg-", "text-") ?? "text-slate-500"}`}
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={1.5}
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+                          />
                         </svg>
                       </span>
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-slate-700 group-hover:text-blue-600 transition">{rpt.name}</div>
-                        <div className="mt-1 text-xs text-slate-400 leading-relaxed">{rpt.description}</div>
+                        <div className="text-sm font-semibold text-slate-800 transition group-hover:text-slate-900">
+                          {rpt.name}
+                        </div>
+                        <div className="mt-1 text-xs leading-relaxed text-slate-500">{rpt.description}</div>
                       </div>
                     </div>
                   </button>
@@ -205,15 +543,17 @@ export default function ReportsPage() {
               </div>
             </div>
           )}
+
+          <p className="footer-note">
+            Catalog charts count report definitions only. Generated row counts and columns depend on each report&apos;s API
+            and your role&apos;s data scope.
+          </p>
         </div>
       </div>
 
       {/* Report panel: below AppGlobalHeader (h-[52px] z-[45]); does not cover the app header */}
       {(result || loading) && (
-        <div
-          className="fixed right-0 bottom-0 top-[52px] z-40 flex flex-col border-l border-slate-200 bg-white shadow-lg"
-          style={{ left: 280 }}
-        >
+        <div className="fixed inset-x-0 bottom-0 top-[52px] z-40 flex flex-col border-l border-slate-200 bg-white shadow-lg lg:left-72 lg:right-0">
           {/* Top bar */}
           <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-3">
             <div className="flex items-center gap-4">
@@ -267,6 +607,119 @@ export default function ReportsPage() {
               </div>
             )}
           </div>
+
+          {activeReportDef &&
+            (activeReportDef.supportsDepartmentFilter ||
+              (activeReportDef.periodFilterMode && activeReportDef.periodFilterMode !== "none")) && (
+            <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 bg-slate-50/80 px-6 py-3">
+              <p className="w-full text-[11px] font-medium uppercase tracking-wide text-slate-500">Report parameters</p>
+              {activeReportDef.supportsDepartmentFilter && (
+                <div className="min-w-[200px]">
+                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Department</label>
+                  <select
+                    value={filterDepartmentId}
+                    onChange={(e) => setFilterDepartmentId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value="">All departments</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {activeReportDef.periodFilterMode === "dateRange" && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-medium text-slate-500">From</label>
+                    <input
+                      type="date"
+                      value={filterFrom}
+                      onChange={(e) => setFilterFrom(e.target.value)}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-medium text-slate-500">To</label>
+                    <input
+                      type="date"
+                      value={filterTo}
+                      onChange={(e) => setFilterTo(e.target.value)}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </>
+              )}
+              {activeReportDef.periodFilterMode === "yearMonth" && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-medium text-slate-500">Year</label>
+                    <input
+                      type="number"
+                      min={2000}
+                      max={2100}
+                      value={filterYear}
+                      onChange={(e) => setFilterYear(e.target.value)}
+                      className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
+                    <select
+                      value={filterMonth}
+                      onChange={(e) => setFilterMonth(e.target.value)}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <option key={i + 1} value={String(i + 1)}>
+                          {new Date(2000, i, 1).toLocaleString(undefined, { month: "long" })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+              {activeReportDef.periodFilterMode === "singleDate" && (
+                <div>
+                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Date</label>
+                  <input
+                    type="date"
+                    value={filterDate}
+                    onChange={(e) => setFilterDate(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+              )}
+              {activeReportDef.periodFilterMode === "monthOnly" && (
+                <div>
+                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
+                  <select
+                    value={filterMonth}
+                    onChange={(e) => setFilterMonth(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <option key={i + 1} value={String(i + 1)}>
+                        {new Date(2000, i, 1).toLocaleString(undefined, { month: "long" })}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="flex flex-1 justify-end">
+                <button
+                  type="button"
+                  onClick={() => void applyReportFilters()}
+                  disabled={loading}
+                  className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Apply filters
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Loading state inside overlay */}
           {loading && (

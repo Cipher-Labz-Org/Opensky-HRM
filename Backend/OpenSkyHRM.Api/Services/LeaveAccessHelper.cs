@@ -45,6 +45,42 @@ public static class LeaveAccessHelper
         return Array.Empty<Guid>();
     }
 
+    /// <summary>Read carry-forward month / narrative (Apply Leave, balances, Policies view). Not limited to supervisors.</summary>
+    public static bool CanReadCarryForwardAvailabilitySettings(ClaimsPrincipal user)
+    {
+        if (UserHasRole(user, "ADMIN") || UserHasRole(user, "HR_MANAGER") || UserHasRole(user, "SUPERVISOR"))
+            return true;
+        return ResolveScope(user, "Read") != "None";
+    }
+
+    /// <summary>
+    /// Update carry-forward system settings: same privilege as editing leave policies
+    /// (<see cref="ResolveScope"/> Update = All), plus users with the <b>Supervisor</b> role (team policy reference).
+    /// </summary>
+    public static bool CanUpdateCarryForwardAvailabilitySettings(ClaimsPrincipal user)
+    {
+        if (ResolveScope(user, "Update") == "All")
+            return true;
+        return UserHasRole(user, "SUPERVISOR");
+    }
+
+    private static bool UserHasRole(ClaimsPrincipal user, string roleCode)
+    {
+        if (user.IsInRole(roleCode)) return true;
+        foreach (var c in user.FindAll(ClaimTypes.Role))
+            if (string.Equals(c.Value, roleCode, StringComparison.OrdinalIgnoreCase)) return true;
+        foreach (var c in user.FindAll("role"))
+            if (string.Equals(c.Value, roleCode, StringComparison.OrdinalIgnoreCase)) return true;
+        // Display names sometimes appear on legacy tokens or mapped claims
+        if (string.Equals(roleCode, "SUPERVISOR", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var c in user.FindAll(ClaimTypes.Role).Concat(user.FindAll("role")))
+                if (string.Equals(c.Value, "Supervisor", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+
+        return false;
+    }
+
     public static string ResolveScope(ClaimsPrincipal user, string action = "Read")
     {
         if (user.IsInRole("ADMIN"))

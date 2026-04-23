@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { APP_NAME } from "@/config/constants";
 import { AppSidebar } from "@/components/navigation/AppSidebar";
 import { AppGlobalHeader } from "@/components/navigation/AppGlobalHeader";
@@ -13,7 +12,10 @@ import { useAuth } from "@/contexts/auth-context";
 interface NavItem {
   href: string;
   label: string;
+  /** Single licensed module (sidebar + permission check). */
   module?: string;
+  /** Show if any of these modules is licensed (e.g. Employee Tasks = People | Recruitment | EmployeeTasks). */
+  moduleAnyOf?: string[];
 }
 
 interface NavGroup {
@@ -30,7 +32,12 @@ const ALL_NAV_GROUPS: NavGroup[] = [
       { href: ROUTES.peopleAuditTrail, label: "People audit trail", module: "People" },
       { href: ROUTES.employeeProfile, label: "Employee 360", module: "People" },
       { href: ROUTES.recruitment, label: "Recruitment", module: "Recruitment" },
-      { href: ROUTES.employeeTasks, label: "Employee Tasks", module: "EmployeeTasks" },
+      {
+        href: ROUTES.employeeTasks,
+        label: "Employee Tasks",
+        moduleAnyOf: ["People", "Recruitment", "EmployeeTasks"],
+      },
+      { href: ROUTES.employeeActions, label: "Employee Actions", module: "People" },
     ],
   },
   {
@@ -56,7 +63,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
   {
     title: "Audit & Compliance",
     items: [
-      { href: ROUTES.emailTemplates, label: "Email templates", module: "Settings" },
+      { href: ROUTES.emailTemplates, label: "Email & letter templates", module: "Settings" },
       { href: ROUTES.emailDeliveryLog, label: "Email delivery log", module: "Settings" },
     ],
   },
@@ -78,6 +85,25 @@ function isLicensedForNav(
   return licensedModules.includes(module);
 }
 
+function isNavItemLicensed(item: NavItem, licensedModules: string[] | undefined): boolean {
+  if (item.moduleAnyOf?.length) {
+    if (licensedModules == null || licensedModules.length === 0) return true;
+    return item.moduleAnyOf.some((m) => licensedModules.includes(m));
+  }
+  return isLicensedForNav(item.module, licensedModules);
+}
+
+function navItemReadAllowed(
+  item: NavItem,
+  isAdmin: boolean,
+  hasPermission: (module: string, action: string) => boolean
+): boolean {
+  if (isAdmin) return true;
+  if (item.moduleAnyOf?.length) return item.moduleAnyOf.some((m) => hasPermission(m, "Read"));
+  if (!item.module) return true;
+  return hasPermission(item.module, "Read");
+}
+
 function FullScreenSpinner() {
   return (
     <div className="flex min-h-screen items-center justify-center">
@@ -88,15 +114,18 @@ function FullScreenSpinner() {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading, logout, hasPermission, isAdmin } = useAuth();
-  const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
-    if (!isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isLoading, isAuthenticated, router]);
+    if (isAuthenticated) return;
+    // Intentionally omit `usePathname` from deps — pathname changes on every client navigation and
+    // would re-run this effect, causing repeated `location.replace` loops while auth state settles.
+    const path = typeof window !== "undefined" ? window.location.pathname : "/";
+    const next = `/login${path && path !== "/" ? `?redirect=${encodeURIComponent(path)}` : ""}`;
+    // Hard navigation avoids a stuck spinner when client-side routing does not complete.
+    window.location.replace(next);
+  }, [isLoading, isAuthenticated]);
 
   if (isLoading) {
     return <FullScreenSpinner />;
@@ -112,10 +141,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
-        if (!isLicensedForNav(item.module, licensedModules)) return false;
-        if (isAdmin) return true;
-        if (!item.module) return true;
-        return hasPermission(item.module, "Read");
+        if (!isNavItemLicensed(item, licensedModules)) return false;
+        return navItemReadAllowed(item, isAdmin, hasPermission);
       }),
     }))
     .filter((group) => group.items.length > 0);
@@ -129,7 +156,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
-        <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-[var(--bg)]">
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-[var(--bg)] pl-3 sm:pl-5">
           {user ? <AppGlobalHeader user={user} onLogout={logout} /> : null}
           <main className="flex-1 p-7" style={{ minWidth: 0 }}>
             <LicensePageGate>{children}</LicensePageGate>

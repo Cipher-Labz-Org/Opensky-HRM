@@ -114,16 +114,23 @@ interface ExecutiveDashboardDto {
   drillDown: DrillDownDto[];
 }
 
+const kpiTileClass =
+  "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
+const contentCard = "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm";
+
 function BarRow({ label, value, max }: { label: string; value: number; max: number }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
     <div className="mb-2">
-      <div className="flex justify-between text-[11px] text-slate-600 mb-0.5">
+      <div className="mb-0.5 flex justify-between text-[11px] text-slate-600">
         <span>{label}</span>
-        <span className="font-medium">{value}</span>
+        <span className="font-medium tabular-nums text-slate-800">{value}</span>
       </div>
-      <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-        <div className="h-full rounded-full bg-blue-500/90 transition-all" style={{ width: `${pct}%` }} />
+      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 transition-all"
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   );
@@ -156,7 +163,7 @@ export function ExecutiveAnalyticsDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-sm text-slate-500">
+      <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-500 shadow-sm">
         Loading workforce analytics…
       </div>
     );
@@ -166,9 +173,9 @@ export function ExecutiveAnalyticsDashboard() {
     const licensingHint = /not licensed|MODULE_NOT_LICENSED/i.test(error);
     const routeHint = /404|no route for/i.test(error);
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      <div className="rounded-2xl border border-rose-200/90 bg-rose-50 px-4 py-4 text-sm text-rose-900 shadow-sm">
         {error}
-        <p className="mt-2 text-xs text-red-700">
+        <p className="mt-2 text-xs text-rose-800/90">
           {licensingHint ? (
             <>Ask an administrator to enable the Analytics module for this instance.</>
           ) : routeHint ? (
@@ -197,73 +204,73 @@ export function ExecutiveAnalyticsDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-xs text-slate-600 shadow-sm">
         <span>
           Generated {new Date(data.generatedAtUtc).toLocaleString()}
           {data.snapshotCapturedAtUtc && (
             <> · Snapshot {new Date(data.snapshotCapturedAtUtc).toLocaleString()}</>
           )}
         </span>
-        <Link href={ROUTES.reports} className="font-medium text-blue-600 hover:underline">
+        <Link href={ROUTES.reports} className="font-medium text-indigo-600 hover:underline">
           Open all reports
         </Link>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="hris-card kpi-card">
-          <div className="kpi-label">Workforce health index</div>
-          <div className="kpi-value">{data.workforceHealth.score}</div>
-          <div className="kpi-sub">0–100 composite (higher is healthier)</div>
+        <div className={kpiTileClass}>
+          <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Workforce health index</div>
+          <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{data.workforceHealth.score}</div>
+          <div className="mt-2 text-xs text-slate-600">0–100 composite (higher is healthier)</div>
         </div>
-        <div className="hris-card kpi-card">
-          <div className="kpi-label">Active headcount</div>
-          <div className="kpi-value">{hc.activeEmployees}</div>
-          <div className="kpi-sub">{hc.onLeave} on approved leave today</div>
+        <div className={kpiTileClass}>
+          <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Active headcount</div>
+          <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{hc.activeEmployees}</div>
+          <div className="mt-2 text-xs text-slate-600">{hc.onLeave} on approved leave today</div>
         </div>
-        <div className="hris-card kpi-card">
-          <div className="kpi-label">Open requisitions</div>
-          <div className="kpi-value">{data.talentVelocity.openRequisitions}</div>
-          <div className="kpi-sub">
+        <div className={kpiTileClass}>
+          <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Open requisitions</div>
+          <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{data.talentVelocity.openRequisitions}</div>
+          <div className="mt-2 text-xs text-slate-600">
             {data.talentVelocity.averageDaysOpenForOpenReqs != null
               ? `Avg ${data.talentVelocity.averageDaysOpenForOpenReqs.toFixed(0)}d open`
               : "Pipeline hiring"}
           </div>
         </div>
-        <div className="hris-card kpi-card">
-          <div className="kpi-label">Compliance debt signals</div>
-          <div className="kpi-value">{data.complianceDebt.totalItems}</div>
-          <div className="kpi-sub">Immigration + onboarding + pending approvals</div>
+        <div className={kpiTileClass}>
+          <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Compliance debt signals</div>
+          <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{data.complianceDebt.totalItems}</div>
+          <div className="mt-2 text-xs text-slate-600">Immigration + onboarding + pending approvals</div>
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="hris-card">
-          <div className="section-title">
-            <h3>Workforce health drivers</h3>
-            <span>Largest contributors to operational risk (normalized)</span>
+        <div className={contentCard}>
+          <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Workforce health drivers</h3>
+            <span className="text-xs text-slate-500">Largest contributors to operational risk (normalized)</span>
           </div>
           <ul className="space-y-3">
             {data.workforceHealth.topDrivers.map((d) => (
-              <li key={d.metricId} className="rounded-lg bg-[var(--bg-subtle)] px-3 py-2 text-sm">
+              <li key={d.metricId} className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 text-sm">
                 <div className="flex justify-between gap-2">
-                  <span className="font-medium text-[var(--text)]">{d.label}</span>
-                  <span className="text-xs text-amber-700">{(d.adverseWeight * 100).toFixed(0)} pts strain</span>
+                  <span className="font-medium text-slate-800">{d.label}</span>
+                  <span className="text-xs text-amber-800">{(d.adverseWeight * 100).toFixed(0)} pts strain</span>
                 </div>
-                {d.valueLabel && <div className="text-xs text-[var(--text-muted)] mt-1">{d.valueLabel}</div>}
+                {d.valueLabel && <div className="mt-1 text-xs text-slate-500">{d.valueLabel}</div>}
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="hris-card">
-          <div className="section-title">
-            <h3>Compliance debt</h3>
-            <span>Immigration window + onboarding backlog</span>
+        <div className={contentCard}>
+          <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Compliance debt</h3>
+            <span className="text-xs text-slate-500">Immigration window + onboarding backlog</span>
           </div>
           <div className="space-y-2 text-sm">
-            <p className="text-xs text-[var(--text-muted)]">
-              Pending leave approvals: <strong>{data.complianceDebt.pendingLeaveApprovals}</strong> · Overdue onboarding tasks:{" "}
-              <strong>{data.complianceDebt.overdueOnboardingTasks}</strong>
+            <p className="text-xs text-slate-600">
+              Pending leave approvals: <strong className="text-slate-800">{data.complianceDebt.pendingLeaveApprovals}</strong> · Overdue
+              onboarding tasks: <strong className="text-slate-800">{data.complianceDebt.overdueOnboardingTasks}</strong>
             </p>
             {data.complianceDebt.immigrationExpiryBuckets.map((b) => (
               <BarRow key={b.bucketId} label={b.label} value={b.count} max={maxImm} />
@@ -273,10 +280,10 @@ export function ExecutiveAnalyticsDashboard() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="hris-card">
-          <div className="section-title">
-            <h3>Headcount by department (active)</h3>
-            <span>Top groups by roster</span>
+        <div className={contentCard}>
+          <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Headcount by department (active)</h3>
+            <span className="text-xs text-slate-500">Top groups by roster</span>
           </div>
           <div className="max-h-64 overflow-y-auto pr-1">
             {Object.entries(hc.byDepartment)
@@ -288,10 +295,10 @@ export function ExecutiveAnalyticsDashboard() {
           </div>
         </div>
 
-        <div className="hris-card">
-          <div className="section-title">
-            <h3>Joiners vs terminations</h3>
-            <span>Last six months (UTC)</span>
+        <div className={contentCard}>
+          <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Joiners vs terminations</h3>
+            <span className="text-xs text-slate-500">Last six months (UTC)</span>
           </div>
           {movement.map((m) => (
             <div key={m.periodLabel} className="mb-3">
@@ -304,12 +311,13 @@ export function ExecutiveAnalyticsDashboard() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="hris-card">
-          <div className="section-title">
-            <h3>Talent velocity</h3>
-            <span>Recruitment pulse</span>
+        <div className={contentCard}>
+          <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Talent velocity</h3>
+            <span className="text-xs text-slate-500">Recruitment pulse</span>
           </div>
-          <table className="hris-table text-sm">
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
+            <table className="hris-table text-sm">
             <tbody>
               <tr>
                 <td>Pipeline candidates (excl. hired/rejected)</td>
@@ -328,21 +336,24 @@ export function ExecutiveAnalyticsDashboard() {
                 <td className="text-right font-medium">{hc.probation}</td>
               </tr>
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
 
-        <div className="hris-card">
-          <div className="section-title">
-            <h3>Payroll & attendance pulse</h3>
-            <span>Finalized pay months + absence markers</span>
+        <div className={contentCard}>
+          <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Payroll & attendance pulse</h3>
+            <span className="text-xs text-slate-500">Finalized pay months + absence markers</span>
           </div>
-          <p className="text-xs text-[var(--text-muted)] mb-2">
-            Absent day rows (14d): <strong>{data.attendancePulse.absentMarkedDaysLast14}</strong> (organization-wide attendance records)
+          <p className="mb-2 text-xs text-slate-600">
+            Absent day rows (14d): <strong className="text-slate-800">{data.attendancePulse.absentMarkedDaysLast14}</strong>{" "}
+            (organization-wide attendance records)
           </p>
           {data.payrollLastMonths.length === 0 ? (
             <p className="text-sm text-slate-500">No finalized pay months yet.</p>
           ) : (
-            <table className="hris-table text-sm">
+            <div className="overflow-x-auto rounded-xl border border-slate-100">
+              <table className="hris-table text-sm">
               <thead>
                 <tr>
                   <th>Period</th>
@@ -359,27 +370,31 @@ export function ExecutiveAnalyticsDashboard() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           )}
         </div>
       </div>
 
-      <div className="hris-card">
-        <div className="section-title">
-          <h3>Drill-down to operational reports</h3>
-          <span>Opens report with data; export CSV when the report viewer loads</span>
+      <div className={contentCard}>
+        <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-base font-semibold text-slate-800">Drill-down to operational reports</h3>
+          <span className="text-xs text-slate-500">Opens report with data; export CSV when the report viewer loads</span>
         </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {data.drillDown.map((d) => (
-            <div key={d.kpiId} className="flex flex-col rounded-xl border border-slate-100 bg-[var(--bg-subtle)] p-3 text-sm">
-              <span className="font-medium text-[var(--text)]">{d.label}</span>
-              <span className="text-[10px] text-slate-500 mt-0.5">
+            <div
+              key={d.kpiId}
+              className="flex flex-col rounded-xl border border-slate-200/90 bg-slate-50/70 p-3 text-sm transition hover:border-slate-300 hover:bg-white"
+            >
+              <span className="font-medium text-slate-800">{d.label}</span>
+              <span className="mt-0.5 text-[10px] text-slate-500">
                 {d.reportCategory}/{d.reportKey}
               </span>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Link
                   href={reportsPageDrillUrl(d.reportCategory, d.reportKey, d.queryHint)}
-                  className="text-xs font-medium text-blue-600 hover:underline"
+                  className="text-xs font-medium text-indigo-600 hover:underline"
                 >
                   Run report
                 </Link>
@@ -393,7 +408,7 @@ export function ExecutiveAnalyticsDashboard() {
                       .catch(() => alert("CSV download failed"))
                       .finally(() => setCsvBusy(null));
                   }}
-                  className="text-xs font-medium text-slate-600 hover:underline disabled:opacity-50"
+                  className="text-xs font-medium text-slate-600 hover:text-indigo-600 hover:underline disabled:opacity-50"
                 >
                   {csvBusy === `${d.reportCategory}/${d.reportKey}` ? "Downloading…" : "Download CSV"}
                 </button>

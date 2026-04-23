@@ -1,7 +1,13 @@
+using System;
+using System.IO;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.Recruitment;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Persistence;
 
 using OpenSkyHRM.Api.Filters;
 
@@ -14,7 +20,7 @@ namespace OpenSkyHRM.Api.Controllers;
 public class RecruitmentController : ControllerBase
 {
     private readonly IRecruitmentService _svc;
-    public RecruitmentController(IRecruitmentService svc) { _svc = svc; }
+    public RecruitmentController(IRecruitmentService svc) => _svc = svc;
 
     // ── Requisitions ─────────────────────────────────────────────
 
@@ -51,11 +57,24 @@ public class RecruitmentController : ControllerBase
 
     [HttpPost("requisitions/{id}/approve")]
     public async Task<IActionResult> ApproveRequisition(Guid id)
-        => Ok(await _svc.ApproveRequisitionAsync(id));
+    {
+        try { return Ok(await _svc.ApproveRequisitionAsync(id)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPost("requisitions/{id}/reject")]
+    public async Task<IActionResult> RejectRequisition(Guid id, [FromBody] RejectRequisitionDto? dto)
+    {
+        try { return Ok(await _svc.RejectRequisitionAsync(id, dto?.Remarks)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     [HttpPost("requisitions/{id}/close")]
     public async Task<IActionResult> CloseRequisition(Guid id)
-        => Ok(await _svc.CloseRequisitionAsync(id));
+    {
+        try { return Ok(await _svc.CloseRequisitionAsync(id)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     // ── Candidates ───────────────────────────────────────────────
 
@@ -75,6 +94,78 @@ public class RecruitmentController : ControllerBase
     [HttpPost("candidates")]
     public async Task<IActionResult> CreateCandidate([FromBody] CreateCandidateDto dto)
         => Ok(await _svc.CreateCandidateAsync(dto));
+
+    /// <summary>Public-style apply with PDF resume: saves candidate then stores file at wwwroot/uploads/candidates/{id}/resume.pdf.</summary>
+    [HttpPost("candidates/apply")]
+    [RequestSizeLimit(15 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 15 * 1024 * 1024)]
+    public async Task<IActionResult> ApplyWithResume(
+        [FromForm] string firstName,
+        [FromForm] string lastName,
+        [FromForm] string email,
+        [FromForm] string phone,
+        [FromForm] Guid requisitionId,
+        [FromForm] string? source,
+        IFormFile? resume,
+        [FromServices] IWebHostEnvironment env)
+    {
+        if (resume == null || resume.Length == 0)
+            return BadRequest(new { message = "Resume PDF is required." });
+        var ext = Path.GetExtension(resume.FileName).ToLowerInvariant();
+        if (resume.ContentType != "application/pdf" && ext != ".pdf")
+            return BadRequest(new { message = "Resume must be a PDF file." });
+
+        var notes =
+            $"Applied via job application form. Resume (PDF): {resume.FileName}";
+
+        var dto = new CreateCandidateDto
+        {
+            FirstName = firstName?.Trim() ?? "",
+            LastName = lastName?.Trim() ?? "",
+            Email = email?.Trim() ?? "",
+            Phone = phone?.Trim(),
+            ResumeUrl = resume.FileName,
+            Source = string.IsNullOrWhiteSpace(source) ? "Direct" : source.Trim(),
+            RequisitionId = requisitionId,
+            Notes = notes,
+        };
+
+        var created = await _svc.CreateCandidateAsync(dto);
+
+        var dir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", created.Id.ToString());
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "resume.pdf");
+        await using (var fs = System.IO.File.Create(path))
+            await resume.CopyToAsync(fs);
+
+        var emailNotification = await _svc.NotifyJobApplicationSubmittedAsync(created.Id);
+
+        var refreshed = await _svc.GetCandidateByIdAsync(created.Id);
+        return Ok(new
+        {
+            candidate = refreshed ?? (object)created,
+            emailNotification,
+        });
+    }
+
+    [HttpGet("candidates/{id:guid}/resume")]
+    public async Task<IActionResult> DownloadCandidateResume(Guid id, [FromServices] IWebHostEnvironment env)
+    {
+        var detail = await _svc.GetCandidateByIdAsync(id);
+        if (detail == null || !detail.HasUploadedResume)
+            return NotFound();
+
+        var path = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", id.ToString(), "resume.pdf");
+        if (!System.IO.File.Exists(path))
+            return NotFound();
+
+        var download = string.IsNullOrWhiteSpace(detail.ResumeUrl) ? "resume.pdf" : Path.GetFileName(detail.ResumeUrl);
+        if (string.IsNullOrWhiteSpace(download) || download.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            download = "resume.pdf";
+
+        var bytes = await System.IO.File.ReadAllBytesAsync(path);
+        return File(bytes, "application/pdf", download);
+    }
 
     [HttpPut("candidates/{id}")]
     public async Task<IActionResult> UpdateCandidate(Guid id, [FromBody] UpdateCandidateDto dto)
@@ -102,12 +193,20 @@ public class RecruitmentController : ControllerBase
     public async Task<IActionResult> HireCandidate(Guid id, [FromBody] HireCandidateRequest? req,
         [FromServices] IEmployeeTaskService employeeTaskService)
     {
-        var employeeId = await _svc.HireCandidateAsync(id);
+        try
+        {
+            var hire = await _svc.HireCandidateAsync(id);
+            var runOnboarding = req?.OnboardingTemplateId is not null && hire.CreatedNewEmployee;
+            if (runOnboarding)
+                await employeeTaskService.CreateTasksFromTemplateAsync(
+                    hire.EmployeeId, req!.OnboardingTemplateId!.Value, "Onboarding");
 
-        if (req?.OnboardingTemplateId is not null)
-            await employeeTaskService.CreateTasksFromTemplateAsync(employeeId, req.OnboardingTemplateId.Value, "Onboarding");
-
-        return Ok(new { employeeId, onboardingStarted = req?.OnboardingTemplateId is not null });
+            return Ok(new { employeeId = hire.EmployeeId, onboardingStarted = runOnboarding });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     public class HireCandidateRequest
@@ -170,26 +269,38 @@ public class RecruitmentController : ControllerBase
     public async Task<IActionResult> UpdateOffer(Guid id, [FromBody] UpdateOfferDto dto)
     {
         dto.Id = id;
-        return Ok(await _svc.UpdateOfferAsync(dto));
+        try { return Ok(await _svc.UpdateOfferAsync(dto)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     [HttpPost("offers/{id}/approve")]
     public async Task<IActionResult> ApproveOffer(Guid id)
-        => Ok(await _svc.ApproveOfferAsync(id));
+    {
+        try { return Ok(await _svc.ApproveOfferAsync(id)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     [HttpPost("offers/{id}/accept")]
     public async Task<IActionResult> AcceptOffer(Guid id)
-        => Ok(await _svc.AcceptOfferAsync(id));
+    {
+        try { return Ok(await _svc.AcceptOfferAsync(id)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     [HttpPost("offers/{id}/reject")]
-    public async Task<IActionResult> RejectOffer(Guid id, [FromBody] RejectOfferDto dto)
-        => Ok(await _svc.RejectOfferAsync(id, dto.Reason));
+    public async Task<IActionResult> RejectOffer(Guid id, [FromBody] RejectOfferDto? dto)
+    {
+        try { return Ok(await _svc.RejectOfferAsync(id, dto?.Reason)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     [HttpPost("offers/{id}/send-email")]
     public async Task<IActionResult> SendOfferEmail(Guid id, [FromServices] IEmailService emailService)
     {
         var offer = await _svc.GetOfferWithCandidateAsync(id);
         if (offer == null) return NotFound();
+        if (!string.Equals(offer.Status, "Approved", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "Offer must be approved before it can be emailed to the candidate." });
 
         await emailService.SendOfferEmailAsync(
             offer.CandidateEmail,

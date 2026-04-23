@@ -12,6 +12,9 @@ public class LeaveRequest : AuditableEntity
     public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
     public string? CoveragePerson { get; set; }
 
+    /// <summary>Optional PDF medical certificate path under wwwroot (e.g. /uploads/leave-certificates/...).</summary>
+    public string? MedicalCertificateUrl { get; set; }
+
     public int CurrentApprovalLevel { get; set; } = 1;
 
     // Level 1 approval

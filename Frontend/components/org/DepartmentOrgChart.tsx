@@ -30,14 +30,14 @@ function DeptCard({
   deletingId?: string | null;
 }) {
   return (
-    <div className="group relative rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-center shadow-sm transition hover:border-[#2B7DE9]/40 hover:shadow-md min-w-[168px] max-w-[220px]">
+    <div className="group relative min-w-[168px] max-w-[220px] rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-center shadow-sm transition hover:border-indigo-300/80 hover:shadow-md">
       {onEdit && (
         <button
           type="button"
           title="Edit department"
           disabled={!!deletingId}
           onClick={() => onEdit(dept)}
-          className="absolute -left-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 opacity-0 shadow-sm transition hover:border-[#2B7DE9]/40 hover:bg-blue-50 hover:text-[#2B7DE9] group-hover:opacity-100 disabled:opacity-40"
+          className="absolute -left-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 opacity-0 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-600 group-hover:opacity-100 disabled:opacity-40"
         >
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />

@@ -18,9 +18,12 @@ public static class DbSeeder
             await AuthSeeder.SeedAsync(context);
             await OrganizationSeeder.SeedAsync(context);
             await LeaveSeeder.SeedAsync(context);
+            await LeaveSeeder.EnsureCatalogLeaveTypesAsync(context);
             await DocumentTemplateSeeder.SeedAsync(context);
+            await DocumentTemplateSeeder.EnsureLetterPackAsync(context);
             await TransactionalEmailTemplateSeeder.EnsureAsync(context);
             await PayrollSeeder.SeedAsync(context);
+            await EmployeeLifecycleTemplateSeeder.EnsureAsync(context);
 
             await context.SaveChangesAsync();
             logger.LogInformation("Database seeding completed.");

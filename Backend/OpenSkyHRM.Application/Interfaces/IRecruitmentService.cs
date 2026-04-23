@@ -12,17 +12,24 @@ public interface IRecruitmentService
     Task<RequisitionDto> UpdateRequisitionAsync(UpdateRequisitionDto dto);
     Task DeleteRequisitionAsync(Guid id);
     Task<RequisitionDto> ApproveRequisitionAsync(Guid id);
+    Task<RequisitionDto> RejectRequisitionAsync(Guid id, string? remarks = null);
     Task<RequisitionDto> CloseRequisitionAsync(Guid id);
+    Task<RequisitionDto> SaveRequisitionProfileAsync(Guid id, SaveRequisitionProfileDto dto);
+    Task<RequisitionDto> SetSupportingPdfAsync(Guid id, string storedFileName, string originalFileName);
+    Task<RequisitionDto> DeleteSupportingPdfAsync(Guid id);
 
     // Candidates
     Task<PagedResult<CandidateDto>> GetCandidatesAsync(int page = 1, int pageSize = 50, Guid? requisitionId = null, string? stage = null, string? search = null);
     Task<CandidateDetailDto?> GetCandidateByIdAsync(Guid id);
     Task<CandidateDto> CreateCandidateAsync(CreateCandidateDto dto);
+
+    /// <summary>After a public/job-board application, emails the configured inbox via SendGrid/SMTP. Errors are logged; does not throw.</summary>
+    Task<JobApplicationEmailNotificationResultDto> NotifyJobApplicationSubmittedAsync(Guid candidateId);
     Task<CandidateDto> UpdateCandidateAsync(UpdateCandidateDto dto);
     Task DeleteCandidateAsync(Guid id);
     Task<CandidateDto> ChangeCandidateStageAsync(Guid id, string stage);
     Task<CandidateDto> RejectCandidateAsync(Guid id, string reason);
-    Task<Guid> HireCandidateAsync(Guid id);
+    Task<HireCandidateResult> HireCandidateAsync(Guid id);
 
     // Interviews
     Task<List<InterviewDto>> GetInterviewsForCandidateAsync(Guid candidateId);

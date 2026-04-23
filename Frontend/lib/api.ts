@@ -1,40 +1,67 @@
 import { API_BASE_URL } from "@/config/constants";
 
+/** Abort hanging requests so pages do not spin forever if the API stalls. */
+const DEFAULT_API_TIMEOUT_MS = 45_000;
+
 function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("auth_token");
 }
 
+export type ApiFetchOptions = RequestInit & { timeoutMs?: number };
+
 export async function apiFetch<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: ApiFetchOptions
 ): Promise<T> {
+  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, ...fetchInit } = options ?? {};
   const token = getAuthToken();
+  const isFormData =
+    typeof FormData !== "undefined" && fetchInit.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options?.headers as Record<string, string>),
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    ...(fetchInit?.headers as Record<string, string>),
   };
 
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
   let res: Response;
   try {
     res = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
+      ...fetchInit,
       headers,
+      signal: controller.signal,
     });
-  } catch {
+  } catch (e) {
+    const aborted =
+      e instanceof DOMException
+        ? e.name === "AbortError"
+        : e instanceof Error && e.name === "AbortError";
+    if (aborted) {
+      throw new Error(
+        `Request timed out after ${timeoutMs}ms (${endpoint}). Is ${API_BASE_URL} reachable?`
+      );
+    }
     throw new Error(
       `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (res.status === 401) {
     if (typeof window !== "undefined") {
       localStorage.removeItem("auth_token");
-      window.location.href = "/login";
+      document.cookie = "auth_token=; path=/; max-age=0";
+      // Avoid redirect loops: login page or parallel 401s must not stack full navigations.
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.replace("/login");
+      }
     }
     throw new Error("Session expired. Please login again.");
   }
@@ -65,5 +92,70 @@ export async function apiFetch<T>(
   }
 
   if (res.status === 204) return undefined as T;
-  return res.json();
+
+  const bodyText = await res.text();
+  const trimmed = bodyText.replace(/^\uFEFF/, "").trim();
+  if (!trimmed) return undefined as T;
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw new Error(
+      `Invalid JSON from API (${endpoint}). First characters: ${trimmed.slice(0, 120)}`
+    );
+  }
+}
+
+/** GET binary content (e.g. PDF) with auth. Caller should revoke blob URLs when done. */
+export async function apiFetchBlob(endpoint: string, options?: ApiFetchOptions): Promise<Blob> {
+  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, ...fetchInit } = options ?? {};
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    ...(fetchInit?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...fetchInit,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    const aborted =
+      e instanceof DOMException
+        ? e.name === "AbortError"
+        : e instanceof Error && e.name === "AbortError";
+    if (aborted) {
+      throw new Error(`Request timed out after ${timeoutMs}ms (${endpoint}).`);
+    }
+    throw new Error(`Cannot reach API at ${API_BASE_URL}.`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("auth_token");
+      document.cookie = "auth_token=; path=/; max-age=0";
+      // Avoid redirect loops: login page or parallel 401s must not stack full navigations.
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.replace("/login");
+      }
+    }
+    throw new Error("Session expired. Please login again.");
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "Unknown error");
+    throw new Error(`API ${res.status}: ${text.slice(0, 300)}`);
+  }
+
+  return res.blob();
 }

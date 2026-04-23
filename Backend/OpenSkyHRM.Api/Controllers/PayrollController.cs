@@ -1,3 +1,4 @@
+using System;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -160,16 +161,30 @@ public class PayrollController : ControllerBase
     public async Task<IActionResult> ApproveRevision(Guid id)
     {
         var userName = User.Identity?.Name ?? "System";
-        var result = await _payrollService.ApproveRevisionAsync(id, userName);
-        return result is null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _payrollService.ApproveRevisionAsync(id, userName);
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("revisions/{id:guid}/reject")]
     public async Task<IActionResult> RejectRevision(Guid id, [FromBody] RejectRevisionRequest request)
     {
         var userName = User.Identity?.Name ?? "System";
-        var result = await _payrollService.RejectRevisionAsync(id, userName, request.Remarks);
-        return result is null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _payrollService.RejectRevisionAsync(id, userName, request.Remarks);
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     // ── Payroll Batches ──────────────────────────────────────────────

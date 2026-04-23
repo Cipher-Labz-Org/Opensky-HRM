@@ -2886,6 +2886,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("BroughtForwardDays")
+                        .HasColumnType("numeric");
+
                     b.Property<decimal>("CarriedForward")
                         .HasColumnType("numeric");
 
@@ -3110,6 +3113,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("Level1Remarks")
+                        .HasColumnType("text");
+
+                    b.Property<string>("MedicalCertificateUrl")
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("Level2ApprovedAt")
@@ -4440,6 +4446,10 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<int>("Vacancies")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ApplicationNotificationEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("DepartmentId");
@@ -4977,8 +4987,8 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<string>("Value")
                         .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                        .HasMaxLength(20000)
+                        .HasColumnType("character varying(20000)");
 
                     b.HasKey("Key");
 

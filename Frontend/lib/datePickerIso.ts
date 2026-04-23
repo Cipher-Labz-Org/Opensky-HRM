@@ -1,7 +1,9 @@
 /** Parse YYYY-MM-DD as a local calendar date (noon) to avoid timezone shifts. */
 export function parseIsoDateToLocal(s: string | undefined): Date | undefined {
-  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;
-  const [y, m, d] = s.split("-").map(Number);
+  if (!s || typeof s !== "string") return undefined;
+  const day = s.trim().split("T")[0].split(" ")[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return undefined;
+  const [y, m, d] = day.split("-").map(Number);
   if (!y || !m || !d) return undefined;
   return new Date(y, m - 1, d, 12, 0, 0, 0);
 }
