@@ -36,7 +36,7 @@ interface HireResult { employeeId: string; onboardingStarted: boolean; }
 
 const STAGE_COLORS: Record<string, string> = {
   Sourced: "bg-gray-100 text-gray-700", Screening: "bg-blue-100 text-blue-700",
-  "Phone Screen": "bg-indigo-100 text-indigo-700", Interview: "bg-yellow-100 text-yellow-700",
+  "Phone Screen": "bg-sky-100 text-sky-700", Interview: "bg-yellow-100 text-yellow-700",
   Evaluation: "bg-purple-100 text-purple-700", Offer: "bg-orange-100 text-orange-700",
   Hired: "bg-green-100 text-green-700", Rejected: "bg-red-100 text-red-700",
   Withdrawn: "bg-gray-200 text-gray-500",

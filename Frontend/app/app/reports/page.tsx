@@ -348,6 +348,41 @@ export default function ReportsPage() {
       })
     : filteredRows;
 
+  const showLeaveInsightsTemplate =
+    selectedCategory === "leave" &&
+    (selectedReport === "absence-frequency" || selectedReport === "leave-by-type") &&
+    !!result;
+
+  const leaveTemplateMetrics = useMemo(() => {
+    if (!result || !showLeaveInsightsTemplate) return null;
+    const totalRecords = sortedRows.length;
+    if (selectedReport === "absence-frequency") {
+      const totalInstances = sortedRows.reduce((sum, row) => sum + Number(row["Leave Instances"] ?? 0), 0);
+      const totalDays = sortedRows.reduce((sum, row) => sum + Number(row["Total Days"] ?? 0), 0);
+      const topEmployee = sortedRows[0]?.["Employee Name"] ?? "N/A";
+      return {
+        cards: [
+          { label: "Employees listed", value: formatInt(totalRecords) },
+          { label: "Leave instances", value: formatInt(totalInstances) },
+          { label: "Total leave days", value: formatInt(totalDays) },
+          { label: "Top frequency employee", value: String(topEmployee) },
+        ],
+      };
+    }
+
+    const totalRequests = sortedRows.reduce((sum, row) => sum + Number(row["Total Requests"] ?? 0), 0);
+    const totalDays = sortedRows.reduce((sum, row) => sum + Number(row["Total Days"] ?? 0), 0);
+    const topType = sortedRows[0]?.["Leave Type"] ?? "N/A";
+    return {
+      cards: [
+        { label: "Leave types listed", value: formatInt(totalRecords) },
+        { label: "Total requests", value: formatInt(totalRequests) },
+        { label: "Total leave days", value: formatInt(totalDays) },
+        { label: "Most used type", value: String(topType) },
+      ],
+    };
+  }, [result, selectedReport, showLeaveInsightsTemplate, sortedRows]);
+
   const totalReportDefinitions = useMemo(
     () => catalog.reduce((sum, c) => sum + c.reports.length, 0),
     [catalog]
@@ -732,44 +767,64 @@ export default function ReportsPage() {
           {/* Table body */}
           {result && !loading && (
             <div className="flex-1 overflow-auto px-6 py-4">
+              {showLeaveInsightsTemplate && leaveTemplateMetrics && (
+                <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-slate-800">
+                      {selectedReport === "absence-frequency" ? "Absence Frequency Template" : "Leave by Type Template"}
+                    </h3>
+                    <span className="text-[11px] text-slate-500">Auto-generated from current filters</span>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {leaveTemplateMetrics.cards.map((card) => (
+                      <div key={card.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{card.label}</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">{card.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {sortedRows.length === 0 ? (
                 <div className="py-20 text-center text-sm text-slate-400">No records found.</div>
               ) : (
-                <table className="w-full border-collapse text-[12px]">
-                  <thead className="sticky top-0 z-10">
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <th className="py-2.5 px-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider w-8">#</th>
-                      {result.columns.map(col => (
-                        <th
-                          key={col}
-                          onClick={() => handleSort(col)}
-                          className="py-2.5 px-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700 transition bg-slate-50"
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            {col}
-                            {sortCol === col && (
-                              <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d={sortAsc ? "M4.5 15.75l7.5-7.5 7.5 7.5" : "M19.5 8.25l-7.5 7.5-7.5-7.5"} />
-                              </svg>
-                            )}
-                          </span>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedRows.map((row, i) => (
-                      <tr key={i} className="border-b border-slate-100 transition hover:bg-blue-50/30">
-                        <td className="py-1.5 px-3 text-[10px] text-slate-400">{i + 1}</td>
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <table className="w-full border-collapse text-[12px]">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-sky-50/60">
+                        <th className="py-3 px-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider w-10">#</th>
                         {result.columns.map(col => (
-                          <td key={col} className="py-1.5 px-3 text-slate-700 whitespace-nowrap">
-                            {formatCell(col, row[col])}
-                          </td>
+                          <th
+                            key={col}
+                            onClick={() => handleSort(col)}
+                            className="py-3 px-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-[#1e88ff] transition bg-transparent"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              {col}
+                              {sortCol === col && (
+                                <svg className="h-3 w-3 text-[#1e88ff]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d={sortAsc ? "M4.5 15.75l7.5-7.5 7.5 7.5" : "M19.5 8.25l-7.5 7.5-7.5-7.5"} />
+                                </svg>
+                              )}
+                            </span>
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {sortedRows.map((row, i) => (
+                        <tr key={i} className={`border-b border-slate-100 transition hover:bg-[#eef6ff] ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"}`}>
+                          <td className="py-2 px-3 text-[10px] font-medium text-slate-400">{i + 1}</td>
+                          {result.columns.map(col => (
+                            <td key={col} className="py-2 px-3 text-slate-700 whitespace-nowrap">
+                              {formatCell(col, row[col])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           )}

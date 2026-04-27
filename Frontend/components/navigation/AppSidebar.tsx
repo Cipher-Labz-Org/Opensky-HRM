@@ -57,33 +57,26 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
 
   return (
     <aside
-      className="sticky top-0 z-30 flex h-screen flex-col overflow-hidden border-r border-slate-200/80 bg-white transition-all duration-300"
+      className="sticky top-0 z-30 flex h-screen flex-col overflow-hidden border-r border-slate-200 bg-[#f7f8fb] transition-all duration-300"
       style={{ width: `${w}px`, minWidth: `${w}px` }}
     >
       {/* Header — pr-11 reserves space so the collapse control stays inside the rail (avoids clip + overlap with main). */}
       <div
-        className="relative flex items-center justify-center border-b border-slate-100 px-4 py-4 pr-11"
-        style={{ height: collapsed ? "60px" : "60px" }}
+        className="relative flex items-center justify-center border-b border-slate-200 bg-white px-4 py-4 pr-11"
+        style={{ height: "60px" }}
       >
         {collapsed ? (
           companyLogoUrl ? (
             <img src={`${API_BASE_URL}${companyLogoUrl}`} alt="Logo" className="h-9 w-9 rounded-lg object-contain" />
           ) : (
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#E8192C] to-[#2E7BBF] text-[10px] font-extrabold text-white">
-              OS
-            </div>
+            <img src="/brand-mark.svg" alt="OpenSky mark" className="h-9 w-9 rounded-lg object-contain" />
           )
         ) : (
           <>
             {companyLogoUrl ? (
-              <img src={`${API_BASE_URL}${companyLogoUrl}`} alt="Company Logo" className="h-12 max-w-[240px] object-contain" />
+              <img src={`${API_BASE_URL}${companyLogoUrl}`} alt="Company Logo" className="h-10 max-w-[240px] object-contain" />
             ) : (
-              <div className="flex items-center gap-2.5">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#E8192C] to-[#2E7BBF] text-xs font-extrabold text-white">
-                  OS
-                </div>
-                <span className="text-base font-bold text-slate-700">{appName}</span>
-              </div>
+              <img src="/brand-logo.svg" alt={appName} className="h-10 max-w-[240px] object-contain" />
             )}
           </>
         )}
@@ -131,16 +124,16 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
                   title={collapsed ? item.label : undefined}
                   className={`sidebar-nav-link mb-0.5 flex items-center rounded-xl transition-all ${
                     collapsed
-                      ? `justify-center px-0 py-2.5 ${isActive ? "bg-blue-50 text-[#2E7BBF]" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"}`
-                      : `gap-3 px-3 py-2.5 text-[13px] font-medium ${isActive ? "bg-blue-50 text-[#2E7BBF] border border-blue-100" : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"}`
+                      ? `justify-center px-0 py-2.5 ${isActive ? "bg-[#2E7BBF] text-white shadow-[0_8px_20px_-12px_rgba(46,123,191,0.55)]" : "text-slate-500 hover:-translate-y-0.5 hover:bg-white hover:text-slate-700 hover:shadow-[0_8px_20px_-14px_rgba(46,123,191,0.42)]"}`
+                      : `gap-3 px-3 py-2.5 text-[13px] font-medium ${isActive ? "bg-[#2E7BBF] text-white border border-[#256aa3] shadow-[0_10px_24px_-14px_rgba(46,123,191,0.58)]" : "text-slate-600 hover:-translate-y-0.5 hover:bg-white hover:text-slate-800 hover:shadow-[0_10px_24px_-16px_rgba(46,123,191,0.4)]"}`
                   }`}
                 >
                   {iconPath ? (
-                    <svg className={`shrink-0 ${collapsed ? "h-5 w-5" : "h-[18px] w-[18px]"} ${isActive ? "text-[#2E7BBF]" : "text-slate-400"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <svg className={`shrink-0 ${collapsed ? "h-5 w-5" : "h-[18px] w-[18px]"} ${isActive ? "text-white" : "text-slate-400"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d={iconPath} />
                     </svg>
                   ) : showLetterFallback ? (
-                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ${isActive ? "bg-blue-100 text-[#2E7BBF]" : "bg-slate-100 text-slate-500"}`}>
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ${isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
                       {item.label.charAt(0).toUpperCase()}
                     </span>
                   ) : null}

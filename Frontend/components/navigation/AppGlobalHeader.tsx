@@ -11,10 +11,10 @@ import { usePeopleHubHelp } from "@/components/help/PeopleHubHelpPanel";
 const iconStroke = 1.75;
 
 const iconBtn =
-  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-600 outline-none transition hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-[#2E7BBF]/30";
+  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/90 outline-none transition hover:bg-white/15 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40";
 
 function Divider() {
-  return <span className="mx-1.5 hidden h-5 w-px shrink-0 bg-slate-200 sm:block" aria-hidden />;
+  return <span className="mx-1.5 hidden h-5 w-px shrink-0 bg-white/30 sm:block" aria-hidden />;
 }
 
 export type AppGlobalHeaderUser = {
@@ -47,7 +47,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
 
   return (
     <header
-      className="sticky top-0 z-[45] flex h-[60px] shrink-0 items-center justify-end border-b border-slate-200/90 bg-white px-4 sm:px-6"
+      className="sticky top-0 z-[45] flex h-[60px] shrink-0 items-center justify-end border-b border-[#256aa3] bg-[#2E7BBF] px-4 sm:px-6"
       role="banner"
     >
       <div className="flex items-center gap-0.5 sm:gap-1">
@@ -116,7 +116,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
           <Popover.Trigger asChild>
             <button
               type="button"
-              className="rounded-lg px-2.5 py-1.5 text-sm font-bold tracking-wide text-slate-800 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-[#2E7BBF]/30"
+              className="rounded-lg px-2.5 py-1.5 text-sm font-bold tracking-wide text-white outline-none transition hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/40"
               aria-label="Language"
             >
               EN
@@ -142,7 +142,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
           <Popover.Trigger asChild>
             <button
               type="button"
-              className="flex max-w-[200px] items-center gap-2 rounded-lg py-1.5 pl-2 pr-1 text-left outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-[#2E7BBF]/30"
+              className="flex max-w-[220px] items-center gap-2 rounded-lg py-1.5 pl-2 pr-1 text-left outline-none transition hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/40"
               aria-label="Account menu"
             >
               {user.profileImageUrl ? (
@@ -152,12 +152,12 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                   className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-slate-200"
                 />
               ) : (
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#E8192C] to-[#2E7BBF] text-[10px] font-bold text-white">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold text-white ring-1 ring-white/30">
                   {initials}
                 </span>
               )}
-              <span className="truncate text-sm font-normal text-slate-700">{displayName}</span>
-              <svg className="h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+              <span className="truncate text-sm font-medium text-white">{displayName}</span>
+              <svg className="h-4 w-4 shrink-0 text-white/70" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </button>

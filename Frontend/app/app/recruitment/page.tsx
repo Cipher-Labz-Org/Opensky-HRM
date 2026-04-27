@@ -54,7 +54,7 @@ const TABS = ["Dashboard", "Requisitions", "Candidates", "Interviews"] as const;
 const STAGES = ["Sourced", "Screening", "Phone Screen", "Interview", "Evaluation", "Offer", "Hired"];
 const STAGE_COLORS: Record<string, string> = {
   Sourced: "bg-gray-100 text-gray-700", Screening: "bg-blue-100 text-blue-700",
-  "Phone Screen": "bg-indigo-100 text-indigo-700", Interview: "bg-yellow-100 text-yellow-700",
+  "Phone Screen": "bg-sky-100 text-sky-700", Interview: "bg-yellow-100 text-yellow-700",
   Evaluation: "bg-purple-100 text-purple-700", Offer: "bg-orange-100 text-orange-700",
   Hired: "bg-green-100 text-green-700", Rejected: "bg-red-100 text-red-700",
   Withdrawn: "bg-gray-200 text-gray-500",
@@ -124,7 +124,7 @@ const kpiTileClass =
   "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
 const panelClass = "rounded-2xl border border-slate-200 bg-white shadow-sm";
 const inputClassSlate =
-  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20";
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#2E7BBF] focus:ring-2 focus:ring-[#2E7BBF]/20";
 
 export default function RecruitmentPage() {
   const router = useRouter();
@@ -376,7 +376,7 @@ export default function RecruitmentPage() {
       {/* Hero — same shell as Command Center / dashboard */}
       <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
         <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-sky-100/40 blur-3xl" />
         <div className="relative z-10">
           <div>
             <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
@@ -492,7 +492,7 @@ export default function RecruitmentPage() {
                         {iv.candidateName} · {formatDateTime(iv.scheduledAt)}
                       </div>
                     </div>
-                    <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-800">
+                    <span className="shrink-0 rounded-full bg-sky-50 px-2.5 py-0.5 text-xs font-medium text-sky-800">
                       {iv.interviewType || "Interview"}
                     </span>
                   </div>
@@ -526,7 +526,7 @@ export default function RecruitmentPage() {
                             a.activityType === "Hired"
                               ? "bg-emerald-500"
                               : a.activityType === "StageChange"
-                                ? "bg-indigo-500"
+                                ? "bg-[#2E7BBF]"
                                 : "bg-slate-400"
                           }`}
                         />
@@ -730,7 +730,7 @@ export default function RecruitmentPage() {
                   {candidates.map((c) => (
                     <tr key={c.id}>
                       <td>
-                        <Link href={`/app/recruitment/candidate/${c.id}`} className="font-medium text-indigo-600 hover:underline">
+                        <Link href={`/app/recruitment/candidate/${c.id}`} className="font-medium text-[#2E7BBF] hover:underline">
                           {c.fullName}
                         </Link>
                       </td>
@@ -743,7 +743,7 @@ export default function RecruitmentPage() {
                       <td>{c.rating ? "★".repeat(c.rating) : "-"}</td>
                       <td>{formatDateTime(c.appliedAt)}</td>
                       <td>
-                        <Link href={`/app/recruitment/candidate/${c.id}`} className="text-xs text-indigo-600 hover:underline">View</Link>
+                        <Link href={`/app/recruitment/candidate/${c.id}`} className="text-xs text-[#2E7BBF] hover:underline">View</Link>
                       </td>
                     </tr>
                   ))}
@@ -932,7 +932,7 @@ export default function RecruitmentPage() {
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25"
+                    className="h-4 w-4 rounded border-slate-300 text-[#2E7BBF] focus:ring-[#2E7BBF]/25"
                     checked={scheduleNotifyCandidateEmail}
                     onChange={(e) => setScheduleNotifyCandidateEmail(e.target.checked)}
                   />
@@ -948,7 +948,7 @@ export default function RecruitmentPage() {
                 <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25"
+                    className="h-4 w-4 rounded border-slate-300 text-[#2E7BBF] focus:ring-[#2E7BBF]/25"
                     checked={scheduleNotifyInterviewerEmail}
                     onChange={(e) => setScheduleNotifyInterviewerEmail(e.target.checked)}
                     disabled={!scheduleForm.interviewerId}

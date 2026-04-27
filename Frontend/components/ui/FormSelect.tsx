@@ -23,7 +23,7 @@ export type FormSelectProps = {
 const triggerClass =
   "flex h-[42px] w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2 text-left text-sm text-slate-800 shadow-sm outline-none transition-all duration-200 " +
   "hover:border-slate-300 hover:shadow " +
-  "focus:border-indigo-500 focus:shadow-md focus:shadow-indigo-500/5 focus:ring-[3px] focus:ring-indigo-500/20 " +
+  "focus:border-[#2E7BBF] focus:shadow-md focus:shadow-[#2E7BBF]/10 focus:ring-[3px] focus:ring-[#2E7BBF]/20 " +
   "disabled:cursor-not-allowed disabled:opacity-50 " +
   "[&[data-placeholder]]:text-slate-400";
 
@@ -33,11 +33,11 @@ const contentClass =
 const itemClass =
   "relative flex cursor-pointer select-none items-center rounded-md py-2 pl-3 pr-8 text-sm text-slate-700 outline-none " +
   "data-[disabled]:pointer-events-none data-[disabled]:opacity-40 " +
-  "data-[highlighted]:bg-indigo-50 data-[highlighted]:text-indigo-900 " +
-  "data-[state=checked]:bg-indigo-50/80 data-[state=checked]:font-semibold data-[state=checked]:text-indigo-900";
+  "data-[highlighted]:bg-[#e3eef8] data-[highlighted]:text-[#1a5f94] " +
+  "data-[state=checked]:bg-[#e3eef8]/90 data-[state=checked]:font-semibold data-[state=checked]:text-[#1a5f94]";
 
 const chevron = (
-  <SelectPrimitive.Icon className="shrink-0 text-indigo-500">
+  <SelectPrimitive.Icon className="shrink-0 text-[#2E7BBF]">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M6 9l6 6 6-6" />
     </svg>

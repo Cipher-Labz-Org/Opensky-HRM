@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { FormSelect } from "@/components/ui/FormSelect";
 import { Modal } from "@/components/ui/Modal";
+import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/date-utils";
@@ -253,7 +255,7 @@ export default function EmployeeActionsPage() {
 
   function handleSave() {
     if (!form.employeeId || !form.title.trim()) {
-      alert("Choose an employee and enter a short title.");
+      void appAlert("Choose an employee and enter a short title.", "Missing Information");
       return;
     }
     const emp = employees.find((e) => e.id === form.employeeId);
@@ -298,8 +300,8 @@ export default function EmployeeActionsPage() {
     setModalOpen(false);
   }
 
-  function handleDelete(id: string) {
-    if (!confirm("Remove this record? This cannot be undone.")) return;
+  async function handleDelete(id: string) {
+    if (!(await appConfirm("Remove this record? This cannot be undone.", "Delete Record"))) return;
     const next = records.filter((r) => r.id !== id);
     setRecords(next);
     persist(next);
@@ -318,7 +320,7 @@ export default function EmployeeActionsPage() {
       URL.revokeObjectURL(a.href);
     } catch (e) {
       console.error(e);
-      alert("Could not build the PDF. Please try again.");
+      void appAlert("Could not build the PDF. Please try again.", "Export Failed");
     } finally {
       setPdfExporting(false);
     }
@@ -333,22 +335,23 @@ export default function EmployeeActionsPage() {
         const buf = reader.result as ArrayBuffer;
         const data = extractRecordsArrayFromEmployeeActionsPdf(buf);
         if (!data) {
-          alert(
+          void appAlert(
             "Could not read employee actions from this PDF. Re-import only works for PDFs exported from this page (do not re-save the file in an editor that strips attachments or trailing data)."
+            , "Import Failed"
           );
           return;
         }
         const merged = parseStored(JSON.stringify(data));
         if (merged.length === 0 && data.length > 0) {
-          alert("No valid records found in the PDF backup.");
+          void appAlert("No valid records found in the PDF backup.", "Import Failed");
           return;
         }
-        if (!confirm(`Import ${merged.length} record(s)? Existing records stay; duplicates are not merged by id.`)) return;
+        if (!(await appConfirm(`Import ${merged.length} record(s)? Existing records stay; duplicates are not merged by id.`, "Confirm Import"))) return;
         const next = [...merged, ...records];
         setRecords(next);
         persist(next);
       } catch {
-        alert("Could not read that PDF file.");
+        void appAlert("Could not read that PDF file.", "Import Failed");
       }
     };
     reader.readAsArrayBuffer(file);
@@ -447,18 +450,15 @@ export default function EmployeeActionsPage() {
                 <p className="text-xs text-slate-500">{visibleRecords.length} shown · {records.length} total</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <select
+                <FormSelect
                   value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value as ActionType | "All")}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
-                >
-                  <option value="All">All types</option>
-                  {ACTION_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(value) => setTypeFilter(value as ActionType | "All")}
+                  className="min-w-[160px]"
+                  options={[
+                    { value: "All", label: "All types" },
+                    ...ACTION_TYPES.map((t) => ({ value: t, label: t })),
+                  ]}
+                />
                 <input
                   type="search"
                   placeholder="Search employee, code, title…"
@@ -614,17 +614,11 @@ export default function EmployeeActionsPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">Action type</label>
-              <select
+              <FormSelect
                 value={form.actionType}
-                onChange={(e) => setForm((f) => ({ ...f, actionType: e.target.value as ActionType }))}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              >
-                {ACTION_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+                onValueChange={(value) => setForm((f) => ({ ...f, actionType: value as ActionType }))}
+                options={ACTION_TYPES.map((t) => ({ value: t, label: t }))}
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">Effective date</label>

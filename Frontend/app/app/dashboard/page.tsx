@@ -7,24 +7,17 @@ import { formatDateTime } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import Link from "next/link";
 
-/** Command Center charts — OpenSky blue (#2E7BBF) + red (#ED1C24) with cyan, teal, and amber accents. */
-const DASH_WORKFORCE_ROW_GRADIENTS: [string, string][] = [
-  ["#143d5c", "#2E7BBF"],
-  ["#2E7BBF", "#5ba3d4"],
-  ["#0369a1", "#38bdf8"],
-  ["#0f766e", "#2dd4bf"],
-  ["#1d4ed8", "#818cf8"],
-  ["#b45309", "#fbbf24"],
-];
+/** Solid brand/accent colors (no gradients). */
+const DASH_WORKFORCE_ROW_COLORS: string[] = ["#2563EB", "#06B6D4", "#10B981", "#F59E0B", "#8B5CF6", "#F43F5E"];
 
-const DASH_ACTIVITY_DAY_GRADIENTS: [string, string][] = [
-  ["#1a5f94", "#2E7BBF"],
-  ["#2563eb", "#60a5fa"],
-  ["#0284c7", "#22d3ee"],
-  ["#0e7490", "#5eead4"],
-  ["#2E7BBF", "#93c5fd"],
-  ["#c2410c", "#fb923c"],
-  ["#b91c1c", "#ED1C24"],
+const DASH_ACTIVITY_DAY_COLORS: [string, string][] = [
+  ["#2563EB", "#2563EB"],
+  ["#06B6D4", "#06B6D4"],
+  ["#10B981", "#10B981"],
+  ["#F59E0B", "#F59E0B"],
+  ["#3B82F6", "#3B82F6"],
+  ["#8B5CF6", "#8B5CF6"],
+  ["#F43F5E", "#F43F5E"],
 ];
 
 interface MyTask {
@@ -231,11 +224,11 @@ export default function DashboardPage() {
   const recruitPipelineBars = useMemo(() => {
     if (!recruitDash) return [];
     return [
-      { label: "Open requisitions", value: recruitDash.openRequisitions, color: "#143d5c", colorTo: "#2E7BBF" },
-      { label: "Candidates in pipeline", value: recruitDash.totalCandidates, color: "#0284c7", colorTo: "#38bdf8" },
-      { label: "Interviews (this week)", value: recruitDash.interviewsThisWeek, color: "#c2410c", colorTo: "#fbbf24" },
-      { label: "Offers extended", value: recruitDash.offersExtended, color: "#0d9488", colorTo: "#34d399" },
-      { label: "Hired this month", value: recruitDash.hiredThisMonth, color: "#c41e3a", colorTo: "#ED1C24" },
+      { label: "Open requisitions", value: recruitDash.openRequisitions, color: "#2563EB" },
+      { label: "Candidates in pipeline", value: recruitDash.totalCandidates, color: "#06B6D4" },
+      { label: "Interviews (this week)", value: recruitDash.interviewsThisWeek, color: "#F59E0B" },
+      { label: "Offers extended", value: recruitDash.offersExtended, color: "#10B981" },
+      { label: "Hired this month", value: recruitDash.hiredThisMonth, color: "#F43F5E" },
     ];
   }, [recruitDash]);
 
@@ -247,13 +240,13 @@ export default function DashboardPage() {
       const s = r.status || "Unknown";
       tally.set(s, (tally.get(s) ?? 0) + 1);
     }
-    const colorFor = (status: string): { color: string; colorTo?: string } => {
+    const colorFor = (status: string): { color: string } => {
       const u = status.toLowerCase();
-      if (u.includes("pending")) return { color: "#b45309", colorTo: "#fbbf24" };
-      if (u.includes("approved")) return { color: "#0f766e", colorTo: "#34d399" };
-      if (u.includes("reject")) return { color: "#991b1b", colorTo: "#ED1C24" };
-      if (u.includes("cancel")) return { color: "#64748b", colorTo: "#cbd5e1" };
-      return { color: "#1d4ed8", colorTo: "#2E7BBF" };
+      if (u.includes("pending")) return { color: "#F59E0B" };
+      if (u.includes("approved")) return { color: "#10B981" };
+      if (u.includes("reject")) return { color: "#F43F5E" };
+      if (u.includes("cancel")) return { color: "#94A3B8" };
+      return { color: "#2563EB" };
     };
     return Array.from(tally.entries())
       .map(([label, value]) => ({ label, value, ...colorFor(label) }))
@@ -286,8 +279,8 @@ export default function DashboardPage() {
 
   const headcountMix = useMemo(() => {
     const rows = [
-      { label: "Active", value: activeCount ?? 0, color: "#1a5f94", colorTo: "#2E7BBF" },
-      { label: "Terminated (records)", value: terminatedCount ?? 0, color: "#475569", colorTo: "#94a3b8" },
+      { label: "Active", value: activeCount ?? 0, color: "#2563EB" },
+      { label: "Terminated (records)", value: terminatedCount ?? 0, color: "#F43F5E" },
     ].filter((r) => r.value > 0);
     return rows;
   }, [activeCount, terminatedCount]);
@@ -300,7 +293,7 @@ export default function DashboardPage() {
       />
 
       {myTasks.length > 0 && (
-        <div className="mb-6 overflow-hidden rounded-2xl border border-[#2E7BBF]/25 bg-gradient-to-r from-[#e3eef8] via-white to-[#f0f6fc] shadow-sm">
+        <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center gap-3 border-b border-[#2E7BBF]/20 px-6 py-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2E7BBF]/12">
               <svg className="h-5 w-5 text-[#2E7BBF]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -378,13 +371,11 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <section className="relative overflow-hidden rounded-3xl border border-[#2E7BBF]/15 bg-gradient-to-br from-white via-[#f7fafc] to-[#eef4fb] px-7 py-8 text-slate-900 shadow-[0_1px_3px_rgba(15,23,42,0.06),0_12px_40px_-12px_rgba(46,123,191,0.12)]">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#2E7BBF] via-[#5ba3d4] to-[#2E7BBF]" aria-hidden />
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-[#2E7BBF]/18 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-[#ED1C24]/10 blur-3xl" />
+      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white px-7 py-8 text-slate-900 shadow-sm">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[#2E7BBF]" aria-hidden />
         <div className="relative z-10">
           <div>
-            <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#2E7BBF]/25 bg-[#2E7BBF]/[0.08] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#1a5f94] shadow-sm">
+            <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600 shadow-sm">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2E7BBF] opacity-40" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-[#2E7BBF]" />
@@ -392,15 +383,14 @@ export default function DashboardPage() {
               Live workspace
             </p>
             <div className="flex flex-wrap items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2E7BBF] to-[#256aa3] text-white shadow-md shadow-[#2E7BBF]/25">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#2E7BBF] text-white shadow-sm">
                 <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
                 </svg>
               </div>
               <div className="min-w-0 flex-1">
                 <h2 className="text-2xl font-semibold leading-tight tracking-tight text-slate-900 lg:text-3xl">
-                  Workforce{" "}
-                  <span className="bg-gradient-to-r from-[#1a5f94] to-[#2E7BBF] bg-clip-text text-transparent">intelligence</span>
+                  Workforce <span className="text-slate-800">intelligence</span>
                 </h2>
                 <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">
                   KPIs and snapshots load from the API. Some tiles show &quot;—&quot; if a module is not licensed or your role cannot access that data (e.g. leave dashboard requires org-wide leave access).
@@ -436,17 +426,17 @@ export default function DashboardPage() {
               {snapshotRows.rows.slice(0, 6).map((r, rowIdx) => {
                 const max = Math.max(...snapshotRows.rows.map((x) => x.count), 1);
                 const width = `${Math.max(8, Math.round((r.count / max) * 100))}%`;
-                const [g0, g1] = DASH_WORKFORCE_ROW_GRADIENTS[rowIdx % DASH_WORKFORCE_ROW_GRADIENTS.length];
+                const c0 = DASH_WORKFORCE_ROW_COLORS[rowIdx % DASH_WORKFORCE_ROW_COLORS.length];
                 return (
                   <div key={r.label}>
                     <div className="mb-1 flex items-center justify-between text-xs">
                       <span className="truncate text-slate-600">{r.label}</span>
                       <span className="font-semibold text-slate-800">{r.count}</span>
                     </div>
-                    <div className="h-2 rounded-full bg-gradient-to-r from-slate-100 to-[#e8f0f8]/90 ring-1 ring-inset ring-slate-200/60">
+                    <div className="h-2 rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200/60">
                       <div
-                        className="h-2 rounded-full shadow-[0_1px_8px_rgba(15,23,42,0.1),0_0_12px_rgba(46,123,191,0.15)] transition-all duration-300"
-                        style={{ width, background: `linear-gradient(90deg, ${g0}, ${g1})` }}
+                        className="h-2 rounded-full transition-all duration-300"
+                        style={{ width, backgroundColor: c0 }}
                       />
                     </div>
                   </div>
@@ -461,7 +451,7 @@ export default function DashboardPage() {
             <h3 className="text-base font-semibold text-slate-800">Activity volume</h3>
             <span className="text-xs text-slate-500">Last 7 days</span>
           </div>
-          <WeeklyActivityBars data={activityLast7Days} barGradients={DASH_ACTIVITY_DAY_GRADIENTS} />
+          <WeeklyActivityBars data={activityLast7Days} barGradients={DASH_ACTIVITY_DAY_COLORS} />
           <p className="mt-2 text-[11px] text-slate-500">
             Counts from recent leave requests and recruitment activities returned by the API.
           </p>

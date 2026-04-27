@@ -15,6 +15,7 @@ import {
   WeeklyActivityBars,
 } from "@/lib/workspace-charts";
 import { useAuth } from "@/contexts/auth-context";
+import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -409,10 +410,10 @@ export default function LeavePage() {
             </button>
             {showMoreMenu && (
               <div
-                className="absolute left-0 top-full z-50 mt-2 w-[min(calc(100vw-2rem),20rem)] rounded-2xl border border-slate-200 bg-white p-2 shadow-sm ring-1 ring-slate-900/5"
+                className="absolute left-0 top-full z-50 mt-2 w-[min(calc(100vw-2rem),20rem)] overflow-hidden rounded-xl border border-slate-200/90 bg-white py-1 shadow-lg shadow-slate-900/10 ring-1 ring-slate-200/60"
                 role="menu"
               >
-                <div className="grid gap-2">
+                <div className="grid gap-0.5 px-1">
                   {overflowTabs.map((t) => {
                     const active = pageTab === t.key;
                     const hint = OVERFLOW_TAB_HINTS[t.key];
@@ -425,22 +426,24 @@ export default function LeavePage() {
                           setPageTab(t.key);
                           setShowMoreMenu(false);
                         }}
-                        className={`group flex w-full items-start justify-between gap-3 rounded-xl border px-3.5 py-3 text-left transition ${
+                        className={`group flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left transition ${
                           active
-                            ? "border-slate-300 bg-slate-50 shadow-sm"
-                            : "border-slate-200/90 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+                            ? "bg-indigo-50/80 text-indigo-900"
+                            : "text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
                         }`}
                       >
                         <div className="min-w-0">
-                          <div className={`truncate text-sm ${active ? "font-semibold text-slate-900" : "font-semibold text-slate-800"}`}>
+                          <div className={`truncate text-sm ${active ? "font-semibold text-indigo-900" : "font-medium text-slate-700 group-hover:text-indigo-900"}`}>
                             {t.label}
                           </div>
                           {hint ? (
-                            <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{hint}</div>
+                            <div className={`mt-0.5 line-clamp-2 text-xs ${active ? "text-indigo-700/80" : "text-slate-500 group-hover:text-indigo-700/80"}`}>
+                              {hint}
+                            </div>
                           ) : null}
                         </div>
                         <span
-                          className={`mt-0.5 shrink-0 transition group-hover:translate-x-0.5 ${active ? "text-slate-600" : "text-slate-400 group-hover:text-slate-700"}`}
+                          className={`mt-0.5 shrink-0 transition group-hover:translate-x-0.5 ${active ? "text-indigo-700" : "text-slate-400 group-hover:text-indigo-700"}`}
                           aria-hidden
                         >
                           →
@@ -979,9 +982,10 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     }
     const typeName = selectedLeaveType?.name ?? "leave";
     if (
-      !confirm(
-        `Submit this ${totalDays}-day ${typeName} request from ${startDate} to ${endDate}? It will go to your approver if required.`
-      )
+      !(await appConfirm(
+        `Submit this ${totalDays}-day ${typeName} request from ${startDate} to ${endDate}? It will go to your approver if required.`,
+        "Submit Leave Request"
+      ))
     ) {
       return;
     }
@@ -1014,6 +1018,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
         });
       }
       setMessage({ type: "ok", text: "Leave request submitted successfully!" });
+      await appAlert("Leave request submitted successfully!", "Success");
       setSelectedTypeId("");
       setStartDate("");
       setEndDate("");
@@ -1025,6 +1030,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
       apiFetch<BalanceItem[]>(`/api/leave/balances/${selectedEmpId}?year=${currentYear}`).then(setBalances);
     } catch (err) {
       setMessage({ type: "err", text: err instanceof Error ? err.message : "Failed to submit request" });
+      await appAlert(err instanceof Error ? err.message : "Failed to submit request", "Submission Failed");
     } finally {
       setSubmitting(false);
     }
@@ -2614,7 +2620,7 @@ function LeaveTypesTab() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this leave type?")) return;
+    if (!(await appConfirm("Delete this leave type?", "Delete Leave Type"))) return;
     await apiFetch(`/api/leave/types/${id}`, { method: "DELETE" });
     load();
   }
@@ -3233,7 +3239,7 @@ function PoliciesTab() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this policy?")) return;
+    if (!(await appConfirm("Delete this policy?", "Delete Policy"))) return;
     await apiFetch(`/api/leave/policies/${id}`, { method: "DELETE" });
     load();
   }
@@ -3522,7 +3528,7 @@ function HolidaysTab() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this holiday?")) return;
+    if (!(await appConfirm("Delete this holiday?", "Delete Holiday"))) return;
     await apiFetch(`/api/leave/holidays/${id}`, { method: "DELETE" });
     load();
   }

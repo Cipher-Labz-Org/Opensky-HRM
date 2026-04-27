@@ -49,6 +49,8 @@ public class AppDbContext : DbContext
     public DbSet<RosterAssignment> RosterAssignments => Set<RosterAssignment>();
     public DbSet<ShiftPattern> ShiftPatterns => Set<ShiftPattern>();
     public DbSet<BiometricDevice> BiometricDevices => Set<BiometricDevice>();
+    public DbSet<BiometricRawEvent> BiometricRawEvents => Set<BiometricRawEvent>();
+    public DbSet<BiometricPunchEvent> BiometricPunchEvents => Set<BiometricPunchEvent>();
     public DbSet<PunchImportBatch> PunchImportBatches => Set<PunchImportBatch>();
 
     // Recruitment & Onboarding

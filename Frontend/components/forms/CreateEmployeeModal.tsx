@@ -4,6 +4,7 @@ import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { DatePickerField } from "@/components/ui";
+import { FormSelect } from "@/components/ui/FormSelect";
 import { apiFetch } from "@/lib/api";
 
 interface Lookup {
@@ -281,12 +282,18 @@ export function CreateEmployeeModal({
           </div>
           <div>
             <label className={labelClass}>Gender *</label>
-            <select name="gender" required className={inputClass}>
-              <option value="">Select...</option>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-              <option value="Other">Other</option>
-            </select>
+            <FormSelect
+              name="gender"
+              required
+              defaultValue=""
+              placeholder="Select..."
+              options={[
+                { value: "", label: "Select..." },
+                { value: "Male", label: "Male" },
+                { value: "Female", label: "Female" },
+                { value: "Other", label: "Other" },
+              ]}
+            />
           </div>
           <div>
             <label className={labelClass}>Join Date *</label>
@@ -302,51 +309,52 @@ export function CreateEmployeeModal({
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={labelClass}>Department *</label>
-            <select name="departmentId" required className={inputClass}>
-              <option value="">Select...</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
+            <FormSelect
+              name="departmentId"
+              required
+              defaultValue=""
+              placeholder="Select..."
+              options={[{ value: "", label: "Select..." }, ...departments.map((d) => ({ value: d.id, label: d.name }))]}
+            />
           </div>
           <div>
             <label className={labelClass}>Business Unit</label>
-            <select name="businessUnitId" className={inputClass}>
-              <option value="">Select...</option>
-              {businessUnits.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+            <FormSelect
+              name="businessUnitId"
+              defaultValue=""
+              placeholder="Select..."
+              options={[{ value: "", label: "Select..." }, ...businessUnits.map((b) => ({ value: b.id, label: b.name }))]}
+            />
           </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <label className={labelClass}>Location</label>
-            <select name="locationId" className={inputClass}>
-              <option value="">Select...</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>{l.name}</option>
-              ))}
-            </select>
+            <FormSelect
+              name="locationId"
+              defaultValue=""
+              placeholder="Select..."
+              options={[{ value: "", label: "Select..." }, ...locations.map((l) => ({ value: l.id, label: l.name }))]}
+            />
           </div>
           <div>
             <label className={labelClass}>Grade</label>
-            <select name="gradeId" className={inputClass}>
-              <option value="">Select...</option>
-              {grades.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
+            <FormSelect
+              name="gradeId"
+              defaultValue=""
+              placeholder="Select..."
+              options={[{ value: "", label: "Select..." }, ...grades.map((g) => ({ value: g.id, label: g.name }))]}
+            />
           </div>
           <div>
             <label className={labelClass}>Job Title</label>
-            <select name="jobTitleId" className={inputClass}>
-              <option value="">Select...</option>
-              {jobTitles.map((j) => (
-                <option key={j.id} value={j.id}>{j.name}</option>
-              ))}
-            </select>
+            <FormSelect
+              name="jobTitleId"
+              defaultValue=""
+              placeholder="Select..."
+              options={[{ value: "", label: "Select..." }, ...jobTitles.map((j) => ({ value: j.id, label: j.name }))]}
+            />
           </div>
         </div>
 
@@ -471,42 +479,36 @@ export function CreateEmployeeModal({
             <div className="grid gap-4 sm:grid-cols-3">
               <div>
                 <label className={labelClass}>ESS Role *</label>
-                <select
+                <FormSelect
+                  name="essRoleId"
                   value={essRoleId}
-                  onChange={(e) => setEssRoleId(e.target.value)}
-                  className={inputClass}
-                >
-                  {essRoles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                  {essRoles.length === 0 && <option value="">No ESS role found</option>}
-                </select>
+                  onValueChange={setEssRoleId}
+                  options={
+                    essRoles.length > 0
+                      ? essRoles.map((r) => ({ value: r.id, label: r.name }))
+                      : [{ value: "", label: "No ESS role found" }]
+                  }
+                />
               </div>
               <div>
                 <label className={labelClass}>Supervisor Role *</label>
-                <select
+                <FormSelect
+                  name="supervisorRoleId"
                   value={supervisorRoleId}
-                  onChange={(e) => setSupervisorRoleId(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">-- Select --</option>
-                  {supRoles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
+                  onValueChange={setSupervisorRoleId}
+                  placeholder="-- Select --"
+                  options={[{ value: "", label: "-- Select --" }, ...supRoles.map((r) => ({ value: r.id, label: r.name }))]}
+                />
               </div>
               <div>
                 <label className={labelClass}>Admin Role</label>
-                <select
+                <FormSelect
+                  name="adminRoleId"
                   value={adminRoleId}
-                  onChange={(e) => setAdminRoleId(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">-- Select --</option>
-                  {adminRoles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
+                  onValueChange={setAdminRoleId}
+                  placeholder="-- Select --"
+                  options={[{ value: "", label: "-- Select --" }, ...adminRoles.map((r) => ({ value: r.id, label: r.name }))]}
+                />
               </div>
             </div>
           </div>
@@ -538,19 +540,17 @@ export function CreateEmployeeModal({
           <div className="space-y-3 rounded-xl border border-green-100 bg-green-50/50 p-4">
             <div>
               <label className={labelClass}>Onboarding Template *</label>
-              <select
+              <FormSelect
+                name="onboardingTemplateId"
                 value={onboardingTemplateId}
-                onChange={(e) => setOnboardingTemplateId(e.target.value)}
-                className={inputClass}
+                onValueChange={setOnboardingTemplateId}
                 required={withOnboarding}
-              >
-                <option value="">Select template...</option>
-                {onboardingTemplates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.itemCount} tasks)
-                  </option>
-                ))}
-              </select>
+                placeholder="Select template..."
+                options={[
+                  { value: "", label: "Select template..." },
+                  ...onboardingTemplates.map((t) => ({ value: t.id, label: `${t.name} (${t.itemCount} tasks)` })),
+                ]}
+              />
             </div>
             {onboardingTemplates.length === 0 && (
               <p className="text-xs text-amber-600">
