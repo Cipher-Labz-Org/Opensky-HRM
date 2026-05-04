@@ -158,7 +158,10 @@ export default function UserManagementPage() {
 
   async function handleSave() {
     setError("");
-    if (!username || !email) { setError("Username and email are required."); return; }
+    if (!username.trim()) {
+      setError("Username is required.");
+      return;
+    }
     if (!editUser && !password) { setError("Password is required for new users."); return; }
     if (selectedRoles.length === 0) { setError("At least one role is required."); return; }
 
@@ -331,10 +334,10 @@ export default function UserManagementPage() {
 
   const kpiStats = useMemo(
     () => [
-      { label: "Total users", value: users.length, sub: "Accounts in directory" },
-      { label: "Active", value: activeUserCount, sub: "Sign-in enabled" },
-      { label: "Roles defined", value: roles.length, sub: "Assignable roles" },
-      { label: "Linked to employee", value: linkedEmployeeCount, sub: "People record attached" },
+      { label: "Total users", value: users.length,},
+      { label: "Active", value: activeUserCount, },
+      { label: "Roles defined", value: roles.length, },
+      { label: "Linked to employee", value: linkedEmployeeCount, },
     ],
     [users.length, activeUserCount, roles.length, linkedEmployeeCount]
   );
@@ -347,27 +350,12 @@ export default function UserManagementPage() {
     <>
       <AppTopbar title="User Management" subtitle="Accounts, roles, and access control for your OpenSky HRM tenant." />
 
-      <section className="relative mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-6 py-7 text-slate-900 shadow-sm sm:px-7">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 left-1/3 h-64 w-64 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Administration
-          </p>
-          <h2 className="text-xl font-semibold leading-tight text-slate-900 sm:text-2xl">Identity & access</h2>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            Create and edit users, reset passwords, and (for admins) tune role permissions. Metrics and panels below reflect live directory data.
-          </p>
-        </div>
-      </section>
-
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {kpiStats.map((k) => (
             <div key={k.label} className={kpiTileClass}>
               <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{k.label}</div>
               <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{k.value}</div>
-              <div className="mt-2 text-xs text-slate-600">{k.sub}</div>
             </div>
           ))}
         </div>
@@ -547,9 +535,6 @@ export default function UserManagementPage() {
           </div>
         )}
 
-        <p className="footer-note">
-          User and role changes apply immediately for new sessions. Protect production admin accounts from accidental deletion.
-        </p>
       </div>
 
       {showModal && isAdmin && (
@@ -564,7 +549,17 @@ export default function UserManagementPage() {
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div><label className={labelClass}>Username *</label><input value={username} onChange={(e) => setUsername(e.target.value)} className={inputClass} /></div>
-                <div><label className={labelClass}>Email *</label><input value={email} onChange={(e) => setEmail(e.target.value)} type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@company.com)" className={inputClass} /></div>
+                <div>
+              <label className={labelClass}>Email</label>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}"
+                title="Optional. When set, must be a valid email (e.g. name@company.com)"
+                className={inputClass}
+              />
+            </div>
               </div>
 
               {!editUser && (

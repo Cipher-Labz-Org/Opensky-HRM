@@ -46,6 +46,7 @@ export function CreateEmployeeModal({
   const [roles, setRoles] = useState<RoleLookup[]>([]);
   const [autoGenerate, setAutoGenerate] = useState(true);
   const [nextCode, setNextCode] = useState("");
+  const [employeeCode, setEmployeeCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -79,6 +80,7 @@ export function CreateEmployeeModal({
     setSupervisorRoleId("");
     setAdminRoleId("");
     setNextCode("");
+    setEmployeeCode("");
     setWithOnboarding(false);
     setOnboardingTemplateId("");
 
@@ -109,8 +111,16 @@ export function CreateEmployeeModal({
       setAutoGenerate(isAuto);
       if (isAuto) {
         apiFetch<{ code: string }>("/api/system-settings/next-employee-code")
-          .then((r) => setNextCode(r.code))
-          .catch(() => setNextCode("(auto)"));
+          .then((r) => {
+            setNextCode(r.code);
+            setEmployeeCode(r.code);
+          })
+          .catch(() => {
+            setNextCode("");
+            setEmployeeCode("");
+          });
+      } else {
+        setEmployeeCode("");
       }
     });
   }, [open]);
@@ -154,11 +164,11 @@ export function CreateEmployeeModal({
     if (adminRoleId) roleIds.push(adminRoleId);
 
     const payload: Record<string, unknown> = {
-      employeeCode: autoGenerate ? "" : (fd.get("employeeCode") || ""),
+      employeeCode: (fd.get("employeeCode") as string)?.trim() || "",
       firstName: fd.get("firstName"),
       middleName: fd.get("middleName") || null,
       lastName: fd.get("lastName"),
-      email: fd.get("email"),
+      email: ((fd.get("email") as string) ?? "").trim(),
       phone: fd.get("phone") || null,
       dateOfBirth: fd.get("dateOfBirth"),
       gender: fd.get("gender"),
@@ -226,22 +236,24 @@ export function CreateEmployeeModal({
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={labelClass}>
-              Employee Code {autoGenerate ? "(auto-generated)" : "*"}
+              Employee Code {autoGenerate ? "(auto-generated, editable)" : "*"}
             </label>
-            {autoGenerate ? (
-              <input name="employeeCode" className={`${inputClass} bg-gray-50`} value={nextCode} readOnly />
-            ) : (
-              <input name="employeeCode" required className={inputClass} placeholder="Enter employee code" />
-            )}
+            <input
+              name="employeeCode"
+              value={employeeCode}
+              onChange={(e) => setEmployeeCode(e.target.value)}
+              required={!autoGenerate}
+              className={inputClass}
+              placeholder={autoGenerate ? nextCode || "Auto code will be suggested" : "Enter employee code"}
+            />
           </div>
           <div>
-            <label className={labelClass}>Email *</label>
+            <label className={labelClass}>Email</label>
             <input
               name="email"
               type="email"
-              required
               pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}"
-              title="Enter a valid email (e.g. name@company.com)"
+              title="Optional. When set, must be a valid email (e.g. name@company.com)"
               className={inputClass}
               placeholder="john@openskyhrm.com"
               onChange={(e) => {

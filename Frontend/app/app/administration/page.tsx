@@ -1,16 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
-import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
 
 const kpiTileClass =
   "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
 const panelClass = "rounded-2xl border border-slate-200 bg-white shadow-sm";
+
+/** Must match `BulkUploadController.BulkImportDefaultLoginPassword` in the API. */
+const BULK_IMPORT_DEFAULT_LOGIN_PASSWORD = "123";
 
 // ──── Shared Types ────
 
@@ -20,6 +22,7 @@ interface RowResult {
   lastName: string;
   success: boolean;
   errors: string[];
+  notes?: string[] | null;
 }
 
 interface UploadResult {
@@ -27,6 +30,7 @@ interface UploadResult {
   skipped: number;
   totalRows: number;
   results: RowResult[];
+  loginsCreated?: number;
 }
 
 interface LeaveBalanceRowResult {
@@ -56,64 +60,8 @@ const roadmapModules = [
   { icon: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z", label: "Immigration import", desc: "Visa and passport records" },
 ] as const;
 
-const LIVE_IMPORTERS = 2;
-const TEMPLATE_COUNT = 2;
-const MAX_UPLOAD_MB = 20;
-
 export default function AdministrationPage() {
   const [activeSection, setActiveSection] = useState<ActiveSection>("employees");
-
-  const kpiStats = useMemo(
-    () => [
-      {
-        label: "Live importers",
-        value: formatInt(LIVE_IMPORTERS),
-        sub: "Employee roster & leave balances",
-      },
-      {
-        label: "Templates ready",
-        value: formatInt(TEMPLATE_COUNT),
-        sub: "Match columns to OpenSky fields",
-      },
-      {
-        label: "Planned modules",
-        value: formatInt(roadmapModules.length),
-        sub: "On the product roadmap",
-      },
-      {
-        label: "Max upload (MB)",
-        value: formatInt(MAX_UPLOAD_MB),
-        sub: "Per Excel file, server enforced",
-      },
-    ],
-    []
-  );
-
-  const liveImporterBars = useMemo(
-    () => [
-      { label: "Employee bulk import", value: 1, color: "#3b82f6" },
-      { label: "Leave balance import", value: 1, color: "#6366f1" },
-    ],
-    []
-  );
-
-  const roadmapPreviewBars = useMemo(
-    () =>
-      roadmapModules.map((mod, i) => ({
-        label: mod.label.length > 22 ? `${mod.label.slice(0, 20)}…` : mod.label,
-        value: 1,
-        color: ["#94a3b8", "#cbd5e1", "#a8b9cf", "#9ca3af"][i % 4],
-      })),
-    []
-  );
-
-  const coverageDonut = useMemo(
-    () => [
-      { label: "Shipped importers", value: LIVE_IMPORTERS, color: "#22c55e" },
-      { label: "Roadmap slots", value: roadmapModules.length, color: "#cbd5e1" },
-    ],
-    []
-  );
 
   return (
     <>
@@ -122,60 +70,10 @@ export default function AdministrationPage() {
         subtitle="Bulk Excel import for people data and leave balances. Download a template before you upload."
       />
 
-      <section className="relative mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Data operations
-          </p>
-          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Bulk import &amp; templates</h2>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            Upload validated spreadsheets to create or update records at scale. Always start from the official template so column codes align with your tenant configuration — same Command Center visual language as the rest of the app.
-          </p>
-        </div>
-      </section>
-
       <div className="space-y-6">
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
-          {kpiStats.map((k) => (
-            <div key={k.label} className={kpiTileClass}>
-              <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{k.label}</div>
-              <div className="mt-2 text-2xl font-semibold leading-tight text-slate-900">{k.value}</div>
-              <div className="mt-2 text-xs text-slate-600">{k.sub}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-800">Live importers</h3>
-              <span className="text-xs text-slate-500">Available today</span>
-            </div>
-            <HorizontalCompareBars items={liveImporterBars} />
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-800">Shipped vs roadmap</h3>
-              <span className="text-xs text-slate-500">Product coverage</span>
-            </div>
-            <DonutMixChart values={coverageDonut} />
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Roadmap importers (preview)</h3>
-            <span className="text-xs text-slate-500">Equal weight placeholders</span>
-          </div>
-          <HorizontalCompareBars items={roadmapPreviewBars} />
-        </div>
-
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h3 className="text-base font-semibold text-slate-900">Quick links</h3>
-            <p className="text-xs text-slate-500">People data, access, and related hubs</p>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
             <Link
@@ -185,7 +83,6 @@ export default function AdministrationPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-800">People</div>
-                  <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Directory &amp; profiles</div>
                 </div>
                 <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                   →
@@ -199,7 +96,6 @@ export default function AdministrationPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-800">Leave &amp; Absence</div>
-                  <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Balances &amp; policies</div>
                 </div>
                 <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                   →
@@ -213,7 +109,6 @@ export default function AdministrationPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-800">Policy &amp; Settings</div>
-                  <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Lookups &amp; org master data</div>
                 </div>
                 <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                   →
@@ -227,7 +122,6 @@ export default function AdministrationPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-800">User management</div>
-                  <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Accounts &amp; roles</div>
                 </div>
                 <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                   →
@@ -268,7 +162,6 @@ export default function AdministrationPage() {
         <div className={`${panelClass} overflow-hidden`}>
           <div className="border-b border-slate-100 px-6 py-4">
             <h2 className="text-base font-semibold text-slate-800">More importers</h2>
-            <p className="mt-1 text-xs text-slate-500">These paths are on the roadmap and will appear here when available.</p>
           </div>
           <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-4">
             {roadmapModules.map((mod) => (
@@ -295,9 +188,6 @@ export default function AdministrationPage() {
           </div>
         </div>
 
-        <p className="footer-note">
-          Imports run against your live tenant. Validate a small file first in non-production environments. Skipped rows are listed with row numbers so you can correct and re-upload. Coverage charts summarize shipped vs roadmap importers (static product map, not live API counts).
-        </p>
       </div>
     </>
   );
@@ -322,6 +212,20 @@ async function downloadTemplate(path: string, fallbackFilename: string) {
   window.URL.revokeObjectURL(url);
 }
 
+function downloadCsv(filename: string, headers: string[], rows: string[][]) {
+  const escape = (value: string) => `"${value.replace(/"/g, "\"\"")}"`;
+  const csv = [headers, ...rows].map((r) => r.map((c) => escape(c ?? "")).join(",")).join("\n");
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 // ──── Employee Upload Section ────
 
 function EmployeeUploadSection() {
@@ -330,6 +234,7 @@ function EmployeeUploadSection() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [createUserLogins, setCreateUserLogins] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function handleFileChange(f: File | null) { setFile(f); setResult(null); setError(""); }
@@ -340,6 +245,7 @@ function EmployeeUploadSection() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("createUserLogins", createUserLogins ? "true" : "false");
       const res = await fetch(`${API_BASE_URL}/api/bulkupload/employees`, { method: "POST", body: formData, headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}` } });
       if (!res.ok) throw new Error(await res.text().catch(() => "") || `Upload failed (${res.status})`);
       setResult(await res.json());
@@ -347,6 +253,20 @@ function EmployeeUploadSection() {
       if (fileRef.current) fileRef.current.value = "";
     } catch (err) { setError(err instanceof Error ? err.message : "Upload failed"); }
     finally { setUploading(false); }
+  }
+
+  function downloadSkippedRows() {
+    if (!result) return;
+    const skippedRows = result.results.filter((r) => !r.success);
+    if (skippedRows.length === 0) return;
+    const rows = skippedRows.map((r) => [
+      String(r.row),
+      r.firstName,
+      r.lastName,
+      "Skipped",
+      r.errors.join("; "),
+    ]);
+    downloadCsv("employee-import-skipped-rows.csv", ["Row", "First Name", "Last Name", "Status", "Details"], rows);
   }
 
   return (
@@ -359,7 +279,6 @@ function EmployeeUploadSection() {
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-800">Employee bulk import</h2>
-              <p className="text-xs text-slate-500">Personal, job, contact, and ID columns</p>
             </div>
           </div>
           <Button
@@ -388,8 +307,24 @@ function EmployeeUploadSection() {
               <li>Leave <strong>Employee Code</strong> blank to auto-generate, or provide unique codes.</li>
               <li>Upload the completed file below.</li>
             </ol>
+            <p className="mt-3 text-xs text-slate-600">
+              Optional: enable <strong>Create employee logins</strong> below to add a user account (Employee role) per imported row with
+              temporary password <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong>. Those users must set a new password on first sign-in.
+            </p>
           </div>
           <DropZone file={file} fileRef={fileRef} dragOver={dragOver} setDragOver={setDragOver} onFileChange={handleFileChange} />
+          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-[#1a92d5] focus:ring-[#1a92d5]"
+              checked={createUserLogins}
+              onChange={(e) => setCreateUserLogins(e.target.checked)}
+            />
+            <span>
+              <span className="font-semibold text-slate-900">Create employee logins</span> — Employee role, default password{" "}
+              <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong>, mandatory password change on first login.
+            </span>
+          </label>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <Button disabled={!file || uploading} onClick={handleUpload}>
               {uploading && (
@@ -407,11 +342,23 @@ function EmployeeUploadSection() {
       {result && (
         <div className={`${panelClass} overflow-hidden`}>
           <div className="border-b border-slate-100 px-6 py-4">
-            <h2 className="text-base font-semibold text-slate-800">Import results</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Row-level outcomes from the last upload</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">Import results</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Row-level outcomes from the last upload</p>
+              </div>
+              {result.skipped > 0 && (
+                <Button variant="secondary" className="gap-2" onClick={downloadSkippedRows}>
+                  <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download skipped list
+                </Button>
+              )}
+            </div>
           </div>
           <div className="p-6">
-            <div className="mb-5 grid grid-cols-3 gap-4">
+            <div className={`mb-5 grid gap-4 ${(result.loginsCreated ?? 0) > 0 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
               <div className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Total rows</div>
                 <p className="mt-2 text-2xl font-semibold text-slate-900">{result.totalRows}</p>
@@ -424,6 +371,12 @@ function EmployeeUploadSection() {
                 <div className="text-xs font-medium uppercase tracking-wider text-rose-600">Skipped</div>
                 <p className="mt-2 text-2xl font-semibold text-rose-700">{result.skipped}</p>
               </div>
+              {(result.loginsCreated ?? 0) > 0 ? (
+                <div className={kpiTileClass}>
+                  <div className="text-xs font-medium uppercase tracking-wider text-sky-600">Logins created</div>
+                  <p className="mt-2 text-2xl font-semibold text-sky-700">{result.loginsCreated}</p>
+                </div>
+              ) : null}
             </div>
             {result.results.length > 0 && (
               <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -434,6 +387,7 @@ function EmployeeUploadSection() {
                       <th className="px-4 py-2.5 font-semibold text-slate-600">Name</th>
                       <th className="px-4 py-2.5 font-semibold text-slate-600">Status</th>
                       <th className="px-4 py-2.5 font-semibold text-slate-600">Details</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Notes</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -447,6 +401,7 @@ function EmployeeUploadSection() {
                             : <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-100">Skipped</span>}
                         </td>
                         <td className="px-4 py-2 text-xs text-rose-700">{r.errors.join("; ")}</td>
+                        <td className="px-4 py-2 text-xs text-slate-600">{r.notes?.length ? r.notes.join(" ") : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -485,6 +440,24 @@ function LeaveBalanceUploadSection() {
       if (fileRef.current) fileRef.current.value = "";
     } catch (err) { setError(err instanceof Error ? err.message : "Upload failed"); }
     finally { setUploading(false); }
+  }
+
+  function downloadSkippedRows() {
+    if (!result) return;
+    const skippedRows = result.results.filter((r) => r.status === "Skipped");
+    if (skippedRows.length === 0) return;
+    const rows = skippedRows.map((r) => [
+      String(r.row),
+      r.employeeCode,
+      r.leaveType,
+      r.status,
+      r.errors.join("; "),
+    ]);
+    downloadCsv(
+      "leave-balance-import-skipped-rows.csv",
+      ["Row", "Employee Code", "Leave Type", "Status", "Details"],
+      rows
+    );
   }
 
   return (
@@ -544,8 +517,20 @@ function LeaveBalanceUploadSection() {
       {result && (
         <div className={`${panelClass} overflow-hidden`}>
           <div className="border-b border-slate-100 px-6 py-4">
-            <h2 className="text-base font-semibold text-slate-800">Import results</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Created, updated, and skipped rows from the last upload</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">Import results</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Created, updated, and skipped rows from the last upload</p>
+              </div>
+              {result.skipped > 0 && (
+                <Button variant="secondary" className="gap-2" onClick={downloadSkippedRows}>
+                  <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download skipped list
+                </Button>
+              )}
+            </div>
           </div>
           <div className="p-6">
             <div className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">

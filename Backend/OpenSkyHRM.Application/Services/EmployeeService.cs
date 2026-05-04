@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Organization;
@@ -20,6 +21,14 @@ public class EmployeeService : IEmployeeService
         _db = db;
         _settings = settings;
         _entitlementService = entitlementService;
+    }
+
+    /// <summary>Stable local-part for placeholder work email when none is provided (employee code is unique).</summary>
+    private static string SanitizeForNoEmailLocalPart(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return $"e-{Guid.NewGuid():N}";
+        var s = Regex.Replace(code.Trim(), @"[^\w\-\.]", "_");
+        return string.IsNullOrEmpty(s) ? $"e-{Guid.NewGuid():N}" : s;
     }
 
     private static IQueryable<Employee> ApplyEmployeeListSort(IQueryable<Employee> query, string? sortBy, string? sortDir)
@@ -174,13 +183,17 @@ public class EmployeeService : IEmployeeService
             ? await _settings.GenerateNextEmployeeCodeAsync()
             : dto.EmployeeCode;
 
+        var resolvedEmail = string.IsNullOrWhiteSpace(dto.Email)
+            ? $"{SanitizeForNoEmailLocalPart(code)}@employee.noemail.opensky.hrm"
+            : dto.Email.Trim();
+
         var employee = new Employee
         {
             EmployeeCode = code,
             FirstName = dto.FirstName,
             MiddleName = dto.MiddleName,
             LastName = dto.LastName,
-            Email = dto.Email,
+            Email = resolvedEmail,
             Phone = dto.Phone,
             DateOfBirth = dto.DateOfBirth,
             Gender = Enum.Parse<Gender>(dto.Gender, true),

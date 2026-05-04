@@ -1,10 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
-import { ROUTES } from "@/config/routes";
 import type { TemplateListItem } from "./TransactionalEmailTemplatesContent";
 
 interface TemplateDetail extends TemplateListItem {
@@ -136,26 +134,8 @@ export function LetterTemplatesContent({ onTemplatesChange }: LetterTemplatesCon
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="section-title">
           <h3>Employee letter templates</h3>
-          <span>HTML used for PDF/Word from People → Job Details → Create Document. Not sent as email.</span>
         </div>
         <div className="space-y-2">
-          <p className="mb-2 text-xs text-slate-600">
-            Placeholders merged when rendering:{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{EmployeeName}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{EmployeeCode}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{JobTitle}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{Department}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{JoinDate}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{CurrentDate}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{CompanyName}}"}</code> and more (see API render).
-          </p>
-          <p className="mb-3 text-xs text-slate-500">
-            Master data and branding stay in{" "}
-            <Link href={ROUTES.settings} className="font-medium text-blue-600 hover:underline">
-              Settings
-            </Link>
-            .
-          </p>
           {templates.length === 0 ? (
             <p className="text-sm text-slate-500 px-1">
               No letter templates found. Run API database seeding so defaults are inserted (keys other than <code className="text-xs">Email_*</code>).
@@ -170,7 +150,6 @@ export function LetterTemplatesContent({ onTemplatesChange }: LetterTemplatesCon
                   <span className={`h-2 w-2 shrink-0 rounded-full ${tpl.isActive ? "bg-blue-500" : "bg-slate-300"}`} />
                   <div>
                     <strong className="text-sm font-semibold text-slate-900">{tpl.name}</strong>
-                    <div className="text-xs text-slate-500">{tpl.templateKey}</div>
                   </div>
                 </div>
                 <button

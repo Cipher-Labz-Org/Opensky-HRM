@@ -31,6 +31,9 @@ public class UserProfileDto
     public List<Guid> AssignedBusinessUnitIds { get; set; } = new();
     public List<Guid> AssignedGradeIds { get; set; } = new();
     public List<Guid> AssignedJobTitleIds { get; set; } = new();
+
+    /// <summary>True when the user must change password before using the app.</summary>
+    public bool MustChangePassword { get; set; }
 }
 
 public class PermissionDto

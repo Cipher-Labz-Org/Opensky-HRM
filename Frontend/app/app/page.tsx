@@ -23,7 +23,6 @@ export default function AppIndexPage() {
             <div className="mt-2 text-3xl font-extrabold text-[var(--text)]">
               {kpi.value}
             </div>
-            <div className="mt-1 text-xs text-[var(--success)]">{kpi.sub}</div>
           </div>
         ))}
       </div>

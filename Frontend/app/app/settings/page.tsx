@@ -10,6 +10,7 @@ import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
+import { useAuth } from "@/contexts/auth-context";
 import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
 
 interface CountSummary {
@@ -24,6 +25,7 @@ interface CountSummary {
 }
 
 export default function SettingsPage() {
+  const { isAdmin } = useAuth();
   const searchParams = useSearchParams();
   const [showCreate, setShowCreate] = useState(false);
   const [editBU, setEditBU] = useState(false);
@@ -298,25 +300,9 @@ export default function SettingsPage() {
         subtitle="Workflow engine, role-based access, localization, statutory rules, and platform administration."
       />
 
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Governance workspace
-          </p>
-          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Policy &amp; platform controls</h2>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            Tune master data, branding, leave approval depth, and employee numbering — letter and email templates live under
-            Audit → Email templates — aligned with the Command Center dashboard visual language.
-          </p>
-        </div>
-      </section>
-
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Security roles</p>
-          <p className="text-sm text-slate-600">Create RBAC roles and reload to pick up new permissions.</p>
         </div>
         <Button onClick={() => setShowCreate(true)}>+ New Security Role</Button>
       </div>
@@ -327,6 +313,22 @@ export default function SettingsPage() {
         onCreated={() => window.location.reload()}
       />
 
+      {isAdmin && (
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Customer onboarding reset</h3>
+            </div>
+            <Link
+              href={ROUTES.billingCustomerReset}
+              className="inline-flex shrink-0 items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+            >
+              Open reset
+            </Link>
+          </div>
+        </div>
+      )}
+
       <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {settingsDashboardKpis.map((kpi) => (
           <div
@@ -335,7 +337,6 @@ export default function SettingsPage() {
           >
             <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
             <div className="mt-2 text-2xl font-semibold leading-tight text-slate-900">{kpi.value}</div>
-            <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
           </div>
         ))}
       </div>
@@ -364,7 +365,6 @@ export default function SettingsPage() {
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4">
           <h3 className="text-base font-semibold text-slate-900">Quick links</h3>
-          <p className="text-xs text-slate-500">Related compliance and messaging tools</p>
         </div>
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <Link
@@ -374,7 +374,6 @@ export default function SettingsPage() {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-slate-800">Email &amp; letter templates</div>
-                <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Transactional mail and employee letters</div>
               </div>
               <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">→</span>
             </div>
@@ -386,7 +385,6 @@ export default function SettingsPage() {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-slate-800">Email delivery log</div>
-                <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Send status and provider responses</div>
               </div>
               <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">→</span>
             </div>
@@ -398,7 +396,6 @@ export default function SettingsPage() {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-slate-800">User management</div>
-                <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Accounts and access assignments</div>
               </div>
               <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">→</span>
             </div>
@@ -410,7 +407,6 @@ export default function SettingsPage() {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-slate-800">Reports</div>
-                <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Operational reporting catalog</div>
               </div>
               <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">→</span>
             </div>
@@ -422,7 +418,6 @@ export default function SettingsPage() {
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-6">
         <div className="section-title">
           <h3>Leave Approval Workflow</h3>
-          <span>Number of approval levels for leave requests</span>
         </div>
         <div className="flex flex-wrap items-center gap-4 px-1 py-2">
           <p className="text-sm text-[var(--text-muted)]">Approval levels:</p>
@@ -460,57 +455,68 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Company Logo */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-6">
-        <div className="section-title">
-          <h3>Company Logo</h3>
-          <span>Upload your company logo to display in the sidebar navigation</span>
+      {/* Company Logo — shown on the sign-in page for all users */}
+      <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 p-6 shadow-sm ring-1 ring-slate-100">
+        <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900">Company logo</h3>
+            <p className="mt-0.5 text-sm text-slate-500">Upload once — it appears on the sign-in page.</p>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-6 px-1 py-3">
-          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-slate-200 bg-slate-50">
+
+        <div className="mt-6 flex max-w-[280px] flex-col items-stretch gap-4">
+          <div className="flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white/80 px-6 py-10 shadow-inner">
             {companyLogoUrl ? (
               <img
                 src={`${API_BASE_URL}${companyLogoUrl}`}
-                alt="Company Logo"
-                className="h-full w-full object-contain p-1"
+                alt="Company logo preview"
+                className="max-h-36 max-w-full object-contain"
               />
             ) : (
-              <svg className="h-8 w-8 text-slate-300" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-              </svg>
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/10 to-rose-500/10 text-slate-400">
+                  <svg className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth={1.25} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-slate-600">No logo yet</p>
+                <p className="max-w-[220px] text-xs leading-relaxed text-slate-400">PNG, JPG, SVG or WebP · max 5 MB · 200×200px or larger recommended</p>
+              </div>
             )}
           </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <input
-                ref={logoInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                className="hidden"
-                onChange={(e) => { if (e.target.files?.[0]) handleLogoUpload(e.target.files[0]); }}
-              />
+
+          <div className="flex w-full flex-col items-stretch gap-2">
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.[0]) handleLogoUpload(e.target.files[0]);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => logoInputRef.current?.click()}
+              disabled={logoUploading}
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-[#2B7DE9] hover:text-[#2B7DE9] disabled:opacity-60"
+            >
+              {logoUploading ? "Uploading…" : companyLogoUrl ? "Replace logo" : "Upload logo"}
+            </button>
+            {companyLogoUrl ? (
               <button
-                onClick={() => logoInputRef.current?.click()}
-                disabled={logoUploading}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-[#2B7DE9] hover:text-[#2B7DE9]"
+                type="button"
+                onClick={handleLogoRemove}
+                className="w-full rounded-xl border border-red-100 bg-red-50/80 px-4 py-3 text-sm font-semibold text-red-600 transition hover:border-red-200 hover:bg-red-50"
               >
-                {logoUploading ? "Uploading..." : companyLogoUrl ? "Change Logo" : "Upload Logo"}
+                Remove logo
               </button>
-              {companyLogoUrl && (
-                <button
-                  onClick={handleLogoRemove}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-red-500 shadow-sm transition hover:border-red-300 hover:bg-red-50"
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-            <p className="text-xs text-slate-400">PNG, JPG, SVG or WebP. Max 5 MB. Recommended: 200×200px or larger.</p>
-            {logoMsg && (
-              <p className={`text-xs font-medium ${logoMsg.includes("success") || logoMsg.includes("removed") ? "text-green-600" : "text-red-500"}`}>
+            ) : null}
+            {logoMsg ? (
+              <p className={`text-center text-xs font-medium ${logoMsg.includes("success") || logoMsg.includes("removed") ? "text-green-600" : "text-red-500"}`}>
                 {logoMsg}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
@@ -519,7 +525,6 @@ export default function SettingsPage() {
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-6">
         <div className="section-title">
           <h3>Company Details</h3>
-          <span>Set up your organization name, address, and contact information</span>
         </div>
         <div className="space-y-4 px-1 py-3">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -800,7 +805,6 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Workflow Builder</h3>
-            <span>No-code flow control</span>
           </div>
           <div className="hris-list">
             <div className="hris-list-item">
@@ -820,7 +824,6 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Security Model</h3>
-            <span>Granular access</span>
           </div>
           <table className="hris-table">
             <thead><tr><th>Role</th><th>Scope</th></tr></thead>
@@ -836,7 +839,6 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Localization</h3>
-            <span>Multi-country ready</span>
           </div>
           <div className="hris-list">
             <div className="hris-list-item">
@@ -860,7 +862,6 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Master Data Blocks</h3>
-            <span>Reusable configuration</span>
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
@@ -932,7 +933,6 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Audit &amp; Compliance</h3>
-            <span>Non-negotiable enterprise controls</span>
           </div>
           <table className="hris-table">
             <thead><tr><th>Control</th><th>Description</th></tr></thead>
@@ -959,7 +959,6 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Employee Code Format</h3>
-            <span>Numbering configuration</span>
           </div>
           <div className="space-y-4">
             <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
@@ -1031,7 +1030,6 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Platform Settings</h3>
-            <span>Architecture hooks</span>
           </div>
           <div className="hris-list">
             <div className="hris-list-item">
@@ -1049,11 +1047,6 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
-
-      <p className="footer-note">
-        Charts reflect list counts returned from organization and catalog APIs. Saving company details, codes, or approval
-        depth updates tenant settings immediately. Letter and email templates are edited under Audit → Email templates.
-      </p>
     </>
   );
 }

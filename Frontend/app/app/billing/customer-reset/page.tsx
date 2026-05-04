@@ -29,6 +29,7 @@ export default function CustomerResetPage() {
   const [loadingPhrase, setLoadingPhrase] = useState(true);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [executeLoading, setExecuteLoading] = useState(false);
+  const [selectedTables, setSelectedTables] = useState<string[]>([]);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -55,6 +56,11 @@ export default function CustomerResetPage() {
     () => (preview?.tables ? preview.tables.reduce((s, t) => s + (t.count ?? 0), 0) : 0),
     [preview]
   );
+  const sortedPreviewTables = useMemo(
+    () => (preview?.tables ? preview.tables.slice().sort((a, b) => (b.count ?? 0) - (a.count ?? 0)) : []),
+    [preview]
+  );
+  const allSelected = sortedPreviewTables.length > 0 && selectedTables.length === sortedPreviewTables.length;
 
   const runDry = useCallback(async () => {
     setPreviewLoading(true);
@@ -74,9 +80,11 @@ export default function CustomerResetPage() {
         }
       );
       setPreview(res.preview);
+      setSelectedTables((res.preview.tables ?? []).map((t) => t.table));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Dry-run failed.");
       setPreview(null);
+      setSelectedTables([]);
     } finally {
       setPreviewLoading(false);
     }
@@ -94,17 +102,19 @@ export default function CustomerResetPage() {
           allowInProduction: allowInProduction,
           includeHangfire: includeHangfire,
           confirmPhrase: typedPhrase,
+          selectedTables,
         }),
       });
 
       setSuccess("Customer transaction data reset completed.");
       setPreview(null);
+      setSelectedTables([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Reset failed.");
     } finally {
       setExecuteLoading(false);
     }
-  }, [allowInProduction, includeHangfire, typedPhrase]);
+  }, [allowInProduction, includeHangfire, typedPhrase, selectedTables]);
 
   if (isLoading) {
     return (
@@ -224,10 +234,18 @@ export default function CustomerResetPage() {
               <div className="mt-4">
                 <button
                   type="button"
-                  disabled={!canExecute || executeLoading || !typedOk || !preview}
+                  disabled={!canExecute || executeLoading || !typedOk || !preview || selectedTables.length === 0}
                   onClick={execute}
                   className="inline-flex w-full items-center justify-center rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"
-                  title={!preview ? "Run dry-run first" : typedOk ? "Execute reset" : "Type the confirmation phrase exactly"}
+                  title={
+                    !preview
+                      ? "Run dry-run first"
+                      : selectedTables.length === 0
+                        ? "Select at least one table"
+                        : typedOk
+                          ? "Execute reset"
+                          : "Type the confirmation phrase exactly"
+                  }
                 >
                   {executeLoading ? "Resetting..." : "Execute reset"}
                 </button>
@@ -246,16 +264,41 @@ export default function CustomerResetPage() {
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-slate-50">
                     <tr className="border-b border-slate-200">
+                      <th className="w-10 px-3 py-2 text-center text-xs font-semibold text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTables(sortedPreviewTables.map((t) => t.table));
+                            } else {
+                              setSelectedTables([]);
+                            }
+                          }}
+                          className="h-4 w-4"
+                          aria-label="Select all tables"
+                        />
+                      </th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Table</th>
                       <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600">Count</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {preview.tables
-                      .slice()
-                      .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
-                      .map((t) => (
+                    {sortedPreviewTables.map((t) => (
                         <tr key={t.table} className="border-b border-slate-100">
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedTables.includes(t.table)}
+                              onChange={(e) => {
+                                setSelectedTables((prev) =>
+                                  e.target.checked ? [...prev, t.table] : prev.filter((x) => x !== t.table)
+                                );
+                              }}
+                              className="h-4 w-4"
+                              aria-label={`Select table ${t.table}`}
+                            />
+                          </td>
                           <td className="max-w-[360px] truncate px-3 py-2 font-medium text-slate-700">
                             {t.table}
                           </td>

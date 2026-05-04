@@ -53,6 +53,7 @@ public class CustomerDataResetService : ICustomerDataResetService
         string providedConfirmPhrase,
         bool allowInProduction,
         bool includeHangfire,
+        IReadOnlyList<string>? selectedTables,
         CancellationToken cancellationToken)
     {
         var requiredPhrase = _configuration[ConfirmPhraseConfigPath];
@@ -80,17 +81,28 @@ public class CustomerDataResetService : ICustomerDataResetService
             var conn = _db.Database.GetDbConnection();
             var dbTx = _db.Database.CurrentTransaction?.GetDbTransaction();
             var existingTables = await GetExistingTransactionTablesAsync(conn, dbTx, cancellationToken);
+            var targetTables = selectedTables is { Count: > 0 }
+                ? existingTables
+                    .Where(t => selectedTables.Contains(t, StringComparer.Ordinal))
+                    .ToList()
+                : existingTables;
 
-            if (existingTables.Count > 0)
+            if (targetTables.Count == 0)
+                throw new InvalidOperationException("No valid tables selected for reset.");
+
+            if (targetTables.Count > 0)
             {
                 // Keep system users (including the bootstrap admin). Postgres does not allow TRUNCATE on a referenced
                 // table when a foreign key exists (even if values are NULL). Users has an FK to Employees.
                 // Strategy:
                 // - Truncate all transactional tables *except* Employees
                 // - Then DELETE Employees (safe after child tables are cleared)
-                await _db.Database.ExecuteSqlRawAsync("UPDATE \"Users\" SET \"EmployeeId\" = NULL WHERE \"EmployeeId\" IS NOT NULL;", cancellationToken);
+                if (targetTables.Contains("Employees"))
+                {
+                    await _db.Database.ExecuteSqlRawAsync("UPDATE \"Users\" SET \"EmployeeId\" = NULL WHERE \"EmployeeId\" IS NOT NULL;", cancellationToken);
+                }
 
-                var toTruncate = existingTables
+                var toTruncate = targetTables
                     .Where(t => !string.Equals(t, "Employees", StringComparison.Ordinal))
                     .ToArray();
 
@@ -101,20 +113,23 @@ public class CustomerDataResetService : ICustomerDataResetService
                 }
 
                 // Employees uses GUID IDs (no identity), so DELETE is fine.
-                if (existingTables.Contains("Employees"))
+                if (targetTables.Contains("Employees"))
                     await _db.Database.ExecuteSqlRawAsync("DELETE FROM \"Employees\";", cancellationToken);
 
                 // Keep only the primary system admin user (username = 'admin').
                 // Remove other user-role links first, then delete the users themselves.
-                await _db.Database.ExecuteSqlRawAsync(@"
+                if (targetTables.Contains("Employees"))
+                {
+                    await _db.Database.ExecuteSqlRawAsync(@"
 DELETE FROM ""UserRoles"" ur
 USING ""Users"" u
 WHERE ur.""UserId"" = u.""Id""
   AND lower(u.""Username"") <> 'admin';", cancellationToken);
 
-                await _db.Database.ExecuteSqlRawAsync(@"
+                    await _db.Database.ExecuteSqlRawAsync(@"
 DELETE FROM ""Users""
 WHERE lower(""Username"") <> 'admin';", cancellationToken);
+                }
             }
 
             if (includeHangfire)

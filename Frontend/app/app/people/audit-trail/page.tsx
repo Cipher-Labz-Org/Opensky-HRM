@@ -131,9 +131,9 @@ export default function PeopleAuditTrailPage() {
         </button>
         <Link
           href={ROUTES.people}
-          className="text-[13px] font-medium text-blue-600 hover:underline"
+          className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700"
         >
-          ← Back to People Hub
+          Back to People Hub
         </Link>
       </div>
 

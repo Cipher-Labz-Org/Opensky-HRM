@@ -8,17 +8,26 @@ import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } f
 import Link from "next/link";
 
 /** Solid brand/accent colors (no gradients). */
-const DASH_WORKFORCE_ROW_COLORS: string[] = ["#2563EB", "#06B6D4", "#10B981", "#F59E0B", "#8B5CF6", "#F43F5E"];
+const DASH_WORKFORCE_ROW_COLORS: string[] = ["#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5"];
 
 const DASH_ACTIVITY_DAY_COLORS: [string, string][] = [
-  ["#2563EB", "#2563EB"],
-  ["#06B6D4", "#06B6D4"],
-  ["#10B981", "#10B981"],
-  ["#F59E0B", "#F59E0B"],
-  ["#3B82F6", "#3B82F6"],
-  ["#8B5CF6", "#8B5CF6"],
-  ["#F43F5E", "#F43F5E"],
+  ["#22C55E", "#22C55E"],
+  ["#22C55E", "#22C55E"],
+  ["#22C55E", "#22C55E"],
+  ["#22C55E", "#22C55E"],
+  ["#22C55E", "#22C55E"],
+  ["#22C55E", "#22C55E"],
+  ["#22C55E", "#22C55E"],
 ];
+
+const DASH_COMPARE_COLORS = {
+  primary: "#1a92d5",
+  secondary: "#39b3e8",
+  success: "#10B981",
+  warning: "#F59E0B",
+  danger: "#F43F5E",
+  muted: "#94A3B8",
+} as const;
 
 interface MyTask {
   id: string;
@@ -224,11 +233,11 @@ export default function DashboardPage() {
   const recruitPipelineBars = useMemo(() => {
     if (!recruitDash) return [];
     return [
-      { label: "Open requisitions", value: recruitDash.openRequisitions, color: "#2563EB" },
-      { label: "Candidates in pipeline", value: recruitDash.totalCandidates, color: "#06B6D4" },
-      { label: "Interviews (this week)", value: recruitDash.interviewsThisWeek, color: "#F59E0B" },
-      { label: "Offers extended", value: recruitDash.offersExtended, color: "#10B981" },
-      { label: "Hired this month", value: recruitDash.hiredThisMonth, color: "#F43F5E" },
+      { label: "Open requisitions", value: recruitDash.openRequisitions, color: DASH_COMPARE_COLORS.primary },
+      { label: "Candidates in pipeline", value: recruitDash.totalCandidates, color: DASH_COMPARE_COLORS.secondary },
+      { label: "Interviews (this week)", value: recruitDash.interviewsThisWeek, color: DASH_COMPARE_COLORS.warning },
+      { label: "Offers extended", value: recruitDash.offersExtended, color: DASH_COMPARE_COLORS.success },
+      { label: "Hired this month", value: recruitDash.hiredThisMonth, color: DASH_COMPARE_COLORS.danger },
     ];
   }, [recruitDash]);
 
@@ -242,11 +251,11 @@ export default function DashboardPage() {
     }
     const colorFor = (status: string): { color: string } => {
       const u = status.toLowerCase();
-      if (u.includes("pending")) return { color: "#F59E0B" };
-      if (u.includes("approved")) return { color: "#10B981" };
-      if (u.includes("reject")) return { color: "#F43F5E" };
-      if (u.includes("cancel")) return { color: "#94A3B8" };
-      return { color: "#2563EB" };
+      if (u.includes("pending")) return { color: DASH_COMPARE_COLORS.warning };
+      if (u.includes("approved")) return { color: DASH_COMPARE_COLORS.success };
+      if (u.includes("reject")) return { color: DASH_COMPARE_COLORS.danger };
+      if (u.includes("cancel")) return { color: DASH_COMPARE_COLORS.muted };
+      return { color: DASH_COMPARE_COLORS.primary };
     };
     return Array.from(tally.entries())
       .map(([label, value]) => ({ label, value, ...colorFor(label) }))
@@ -279,18 +288,15 @@ export default function DashboardPage() {
 
   const headcountMix = useMemo(() => {
     const rows = [
-      { label: "Active", value: activeCount ?? 0, color: "#2563EB" },
-      { label: "Terminated (records)", value: terminatedCount ?? 0, color: "#F43F5E" },
+      { label: "Active", value: activeCount ?? 0, color: "#F97316" },
+      { label: "Terminated (records)", value: terminatedCount ?? 0, color: "#F97316" },
     ].filter((r) => r.value > 0);
     return rows;
   }, [activeCount, terminatedCount]);
 
   return (
     <>
-      <AppTopbar
-        title="Command Center"
-        subtitle="Live metrics from your OpenSky HRM data (where your role and licenses allow)."
-      />
+      <AppTopbar title="Command Center" />
 
       {myTasks.length > 0 && (
         <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -371,42 +377,11 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[#2E7BBF]" aria-hidden />
-        <div className="relative z-10">
-          <div>
-            <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600 shadow-sm">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2E7BBF] opacity-40" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#2E7BBF]" />
-              </span>
-              Live workspace
-            </p>
-            <div className="flex flex-wrap items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#2E7BBF] text-white shadow-sm">
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
-                </svg>
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-2xl font-semibold leading-tight tracking-tight text-slate-900 lg:text-3xl">
-                  Workforce <span className="text-slate-800">intelligence</span>
-                </h2>
-                <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">
-                  KPIs and snapshots load from the API. Some tiles show &quot;—&quot; if a module is not licensed or your role cannot access that data (e.g. leave dashboard requires org-wide leave access).
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((kpi) => (
           <div key={kpi.label} className="opensky-dashboard-card">
             <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
             <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{dashLoading && kpi.value === "—" ? "..." : kpi.value}</div>
-            <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
           </div>
         ))}
       </div>
@@ -551,7 +526,6 @@ export default function DashboardPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
-                    <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{link.sub}</div>
                   </div>
                   <span className="opensky-quicklink-chev mt-0.5 text-slate-400">→</span>
                 </div>
@@ -561,9 +535,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <p className="footer-note">
-        Dashboard metrics come from live APIs. Figures may be hidden (—) when a module is off, or when your role cannot access org-wide leave analytics.
-      </p>
     </>
   );
 }

@@ -275,21 +275,6 @@ export default function BillingPage() {
     <>
       <AppTopbar title="Billing" subtitle="Plan, licensed modules, and subscription (per instance)." />
 
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Commercial workspace
-          </p>
-          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Subscription &amp; entitlements</h2>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            Review your plan, licensed modules, and renewal window. Administrators can edit subscription metadata, toggle
-            optional modules, and run customer onboarding reset — styled like your Command Center dashboard.
-          </p>
-        </div>
-      </section>
-
       <div className="mt-6 space-y-6">
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
@@ -310,7 +295,6 @@ export default function BillingPage() {
             >
               <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
               <div className="mt-2 break-words text-xl font-semibold leading-tight text-slate-900">{kpi.value}</div>
-              <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
             </div>
           ))}
         </div>
@@ -355,7 +339,6 @@ export default function BillingPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h3 className="text-base font-semibold text-slate-900">Quick links</h3>
-            <p className="text-xs text-slate-500">Dashboard, policy, and usage</p>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
             <Link
@@ -365,7 +348,6 @@ export default function BillingPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-800">Command Center</div>
-                  <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Home dashboard</div>
                 </div>
                 <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                   →
@@ -379,7 +361,6 @@ export default function BillingPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-800">Policy &amp; settings</div>
-                  <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Tenant configuration</div>
                 </div>
                 <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                   →
@@ -393,7 +374,6 @@ export default function BillingPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-800">Reports</div>
-                  <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Operational reporting</div>
                 </div>
                 <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                   →
@@ -407,7 +387,6 @@ export default function BillingPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-800">Analytics</div>
-                  <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">Workforce intelligence</div>
                 </div>
                 <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                   →
@@ -416,25 +395,6 @@ export default function BillingPage() {
             </Link>
           </div>
         </div>
-
-        {isAdmin && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">Customer onboarding reset</h3>
-                <p className="mt-1 text-sm text-slate-600">
-                  Dry-run preview and secure execution to clear transactional data for a new customer.
-                </p>
-              </div>
-              <Link
-                href="/app/billing/customer-reset"
-                className="inline-flex shrink-0 items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
-              >
-                Open reset
-              </Link>
-            </div>
-          </div>
-        )}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-900">Your plan</h3>
@@ -480,9 +440,6 @@ export default function BillingPage() {
           <>
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h3 className="text-lg font-semibold text-slate-900">Subscription details</h3>
-              <p className="mt-1 text-sm text-slate-600">
-                Manual billing metadata (no payment gateway in this version).
-              </p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <label className="block text-sm">
                   <span className="text-slate-500">Plan name</span>
@@ -536,10 +493,6 @@ export default function BillingPage() {
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h3 className="text-lg font-semibold text-slate-900">Module entitlements</h3>
-              <p className="mt-1 text-sm text-slate-600">
-                Required modules stay on for every plan. Optional modules can be toggled; unlisted optional modules are
-                turned off when you save.
-              </p>
               <ul className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
                 {admin.modules.map((m) => (
                   <li
@@ -574,11 +527,6 @@ export default function BillingPage() {
             </div>
           </>
         )}
-
-        <p className="footer-note">
-          Charts use licensing summary and admin module definitions. Saving entitlements or subscription metadata updates the
-          backend for this instance; payment capture is not wired in this build.
-        </p>
       </div>
     </>
   );

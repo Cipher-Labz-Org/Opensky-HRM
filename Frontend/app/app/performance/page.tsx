@@ -5,6 +5,7 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { DatePickerField } from "@/components/ui";
+import { FormSelect } from "@/components/ui/FormSelect";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
@@ -393,21 +394,6 @@ export default function PerformancePage() {
     <>
       <AppTopbar title="Performance Appraisal" subtitle="360-degree performance appraisal management — cycles, templates, and reviews." />
 
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Performance workspace
-          </p>
-          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Talent & review intelligence</h2>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            Cycle progress, department completion, and rating distribution share the same layout as your Command Center.
-            Switch tabs for cycles and setup (scales, competencies, templates).
-          </p>
-        </div>
-      </section>
-
       <div className="mt-6 mb-6 flex flex-wrap gap-2">
         {([["dashboard", "Dashboard"], ["cycles", "Appraisal Cycles"], ["setup", "Setup"]] as const).map(([key, label]) => (
           <button
@@ -432,17 +418,17 @@ export default function PerformancePage() {
         <div>
           <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <label className="text-sm font-semibold text-slate-700">Cycle</label>
-            <select
-              value={selectedCycleId ?? ""}
-              onChange={(e) => setSelectedCycleId(e.target.value)}
-              className={`${inputClass} min-w-[14rem] max-w-full flex-1 sm:max-w-md`}
-            >
-              {cycles.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({PHASE_LABELS[c.phase] ?? c.phase})
-                </option>
-              ))}
-            </select>
+            <div className="min-w-[14rem] max-w-full flex-1 sm:max-w-md">
+              <FormSelect
+                value={selectedCycleId ?? ""}
+                onValueChange={setSelectedCycleId}
+                options={cycles.map((c) => ({
+                  value: c.id,
+                  label: `${c.name} (${PHASE_LABELS[c.phase] ?? c.phase})`,
+                }))}
+                className="h-[42px]"
+              />
+            </div>
           </div>
 
           {dashboard && selectedCycle && (
@@ -486,7 +472,6 @@ export default function PerformancePage() {
                   >
                     <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
                     <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-                    <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
                   </div>
                 ))}
               </div>
@@ -495,20 +480,17 @@ export default function PerformancePage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-base font-semibold text-slate-800">Department completion</h3>
-                    <span className="text-xs text-slate-500">Completed count</span>
                   </div>
                   {deptBars.length === 0 ? (
                     <p className="py-8 text-center text-sm text-slate-500">No department breakdown returned.</p>
                   ) : (
                     <HorizontalCompareBars items={deptBars} />
                   )}
-                  <p className="mt-2 text-[11px] text-slate-500">Bar width scales to the largest department completed count in this payload.</p>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-base font-semibold text-slate-800">Review pipeline</h3>
-                    <span className="text-xs text-slate-500">Counts</span>
                   </div>
                   {pipelineBars.every((x) => x.value === 0) ? (
                     <p className="py-8 text-center text-sm text-slate-500">No completion counts yet.</p>
@@ -520,7 +502,6 @@ export default function PerformancePage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-base font-semibold text-slate-800">Rating distribution</h3>
-                    <span className="text-xs text-slate-500">Donut</span>
                   </div>
                   {ratingDonut.length === 0 ? (
                     <p className="py-8 text-center text-sm text-slate-500">No ratings in the sample.</p>
@@ -533,7 +514,6 @@ export default function PerformancePage() {
               <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-base font-semibold text-slate-800">Ratings by label</h3>
-                  <span className="text-xs text-slate-500">Frequency</span>
                 </div>
                 {ratingBars.length === 0 ? (
                   <p className="py-8 text-center text-sm text-slate-500">No distribution rows.</p>
@@ -546,7 +526,6 @@ export default function PerformancePage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-4">
                     <h3 className="text-base font-semibold text-slate-900">Recent review activity</h3>
-                    <p className="text-xs text-slate-500">Latest reviewer submissions (up to 8)</p>
                   </div>
                   {appraisalTimeline.length === 0 ? (
                     <p className="py-10 text-center text-sm text-slate-500">No submitted reviews yet for this cycle.</p>
@@ -574,7 +553,6 @@ export default function PerformancePage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-4">
                     <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
-                    <p className="text-xs text-slate-500">Configure and run appraisal programs</p>
                   </div>
                   <div className="grid gap-2.5">
                     <button
@@ -585,7 +563,6 @@ export default function PerformancePage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-slate-800">Appraisal cycles</div>
-                          <div className="mt-0.5 text-xs text-slate-500">Create, activate, and advance phases</div>
                         </div>
                         <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                           →
@@ -603,7 +580,6 @@ export default function PerformancePage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-slate-800">Rating scales</div>
-                          <div className="mt-0.5 text-xs text-slate-500">Setup workspace · Scales</div>
                         </div>
                         <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                           →
@@ -621,7 +597,6 @@ export default function PerformancePage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-slate-800">Competencies</div>
-                          <div className="mt-0.5 text-xs text-slate-500">Setup workspace · Competencies</div>
                         </div>
                         <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                           →
@@ -639,7 +614,6 @@ export default function PerformancePage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-slate-800">Templates</div>
-                          <div className="mt-0.5 text-xs text-slate-500">Setup workspace · Templates</div>
                         </div>
                         <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                           →
@@ -654,7 +628,6 @@ export default function PerformancePage() {
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
                   <div>
                     <h4 className="text-base font-semibold text-slate-900">Employee appraisals</h4>
-                    <p className="text-xs text-slate-500">Full roster for the selected cycle</p>
                   </div>
                   {selectedCycle.phase !== "Completed" && selectedCycle.phase !== "Draft" && (
                     <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => advanceCycle(selectedCycle.id)}>
@@ -730,10 +703,6 @@ export default function PerformancePage() {
                 )}
               </div>
 
-              <p className="footer-note">
-                KPIs and charts reflect the selected cycle&apos;s dashboard API. Department bars use completed counts only
-                (not ratio to headcount).
-              </p>
             </>
           )}
           {cycles.length === 0 && (
@@ -1034,17 +1003,36 @@ export default function PerformancePage() {
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-4">
             <div><label className={labelClass}>Name</label><input value={cycleName} onChange={e => setCycleName(e.target.value)} className={inputClass} placeholder="e.g. Annual Review 2026" /></div>
-            <div><label className={labelClass}>Type</label>
-              <select value={cycleType} onChange={e => setCycleType(e.target.value)} className={inputClass}>
-                <option value="Annual">Annual</option><option value="Semi-Annual">Semi-Annual</option><option value="Quarterly">Quarterly</option><option value="Probation">Probation</option><option value="Project">Project</option>
-              </select>
+            <div>
+              <label className={labelClass}>Type</label>
+              <FormSelect
+                value={cycleType}
+                onValueChange={setCycleType}
+                options={[
+                  { value: "Annual", label: "Annual" },
+                  { value: "Semi-Annual", label: "Semi-Annual" },
+                  { value: "Quarterly", label: "Quarterly" },
+                  { value: "Probation", label: "Probation" },
+                  { value: "Project", label: "Project" },
+                ]}
+                className="h-[42px]"
+              />
             </div>
           </div>
           <div><label className={labelClass}>Description</label><textarea value={cycleDesc} onChange={e => setCycleDesc(e.target.value)} rows={2} className={inputClass} /></div>
           <div className="grid grid-cols-3 gap-4">
             <div><label className={labelClass}>Start Date</label><DatePickerField value={cycleStart} onChange={setCycleStart} className={inputClass} /></div>
             <div><label className={labelClass}>End Date</label><DatePickerField value={cycleEnd} onChange={setCycleEnd} className={inputClass} /></div>
-            <div><label className={labelClass}>Template</label><select value={cycleTplId} onChange={e => setCycleTplId(e.target.value)} className={inputClass}>{templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
+            <div>
+              <label className={labelClass}>Template</label>
+              <FormSelect
+                value={cycleTplId}
+                onValueChange={setCycleTplId}
+                options={templates.map((t) => ({ value: t.id, label: t.name }))}
+                placeholder="Select template"
+                className="h-[42px]"
+              />
+            </div>
           </div>
 
           <div>

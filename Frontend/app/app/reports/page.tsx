@@ -4,8 +4,11 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
+import { FormSelect } from "@/components/ui/FormSelect";
+import { DatePickerField } from "@/components/ui";
 import { formatDateTime } from "@/lib/date-utils";
-import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
+import { formatInt } from "@/lib/workspace-charts";
+import { getReportIconPaths } from "@/lib/report-icons";
 
 interface ReportItem {
   key: string;
@@ -409,48 +412,9 @@ export default function ReportsPage() {
     ];
   }, [catalog.length, totalReportDefinitions, activeCat]);
 
-  const reportsPerCategoryBars = useMemo(() => {
-    const colors = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#64748b", "#eab308"];
-    return [...catalog]
-      .sort((a, b) => b.reports.length - a.reports.length)
-      .slice(0, 8)
-      .map((c, i) => ({
-        label: c.name,
-        value: c.reports.length,
-        color: colors[i % colors.length],
-      }));
-  }, [catalog]);
-
-  const categoryDonut = useMemo(() => {
-    const palette = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6"];
-    return catalog
-      .filter((c) => c.reports.length > 0)
-      .slice(0, 6)
-      .map((c, i) => ({
-        label: c.name.length > 18 ? `${c.name.slice(0, 16)}…` : c.name,
-        value: c.reports.length,
-        color: palette[i % palette.length],
-      }));
-  }, [catalog]);
-
   return (
     <>
       <AppTopbar title="Reports" subtitle="Generate, view, and export standard HR reports across all modules." />
-
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Analytics workspace
-          </p>
-          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Operational reporting</h2>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            Browse the catalog by module, run a report in the side panel, then search, sort, export to Excel, or print —
-            styled consistently with your Command Center dashboard.
-          </p>
-        </div>
-      </section>
 
       <div className="mt-6 flex flex-col gap-6 lg:flex-row" style={{ minHeight: "calc(100vh - 160px)" }}>
         <div className="w-full shrink-0 lg:w-72">
@@ -493,55 +457,28 @@ export default function ReportsPage() {
 
         <div className="min-w-0 flex-1 space-y-6">
           {catalog.length > 0 && (
-            <>
-              <div className="grid gap-6 sm:grid-cols-3">
-                {reportStatsKpis.map((kpi) => (
-                  <div
-                    key={kpi.label}
-                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                  >
-                    <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
-                    <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-                    <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-slate-800">Reports by category</h3>
-                    <span className="text-xs text-slate-500">Top 8</span>
-                  </div>
-                  {reportsPerCategoryBars.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-slate-500">No catalog data.</p>
-                  ) : (
-                    <HorizontalCompareBars items={reportsPerCategoryBars} />
-                  )}
+            <div className="grid gap-6 sm:grid-cols-3">
+              {reportStatsKpis.map((kpi) => (
+                <div
+                  key={kpi.label}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
+                  <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-slate-800">Catalog mix</h3>
-                    <span className="text-xs text-slate-500">Up to 6</span>
-                  </div>
-                  {categoryDonut.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-slate-500">No distribution.</p>
-                  ) : (
-                    <DonutMixChart values={categoryDonut} />
-                  )}
-                </div>
-              </div>
-            </>
+              ))}
+            </div>
           )}
 
           {activeCat && (
             <div>
               <div className="mb-4">
                 <h3 className="text-lg font-semibold text-slate-900">{activeCat.name} reports</h3>
-                <p className="mt-1 text-xs text-slate-500">Choose a report to generate it in the panel on the right.</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {activeCat.reports.map((rpt) => (
+                {activeCat.reports.map((rpt) => {
+                  const reportIconPaths = getReportIconPaths(activeCat.key, rpt.key);
+                  return (
                   <button
                     key={rpt.key}
                     type="button"
@@ -553,36 +490,30 @@ export default function ReportsPage() {
                         className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${CATEGORY_COLORS[activeCat.key] ?? "bg-slate-500"} bg-opacity-10`}
                       >
                         <svg
-                          className={`h-4.5 w-4.5 ${CATEGORY_COLORS[activeCat.key]?.replace("bg-", "text-") ?? "text-slate-500"}`}
+                          className={`h-4 w-4 ${CATEGORY_COLORS[activeCat.key]?.replace("bg-", "text-") ?? "text-slate-500"}`}
                           fill="none"
                           stroke="currentColor"
                           strokeWidth={1.5}
                           viewBox="0 0 24 24"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
-                          />
+                          {reportIconPaths.map((d, i) => (
+                            <path key={i} strokeLinecap="round" strokeLinejoin="round" d={d} />
+                          ))}
                         </svg>
                       </span>
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-slate-800 transition group-hover:text-slate-900">
                           {rpt.name}
                         </div>
-                        <div className="mt-1 text-xs leading-relaxed text-slate-500">{rpt.description}</div>
                       </div>
                     </div>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
 
-          <p className="footer-note">
-            Catalog charts count report definitions only. Generated row counts and columns depend on each report&apos;s API
-            and your role&apos;s data scope.
-          </p>
         </div>
       </div>
 
@@ -651,39 +582,26 @@ export default function ReportsPage() {
               {activeReportDef.supportsDepartmentFilter && (
                 <div className="min-w-[200px]">
                   <label className="mb-1 block text-[10px] font-medium text-slate-500">Department</label>
-                  <select
+                  <FormSelect
                     value={filterDepartmentId}
-                    onChange={(e) => setFilterDepartmentId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                  >
-                    <option value="">All departments</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={setFilterDepartmentId}
+                    placeholder="All departments"
+                    options={[
+                      { value: "", label: "All departments" },
+                      ...departments.map((d) => ({ value: d.id, label: d.name })),
+                    ]}
+                  />
                 </div>
               )}
               {activeReportDef.periodFilterMode === "dateRange" && (
                 <>
                   <div>
                     <label className="mb-1 block text-[10px] font-medium text-slate-500">From</label>
-                    <input
-                      type="date"
-                      value={filterFrom}
-                      onChange={(e) => setFilterFrom(e.target.value)}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                    />
+                    <DatePickerField value={filterFrom} onChange={setFilterFrom} />
                   </div>
                   <div>
                     <label className="mb-1 block text-[10px] font-medium text-slate-500">To</label>
-                    <input
-                      type="date"
-                      value={filterTo}
-                      onChange={(e) => setFilterTo(e.target.value)}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                    />
+                    <DatePickerField value={filterTo} onChange={setFilterTo} />
                   </div>
                 </>
               )}
@@ -702,45 +620,34 @@ export default function ReportsPage() {
                   </div>
                   <div>
                     <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
-                    <select
+                    <FormSelect
                       value={filterMonth}
-                      onChange={(e) => setFilterMonth(e.target.value)}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                    >
-                      {Array.from({ length: 12 }, (_, i) => (
-                        <option key={i + 1} value={String(i + 1)}>
-                          {new Date(2000, i, 1).toLocaleString(undefined, { month: "long" })}
-                        </option>
-                      ))}
-                    </select>
+                      onValueChange={setFilterMonth}
+                      options={Array.from({ length: 12 }, (_, i) => ({
+                        value: String(i + 1),
+                        label: new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }),
+                      }))}
+                    />
                   </div>
                 </>
               )}
               {activeReportDef.periodFilterMode === "singleDate" && (
                 <div>
                   <label className="mb-1 block text-[10px] font-medium text-slate-500">Date</label>
-                  <input
-                    type="date"
-                    value={filterDate}
-                    onChange={(e) => setFilterDate(e.target.value)}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                  />
+                  <DatePickerField value={filterDate} onChange={setFilterDate} />
                 </div>
               )}
               {activeReportDef.periodFilterMode === "monthOnly" && (
                 <div>
                   <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
-                  <select
+                  <FormSelect
                     value={filterMonth}
-                    onChange={(e) => setFilterMonth(e.target.value)}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                  >
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <option key={i + 1} value={String(i + 1)}>
-                        {new Date(2000, i, 1).toLocaleString(undefined, { month: "long" })}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={setFilterMonth}
+                    options={Array.from({ length: 12 }, (_, i) => ({
+                      value: String(i + 1),
+                      label: new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }),
+                    }))}
+                  />
                 </div>
               )}
               <div className="flex flex-1 justify-end">

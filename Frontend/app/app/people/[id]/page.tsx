@@ -8,6 +8,7 @@ import { DatePickerField, FormSelect, type FormSelectOption } from "@/components
 import { COUNTRY_NAMES, NATIONALITY_NAMES } from "@/lib/people-form-lists";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { API_BASE_URL } from "@/config/constants";
 import {
   type EmploymentTypeCatalogItem,
@@ -1125,7 +1126,7 @@ export default function EmployeeDetailPage() {
     setAttendanceTodayLoading(true);
     setAttendanceTodayErr(null);
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = formatLocalDateToIso(new Date());
       const res = await apiFetch<{ items: AttendancePunchRow[] }>(
         `/api/attendance?employeeId=${id}&from=${today}&to=${today}&page=1&pageSize=100`
       );
@@ -2220,6 +2221,7 @@ export default function EmployeeDetailPage() {
       }
       const data = await res.json() as { profileImageUrl: string };
       setEmp({ ...emp, profileImageUrl: data.profileImageUrl });
+      window.dispatchEvent(new CustomEvent("opensky:profile-image-updated"));
       setShowPhotoModal(false);
       setPhotoFile(null);
       setPhotoPreview(null);

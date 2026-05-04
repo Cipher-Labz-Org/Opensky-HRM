@@ -228,21 +228,6 @@ export default function LearningPage() {
         subtitle="Course catalog, training assignments, certifications, and skill matrix."
       />
 
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Learning workspace
-          </p>
-          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Skills & development intelligence</h2>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            Catalog health, training pipeline, certifications, and skill coverage — same visual language as your Command
-            Center dashboard. Use the tabs below for deep lists and maintenance.
-          </p>
-        </div>
-      </section>
-
       <div className="mt-6 mb-6 flex flex-wrap gap-2">
         {PAGE_TABS.map((t) => (
           <button
@@ -298,7 +283,6 @@ export default function LearningPage() {
                   >
                     <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
                     <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-                    <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
                   </div>
                 ))}
               </div>
@@ -307,20 +291,17 @@ export default function LearningPage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-base font-semibold text-slate-800">Skill coverage</h3>
-                    <span className="text-xs text-slate-500">Top skills</span>
                   </div>
                   {skillCoverageBars.length === 0 ? (
                     <p className="py-8 text-center text-sm text-slate-500">No skill coverage data.</p>
                   ) : (
                     <HorizontalCompareBars items={skillCoverageBars} />
                   )}
-                  <p className="mt-2 text-[11px] text-slate-500">Employees with skill recorded (active roster context from API).</p>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-base font-semibold text-slate-800">Assignment status</h3>
-                    <span className="text-xs text-slate-500">All rows</span>
                   </div>
                   {assignmentStatusBars.length === 0 ? (
                     <p className="py-8 text-center text-sm text-slate-500">No assignments loaded.</p>
@@ -332,7 +313,6 @@ export default function LearningPage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-base font-semibold text-slate-800">Cert. assignments</h3>
-                    <span className="text-xs text-slate-500">By type</span>
                   </div>
                   {certAssignedDonut.length === 0 ? (
                     <p className="py-8 text-center text-sm text-slate-500">No certification assignments.</p>
@@ -345,7 +325,6 @@ export default function LearningPage() {
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-base font-semibold text-slate-800">Certifications expiring (90d)</h3>
-                  <span className="text-xs text-slate-500">Where &gt; 0</span>
                 </div>
                 {certExpiryBars.length === 0 ? (
                   <p className="py-8 text-center text-sm text-slate-500">No expiring certifications in the next 90 days.</p>
@@ -359,7 +338,6 @@ export default function LearningPage() {
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h3 className="text-base font-semibold text-slate-900">Recent assignments</h3>
-                      <p className="text-xs text-slate-500">Latest by assigned date</p>
                     </div>
                     <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => setPageTab("assignments")}>
                       All assignments
@@ -391,7 +369,6 @@ export default function LearningPage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-4">
                     <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
-                    <p className="text-xs text-slate-500">Jump to learning workflows</p>
                   </div>
                   <div className="grid gap-2.5">
                     {(
@@ -401,7 +378,7 @@ export default function LearningPage() {
                         ["certifications", "Certifications", "Compliance and expiry"],
                         ["skills", "Skills & matrix", "Coverage and proficiency"],
                       ] as const
-                    ).map(([key, title, sub]) => (
+                    ).map(([key, title]) => (
                       <button
                         key={key}
                         type="button"
@@ -411,7 +388,6 @@ export default function LearningPage() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-slate-800">{title}</div>
-                            <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{sub}</div>
                           </div>
                           <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                             →
@@ -426,7 +402,6 @@ export default function LearningPage() {
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div className="border-b border-slate-100 px-5 py-4">
                   <h4 className="text-base font-semibold text-slate-900">Open training assignments</h4>
-                  <p className="text-xs text-slate-500">Assigned or in progress (up to 12 rows)</p>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -460,10 +435,6 @@ export default function LearningPage() {
                 </div>
               </div>
 
-              <p className="footer-note">
-                Charts use the same payloads as the list tabs. Skill coverage shows the top eight skills by employee count;
-                certification donut includes up to eight types with assignments.
-              </p>
             </>
           )}
         </div>

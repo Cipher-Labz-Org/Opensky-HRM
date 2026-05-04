@@ -111,21 +111,6 @@ export default function PayrollPage() {
         subtitle="Manage compensation components, run monthly payroll, and view pay statements."
       />
 
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Payroll workspace
-          </p>
-          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Compensation intelligence</h2>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            Live batch summaries and statutory rates from your payroll API. Use the tabs below for components, salary
-            structures, runs, statements, and LK settings — aligned with your Command Center dashboard.
-          </p>
-        </div>
-      </section>
-
       <div className="mt-6 mb-6 flex flex-wrap gap-2 overflow-x-auto pb-1">
         {TABS.map((t) => (
           <button
@@ -294,7 +279,6 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
           >
             <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
             <div className="mt-2 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">{kpi.value}</div>
-            <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
           </div>
         ))}
       </div>
@@ -303,7 +287,6 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Latest run mix</h3>
-            <span className="text-xs text-slate-500">Gross / ded. / net</span>
           </div>
           {!latest || latestBreakdown.every((x) => x.value === 0) ? (
             <p className="py-8 text-center text-sm text-slate-500">No batch totals to chart yet.</p>
@@ -315,14 +298,12 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Net pay trend</h3>
-            <span className="text-xs text-slate-500">LKR &apos;000s</span>
           </div>
           {netTrendBars.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">No batches to plot.</p>
           ) : (
             <>
               <WeeklyActivityBars data={netTrendBars} />
-              <p className="mt-2 text-[11px] text-slate-500">Bar height uses net pay in thousands (LKR) per batch, oldest → newest.</p>
             </>
           )}
         </div>
@@ -330,7 +311,6 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Batch status mix</h3>
-            <span className="text-xs text-slate-500">Loaded runs</span>
           </div>
           {batchStatusMix.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">No status distribution yet.</p>
@@ -343,7 +323,6 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-base font-semibold text-slate-800">EPF / ETF rates</h3>
-          <span className="text-xs text-slate-500">Settings</span>
         </div>
         {settings ? (
           <div className="grid gap-3 sm:grid-cols-3">
@@ -370,7 +349,6 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-base font-semibold text-slate-900">Recent batches</h3>
-              <p className="text-xs text-slate-500">Latest payroll cycles from the API</p>
             </div>
             <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => onOpenTab("Payroll Run")}>
               Go to run
@@ -404,7 +382,6 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
-            <p className="text-xs text-slate-500">Jump to payroll workflows</p>
           </div>
           <div className="grid max-h-[min(70vh,28rem)] gap-2.5 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-1">
             {quickLinks.map((link) => (
@@ -417,7 +394,6 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
-                    <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{link.sub}</div>
                   </div>
                   <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                     →
@@ -429,10 +405,6 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
         </div>
       </div>
 
-      <p className="footer-note">
-        Latest-run KPIs use the most recent batch returned by the API (typically newest first). Net trend bars scale net pay
-        in thousands of LKR for readability.
-      </p>
     </>
   );
 }

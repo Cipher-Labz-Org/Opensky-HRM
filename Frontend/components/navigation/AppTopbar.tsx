@@ -23,9 +23,7 @@ export function AppTopbar({ title, subtitle }: AppTopbarProps) {
           </span>
         </div>
         <div className="mt-2 h-0.5 max-w-xs rounded-full bg-[#2E7BBF]/70" aria-hidden />
-        {subtitle ? (
-          <p className="mt-2.5 max-w-3xl text-sm leading-relaxed text-slate-600 sm:text-[15px]">{subtitle}</p>
-        ) : null}
+        {null}
       </div>
     </div>
   );

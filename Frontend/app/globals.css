@@ -172,3 +172,31 @@ button:active:not(:disabled),
 @media (max-width: 1180px) {
   .hris-meta-grid, .hris-form-grid { grid-template-columns: 1fr; }
 }
+
+/* Login hero — rotating motivational quotes */
+@keyframes login-quote-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.login-quote-slide {
+  animation: login-quote-in 0.65s ease-out forwards;
+}
+
+/* Login page — full-bleed photo crossfade when quote index changes */
+@keyframes login-bg-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.login-bg-layer {
+  animation: login-bg-in 0.85s ease-out forwards;
+}

@@ -102,7 +102,11 @@ public class AuthService : IAuthService
         if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
             throw new UnauthorizedAccessException("Current password is incorrect.");
 
+        if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
+            throw new UnauthorizedAccessException("New password must be at least 6 characters.");
+
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+        user.MustChangePassword = false;
         user.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
     }
@@ -112,13 +116,18 @@ public class AuthService : IAuthService
         if (await _db.Users.AnyAsync(u => u.Username == dto.Username && !u.IsDeleted))
             throw new InvalidOperationException($"Username '{dto.Username}' already exists.");
 
-        if (await _db.Users.AnyAsync(u => u.Email == dto.Email && !u.IsDeleted))
-            throw new InvalidOperationException($"Email '{dto.Email}' already exists.");
+        var normalizedEmail = string.IsNullOrWhiteSpace(dto.Email)
+            ? $"user-{Guid.NewGuid():N}@noemail.opensky.hrm"
+            : dto.Email.Trim();
+
+        if (!string.IsNullOrWhiteSpace(dto.Email) &&
+            await _db.Users.AnyAsync(u => u.Email == normalizedEmail && !u.IsDeleted))
+            throw new InvalidOperationException($"Email '{normalizedEmail}' already exists.");
 
         var user = new User
         {
             Username = dto.Username,
-            Email = dto.Email,
+            Email = normalizedEmail,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
             IsActive = dto.IsActive,
             EmployeeId = dto.EmployeeId
@@ -458,7 +467,8 @@ public class AuthService : IAuthService
             AssignedLocationIds = user.AssignedLocations.Select(a => a.LocationId).ToList(),
             AssignedBusinessUnitIds = user.AssignedBusinessUnits.Select(a => a.BusinessUnitId).ToList(),
             AssignedGradeIds = user.AssignedGrades.Select(a => a.GradeId).ToList(),
-            AssignedJobTitleIds = user.AssignedJobTitles.Select(a => a.JobTitleId).ToList()
+            AssignedJobTitleIds = user.AssignedJobTitles.Select(a => a.JobTitleId).ToList(),
+            MustChangePassword = user.MustChangePassword
         };
     }
 

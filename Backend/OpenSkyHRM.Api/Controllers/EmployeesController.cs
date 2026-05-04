@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
@@ -80,7 +81,27 @@ public class EmployeesController : ControllerBase
         var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
         if (licenseErr != null) return licenseErr;
 
-        var created = await _employeeService.CreateAsync(dto);
+        if (!string.IsNullOrWhiteSpace(dto.Email) &&
+            await _db.Employees.AnyAsync(e => e.Email == dto.Email.Trim()))
+            return BadRequest(new { message = $"Email '{dto.Email.Trim()}' already exists." });
+
+        if (!string.IsNullOrWhiteSpace(dto.EmployeeCode) &&
+            await _db.Employees.AnyAsync(e => e.EmployeeCode == dto.EmployeeCode))
+            return BadRequest(new { message = $"Employee code '{dto.EmployeeCode}' already exists." });
+
+        EmployeeDto created;
+        try
+        {
+            created = await _employeeService.CreateAsync(dto);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex, "IX_Employees_Email"))
+        {
+            return BadRequest(new { message = $"Email '{dto.Email}' already exists." });
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex, "IX_Employees_EmployeeCode"))
+        {
+            return BadRequest(new { message = $"Employee code '{dto.EmployeeCode}' already exists." });
+        }
 
         if (dto.CreateLogin != null)
         {
@@ -215,7 +236,11 @@ public class EmployeesController : ControllerBase
     [HttpPost("{id:guid}/photo")]
     public async Task<IActionResult> UploadPhoto(Guid id, IFormFile file, [FromServices] IWebHostEnvironment env)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        var canUpdate = await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update");
+        var isOwnProfile =
+            Guid.TryParse(User.FindFirst("employeeId")?.Value, out var ownEmployeeId) &&
+            ownEmployeeId == id;
+        if (!canUpdate && !isOwnProfile)
             return Forbid();
         if (file is null || file.Length == 0)
             return BadRequest(new { error = "No file uploaded." });
@@ -424,6 +449,13 @@ public class EmployeesController : ControllerBase
         if (issue.HasValue && expiry.HasValue && expiry.Value.Date < issue.Value.Date)
             return new BadRequestObjectResult(new { message = "License expiry date must be on or after the issue date." });
         return null;
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex, string constraintName)
+    {
+        return ex.InnerException is PostgresException pg &&
+               pg.SqlState == PostgresErrorCodes.UniqueViolation &&
+               string.Equals(pg.ConstraintName, constraintName, StringComparison.Ordinal);
     }
 }
 

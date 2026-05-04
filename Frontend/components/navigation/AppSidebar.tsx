@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
-
+import { ROUTES } from "@/config/routes";
+import { useAuth } from "@/hooks/use-auth";
 export type NavItem = { href: string; label: string };
 export type NavGroup = { title: string; items: NavItem[] };
 
@@ -38,6 +38,8 @@ const NAV_ICONS: Record<string, string> = {
   Billing: "M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z",
   "Data Import / Export": "M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5",
   "User Management": "M15.75 5.25a3 3 0 11-6 0 3 3 0 016 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z",
+  "Help & guides":
+    "M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z",
 };
 
 const SIDEBAR_EXPANDED_W = 280;
@@ -46,75 +48,163 @@ const SIDEBAR_COLLAPSED_W = 64;
 export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSidebarProps) {
   const pathname = usePathname();
   const w = collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_EXPANDED_W;
+  const { user, refreshProfile } = useAuth();
 
-  const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const [profileImageVersion, setProfileImageVersion] = useState(0);
+  const profileImageUrl = user?.profileImageUrl
+    ? `${API_BASE_URL}${user.profileImageUrl}${user.profileImageUrl.includes("?") ? "&" : "?"}v=${profileImageVersion}`
+    : null;
+  const roleLabel = user?.roles?.[0]?.replaceAll("_", " ") ?? "Employee";
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredNavGroups = normalizedQuery
+    ? navGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => item.label.toLowerCase().includes(normalizedQuery)),
+        }))
+        .filter((group) => group.items.length > 0)
+    : navGroups;
 
   useEffect(() => {
-    apiFetch<{ key: string; value: string }>("/api/system-settings/CompanyLogoUrl")
-      .then((r) => { if (r.value) setCompanyLogoUrl(r.value); })
-      .catch(() => {});
-  }, []);
+    // Ensure sidebar avatar stays current after returning to app.
+    void refreshProfile();
+  }, [refreshProfile]);
+
+  useEffect(() => {
+    if (!user?.profileImageUrl) return;
+    setProfileImageVersion((prev) => prev + 1);
+  }, [user?.profileImageUrl]);
+
+  useEffect(() => {
+    const onFocus = () => void refreshProfile();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshProfile();
+    };
+    const onProfileImageUpdated = () => void refreshProfile();
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("opensky:profile-image-updated", onProfileImageUpdated as EventListener);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("opensky:profile-image-updated", onProfileImageUpdated as EventListener);
+    };
+  }, [refreshProfile]);
 
   return (
     <aside
-      className="sticky top-0 z-30 flex h-screen flex-col overflow-hidden border-r border-slate-200 bg-[#f7f8fb] transition-all duration-300"
+      className={`sticky top-0 z-30 flex h-screen flex-col overflow-hidden border-r border-slate-200 transition-all duration-300 ${
+        collapsed ? "bg-[#f7f8fb]" : "bg-[#f5f7fb]"
+      }`}
       style={{ width: `${w}px`, minWidth: `${w}px` }}
     >
-      {/* Header — pr-11 reserves space so the collapse control stays inside the rail (avoids clip + overlap with main). */}
-      <div
-        className="relative flex items-center justify-center border-b border-slate-200 bg-white px-4 py-4 pr-11"
-        style={{ height: "60px" }}
-      >
-        {collapsed ? (
-          companyLogoUrl ? (
-            <img src={`${API_BASE_URL}${companyLogoUrl}`} alt="Logo" className="h-9 w-9 rounded-lg object-contain" />
-          ) : (
-            <img src="/brand-mark.svg" alt="OpenSky mark" className="h-9 w-9 rounded-lg object-contain" />
-          )
-        ) : (
-          <>
-            {companyLogoUrl ? (
-              <img src={`${API_BASE_URL}${companyLogoUrl}`} alt="Company Logo" className="h-10 max-w-[240px] object-contain" />
-            ) : (
-              <img src="/brand-logo.svg" alt={appName} className="h-10 max-w-[240px] object-contain" />
-            )}
-          </>
-        )}
-        {onToggle && (
-          <button
-            type="button"
-            onClick={onToggle}
-            className="absolute right-2 top-1/2 z-50 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-600 shadow-md ring-2 ring-white transition hover:border-blue-300 hover:bg-blue-50 hover:text-[#2E7BBF] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <svg
-              className={`h-4 w-4 shrink-0 transition-transform ${collapsed ? "rotate-180" : ""}`}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.25}
-              viewBox="0 0 24 24"
-              aria-hidden
+      {collapsed ? (
+        <div
+          className="relative flex items-center justify-center border-b border-slate-200 bg-white px-4 py-4 pr-11"
+          style={{ height: "60px" }}
+        >
+          <img src="/brand-mark.svg" alt="OpenSky mark" className="h-9 w-9 rounded-lg object-contain" />
+          {onToggle && (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="absolute right-2 top-1/2 z-50 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-600 shadow-md ring-2 ring-white transition hover:border-[#1a92d5]/40 hover:bg-[#1a92d5]/10 hover:text-[#1a92d5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1a92d5]"
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-          </button>
-        )}
-      </div>
+              <svg
+                className={`h-4 w-4 shrink-0 transition-transform ${collapsed ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.25}
+                viewBox="0 0 24 24"
+                aria-hidden
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="relative mx-2 mt-2 overflow-hidden rounded-[30px] border border-[#e7edf6] bg-[#f6f7f9] shadow-[0_24px_52px_-30px_rgba(37,99,235,0.45)]">
+          <div className="px-4 pt-4">
+            <div className="flex justify-center">
+              <img src="/brand-logo.svg" alt={appName} className="h-10 max-w-[220px] object-contain" />
+            </div>
+
+            <div className="mt-4 text-center">
+              <div className="relative mx-auto h-20 w-20">
+                <div className="h-20 w-20 overflow-hidden rounded-full border-[6px] border-[#e9eef7] bg-[#dde6f4]">
+                  {profileImageUrl ? (
+                    <img src={profileImageUrl} alt="Profile" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-[#5d739f]">
+                      <svg className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+                <span className="absolute -bottom-1 right-0 flex h-7 w-7 items-center justify-center rounded-full border border-[#d9e3f1] bg-white text-[#6c83ad] shadow-sm">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0" />
+                  </svg>
+                </span>
+              </div>
+            </div>
+
+            <div className="my-4 rounded-full bg-[#eceff4] px-2 py-2">
+              <div className="flex items-center rounded-full bg-[#eceff4] px-3">
+                <input
+                  type="text"
+                  placeholder="Search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-transparent py-1.5 text-xs text-[#5f739f] outline-none placeholder:text-[#8ea0bc]"
+                />
+                <svg className="h-4 w-4 text-[#6b81ac]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35m1.35-5.15a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {onToggle && (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="absolute right-3 top-1/2 z-50 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[#1a92d5] text-white shadow-md transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1a92d5]"
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className={`min-h-0 flex-1 overflow-y-auto py-3 ${collapsed ? "px-2" : "px-3"}`}>
-        {navGroups.map((group) => (
+        {filteredNavGroups.map((group) => (
           <div key={group.title} className="mb-2">
             {!collapsed && (
-              <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+              <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-[#95a9cb]">
                 {group.title}
               </div>
             )}
             {collapsed && <div className="my-2 border-t border-slate-100" />}
             {group.items.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const isActive =
+                item.href === ROUTES.helpGuides
+                  ? pathname === ROUTES.helpGuides || pathname.startsWith(`${ROUTES.helpGuides}/`)
+                  : pathname === item.href || pathname.startsWith(item.href + "/");
               const iconPath = NAV_ICONS[item.label];
               const showLetterFallback = collapsed && !iconPath;
               return (
@@ -124,12 +214,12 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
                   title={collapsed ? item.label : undefined}
                   className={`sidebar-nav-link mb-0.5 flex items-center rounded-xl transition-all ${
                     collapsed
-                      ? `justify-center px-0 py-2.5 ${isActive ? "bg-[#2E7BBF] text-white shadow-[0_8px_20px_-12px_rgba(46,123,191,0.55)]" : "text-slate-500 hover:-translate-y-0.5 hover:bg-white hover:text-slate-700 hover:shadow-[0_8px_20px_-14px_rgba(46,123,191,0.42)]"}`
-                      : `gap-3 px-3 py-2.5 text-[13px] font-medium ${isActive ? "bg-[#2E7BBF] text-white border border-[#256aa3] shadow-[0_10px_24px_-14px_rgba(46,123,191,0.58)]" : "text-slate-600 hover:-translate-y-0.5 hover:bg-white hover:text-slate-800 hover:shadow-[0_10px_24px_-16px_rgba(46,123,191,0.4)]"}`
+                      ? `justify-center px-0 py-2.5 ${isActive ? "bg-[#1a92d5] text-white shadow-[0_8px_20px_-12px_rgba(26,146,213,0.55)]" : "text-slate-500 hover:-translate-y-0.5 hover:bg-white hover:text-slate-700 hover:shadow-[0_8px_20px_-14px_rgba(26,146,213,0.42)]"}`
+                      : `gap-3 rounded-full px-3 py-2.5 text-[13px] font-medium ${isActive ? "bg-[#1a92d5] text-white shadow-[0_10px_24px_-14px_rgba(26,146,213,0.62)]" : "text-[#5f739f] hover:-translate-y-0.5 hover:bg-[#eff3f9] hover:text-[#415a87]"}`
                   }`}
                 >
                   {iconPath ? (
-                    <svg className={`shrink-0 ${collapsed ? "h-5 w-5" : "h-[18px] w-[18px]"} ${isActive ? "text-white" : "text-slate-400"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <svg className={`shrink-0 ${collapsed ? "h-5 w-5" : "h-[18px] w-[18px]"} ${isActive ? "text-white" : "text-[#6f84ad]"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d={iconPath} />
                     </svg>
                   ) : showLetterFallback ? (
@@ -143,11 +233,16 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
             })}
           </div>
         ))}
+        {!collapsed && filteredNavGroups.length === 0 && (
+          <div className="px-4 py-6 text-center text-xs text-[#8ea0bc]">
+            No pages found for {`"${searchQuery.trim()}"`}
+          </div>
+        )}
       </nav>
 
       {!collapsed && (
-        <div className="border-t border-slate-50 px-5 py-2 text-center">
-          <p className="text-[9px] text-slate-300">powered by <span className="font-semibold text-slate-400">OpenSky HRM</span></p>
+        <div className="border-t border-[#edf1f7] px-5 py-2 text-center">
+          <p className="text-[9px] text-[#bbc7dc]">powered by <span className="font-semibold text-[#8aa0c6]">OpenSky HRM</span></p>
         </div>
       )}
     </aside>

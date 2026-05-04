@@ -356,24 +356,6 @@ export default function LeavePage() {
         }
       />
 
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Leave workspace
-          </p>
-          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Absence intelligence</h2>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            {isEmployeeView
-              ? "Submit requests and track approvals in one place. Admin configuration tabs are hidden for your role."
-              : isSupervisorView
-                ? "Submit requests, track your leave, approve your team, and open Policies for carry-forward and policy reference text. Other admin-only tabs stay hidden."
-                : "KPIs and charts load from the leave API. Use the tabs below to apply leave, manage approvals, balances, policies, and calendars."}
-          </p>
-        </div>
-      </section>
-
       {/* ─── Tab Navigation (Command Center–style pills; overflow panel matches Dashboard “Quick actions”) ─── */}
       <div className="relative z-40 isolate mt-6 mb-6 flex flex-wrap items-center gap-2">
         {primaryTabs.map((t) => (
@@ -612,7 +594,6 @@ function DashboardTab({
           >
             <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
             <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-            <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
           </div>
         ))}
       </div>
@@ -716,7 +697,6 @@ function DashboardTab({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
-                    <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{link.sub}</div>
                   </div>
                   <span className="mt-0.5 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                     →

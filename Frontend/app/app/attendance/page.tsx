@@ -8,6 +8,7 @@ import { DatePickerField, DateTimePickerField } from "@/components/ui";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 
 // ──────────────────────────── Tabs ────────────────────────────
@@ -127,6 +128,10 @@ function fmtTimeSpan(ts: string | null): string {
   return ts.split(":").slice(0, 2).join(":");
 }
 
+function todayLocalIso(date: Date = new Date()): string {
+  return formatLocalDateToIso(date);
+}
+
 // ──────────────────────────── Page ────────────────────────────
 
 export default function AttendancePage() {
@@ -140,21 +145,6 @@ export default function AttendancePage() {
         title="Time & Attendance"
         subtitle="Shift patterns, rosters, mobile/web punch, biometrics integration, overtime, and anomaly detection."
       />
-
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Time workspace
-          </p>
-          <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Workforce time intelligence</h2>
-          <p className="mt-3 max-w-2xl text-sm text-slate-600">
-            Live attendance summaries and punch activity. Configure shifts, rosters, and devices from the tabs below — the
-            same visual language as your Command Center dashboard.
-          </p>
-        </div>
-      </section>
 
       <div className="mt-6 mb-6 flex flex-wrap items-center gap-2">
         {PAGE_TABS.map((t) => (
@@ -219,12 +209,12 @@ function DashboardTab({
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const today = new Date().toISOString().split("T")[0] ?? "";
+      const today = todayLocalIso();
       const dayKeys: string[] = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
-        dayKeys.push(d.toISOString().split("T")[0] ?? "");
+        dayKeys.push(todayLocalIso(d));
       }
       try {
         const [todaySummary, weekSummaries, recentRes] = await Promise.all([
@@ -355,7 +345,6 @@ function DashboardTab({
           >
             <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
             <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-            <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
           </div>
         ))}
       </div>
@@ -482,7 +471,6 @@ function DashboardTab({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
-                    <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{link.sub}</div>
                   </div>
                   <span className="mt-0.5 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
                     →
@@ -536,11 +524,12 @@ function AttendanceListTab() {
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const [filterEmployee, setFilterEmployee] = useState("");
+  const [filterEmployeeText, setFilterEmployeeText] = useState("");
   const [filterFrom, setFilterFrom] = useState(() => {
     const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split("T")[0] ?? "";
+    return todayLocalIso(new Date(d.getFullYear(), d.getMonth(), 1));
   });
-  const [filterTo, setFilterTo] = useState(() => new Date().toISOString().split("T")[0] ?? "");
+  const [filterTo, setFilterTo] = useState(() => todayLocalIso());
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -548,6 +537,14 @@ function AttendanceListTab() {
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
   const [saving, setSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const employeeOptions = useMemo(
+    () =>
+      employees.map((emp) => ({
+        id: emp.id,
+        label: `${emp.fullName}${emp.employeeCode ? ` (${emp.employeeCode})` : ""}`,
+      })),
+    [employees]
+  );
 
   const load = useCallback(() => {
     setLoading(true);
@@ -611,10 +608,24 @@ function AttendanceListTab() {
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className={labelClass}>Employee</label>
-          <select value={filterEmployee} onChange={(e) => { setFilterEmployee(e.target.value); setPage(1); }} className={`${inputClass} w-48`}>
-            <option value="">All</option>
-            {employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.fullName}</option>)}
-          </select>
+          <input
+            value={filterEmployeeText}
+            onChange={(e) => {
+              const text = e.target.value;
+              setFilterEmployeeText(text);
+              const matched = employeeOptions.find((opt) => opt.label.toLowerCase() === text.toLowerCase());
+              setFilterEmployee(matched?.id ?? "");
+              setPage(1);
+            }}
+            list="attendance-employee-filter-options"
+            placeholder="Type employee name"
+            className={`${inputClass} w-56`}
+          />
+          <datalist id="attendance-employee-filter-options">
+            {employeeOptions.map((opt) => (
+              <option key={opt.id} value={opt.label} />
+            ))}
+          </datalist>
         </div>
         <div>
           <label className={labelClass}>From</label>
@@ -624,7 +635,7 @@ function AttendanceListTab() {
           <label className={labelClass}>To</label>
           <DatePickerField value={filterTo} onChange={(v) => { setFilterTo(v); setPage(1); }} className={`${inputClass} w-40`} />
         </div>
-        <Button variant="secondary" onClick={() => { setFilterEmployee(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}>Clear</Button>
+        <Button variant="secondary" onClick={() => { setFilterEmployee(""); setFilterEmployeeText(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}>Clear</Button>
         <div className="ml-auto"><Button onClick={() => setShowCreate(true)}>+ Log Attendance</Button></div>
       </div>
 
@@ -1030,7 +1041,7 @@ function OtNopayTab() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
   });
-  const [toDate, setToDate] = useState(() => new Date().toISOString().split("T")[0]!);
+  const [toDate, setToDate] = useState(() => todayLocalIso());
   const [filterEmployee, setFilterEmployee] = useState("");
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
   const [loading, setLoading] = useState(false);

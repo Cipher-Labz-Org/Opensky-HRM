@@ -297,20 +297,6 @@ export default function EmployeeTasksPage() {
     <>
       <AppTopbar title="Employee Tasks" subtitle="Manage onboarding and offboarding task templates, and track active processes." />
 
-      <section className="relative mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-6 py-7 text-slate-900 shadow-sm sm:px-7">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 left-1/3 h-64 w-64 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Task operations
-          </p>
-          <h2 className="text-xl font-semibold leading-tight text-slate-900 sm:text-2xl">Onboarding & offboarding checklists</h2>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            Templates define repeatable steps; active tabs show live progress for employees currently in onboarding or offboarding.
-          </p>
-        </div>
-      </section>
-
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         {kpiStats.map((k) => (
           <div key={k.label} className={kpiTileClass}>

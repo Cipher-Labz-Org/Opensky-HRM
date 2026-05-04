@@ -364,45 +364,30 @@ export default function EmployeeActionsPage() {
         subtitle="Track promotions, warnings, transfers, and other HR actions. Records stay in this browser per signed-in user; use Export PDF for a printable report and re-import from that same export when needed."
       />
 
-      <section className="relative mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-emerald-100/40 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-rose-100/35 blur-3xl" />
-        <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-              People operations
-            </p>
-            <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Workforce action log</h2>
-            <p className="mt-3 max-w-2xl text-sm text-slate-600">
-              Keep a consistent paper trail for career moves and disciplinary steps. Export PDF for sharing or archiving; import merges records from a PDF that was exported here.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="primary" onClick={openCreate}>
-              Add record
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => void exportPdf()}
-              disabled={records.length === 0 || pdfExporting}
-            >
-              {pdfExporting ? "Building PDF…" : "Export PDF"}
-            </Button>
-            <label className="inline-flex min-h-[42px] cursor-pointer items-center justify-center rounded-lg border border-slate-200/90 bg-white/70 px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm backdrop-blur-md transition hover:bg-white/90">
-              Import PDF
-              <input
-                type="file"
-                accept="application/pdf,.pdf"
-                className="hidden"
-                onChange={(e) => {
-                  importPdf(e.target.files?.[0] ?? null);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-        </div>
-      </section>
+      <div className="mb-6 flex flex-wrap gap-2">
+        <Button variant="primary" onClick={openCreate}>
+          Add record
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => void exportPdf()}
+          disabled={records.length === 0 || pdfExporting}
+        >
+          {pdfExporting ? "Building PDF…" : "Export PDF"}
+        </Button>
+        <label className="inline-flex min-h-[42px] cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
+          Import PDF
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            className="hidden"
+            onChange={(e) => {
+              importPdf(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
 
       {!hydrated ? (
         <p className="text-sm text-slate-500">Loading…</p>
@@ -416,7 +401,6 @@ export default function EmployeeActionsPage() {
               >
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
                 <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-                <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
               </div>
             ))}
           </div>

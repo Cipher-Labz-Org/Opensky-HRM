@@ -142,27 +142,8 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="section-title">
           <h3>Transactional email templates</h3>
-          <span>Edit subject and HTML for system emails. Changes apply to the next send.</span>
         </div>
         <div className="space-y-2">
-          <p className="mb-2 text-xs text-slate-600">
-            <strong>Leave</strong> (key <code className="text-[10px] bg-slate-100 px-1 rounded">Email_LeaveApplication</code>):{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{EmployeeName}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{LeaveTypeName}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{StartDate}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{EndDate}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{TotalDays}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{Status}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{Reason}}"}</code>
-            <br />
-            <strong>Offer</strong> (key <code className="text-[10px] bg-slate-100 px-1 rounded">Email_RecruitmentOffer</code>):{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{CandidateName}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{PositionTitle}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{SalaryFormatted}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{JoiningDate}}"}</code>{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{RemarksHtml}}"}</code> (HTML snippet; omit in template if unused) and company fields{" "}
-            <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{CompanyName}}"}</code> etc.
-          </p>
           {templates.length === 0 ? (
             <p className="text-sm text-slate-500 px-1">
               No email templates found. Run database migrations and restart the API so defaults can be seeded (<code className="text-xs">Email_*</code> keys).
@@ -177,7 +158,6 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
                   <span className={`h-2 w-2 shrink-0 rounded-full ${tpl.isActive ? "bg-emerald-500" : "bg-slate-300"}`} />
                   <div>
                     <strong className="text-sm font-semibold text-slate-900">{tpl.name}</strong>
-                    <div className="text-xs text-slate-500">{tpl.templateKey}</div>
                   </div>
                 </div>
                 <button

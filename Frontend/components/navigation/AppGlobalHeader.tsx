@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import * as Popover from "@radix-ui/react-popover";
 import { ROUTES } from "@/config/routes";
 import { API_BASE_URL } from "@/config/constants";
-import { usePeopleHubHelp } from "@/components/help/PeopleHubHelpPanel";
+import { contextualHelpGuideHref } from "@/lib/help-topics";
 
 const iconStroke = 1.75;
 
@@ -22,6 +22,7 @@ export type AppGlobalHeaderUser = {
   email: string;
   employeeName: string | null;
   profileImageUrl: string | null;
+  licensedModules?: string[];
 };
 
 type AppGlobalHeaderProps = {
@@ -32,7 +33,6 @@ type AppGlobalHeaderProps = {
 export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
   const pathname = usePathname() ?? "";
   const isPeopleSection = pathname === ROUTES.people || pathname.startsWith(`${ROUTES.people}/`);
-  const { open: openPeopleHubHelp } = usePeopleHubHelp();
 
   const displayName = user.employeeName?.trim() || user.username;
   const initials = displayName
@@ -45,9 +45,11 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
   const [langOpen, setLangOpen] = React.useState(false);
   const [accountOpen, setAccountOpen] = React.useState(false);
 
+  const helpIconHref = contextualHelpGuideHref(pathname, user.licensedModules);
+
   return (
     <header
-      className="sticky top-0 z-[45] flex h-[60px] shrink-0 items-center justify-end border-b border-[#256aa3] bg-[#2E7BBF] px-4 sm:px-6"
+      className="sticky top-0 z-[45] flex h-[60px] shrink-0 items-center justify-end rounded-2xl border-b border-[#157fb8] bg-[#1a92d5] px-4 sm:px-6"
       role="banner"
     >
       <div className="flex items-center gap-0.5 sm:gap-1">
@@ -76,12 +78,11 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
         </button>
 
         {isPeopleSection ? (
-          <button
-            type="button"
+          <Link
+            href={helpIconHref}
             className={iconBtn}
-            title="People Hub help"
-            aria-label="People Hub help"
-            onClick={() => openPeopleHubHelp()}
+            title="Help for this area"
+            aria-label="Help for this area"
           >
             <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={iconStroke} viewBox="0 0 24 24" aria-hidden>
               <path
@@ -90,9 +91,9 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                 d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"
               />
             </svg>
-          </button>
+          </Link>
         ) : (
-          <Link href={ROUTES.contact} className={iconBtn} title="Help & support" aria-label="Help and support">
+          <Link href={helpIconHref} className={iconBtn} title="Help for this area" aria-label="Help for this area">
             <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={iconStroke} viewBox="0 0 24 24" aria-hidden>
               <path
                 strokeLinecap="round"

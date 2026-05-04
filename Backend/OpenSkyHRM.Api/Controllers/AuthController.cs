@@ -14,6 +14,7 @@ public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly ILicensingService _licensing;
+    private readonly ISystemSettingService _systemSettings;
     private readonly ILogger<AuthController> _logger;
     private readonly IWebHostEnvironment _env;
     private readonly IConfiguration _config;
@@ -21,15 +22,28 @@ public class AuthController : ControllerBase
     public AuthController(
         IAuthService authService,
         ILicensingService licensing,
+        ISystemSettingService systemSettings,
         ILogger<AuthController> logger,
         IWebHostEnvironment env,
         IConfiguration config)
     {
         _authService = authService;
         _licensing = licensing;
+        _systemSettings = systemSettings;
         _logger = logger;
         _env = env;
         _config = config;
+    }
+
+    public record BrandingDto(string? CompanyName, string? CompanyLogoUrl);
+
+    [HttpGet("branding")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Branding()
+    {
+        var companyName = await _systemSettings.GetAsync("CompanyName");
+        var companyLogoUrl = await _systemSettings.GetAsync("CompanyLogoUrl");
+        return Ok(new BrandingDto(companyName, companyLogoUrl));
     }
 
     [HttpPost("login")]

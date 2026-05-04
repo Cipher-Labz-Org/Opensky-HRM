@@ -198,20 +198,6 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
     <>
       <AppTopbar title={title} subtitle={subtitle} />
 
-      <section className="relative mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-6 py-7 text-slate-900 shadow-sm sm:px-7">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 left-1/3 h-64 w-64 rounded-full bg-indigo-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            Organization
-          </p>
-          <h2 className="text-xl font-semibold leading-tight text-slate-900 sm:text-2xl">Structure & reporting</h2>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            Explore the official org chart, supervisor-based reporting tree, and the department/position registry. Data is loaded from your organization APIs.
-          </p>
-        </div>
-      </section>
-
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {kpiStats.map((k) => (
           <div key={k.label} className={kpiTileClass}>
@@ -340,7 +326,7 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
                   No departments yet. Click &quot;+ New department&quot; to add one.
                 </p>
               ) : (
-                <div className="hris-timeline">
+                <div className="hris-timeline max-h-[70vh] overflow-y-auto pr-1">
                   <RecursiveList parentId={null} depth={0} />
                 </div>
               )}
@@ -382,87 +368,8 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-3">
-            <div className={contentCard}>
-              <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-base font-semibold text-slate-800">Location model</h3>
-                <span className="text-xs text-slate-500">Multi-entity</span>
-              </div>
-              <div className="hris-list">
-                <div className="hris-list-item">
-                  <div>
-                    <strong>Country</strong>
-                    <small>Sri Lanka</small>
-                  </div>
-                  <span>1</span>
-                </div>
-                <div className="hris-list-item">
-                  <div>
-                    <strong>Regions</strong>
-                    <small>Western, Central, Southern</small>
-                  </div>
-                  <span>3</span>
-                </div>
-                <div className="hris-list-item">
-                  <div>
-                    <strong>Sites</strong>
-                    <small>HQ, factory, outlets, warehouses</small>
-                  </div>
-                  <span>46</span>
-                </div>
-              </div>
-            </div>
-            <div className={contentCard}>
-              <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-base font-semibold text-slate-800">Cost allocation</h3>
-                <span className="text-xs text-slate-500">Finance mapping</span>
-              </div>
-              <div className="hris-list">
-                <div className="hris-list-item">
-                  <div>
-                    <strong>Cost center alignment</strong>
-                    <small>Every position carries financial ownership</small>
-                  </div>
-                  <span>&#10003;</span>
-                </div>
-                <div className="hris-list-item">
-                  <div>
-                    <strong>Budgeted headcount</strong>
-                    <small>Linked to annual manpower plan</small>
-                  </div>
-                  <span>&#10003;</span>
-                </div>
-              </div>
-            </div>
-            <div className={contentCard}>
-              <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-base font-semibold text-slate-800">Controls</h3>
-                <span className="text-xs text-slate-500">Architectural must-have</span>
-              </div>
-              <div className="hris-list">
-                <div className="hris-list-item">
-                  <div>
-                    <strong>Effective dating</strong>
-                    <small>Future org changes can be staged safely</small>
-                  </div>
-                  <span>&#10003;</span>
-                </div>
-                <div className="hris-list-item">
-                  <div>
-                    <strong>Position vacancy logic</strong>
-                    <small>Recruitment starts from approved position</small>
-                  </div>
-                  <span>&#10003;</span>
-                </div>
-              </div>
-            </div>
-          </div>
         </>
       )}
-
-      <p className="footer-note">
-        Chart and lists load from the live API. Add or remove departments to see updates after refresh or when you switch back to this browser tab.
-      </p>
     </>
   );
 }

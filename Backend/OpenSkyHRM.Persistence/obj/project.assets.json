@@ -2705,8 +2705,8 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
-              "projectPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
+            "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
+              "projectPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
             }
           }
         }

@@ -373,23 +373,6 @@ export default function RecruitmentPage() {
         subtitle="Live hiring metrics from your OpenSky HRM data (where your role and licenses allow)."
       />
 
-      {/* Hero — same shell as Command Center / dashboard */}
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-7 py-8 text-slate-900 shadow-sm">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-sky-100/50 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-sky-100/40 blur-3xl" />
-        <div className="relative z-10">
-          <div>
-            <p className="mb-2 inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-              Live workspace
-            </p>
-            <h2 className="text-2xl font-semibold leading-tight text-slate-900 lg:text-3xl">Requisitions, pipeline & interviews</h2>
-            <p className="mt-3 max-w-2xl text-sm text-slate-600">
-              KPIs and lists load from the recruitment API. Some tiles show &quot;—&quot; if a feature is not licensed or your role cannot access that data.
-            </p>
-          </div>
-        </div>
-      </section>
-
       <div className="mt-6 flex flex-wrap gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/90 p-1.5 shadow-sm">
         {TABS.map((t) => (
           <button
@@ -425,7 +408,6 @@ export default function RecruitmentPage() {
               <div key={kpi.label} className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
                 <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-                <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
               </div>
             ))}
           </div>
@@ -439,7 +421,6 @@ export default function RecruitmentPage() {
               <div key={kpi.label} className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
                 <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-                <div className="mt-2 text-xs text-slate-600">{kpi.sub}</div>
               </div>
             ))}
           </div>

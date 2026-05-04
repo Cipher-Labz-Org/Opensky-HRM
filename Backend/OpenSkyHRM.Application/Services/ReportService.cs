@@ -31,6 +31,7 @@ public class ReportService : IReportService
                     new() { Key = "work-anniversary", Name = "Work Anniversary", Description = "Employee service anniversaries for the current month" },
                     new() { Key = "probation-due", Name = "Probation End Due", Description = "Employees whose probation is ending soon" },
                     new() { Key = "headcount-summary", Name = "Headcount Summary", Description = "Overall headcount statistics across departments and business units" },
+                    new() { Key = "attachments", Name = "Employee Attachments", Description = "Attachment records by employee, type, upload date, and expiry" },
                 }
             },
             new()
@@ -144,6 +145,7 @@ public class ReportService : IReportService
         Tag("people", "work-anniversary", true, "monthOnly");
         Tag("people", "probation-due", true, "dateRange");
         Tag("people", "headcount-summary", true, "none");
+        Tag("people", "attachments", true, "dateRange");
 
         Tag("leave", "leave-balance", true, "none");
         Tag("leave", "leave-utilization", true, "none");
@@ -202,6 +204,7 @@ public class ReportService : IReportService
             "people/work-anniversary" => await WorkAnniversaryReport(filters),
             "people/probation-due" => await ProbationDueReport(filters),
             "people/headcount-summary" => await HeadcountSummaryReport(filters),
+            "people/attachments" => await EmployeeAttachmentsReport(filters),
 
             "leave/leave-balance" => await LeaveBalanceSummaryReport(filters),
             "leave/leave-utilization" => await LeaveUtilizationReport(filters),
@@ -478,6 +481,71 @@ public class ReportService : IReportService
             rows.Add(new() { ["Metric"] = $"Dept: {deptGroup.Key}", ["Count"] = deptGroup.Count() });
 
         return Build("Headcount Summary", new List<string> { "Metric", "Count" }, rows);
+    }
+
+    private async Task<ReportResultDto> EmployeeAttachmentsReport(Dictionary<string, string>? filters)
+    {
+        var from = DateTime.UtcNow.AddYears(-1).Date;
+        var to = DateTime.UtcNow.Date;
+        if (filters != null)
+        {
+            if (filters.TryGetValue("from", out var f) && DateTime.TryParse(f, out var fd)) from = fd.Date;
+            if (filters.TryGetValue("to", out var t) && DateTime.TryParse(t, out var td)) to = td.Date;
+        }
+
+        var q = _db.Set<EmployeeAttachment>()
+            .Include(a => a.Employee).ThenInclude(e => e.Department)
+            .Include(a => a.AttachmentType)
+            .Where(a => !a.IsDeleted && a.CreatedAt >= from && a.CreatedAt <= to.AddDays(1).AddTicks(-1))
+            .AsQueryable();
+
+        if (TryGetDepartmentId(filters, out var deptId))
+            q = q.Where(a => a.Employee.DepartmentId == deptId);
+
+        var data = await q
+            .OrderByDescending(a => a.CreatedAt)
+            .ThenBy(a => a.Employee.FirstName)
+            .Take(2000)
+            .ToListAsync();
+
+        var cols = new List<string>
+        {
+            "Employee Code",
+            "Employee Name",
+            "Department",
+            "Attachment Type",
+            "File Name",
+            "File Size (KB)",
+            "Uploaded At",
+            "Expiry Date",
+            "Status",
+        };
+
+        var rows = data.Select(a =>
+        {
+            var status = "No Expiry";
+            if (a.ExpiryDate.HasValue)
+            {
+                status = a.ExpiryDate.Value.Date < DateTime.UtcNow.Date
+                    ? "Expired"
+                    : "Active";
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["Employee Code"] = a.Employee.EmployeeCode,
+                ["Employee Name"] = a.Employee.FullName,
+                ["Department"] = a.Employee.Department?.Name,
+                ["Attachment Type"] = a.AttachmentType?.Name ?? "Unspecified",
+                ["File Name"] = a.FileName,
+                ["File Size (KB)"] = Math.Round((decimal)a.Size / 1024m, 1),
+                ["Uploaded At"] = a.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+                ["Expiry Date"] = a.ExpiryDate?.ToString("yyyy-MM-dd"),
+                ["Status"] = status,
+            };
+        }).ToList();
+
+        return Build($"Employee Attachments ({from:yyyy-MM-dd} to {to:yyyy-MM-dd})", cols, rows);
     }
 
     // ========== LEAVE ==========

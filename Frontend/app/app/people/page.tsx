@@ -329,7 +329,6 @@ export default function PeoplePage() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-800">People Hub</h1>
-            <p className="mt-0.5 text-[13px] text-slate-400">Manage your workforce — employees, contracts, and lifecycle.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {(isAdmin || hasPermission("People", "Read")) && !showSimplifiedView && (

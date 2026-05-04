@@ -56,6 +56,8 @@ interface UserProfile {
   licensedModules?: string[];
   /** When set and non-empty, People APIs limit this user to employees at these work locations. */
   assignedLocationIds?: string[];
+  /** When true, app layout forces password change before other pages. */
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextType {
@@ -63,7 +65,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<UserProfile>;
   logout: () => void;
   /** Reload /api/auth/me (e.g. after licensing changes). */
   refreshProfile: () => Promise<void>;
@@ -79,7 +81,9 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   isAuthenticated: false,
   isLoading: true,
-  login: async () => {},
+  login: async () => {
+    throw new Error("AuthProvider not mounted");
+  },
   logout: () => {},
   refreshProfile: async () => {},
   hasPermission: () => false,
@@ -169,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (profile) setUser(profile);
   }, [fetchProfile, token]);
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string): Promise<UserProfile> => {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), LOGIN_FETCH_MS);
     let res: Response;
@@ -233,6 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     document.cookie = `auth_token=${data.token}; path=/; max-age=${8 * 60 * 60}; samesite=lax`;
     setToken(data.token);
     setUser(data.user);
+    return data.user;
   };
 
   const logout = () => {

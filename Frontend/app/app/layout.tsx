@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { APP_NAME } from "@/config/constants";
 import { AppSidebar } from "@/components/navigation/AppSidebar";
 import { AppGlobalHeader } from "@/components/navigation/AppGlobalHeader";
-import { PeopleHubHelpProvider } from "@/components/help/PeopleHubHelpPanel";
 import { AppDialogsProvider } from "@/components/ui/AppDialogsProvider";
 import { LicensePageGate } from "@/components/licensing/LicensePageGate";
 import { ROUTES } from "@/config/routes";
@@ -75,6 +75,10 @@ const ALL_NAV_GROUPS: NavGroup[] = [
       { href: ROUTES.userManagement, label: "User Management", module: "Administration" },
     ],
   },
+  {
+    title: "Help",
+    items: [{ href: ROUTES.helpGuides, label: "Help & guides" }],
+  },
 ];
 
 function isLicensedForNav(
@@ -114,8 +118,23 @@ function FullScreenSpinner() {
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const { user, isAuthenticated, isLoading, logout, hasPermission, isAdmin } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (isLoading || !user) return;
+    if (user.mustChangePassword && pathname !== ROUTES.changePassword) {
+      window.location.replace(ROUTES.changePassword);
+    }
+  }, [isLoading, user, pathname]);
+
+  useEffect(() => {
+    if (isLoading || !user) return;
+    if (!user.mustChangePassword && pathname === ROUTES.changePassword) {
+      window.location.replace(ROUTES.dashboard);
+    }
+  }, [isLoading, user, pathname]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -136,7 +155,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return <FullScreenSpinner />;
   }
 
-  const licensedModules = user?.licensedModules;
+  if (!user) {
+    return <FullScreenSpinner />;
+  }
+
+  if (user.mustChangePassword) {
+    if (pathname === ROUTES.changePassword) {
+      return (
+        <AppDialogsProvider>
+          <div className="flex min-h-screen flex-col bg-[var(--bg)]">
+            <main className="flex flex-1 flex-col items-center justify-center p-6 sm:p-8">{children}</main>
+          </div>
+        </AppDialogsProvider>
+      );
+    }
+    return <FullScreenSpinner />;
+  }
+
+  if (pathname === ROUTES.changePassword) {
+    return <FullScreenSpinner />;
+  }
+
+  const licensedModules = user.licensedModules;
 
   const filteredNavGroups = ALL_NAV_GROUPS
     .map((group) => ({
@@ -149,28 +189,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     .filter((group) => group.items.length > 0);
 
   return (
-    <PeopleHubHelpProvider>
-      <AppDialogsProvider>
-        <div className="app-shell-grid flex min-h-screen">
-          <AppSidebar
-            appName={APP_NAME}
-            navGroups={filteredNavGroups}
-            collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-          />
+    <AppDialogsProvider>
+      <div className="app-shell-grid flex min-h-screen">
+        <AppSidebar
+          appName={APP_NAME}
+          navGroups={filteredNavGroups}
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        />
         <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-[var(--bg)]">
-            {user ? <AppGlobalHeader user={user} onLogout={logout} /> : null}
+          <AppGlobalHeader user={user} onLogout={logout} />
           <main className="flex-1 p-6 sm:p-7" style={{ minWidth: 0 }}>
-              <LicensePageGate>{children}</LicensePageGate>
-            </main>
-            <footer className="border-t border-slate-200 bg-white/90 px-6 py-3 text-center backdrop-blur-sm sm:px-7">
-              <p className="text-xs tracking-wide text-slate-500">
-                © {new Date().getFullYear()} OpenSky HRM · Enabling Growth
-              </p>
-            </footer>
-          </div>
+            <LicensePageGate>{children}</LicensePageGate>
+          </main>
+          <footer className="border-t border-slate-200 bg-white/90 px-6 py-3 text-center backdrop-blur-sm sm:px-7">
+            <p className="text-xs tracking-wide text-slate-500">
+              © {new Date().getFullYear()} OpenSky HRM · Enabling Growth
+            </p>
+          </footer>
         </div>
-      </AppDialogsProvider>
-    </PeopleHubHelpProvider>
+      </div>
+    </AppDialogsProvider>
   );
 }
