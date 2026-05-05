@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef, type FormEvent, type CSSProperties } from "react";
 import React from "react";
 import Link from "next/link";
-import { useAuth } from "@/contexts/auth-context";
-import { API_BASE_URL } from "@/config/constants";
-import { ROUTES } from "@/config/routes";
+import { useAuth } from "../../contexts/auth-context";
+import { API_BASE_URL } from "../../config/constants";
+import { ROUTES } from "../../config/routes";
 
 type Branding = {
   companyName: string;
