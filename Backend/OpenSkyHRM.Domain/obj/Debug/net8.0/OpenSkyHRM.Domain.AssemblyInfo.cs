@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("OpenSkyHRM.Domain")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+030e6691272d71d9ac27dc600075d3ad563087de")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1520430668f0424f9260da225f0321c12bd41889")]
 [assembly: System.Reflection.AssemblyProductAttribute("OpenSkyHRM.Domain")]
 [assembly: System.Reflection.AssemblyTitleAttribute("OpenSkyHRM.Domain")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
