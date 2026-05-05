@@ -18,3 +18,16 @@ node_modules/
 .turbo/
 .eslintcache
 coverage/
+.vercel/
+node_modules/
+.next/
+.dist/
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.env.development.local
+.env.test.local
+.env.production.local
+.vs/
