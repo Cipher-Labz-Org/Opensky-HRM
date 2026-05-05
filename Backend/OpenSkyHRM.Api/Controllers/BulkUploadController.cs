@@ -17,9 +17,6 @@ public class BulkUploadController : ControllerBase
 {
     private readonly AppDbContext _db;
 
-    /// <summary>Default password for auto-created user accounts from employee bulk import (must change on first login).</summary>
-    public const string BulkImportDefaultLoginPassword = "123";
-
     public BulkUploadController(AppDbContext db) => _db = db;
 
     [HttpGet("template")]
@@ -97,7 +94,7 @@ public class BulkUploadController : ControllerBase
 
     [HttpPost("employees")]
     [RequestSizeLimit(20_000_000)]
-    public async Task<IActionResult> UploadEmployees(IFormFile file, [FromForm] bool createUserLogins = false)
+    public async Task<IActionResult> UploadEmployees(IFormFile file)
     {
         if (file is null || file.Length == 0)
             return BadRequest("No file uploaded.");
@@ -139,18 +136,6 @@ public class BulkUploadController : ControllerBase
         var results = new List<RowResult>();
         int created = 0;
         int skipped = 0;
-        int loginsCreated = 0;
-
-        Guid? employeeRoleId = null;
-        var importUsernamesReserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (createUserLogins)
-        {
-            var empRole = await _db.SecurityRoles.AsNoTracking()
-                .FirstOrDefaultAsync(r => !r.IsDeleted && r.Code == "EMPLOYEE");
-            if (empRole is null)
-                return BadRequest(new { message = "Cannot create user logins: EMPLOYEE security role was not found." });
-            employeeRoleId = empRole.Id;
-        }
 
         using var stream = file.OpenReadStream();
         using var wb = new XLWorkbook(stream);
@@ -200,9 +185,6 @@ public class BulkUploadController : ControllerBase
             var firstName = Cell(row, "First Name");
             var lastName = Cell(row, "Last Name");
             var email = Cell(row, "Email");
-            // Prefer explicit username from import sheet for login creation.
-            // Support common header variants to avoid user template mismatches.
-            var usernameFromSheet = CellAny(row, "Username", "User Name", "UseName");
             var deptName = Cell(row, "Department");
             var genderStr = Cell(row, "Gender");
             var dobStr = DateCell(row, "Date of Birth");
@@ -210,6 +192,7 @@ public class BulkUploadController : ControllerBase
 
             if (string.IsNullOrEmpty(firstName)) errors.Add("First Name is required");
             if (string.IsNullOrEmpty(lastName)) errors.Add("Last Name is required");
+            if (string.IsNullOrEmpty(email)) errors.Add("Email is required");
             if (string.IsNullOrEmpty(deptName)) errors.Add("Department is required");
             if (dobStr is null) errors.Add("Date of Birth is required");
             if (joinStr is null) errors.Add("Joined Date is required");
@@ -285,13 +268,6 @@ public class BulkUploadController : ControllerBase
                 continue;
             }
 
-            // Email is optional for import UX, but DB keeps Employee.Email required + unique.
-            // Use deterministic placeholder when missing so rows can still be imported safely.
-            var hasProvidedEmail = !string.IsNullOrWhiteSpace(email);
-            var resolvedEmail = hasProvidedEmail
-                ? email!
-                : $"noemail+{empCode!.ToLowerInvariant()}@import.local";
-
             var buName = Cell(row, "Business Unit");
             var bu = buName != null ? businessUnits.FirstOrDefault(b => b.Name.Equals(buName, StringComparison.OrdinalIgnoreCase)) : null;
             var gradeName = Cell(row, "Grade");
@@ -324,7 +300,7 @@ public class BulkUploadController : ControllerBase
                 FirstName = firstName!,
                 MiddleName = Cell(row, "Middle Name"),
                 LastName = lastName!,
-                Email = resolvedEmail,
+                Email = email!,
                 Phone = Cell(row, "Phone"),
                 DateOfBirth = DateTime.SpecifyKind(dobStr!.Value, DateTimeKind.Utc),
                 Gender = gender,
@@ -383,58 +359,17 @@ public class BulkUploadController : ControllerBase
                 IsTopOfHierarchy = ParseYesNo(Cell(row, "Is Top of Hierarchy")),
             };
 
-            List<string>? rowNotes = null;
-            if (createUserLogins && employeeRoleId.HasValue)
-            {
-                if (!hasProvidedEmail)
-                {
-                    rowNotes = new List<string>
-                    {
-                        "Employee imported; no login created — email was blank in the uploaded row.",
-                    };
-                }
-                else if (await _db.Users.AnyAsync(u => u.Email == employee.Email && !u.IsDeleted))
-                {
-                    rowNotes = new List<string>
-                    {
-                        "Employee imported; no login created — this email is already used by an existing user account.",
-                    };
-                }
-                else
-                {
-                    var username = await EnsureUniqueUsernameForImportAsync(
-                        _db, importUsernamesReserved, usernameFromSheet, email!, firstName!, lastName!, HttpContext.RequestAborted);
-                    importUsernamesReserved.Add(username);
-                    var user = new User
-                    {
-                        Username = username,
-                        Email = employee.Email,
-                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(BulkImportDefaultLoginPassword),
-                        IsActive = true,
-                        EmployeeId = employee.Id,
-                        MustChangePassword = true,
-                    };
-                    user.UserRoles.Add(new UserRole { RoleId = employeeRoleId.Value });
-                    _db.Users.Add(user);
-                    loginsCreated++;
-                    rowNotes = new List<string>
-                    {
-                        $"Login created (username: {username}). Default password is the bulk-import default; user must change password on first sign-in.",
-                    };
-                }
-            }
-
             _db.Employees.Add(employee);
             existingCodes.Add(empCode!);
             if (!managerLookup.ContainsKey(empCode!))
                 managerLookup[empCode!] = employee.Id;
             created++;
-            results.Add(new RowResult(r, firstName!, lastName!, true, new List<string>(), rowNotes));
+            results.Add(new RowResult(r, firstName!, lastName!, true, new List<string>()));
         }
 
         await _db.SaveChangesAsync();
 
-        return Ok(new UploadResult(created, skipped, lastRow - 1, results, loginsCreated));
+        return Ok(new UploadResult(created, skipped, lastRow - 1, results));
     }
 
     private static async Task<Dictionary<string, string>> BuildEmploymentTypeCodeMapAsync(AppDbContext db)
@@ -511,39 +446,6 @@ public class BulkUploadController : ControllerBase
             || v == "1";
     }
 
-    private static async Task<string> EnsureUniqueUsernameForImportAsync(
-        AppDbContext db,
-        HashSet<string> batchReserved,
-        string? preferredUsername,
-        string email,
-        string firstName,
-        string lastName,
-        CancellationToken cancellationToken = default)
-    {
-        string basePart;
-        if (!string.IsNullOrWhiteSpace(preferredUsername))
-            basePart = preferredUsername;
-        else if (!string.IsNullOrWhiteSpace(email) && email.Contains('@', StringComparison.Ordinal))
-            basePart = email[..email.IndexOf('@', StringComparison.Ordinal)];
-        else
-            basePart = $"{firstName}.{lastName}";
-
-        var chars = basePart.Where(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-').ToArray();
-        var clean = new string(chars);
-        if (string.IsNullOrEmpty(clean)) clean = "user";
-        if (clean.Length > 72) clean = clean[..72];
-
-        for (var n = 0; ; n++)
-        {
-            var suffix = n == 0 ? "" : n.ToString();
-            var candidate = string.Concat(clean.AsSpan(0, Math.Min(clean.Length, 100 - suffix.Length)), suffix);
-            if (candidate.Length > 100) candidate = candidate[..100];
-            var existsDb = await db.Users.AnyAsync(u => u.Username == candidate && !u.IsDeleted, cancellationToken);
-            if (!existsDb && !batchReserved.Contains(candidate))
-                return candidate;
-        }
-    }
-
     /// <summary>Column headers for the employee import sheet. Order is for template UX only; upload matches by header name.</summary>
     private static string[] GetEmployeeColumns() => new[]
     {
@@ -552,7 +454,6 @@ public class BulkUploadController : ControllerBase
         "Middle Name",
         "Last Name",
         "Email",
-        "Username",
         "Phone",
         "Gender",
         "Date of Birth",
@@ -787,8 +688,8 @@ public class BulkUploadController : ControllerBase
         return Ok(new LeaveBalanceUploadResult(created, updated, skipped, lastRow - 1, results));
     }
 
-    public record RowResult(int Row, string FirstName, string LastName, bool Success, List<string> Errors, List<string>? Notes = null);
-    public record UploadResult(int Created, int Skipped, int TotalRows, List<RowResult> Results, int LoginsCreated = 0);
+    public record RowResult(int Row, string FirstName, string LastName, bool Success, List<string> Errors);
+    public record UploadResult(int Created, int Skipped, int TotalRows, List<RowResult> Results);
     public record LeaveBalanceRowResult(int Row, string EmployeeCode, string LeaveType, string Status, List<string> Errors);
     public record LeaveBalanceUploadResult(int Created, int Updated, int Skipped, int TotalRows, List<LeaveBalanceRowResult> Results);
 }
