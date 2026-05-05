@@ -18,6 +18,22 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
+    },
+    "http-MailHog": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5000",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Smtp__Host": "127.0.0.1",
+        "Smtp__Port": "1025",
+        "Smtp__From": "dev@localhost",
+        "Smtp__FromName": "OpenSky HRM (local)",
+        "Smtp__Username": "",
+        "Smtp__Password": "",
+        "Smtp__EnableSsl": "false"
+      }
     }
   }
 }

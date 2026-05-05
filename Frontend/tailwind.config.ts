@@ -3,7 +3,16 @@ import type { Config } from "tailwindcss";
 const config: Config = {
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    // Explicit paths for Next route groups / dynamic segments so Tailwind always scans them
+    // (broad `**` globs can miss folders named `(group)` or `[param]` on some platforms).
+    "./app/(marketing)/**/*.{js,ts,jsx,tsx,mdx}",
+    // In globs, `[` `]` are special; escape so `[id]` is not treated as a character class.
+    "./app/app/people/\\[id\\]/**/*.{js,ts,jsx,tsx,mdx}",
+    "./app/app/recruitment/candidate/\\[id\\]/**/*.{js,ts,jsx,tsx,mdx}",
+    "./app/tenant/\\[tenant\\]/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./lib/**/*.{js,ts,jsx,tsx,mdx}",
+    "./contexts/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {

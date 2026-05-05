@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { FormSelect, type FormSelectOption } from "@/components/ui";
 
-interface OutboundEmailLogRow {
+export interface OutboundEmailLogRow {
   id: string;
   createdAt: string;
   category: string;
@@ -18,14 +19,21 @@ interface OutboundEmailLogRow {
   errorDetail: string | null;
 }
 
-interface Paged {
+export interface EmailDeliveryLogPaged {
   items: OutboundEmailLogRow[];
   totalCount: number;
   page: number;
   pageSize: number;
 }
 
-const STATUS_OPTIONS = [
+export type EmailDeliveryLogUiSnapshot = {
+  data: EmailDeliveryLogPaged | null;
+  statusFilter: string;
+  loading: boolean;
+  error: string;
+};
+
+const STATUS_OPTIONS: FormSelectOption[] = [
   { value: "", label: "All statuses" },
   { value: "Sent", label: "Sent" },
   { value: "Failed", label: "Failed" },
@@ -39,8 +47,12 @@ function statusBadgeClass(status: string) {
   return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
-export function EmailDeliveryLogContent() {
-  const [data, setData] = useState<Paged | null>(null);
+type EmailDeliveryLogContentProps = {
+  onSnapshotChange?: (snapshot: EmailDeliveryLogUiSnapshot) => void;
+};
+
+export function EmailDeliveryLogContent({ onSnapshotChange }: EmailDeliveryLogContentProps) {
+  const [data, setData] = useState<EmailDeliveryLogPaged | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
@@ -56,7 +68,7 @@ export function EmailDeliveryLogContent() {
         pageSize: String(pageSize),
       });
       if (statusFilter) q.set("status", statusFilter);
-      const res = await apiFetch<Paged>(`/api/email-delivery-logs?${q.toString()}`);
+      const res = await apiFetch<EmailDeliveryLogPaged>(`/api/email-delivery-logs?${q.toString()}`);
       setData(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load email log");
@@ -69,28 +81,27 @@ export function EmailDeliveryLogContent() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    onSnapshotChange?.({ data, statusFilter, loading, error });
+  }, [data, statusFilter, loading, error, onSnapshotChange]);
+
   const totalPages = data ? Math.max(1, Math.ceil(data.totalCount / pageSize)) : 1;
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-slate-600">
-          <span>Status</span>
-          <select
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex min-w-0 flex-col gap-1.5 sm:min-w-[14rem]">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
+          <FormSelect
             value={statusFilter}
-            onChange={(e) => {
+            onValueChange={(v) => {
               setPage(1);
-              setStatusFilter(e.target.value);
+              setStatusFilter(v);
             }}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-          >
-            {STATUS_OPTIONS.map((o) => (
-              <option key={o.value || "all"} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            options={STATUS_OPTIONS}
+            placeholder="All statuses"
+          />
+        </div>
         <Button type="button" variant="secondary" onClick={() => load()} disabled={loading}>
           Refresh
         </Button>
@@ -105,7 +116,7 @@ export function EmailDeliveryLogContent() {
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>

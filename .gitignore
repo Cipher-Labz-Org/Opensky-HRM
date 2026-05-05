@@ -10,3 +10,6 @@
 # Build outputs
 **/bin/
 **/obj/
+
+# Local SMTP / secrets (copy from appsettings.Local.example.json)
+Backend/OpenSkyHRM.Api/appsettings.Local.json

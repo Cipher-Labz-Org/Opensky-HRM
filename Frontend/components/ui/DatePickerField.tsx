@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import "react-day-picker/style.css";
 import { format } from "date-fns";
 import { enGB } from "date-fns/locale";
 import { DayPicker, type Matcher } from "react-day-picker";

@@ -1,7 +1,40 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE_URL } from "@/config/constants";
+
+const PROFILE_FETCH_MS = 10_000;
+const LOGIN_FETCH_MS = 20_000;
+
+/** Match role codes and display names returned by different API shapes / legacy data. */
+const ROLE_ALIASES: Record<string, readonly string[]> = {
+  ADMIN: ["ADMIN", "Admin"],
+  HR_MANAGER: ["HR_MANAGER", "HR Manager"],
+  SUPERVISOR: ["SUPERVISOR", "Supervisor"],
+  EMPLOYEE: ["EMPLOYEE", "Employee"],
+};
+
+function roleListMatches(userRoles: string[], roleCode: string): boolean {
+  const key = roleCode.trim().toUpperCase();
+  const aliases = ROLE_ALIASES[key] ?? [roleCode];
+  const want = new Set(aliases.map((a) => a.trim().toLowerCase()));
+  return userRoles.some((r) => want.has(r.trim().toLowerCase()));
+}
+
+/** Best-effort JWT `exp` read; false = not clearly expired (validate with API). */
+function isBearerTokenExpired(token: string): boolean {
+  try {
+    const segment = token.split(".")[1];
+    if (!segment) return false;
+    const b64 = segment.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(padded)) as { exp?: unknown };
+    if (typeof payload.exp !== "number") return false;
+    return payload.exp * 1000 <= Date.now();
+  } catch {
+    return false;
+  }
+}
 
 interface PermissionInfo {
   module: string;
@@ -21,6 +54,10 @@ interface UserProfile {
   permissions: PermissionInfo[];
   /** Instance entitlements from the API (empty/omitted treated as unrestricted for older clients). */
   licensedModules?: string[];
+  /** When set and non-empty, People APIs limit this user to employees at these work locations. */
+  assignedLocationIds?: string[];
+  /** When true, app layout forces password change before other pages. */
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextType {
@@ -28,7 +65,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<UserProfile>;
   logout: () => void;
   /** Reload /api/auth/me (e.g. after licensing changes). */
   refreshProfile: () => Promise<void>;
@@ -44,7 +81,9 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   isAuthenticated: false,
   isLoading: true,
-  login: async () => {},
+  login: async () => {
+    throw new Error("AuthProvider not mounted");
+  },
   logout: () => {},
   refreshProfile: async () => {},
   hasPermission: () => false,
@@ -58,6 +97,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  /** Bumps on each bootstrap run so stale Strict-Mode / duplicate fetches cannot clear session or toggle loading. */
+  const authBootstrapId = useRef(0);
 
   const clearAuth = useCallback(() => {
     setUser(null);
@@ -67,14 +108,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const fetchProfile = useCallback(async (authToken: string): Promise<UserProfile | null> => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), PROFILE_FETCH_MS);
     try {
       const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
         headers: { Authorization: `Bearer ${authToken}` },
+        signal: controller.signal,
       });
       if (!res.ok) return null;
-      return await res.json();
-    } catch {
+      const bodyText = await res.text();
+      const trimmed = bodyText.replace(/^\uFEFF/, "").trim();
+      if (!trimmed) return null;
+      try {
+        return JSON.parse(trimmed) as UserProfile;
+      } catch {
+        return null;
+      }
+    } catch (e) {
+      const aborted =
+        e instanceof DOMException
+          ? e.name === "AbortError"
+          : e instanceof Error && e.name === "AbortError";
+      if (aborted) return null;
       return null;
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }, []);
 
@@ -84,15 +142,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
       return;
     }
-    setToken(stored);
-    fetchProfile(stored).then((profile) => {
-      if (profile) {
-        setUser(profile);
-      } else {
-        clearAuth();
-      }
+    if (isBearerTokenExpired(stored)) {
+      clearAuth();
       setIsLoading(false);
-    });
+      return;
+    }
+    setToken(stored);
+    // Middleware gates `/app/*` on this cookie; localStorage alone would loop: /login → /app → /login.
+    document.cookie = `auth_token=${stored}; path=/; max-age=${8 * 60 * 60}; samesite=lax`;
+
+    const bootstrapId = ++authBootstrapId.current;
+    fetchProfile(stored)
+      .then((profile) => {
+        if (bootstrapId !== authBootstrapId.current) return;
+        if (profile) {
+          setUser(profile);
+        } else {
+          clearAuth();
+        }
+      })
+      .finally(() => {
+        if (bootstrapId === authBootstrapId.current) setIsLoading(false);
+      });
   }, [fetchProfile, clearAuth]);
 
   const refreshProfile = useCallback(async () => {
@@ -102,18 +173,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (profile) setUser(profile);
   }, [fetchProfile, token]);
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string): Promise<UserProfile> => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), LOGIN_FETCH_MS);
     let res: Response;
     try {
       res = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
+        signal: controller.signal,
       });
-    } catch {
+    } catch (e) {
+      const aborted =
+        e instanceof DOMException
+          ? e.name === "AbortError"
+          : e instanceof Error && e.name === "AbortError";
+      if (aborted) {
+        throw new Error(
+          `Login request timed out after ${LOGIN_FETCH_MS / 1000}s. Check that the API is running and NEXT_PUBLIC_API_URL points to it (${API_BASE_URL}).`
+        );
+      }
       throw new Error(
         `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
       );
+    } finally {
+      window.clearTimeout(timeoutId);
     }
 
     const text = await res.text();
@@ -152,6 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     document.cookie = `auth_token=${data.token}; path=/; max-age=${8 * 60 * 60}; samesite=lax`;
     setToken(data.token);
     setUser(data.user);
+    return data.user;
   };
 
   const logout = () => {
@@ -161,13 +247,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasPermission = (module: string, action: string): boolean => {
     if (!user) return false;
-    if (user.roles.includes("ADMIN")) return true;
+    if (roleListMatches(user.roles, "ADMIN")) return true;
     return user.permissions.some((p) => p.module === module && p.action === action);
   };
 
   const getPeopleReadScope = (): "Own" | "Team" | "All" | null => {
     if (!user) return null;
-    if (user.roles.includes("ADMIN")) return "All";
+    if (roleListMatches(user.roles, "ADMIN")) return "All";
     const p = user.permissions.find((x) => x.module === "People" && x.action === "Read");
     if (!p) return null;
     const scope = p.scope ?? "Own";
@@ -177,7 +263,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const getLeaveReadScope = (): "Own" | "Team" | "All" | null => {
     if (!user) return null;
-    if (user.roles.includes("ADMIN")) return "All";
+    if (roleListMatches(user.roles, "ADMIN")) return "All";
     const leaveReadPerms = user.permissions.filter((x) => x.module === "Leave" && x.action === "Read");
     if (leaveReadPerms.length === 0) return null;
     // Prefer highest scope when user has multiple roles (e.g. Employee + Supervisor)
@@ -188,10 +274,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasRole = (roleCode: string): boolean => {
     if (!user) return false;
-    return user.roles.includes(roleCode);
+    return roleListMatches(user.roles, roleCode);
   };
 
-  const isAdmin = user?.roles.includes("ADMIN") ?? false;
+  const isAdmin = user ? roleListMatches(user.roles, "ADMIN") : false;
 
   return (
     <AuthContext.Provider

@@ -11,7 +11,8 @@ public class SystemSettingConfiguration : IEntityTypeConfiguration<SystemSetting
         builder.ToTable("SystemSettings");
         builder.HasKey(s => s.Key);
         builder.Property(s => s.Key).HasMaxLength(100);
-        builder.Property(s => s.Value).HasMaxLength(500).IsRequired();
+        // Large JSON blobs (e.g. carry-forward narrative) exceed short varchar limits.
+        builder.Property(s => s.Value).HasMaxLength(20000).IsRequired();
         builder.Property(s => s.Description).HasMaxLength(500);
 
         builder.HasData(

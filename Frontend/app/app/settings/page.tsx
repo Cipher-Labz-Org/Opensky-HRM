@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
@@ -10,8 +10,8 @@ import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
-
-import { Modal } from "@/components/ui/Modal";
+import { useAuth } from "@/contexts/auth-context";
+import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
 
 interface CountSummary {
   businessUnits: number;
@@ -24,19 +24,8 @@ interface CountSummary {
   attachmentTypes: number;
 }
 
-interface TemplateListItem {
-  id: string;
-  name: string;
-  templateKey: string;
-  isActive: boolean;
-}
-
-interface TemplateDetail extends TemplateListItem {
-  subject?: string | null;
-  htmlContent: string;
-}
-
 export default function SettingsPage() {
+  const { isAdmin } = useAuth();
   const searchParams = useSearchParams();
   const [showCreate, setShowCreate] = useState(false);
   const [editBU, setEditBU] = useState(false);
@@ -56,14 +45,6 @@ export default function SettingsPage() {
   const [codeSaving, setCodeSaving] = useState(false);
   const [codeMsg, setCodeMsg] = useState("");
   const [codePreview, setCodePreview] = useState("");
-
-  const [letterTemplates, setLetterTemplates] = useState<TemplateListItem[]>([]);
-  const [editingTemplate, setEditingTemplate] = useState<TemplateDetail | null>(null);
-  const [tplName, setTplName] = useState("");
-  const [tplHtml, setTplHtml] = useState("");
-  const [tplActive, setTplActive] = useState(true);
-  const [tplSaving, setTplSaving] = useState(false);
-  const [tplPreview, setTplPreview] = useState(false);
 
   const [approvalLevels, setApprovalLevels] = useState(1);
   const [approvalConfigSaving, setApprovalConfigSaving] = useState(false);
@@ -229,12 +210,6 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    apiFetch<TemplateListItem[]>("/api/documenttemplates")
-      .then((all) => setLetterTemplates(all.filter((t) => !t.templateKey.startsWith("Email_"))))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
     apiFetch<{ levels: number }>("/api/leave/approval-config")
       .then((cfg) => setApprovalLevels(cfg.levels))
       .catch(() => {});
@@ -248,40 +223,75 @@ export default function SettingsPage() {
     } catch { /* ignore */ } finally { setApprovalConfigSaving(false); }
   }
 
-  function openTemplateEditor(tpl: TemplateListItem) {
-    apiFetch<TemplateDetail>(`/api/documenttemplates/${tpl.id}`)
-      .then((full) => {
-        setEditingTemplate(full);
-        setTplName(full.name);
-        setTplHtml(full.htmlContent);
-        setTplActive(full.isActive);
-        setTplPreview(false);
-      })
-      .catch(() => {});
-  }
+  const totalMasterRecords = useMemo(
+    () =>
+      counts.businessUnits +
+      counts.grades +
+      counts.jobTitles +
+      counts.locations +
+      counts.statuses +
+      counts.empStatuses +
+      counts.skills +
+      counts.attachmentTypes,
+    [counts]
+  );
 
-  async function saveTemplate() {
-    if (!editingTemplate) return;
-    setTplSaving(true);
-    try {
-      const updated = await apiFetch<TemplateDetail>(`/api/documenttemplates/${editingTemplate.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          name: tplName,
-          subject: null,
-          htmlContent: tplHtml,
-          isActive: tplActive,
-        }),
-      });
-      const patch = { id: updated.id, name: updated.name, templateKey: updated.templateKey, isActive: updated.isActive };
-      setLetterTemplates((prev) => prev.map((t) => (t.id === updated.id ? patch : t)));
-      setEditingTemplate(null);
-    } catch {
-      alert("Failed to save template");
-    } finally {
-      setTplSaving(false);
-    }
-  }
+  const settingsDashboardKpis = useMemo(
+    () => [
+      {
+        label: "Master data records",
+        value: formatInt(totalMasterRecords),
+        sub: "BU, grades, jobs, locations, lookups…",
+      },
+      {
+        label: "Leave approval depth",
+        value: approvalLevels === 2 ? "2 levels" : "1 level",
+        sub: "Supervisor chain configuration",
+      },
+      {
+        label: "Employee code mode",
+        value: codeAutoGen ? "Auto" : "Manual",
+        sub: codeAutoGen ? `Preview ${codePreview}` : "Codes entered when creating employees",
+      },
+    ],
+    [totalMasterRecords, approvalLevels, codeAutoGen, codePreview]
+  );
+
+  const masterDataDistributionBars = useMemo(() => {
+    const colors = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#64748b", "#eab308"];
+    const rows = [
+      { label: "Business units", value: counts.businessUnits },
+      { label: "Grades", value: counts.grades },
+      { label: "Job titles", value: counts.jobTitles },
+      { label: "Locations", value: counts.locations },
+      { label: "Employment types", value: counts.statuses },
+      { label: "Employee statuses", value: counts.empStatuses },
+      { label: "Skills", value: counts.skills },
+      { label: "Attachment types", value: counts.attachmentTypes },
+    ].sort((a, b) => b.value - a.value);
+    return rows.map((r, i) => ({ ...r, color: colors[i % colors.length] }));
+  }, [counts]);
+
+  const masterDataDonut = useMemo(() => {
+    const palette = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6"];
+    return [
+      { label: "Business units", value: counts.businessUnits },
+      { label: "Grades", value: counts.grades },
+      { label: "Job titles", value: counts.jobTitles },
+      { label: "Locations", value: counts.locations },
+      { label: "Employment types", value: counts.statuses },
+      { label: "Employee statuses", value: counts.empStatuses },
+      { label: "Skills", value: counts.skills },
+      { label: "Attachments", value: counts.attachmentTypes },
+    ]
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6)
+      .map((c, i) => ({
+        label: c.label.length > 20 ? `${c.label.slice(0, 18)}…` : c.label,
+        value: c.value,
+        color: palette[i % palette.length],
+      }));
+  }, [counts]);
 
   return (
     <>
@@ -290,8 +300,10 @@ export default function SettingsPage() {
         subtitle="Workflow engine, role-based access, localization, statutory rules, and platform administration."
       />
 
-      <div className="mb-6 flex items-center justify-between">
-        <div />
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Security roles</p>
+        </div>
         <Button onClick={() => setShowCreate(true)}>+ New Security Role</Button>
       </div>
 
@@ -301,26 +313,136 @@ export default function SettingsPage() {
         onCreated={() => window.location.reload()}
       />
 
+      {isAdmin && (
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Customer onboarding reset</h3>
+            </div>
+            <Link
+              href={ROUTES.billingCustomerReset}
+              className="inline-flex shrink-0 items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+            >
+              Open reset
+            </Link>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {settingsDashboardKpis.map((kpi) => (
+          <div
+            key={kpi.label}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
+            <div className="mt-2 text-2xl font-semibold leading-tight text-slate-900">{kpi.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Master data footprint</h3>
+            <span className="text-xs text-slate-500">By list size</span>
+          </div>
+          <HorizontalCompareBars items={masterDataDistributionBars} />
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Catalog mix</h3>
+            <span className="text-xs text-slate-500">Top dimensions</span>
+          </div>
+          {masterDataDonut.some((d) => d.value > 0) ? (
+            <DonutMixChart values={masterDataDonut} />
+          ) : (
+            <p className="py-10 text-center text-sm text-slate-500">Add master data rows to see a distribution chart.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <h3 className="text-base font-semibold text-slate-900">Quick links</h3>
+        </div>
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+          <Link
+            href={ROUTES.emailTemplates}
+            className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-800">Email &amp; letter templates</div>
+              </div>
+              <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">→</span>
+            </div>
+          </Link>
+          <Link
+            href={ROUTES.emailDeliveryLog}
+            className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-800">Email delivery log</div>
+              </div>
+              <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">→</span>
+            </div>
+          </Link>
+          <Link
+            href={ROUTES.userManagement}
+            className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-800">User management</div>
+              </div>
+              <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">→</span>
+            </div>
+          </Link>
+          <Link
+            href={ROUTES.reports}
+            className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-800">Reports</div>
+              </div>
+              <span className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">→</span>
+            </div>
+          </Link>
+        </div>
+      </div>
+
       {/* Leave Approval Workflow */}
-      <div className="hris-card mb-6">
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-6">
         <div className="section-title">
           <h3>Leave Approval Workflow</h3>
-          <span>Number of approval levels for leave requests</span>
         </div>
         <div className="flex flex-wrap items-center gap-4 px-1 py-2">
           <p className="text-sm text-[var(--text-muted)]">Approval levels:</p>
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => saveLeaveApprovalConfig(1)}
               disabled={approvalConfigSaving}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${approvalLevels === 1 ? "bg-[var(--primary)] text-white shadow" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                approvalLevels === 1
+                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                  : "border-slate-200/80 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+              }`}
             >
               1 Level
             </button>
             <button
+              type="button"
               onClick={() => saveLeaveApprovalConfig(2)}
               disabled={approvalConfigSaving}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${approvalLevels === 2 ? "bg-[var(--primary)] text-white shadow" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                approvalLevels === 2
+                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                  : "border-slate-200/80 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+              }`}
             >
               2 Levels
             </button>
@@ -333,66 +455,76 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Company Logo */}
-      <div className="hris-card mb-6">
-        <div className="section-title">
-          <h3>Company Logo</h3>
-          <span>Upload your company logo to display in the sidebar navigation</span>
+      {/* Company Logo — shown on the sign-in page for all users */}
+      <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 p-6 shadow-sm ring-1 ring-slate-100">
+        <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900">Company logo</h3>
+            <p className="mt-0.5 text-sm text-slate-500">Upload once — it appears on the sign-in page.</p>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-6 px-1 py-3">
-          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-slate-200 bg-slate-50">
+
+        <div className="mt-6 flex max-w-[280px] flex-col items-stretch gap-4">
+          <div className="flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white/80 px-6 py-10 shadow-inner">
             {companyLogoUrl ? (
               <img
                 src={`${API_BASE_URL}${companyLogoUrl}`}
-                alt="Company Logo"
-                className="h-full w-full object-contain p-1"
+                alt="Company logo preview"
+                className="max-h-36 max-w-full object-contain"
               />
             ) : (
-              <svg className="h-8 w-8 text-slate-300" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-              </svg>
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/10 to-rose-500/10 text-slate-400">
+                  <svg className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth={1.25} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-slate-600">No logo yet</p>
+                <p className="max-w-[220px] text-xs leading-relaxed text-slate-400">PNG, JPG, SVG or WebP · max 5 MB · 200×200px or larger recommended</p>
+              </div>
             )}
           </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <input
-                ref={logoInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                className="hidden"
-                onChange={(e) => { if (e.target.files?.[0]) handleLogoUpload(e.target.files[0]); }}
-              />
+
+          <div className="flex w-full flex-col items-stretch gap-2">
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.[0]) handleLogoUpload(e.target.files[0]);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => logoInputRef.current?.click()}
+              disabled={logoUploading}
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-[#2B7DE9] hover:text-[#2B7DE9] disabled:opacity-60"
+            >
+              {logoUploading ? "Uploading…" : companyLogoUrl ? "Replace logo" : "Upload logo"}
+            </button>
+            {companyLogoUrl ? (
               <button
-                onClick={() => logoInputRef.current?.click()}
-                disabled={logoUploading}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-[#2B7DE9] hover:text-[#2B7DE9]"
+                type="button"
+                onClick={handleLogoRemove}
+                className="w-full rounded-xl border border-red-100 bg-red-50/80 px-4 py-3 text-sm font-semibold text-red-600 transition hover:border-red-200 hover:bg-red-50"
               >
-                {logoUploading ? "Uploading..." : companyLogoUrl ? "Change Logo" : "Upload Logo"}
+                Remove logo
               </button>
-              {companyLogoUrl && (
-                <button
-                  onClick={handleLogoRemove}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-red-500 shadow-sm transition hover:border-red-300 hover:bg-red-50"
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-            <p className="text-xs text-slate-400">PNG, JPG, SVG or WebP. Max 5 MB. Recommended: 200×200px or larger.</p>
-            {logoMsg && (
-              <p className={`text-xs font-medium ${logoMsg.includes("success") || logoMsg.includes("removed") ? "text-green-600" : "text-red-500"}`}>
+            ) : null}
+            {logoMsg ? (
+              <p className={`text-center text-xs font-medium ${logoMsg.includes("success") || logoMsg.includes("removed") ? "text-green-600" : "text-red-500"}`}>
                 {logoMsg}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
 
       {/* Company Details */}
-      <div className="hris-card mb-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-6">
         <div className="section-title">
           <h3>Company Details</h3>
-          <span>Set up your organization name, address, and contact information</span>
         </div>
         <div className="space-y-4 px-1 py-3">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -670,10 +802,9 @@ export default function SettingsPage() {
       />
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="hris-card">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Workflow Builder</h3>
-            <span>No-code flow control</span>
           </div>
           <div className="hris-list">
             <div className="hris-list-item">
@@ -690,10 +821,9 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
-        <div className="hris-card">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Security Model</h3>
-            <span>Granular access</span>
           </div>
           <table className="hris-table">
             <thead><tr><th>Role</th><th>Scope</th></tr></thead>
@@ -706,10 +836,9 @@ export default function SettingsPage() {
             </tbody>
           </table>
         </div>
-        <div className="hris-card">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Localization</h3>
-            <span>Multi-country ready</span>
           </div>
           <div className="hris-list">
             <div className="hris-list-item">
@@ -730,10 +859,9 @@ export default function SettingsPage() {
 
       {/* Master Data Blocks */}
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="hris-card">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Master Data Blocks</h3>
-            <span>Reusable configuration</span>
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
@@ -802,78 +930,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="hris-card">
-          <div className="section-title">
-            <h3>Letter Templates</h3>
-            <span>Configure document templates for employee letters</span>
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs text-[var(--text-muted)] mb-3 rounded-lg bg-[var(--bg-subtle)] px-3 py-2">
-              To edit <strong>transactional emails</strong> (leave confirmation, offer, etc.), open{" "}
-              <Link href={ROUTES.emailTemplates} className="font-medium text-[var(--primary)] hover:underline">
-                Email templates
-              </Link>{" "}
-              under <strong>Audit &amp; Compliance</strong> in the sidebar (or use this link).
-            </p>
-            <p className="text-xs text-[var(--text-muted)] mb-2">
-              Available placeholders: <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{EmployeeName}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{EmployeeCode}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{JobTitle}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{Department}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{JoinDate}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{CurrentDate}}"}</code> <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{CompanyName}}"}</code> and more.
-            </p>
-            {letterTemplates.map((tpl) => (
-              <div key={tpl.id} className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <span className={`h-2 w-2 rounded-full ${tpl.isActive ? "bg-green-500" : "bg-slate-300"}`} />
-                  <div>
-                    <strong className="text-sm font-semibold text-[var(--text)]">{tpl.name}</strong>
-                    <div className="text-xs text-[var(--text-muted)]">{tpl.templateKey}</div>
-                  </div>
-                </div>
-                <button onClick={() => openTemplateEditor(tpl)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {editingTemplate && (
-          <Modal open={!!editingTemplate} onClose={() => setEditingTemplate(null)} title="">
-            <div className="max-h-[80vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold text-slate-700 mb-4">Edit Template: {editingTemplate.name}</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500">Template Name</label>
-                  <input value={tplName} onChange={(e) => setTplName(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
-                </div>
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={tplActive} onChange={(e) => setTplActive(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
-                    <span className="text-sm text-slate-600">Active</span>
-                  </label>
-                  <button type="button" onClick={() => setTplPreview(!tplPreview)} className="ml-auto text-sm font-medium text-blue-600 hover:underline">
-                    {tplPreview ? "Edit HTML" : "Preview"}
-                  </button>
-                </div>
-                {tplPreview ? (
-                  <div className="rounded-lg border border-slate-200 bg-white p-4 max-h-[400px] overflow-auto">
-                    <div dangerouslySetInnerHTML={{ __html: tplHtml }} />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-500">HTML Content</label>
-                    <textarea value={tplHtml} onChange={(e) => setTplHtml(e.target.value)} rows={16} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 resize-y" />
-                  </div>
-                )}
-                <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-3">
-                  <button type="button" onClick={() => setEditingTemplate(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={saveTemplate} disabled={tplSaving} className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50">{tplSaving ? "Saving..." : "Save Template"}</button>
-                </div>
-              </div>
-            </div>
-          </Modal>
-        )}
-
-        <div className="hris-card">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Audit &amp; Compliance</h3>
-            <span>Non-negotiable enterprise controls</span>
           </div>
           <table className="hris-table">
             <thead><tr><th>Control</th><th>Description</th></tr></thead>
@@ -897,10 +956,9 @@ export default function SettingsPage() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="hris-card">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Employee Code Format</h3>
-            <span>Numbering configuration</span>
           </div>
           <div className="space-y-4">
             <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
@@ -969,10 +1027,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="hris-card">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Platform Settings</h3>
-            <span>Architecture hooks</span>
           </div>
           <div className="hris-list">
             <div className="hris-list-item">
@@ -990,10 +1047,6 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
-
-      <p className="footer-note">
-        Prototype prepared as a downloadable UI concept. All numbers and employee records are sample data for design purposes.
-      </p>
     </>
   );
 }

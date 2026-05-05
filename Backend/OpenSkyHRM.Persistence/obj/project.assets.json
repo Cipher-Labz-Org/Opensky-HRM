@@ -2673,19 +2673,24 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\HP\\.nuget\\packages\\": {}
+    "C:\\Users\\asus\\.nuget\\packages\\": {},
+    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
+      "projectUniqueName": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
       "projectName": "OpenSkyHRM.Persistence",
-      "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
-      "packagesPath": "C:\\Users\\HP\\.nuget\\packages\\",
-      "outputPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Persistence\\obj\\",
+      "projectPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
+      "packagesPath": "C:\\Users\\asus\\.nuget\\packages\\",
+      "outputPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\obj\\",
       "projectStyle": "PackageReference",
+      "fallbackFolders": [
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+      ],
       "configFilePaths": [
-        "C:\\Users\\HP\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\asus\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
@@ -2693,14 +2698,15 @@
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+        "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
-              "projectPath": "c:\\D Drive\\OpenskyHRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
+            "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
+              "projectPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
             }
           }
         }
@@ -2715,7 +2721,7 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "10.0.100"
+      "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
       "net8.0": {
@@ -2768,7 +2774,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.308/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

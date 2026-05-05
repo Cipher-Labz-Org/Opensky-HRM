@@ -1,11 +1,14 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Mail;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
@@ -16,6 +19,8 @@ namespace OpenSkyHRM.Application.Services;
 public class EmailService : IEmailService
 {
     public const string CategoryRecruitmentOffer = "RecruitmentOffer";
+    public const string CategoryRecruitmentInterview = "RecruitmentInterview";
+    public const string CategoryRecruitmentJobApplication = "RecruitmentJobApplication";
     public const string CategoryLeaveApplication = "LeaveApplication";
     public const string CategoryTraining = "Training";
 
@@ -45,14 +50,10 @@ public class EmailService : IEmailService
         _db = db;
     }
 
-    public Task<bool> IsConfiguredAsync()
-    {
-        if (!string.IsNullOrWhiteSpace(_config["SendGrid:ApiKey"]))
-            return Task.FromResult(true);
-        if (!string.IsNullOrWhiteSpace(_config["Smtp:Host"]))
-            return Task.FromResult(true);
-        return Task.FromResult(false);
-    }
+    private string? GetSendGridApiKey() => OutboundEmailConfiguration.GetSendGridApiKey(_config);
+
+    public Task<bool> IsConfiguredAsync() =>
+        Task.FromResult(OutboundEmailConfiguration.IsEmailProviderConfigured(_config));
 
     public async Task SendOfferEmailAsync(string toEmail, string candidateName, string positionTitle,
         decimal salary, string currency, DateTime? joiningDate, string? remarks)
@@ -154,6 +155,110 @@ public class EmailService : IEmailService
         await SendHtmlEmailAsync(toEmail, employeeName, subject, body, CategoryTraining);
     }
 
+    public async Task SendInterviewScheduledToCandidateAsync(string toEmail, string candidateName, string interviewTitle,
+        DateTime scheduledAtUtc, int durationMinutes, string? location, string? interviewType, string? interviewerName,
+        string requisitionTitle)
+    {
+        var scheduledText = scheduledAtUtc.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(scheduledAtUtc, DateTimeKind.Utc)
+            : scheduledAtUtc.ToUniversalTime();
+        var scheduledDisplay = scheduledText.ToString("dddd, dd MMM yyyy HH:mm", CultureInfo.InvariantCulture) + " UTC";
+        var loc = string.IsNullOrWhiteSpace(location) ? "—" : location;
+        var type = string.IsNullOrWhiteSpace(interviewType) ? "—" : interviewType;
+        var ivName = string.IsNullOrWhiteSpace(interviewerName) ? "—" : interviewerName;
+
+        var bodyReplacements = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["{{CandidateName}}"] = WebUtility.HtmlEncode(candidateName),
+            ["{{InterviewTitle}}"] = WebUtility.HtmlEncode(interviewTitle),
+            ["{{ScheduledAt}}"] = WebUtility.HtmlEncode(scheduledDisplay),
+            ["{{DurationMinutes}}"] = WebUtility.HtmlEncode(durationMinutes.ToString(CultureInfo.InvariantCulture)),
+            ["{{Location}}"] = WebUtility.HtmlEncode(loc),
+            ["{{InterviewType}}"] = WebUtility.HtmlEncode(type),
+            ["{{InterviewerName}}"] = WebUtility.HtmlEncode(ivName),
+            ["{{RequisitionTitle}}"] = WebUtility.HtmlEncode(requisitionTitle),
+        };
+
+        var defaultSubject = $"Interview scheduled: {interviewTitle}";
+        var (subject, body) = await ResolveTransactionalEmailAsync(
+            TransactionalEmailTemplateSeeder.RecruitmentInterviewCandidateKey,
+            bodyReplacements,
+            defaultSubject,
+            bodyReplacements,
+            () => BuildInterviewCandidateHtml(candidateName, interviewTitle, scheduledDisplay, durationMinutes, loc, type, ivName, requisitionTitle));
+
+        await SendHtmlEmailAsync(toEmail, candidateName, subject, body, CategoryRecruitmentInterview);
+    }
+
+    public async Task SendInterviewScheduledToInterviewerAsync(string toEmail, string interviewerName, string candidateName,
+        string interviewTitle, DateTime scheduledAtUtc, int durationMinutes, string? location, string? interviewType,
+        string requisitionTitle)
+    {
+        var scheduledText = scheduledAtUtc.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(scheduledAtUtc, DateTimeKind.Utc)
+            : scheduledAtUtc.ToUniversalTime();
+        var scheduledDisplay = scheduledText.ToString("dddd, dd MMM yyyy HH:mm", CultureInfo.InvariantCulture) + " UTC";
+        var loc = string.IsNullOrWhiteSpace(location) ? "—" : location;
+        var type = string.IsNullOrWhiteSpace(interviewType) ? "—" : interviewType;
+
+        var bodyReplacements = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["{{InterviewerName}}"] = WebUtility.HtmlEncode(interviewerName),
+            ["{{CandidateName}}"] = WebUtility.HtmlEncode(candidateName),
+            ["{{InterviewTitle}}"] = WebUtility.HtmlEncode(interviewTitle),
+            ["{{ScheduledAt}}"] = WebUtility.HtmlEncode(scheduledDisplay),
+            ["{{DurationMinutes}}"] = WebUtility.HtmlEncode(durationMinutes.ToString(CultureInfo.InvariantCulture)),
+            ["{{Location}}"] = WebUtility.HtmlEncode(loc),
+            ["{{InterviewType}}"] = WebUtility.HtmlEncode(type),
+            ["{{RequisitionTitle}}"] = WebUtility.HtmlEncode(requisitionTitle),
+        };
+
+        var defaultSubject = $"You are scheduled to interview: {candidateName}";
+        var (subject, body) = await ResolveTransactionalEmailAsync(
+            TransactionalEmailTemplateSeeder.RecruitmentInterviewInterviewerKey,
+            bodyReplacements,
+            defaultSubject,
+            bodyReplacements,
+            () => BuildInterviewInterviewerHtml(interviewerName, candidateName, interviewTitle, scheduledDisplay, durationMinutes, loc, type, requisitionTitle));
+
+        await SendHtmlEmailAsync(toEmail, interviewerName, subject, body, CategoryRecruitmentInterview);
+    }
+
+    public async Task SendJobApplicationNotificationToInboxAsync(string inboxEmail, string candidateName, string candidateEmail,
+        string? phone, string requisitionTitle, string requisitionCode, Guid candidateId, bool resumePdfUploaded)
+    {
+        var safeName = WebUtility.HtmlEncode(candidateName);
+        var safeEmail = WebUtility.HtmlEncode(candidateEmail);
+        var safePhone = string.IsNullOrWhiteSpace(phone) ? "—" : WebUtility.HtmlEncode(phone);
+        var safeReqTitle = WebUtility.HtmlEncode(requisitionTitle);
+        var safeReqCode = WebUtility.HtmlEncode(requisitionCode);
+        var resumeLine = resumePdfUploaded ? "A PDF resume was uploaded with this application." : "No resume file was attached.";
+        var subject = $"New application: {requisitionTitle} — {candidateName}";
+        var mailtoHref = "mailto:" + Uri.EscapeDataString(candidateEmail);
+        var body = $@"<!DOCTYPE html>
+<html><head><meta charset=""utf-8""></head>
+<body style=""font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;margin:0;padding:0;background:#f5f6fa;"">
+  <div style=""max-width:600px;margin:20px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);"">
+    <div style=""background:linear-gradient(135deg,#1e3a5f 0%,#2B7DE9 100%);padding:24px 32px;color:white;"">
+      <h1 style=""margin:0;font-size:20px;font-weight:600;"">New job application received</h1>
+      <p style=""margin:8px 0 0;opacity:0.9;font-size:14px;"">OpenSky HRM · Recruitment</p>
+    </div>
+    <div style=""padding:28px 32px;"">
+      <p style=""font-size:15px;line-height:1.6;margin:0 0 16px;"">Someone applied for <strong>{safeReqTitle}</strong> <span style=""color:#64748b;font-size:13px;"">({safeReqCode})</span>.</p>
+      <table style=""width:100%;border-collapse:collapse;font-size:14px;line-height:1.7;color:#334155;"">
+        <tr><td style=""padding:6px 0;width:120px;vertical-align:top;color:#64748b;"">Name</td><td style=""padding:6px 0;""><strong>{safeName}</strong></td></tr>
+        <tr><td style=""padding:6px 0;vertical-align:top;color:#64748b;"">Email</td><td style=""padding:6px 0;""><a href=""{mailtoHref}"" style=""color:#2563eb;"">{safeEmail}</a></td></tr>
+        <tr><td style=""padding:6px 0;vertical-align:top;color:#64748b;"">Phone</td><td style=""padding:6px 0;"">{safePhone}</td></tr>
+        <tr><td style=""padding:6px 0;vertical-align:top;color:#64748b;"">Candidate ID</td><td style=""padding:6px 0;font-family:ui-monospace,monospace;font-size:13px;"">{candidateId}</td></tr>
+      </table>
+      <p style=""font-size:13px;color:#64748b;margin:20px 0 0;"">{resumeLine} Open this candidate in OpenSky HRM Recruitment to review and move stages.</p>
+    </div>
+  </div>
+</body></html>";
+        var displayName = "Recruitment inbox";
+        await SendHtmlEmailAsync(inboxEmail, displayName, subject, body, CategoryRecruitmentJobApplication);
+    }
+
     private async Task<(string Subject, string Html)> ResolveTransactionalEmailAsync(
         string templateKey,
         Dictionary<string, string> bodyReplacements,
@@ -183,7 +288,7 @@ public class EmailService : IEmailService
     private async Task SendHtmlEmailAsync(string toEmail, string toDisplayName, string subject, string htmlBody, string category)
     {
         var fromEmail = _config["SendGrid:FromEmail"] ?? _config["Smtp:From"] ?? "hr@openskyhrm.com";
-        var sendGridKey = _config["SendGrid:ApiKey"];
+        var sendGridKey = GetSendGridApiKey();
         if (!string.IsNullOrWhiteSpace(sendGridKey))
         {
             await SendViaSendGridAsync(toEmail, toDisplayName, subject, htmlBody, sendGridKey, category, fromEmail);
@@ -299,10 +404,111 @@ public class EmailService : IEmailService
         }
         catch (Exception ex)
         {
+            var detail = BuildSmtpFailureDetail(ex, host, portStr);
             await TryPersistLogAsync(new EmailDeliveryLogEntry(
-                category, toEmail, toDisplayName, subject, "Failed", "Smtp", null, from, ex.Message));
+                category, toEmail, toDisplayName, subject, "Failed", "Smtp", null, from, detail));
+            _logger.LogWarning(ex, "SMTP send failed to {Recipient} via {Host}:{Port}", toEmail, host, portStr);
             throw;
         }
+    }
+
+    /// <summary>Human-readable SMTP failure for logs (OutboundEmailLogs.ErrorDetail is capped at 4000 chars).</summary>
+    private static string BuildSmtpFailureDetail(Exception ex, string host, string portStr)
+    {
+        static void AppendInner(StringBuilder sb, Exception? e, int depth)
+        {
+            if (e is null || depth > 4) return;
+            sb.Append(" | ").Append(e.GetType().Name).Append(": ").Append(e.Message.Trim());
+            AppendInner(sb, e.InnerException, depth + 1);
+        }
+
+        var sb = new StringBuilder(ex.Message.Trim());
+        AppendInner(sb, ex.InnerException, 1);
+        if (host is "127.0.0.1" or "::1" or "localhost")
+        {
+            sb.Append(" | Local SMTP (").Append(host).Append(':').Append(portStr).Append("): start Mailpit/MailHog on that port, or use appsettings.Local.json from appsettings.Local.example.json.");
+        }
+        if (ex is SocketException || ex.InnerException is SocketException)
+            sb.Append(" | Often means nothing is listening on the SMTP host/port, or TLS/SSL settings do not match the server (try Smtp:EnableSsl true/false).");
+        if (ex is SmtpException smtpEx)
+            sb.Append(" | SmtpStatusCode=").Append(smtpEx.StatusCode.ToString());
+        sb.Append(" | For real delivery without a local catcher, configure SendGrid:ApiKey and a verified SendGrid:FromEmail.");
+        return sb.ToString();
+    }
+
+    private static string BuildInterviewCandidateHtml(string candidateName, string interviewTitle, string scheduledDisplay,
+        int durationMinutes, string location, string interviewType, string interviewerName, string requisitionTitle)
+    {
+        var cn = WebUtility.HtmlEncode(candidateName);
+        var title = WebUtility.HtmlEncode(interviewTitle);
+        var when = WebUtility.HtmlEncode(scheduledDisplay);
+        var loc = WebUtility.HtmlEncode(location);
+        var typ = WebUtility.HtmlEncode(interviewType);
+        var iv = WebUtility.HtmlEncode(interviewerName);
+        var req = WebUtility.HtmlEncode(requisitionTitle);
+        return $@"<!DOCTYPE html>
+<html><head><meta charset=""utf-8""></head>
+<body style=""font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;margin:0;padding:0;background:#f5f6fa;"">
+  <div style=""max-width:600px;margin:20px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);"">
+    <div style=""background:linear-gradient(135deg,#1e3a5f 0%,#2B7DE9 100%);padding:28px 36px;color:white;"">
+      <h1 style=""margin:0;font-size:22px;font-weight:600;"">Your interview is scheduled</h1>
+      <p style=""margin:8px 0 0;opacity:0.9;font-size:14px;"">OpenSky HRM</p>
+    </div>
+    <div style=""padding:28px 36px;"">
+      <p style=""font-size:16px;margin:0 0 16px;"">Hi <strong>{cn}</strong>,</p>
+      <p style=""font-size:15px;line-height:1.6;margin:0 0 20px;"">You have been scheduled for an interview for <strong>{req}</strong>.</p>
+      <div style=""background:#f8f9fe;border-radius:8px;padding:18px 22px;margin:0 0 20px;"">
+        <table style=""width:100%;border-collapse:collapse;font-size:14px;"">
+          <tr><td style=""padding:8px 0;color:#666;"">Session</td><td style=""padding:8px 0;font-weight:600;text-align:right;"">{title}</td></tr>
+          <tr><td style=""padding:8px 0;color:#666;"">When</td><td style=""padding:8px 0;font-weight:600;text-align:right;"">{when}</td></tr>
+          <tr><td style=""padding:8px 0;color:#666;"">Duration</td><td style=""padding:8px 0;font-weight:600;text-align:right;"">{durationMinutes} minutes</td></tr>
+          <tr><td style=""padding:8px 0;color:#666;"">Type</td><td style=""padding:8px 0;text-align:right;"">{typ}</td></tr>
+          <tr><td style=""padding:8px 0;color:#666;"">Location</td><td style=""padding:8px 0;text-align:right;"">{loc}</td></tr>
+          <tr><td style=""padding:8px 0;color:#666;"">Interviewer</td><td style=""padding:8px 0;text-align:right;"">{iv}</td></tr>
+        </table>
+      </div>
+      <p style=""font-size:14px;line-height:1.6;color:#555;margin:0;"">If you need to reschedule, please contact HR as soon as possible.</p>
+    </div>
+    <div style=""background:#f5f6fa;padding:16px 36px;text-align:center;font-size:12px;color:#999;"">This is an automated message from OpenSky HRM.</div>
+  </div>
+</body></html>";
+    }
+
+    private static string BuildInterviewInterviewerHtml(string interviewerName, string candidateName, string interviewTitle,
+        string scheduledDisplay, int durationMinutes, string location, string interviewType, string requisitionTitle)
+    {
+        var iv = WebUtility.HtmlEncode(interviewerName);
+        var cn = WebUtility.HtmlEncode(candidateName);
+        var title = WebUtility.HtmlEncode(interviewTitle);
+        var when = WebUtility.HtmlEncode(scheduledDisplay);
+        var loc = WebUtility.HtmlEncode(location);
+        var typ = WebUtility.HtmlEncode(interviewType);
+        var req = WebUtility.HtmlEncode(requisitionTitle);
+        return $@"<!DOCTYPE html>
+<html><head><meta charset=""utf-8""></head>
+<body style=""font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;margin:0;padding:0;background:#f5f6fa;"">
+  <div style=""max-width:600px;margin:20px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);"">
+    <div style=""background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);padding:28px 36px;color:white;"">
+      <h1 style=""margin:0;font-size:22px;font-weight:600;"">Interview assignment</h1>
+      <p style=""margin:8px 0 0;opacity:0.85;font-size:14px;"">OpenSky HRM</p>
+    </div>
+    <div style=""padding:28px 36px;"">
+      <p style=""font-size:16px;margin:0 0 16px;"">Hi <strong>{iv}</strong>,</p>
+      <p style=""font-size:15px;line-height:1.6;margin:0 0 20px;"">You are scheduled to conduct an interview with <strong>{cn}</strong> for <strong>{req}</strong>.</p>
+      <div style=""background:#f8f9fe;border-radius:8px;padding:18px 22px;margin:0 0 20px;"">
+        <table style=""width:100%;border-collapse:collapse;font-size:14px;"">
+          <tr><td style=""padding:8px 0;color:#666;"">Session</td><td style=""padding:8px 0;font-weight:600;text-align:right;"">{title}</td></tr>
+          <tr><td style=""padding:8px 0;color:#666;"">When</td><td style=""padding:8px 0;font-weight:600;text-align:right;"">{when}</td></tr>
+          <tr><td style=""padding:8px 0;color:#666;"">Duration</td><td style=""padding:8px 0;font-weight:600;text-align:right;"">{durationMinutes} minutes</td></tr>
+          <tr><td style=""padding:8px 0;color:#666;"">Type</td><td style=""padding:8px 0;text-align:right;"">{typ}</td></tr>
+          <tr><td style=""padding:8px 0;color:#666;"">Location</td><td style=""padding:8px 0;text-align:right;"">{loc}</td></tr>
+        </table>
+      </div>
+      <p style=""font-size:14px;line-height:1.6;color:#555;margin:0;"">Please review the candidate profile in OpenSky HRM before the session.</p>
+    </div>
+    <div style=""background:#f5f6fa;padding:16px 36px;text-align:center;font-size:12px;color:#999;"">This is an automated message from OpenSky HRM.</div>
+  </div>
+</body></html>";
     }
 
     private static string BuildLeaveApplicationHtml(string employeeName, string leaveTypeName,

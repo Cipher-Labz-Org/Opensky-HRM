@@ -39,10 +39,10 @@ function departmentForestForBu(all: OrgChartDepartment[], businessUnitId: string
 
 function CompanyCard({ name }: { name: string }) {
   return (
-    <div className="rounded-xl border-2 border-[#2B7DE9]/30 bg-gradient-to-br from-slate-50 to-blue-50/80 px-6 py-4 text-center shadow-sm">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#2B7DE9]">Company</div>
-      <div className="mt-1 text-lg font-bold text-slate-800">{name || "Organization"}</div>
-      <div className="mt-1 text-xs text-slate-500">Set name under Policy &amp; Settings → Company details</div>
+    <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-6 py-4 text-center shadow-sm ring-1 ring-slate-200/60">
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Company</div>
+      <div className="mt-1 text-lg font-bold text-slate-900">{name || "Organization"}</div>
+      <div className="mt-1 text-xs text-slate-600">Set name under Policy &amp; Settings → Company details</div>
     </div>
   );
 }
@@ -70,7 +70,7 @@ export function CompanyOrgHierarchy({
 
   return (
     <div className="space-y-8">
-      <p className="text-sm text-[var(--text-muted)]">
+      <p className="text-sm text-slate-600">
         Structure is <strong className="text-slate-700">Company</strong> (from settings) →{" "}
         <strong className="text-slate-700">business units</strong> (subsidiaries / divisions) →{" "}
         <strong className="text-slate-700">departments</strong>. Hover a department card and use the pencil to edit, or create a new department from the toolbar.
@@ -115,10 +115,10 @@ export function CompanyOrgHierarchy({
       </div>
 
       {unassignedForest.length > 0 && (
-        <div className="hris-card border-amber-100 bg-amber-50/20">
-          <div className="section-title">
-            <h3>Departments without a business unit</h3>
-            <span>{unassignedForest.length} in tree</span>
+        <div className="rounded-2xl border border-amber-200/80 bg-amber-50/40 p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between border-b border-amber-200/50 pb-3">
+            <h3 className="text-base font-semibold text-amber-950">Departments without a business unit</h3>
+            <span className="text-xs text-amber-800/80">{unassignedForest.length} in tree</span>
           </div>
           <p className="mb-4 text-xs text-amber-900/80">
             These root departments are not assigned to any unit. Assign a business unit so they appear under the correct company branch.

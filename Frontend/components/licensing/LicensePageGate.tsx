@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
-import { getLicensedModuleForPath } from "@/lib/app-route-modules";
+import { getAppPathLicense } from "@/lib/app-route-modules";
 
 /**
  * Blocks deep-links to app areas when the instance has not licensed the module.
@@ -15,19 +15,24 @@ export function LicensePageGate({ children }: { children: React.ReactNode }) {
 
   if (isLoading || !user) return <>{children}</>;
 
-  const requiredModule = getLicensedModuleForPath(pathname);
-  if (!requiredModule) return <>{children}</>;
+  const license = getAppPathLicense(pathname);
+  if (!license) return <>{children}</>;
 
   const licensed = user.licensedModules;
   if (licensed == null || licensed.length === 0) return <>{children}</>;
 
-  if (licensed.includes(requiredModule)) return <>{children}</>;
+  const allowed =
+    "one" in license ? licensed.includes(license.one) : license.anyOf.some((m) => licensed.includes(m));
+  if (allowed) return <>{children}</>;
+
+  const label =
+    "one" in license ? license.one : `one of: ${license.anyOf.join(", ")}`;
 
   return (
     <div className="mx-auto max-w-lg rounded-[22px] border border-[var(--border)] bg-[var(--panel)] p-8 text-center shadow-[var(--shadow)]">
       <h2 className="text-lg font-semibold text-[var(--text)]">Module not included</h2>
       <p className="mt-2 text-sm text-[var(--muted)]">
-        This area ({requiredModule}) is not enabled for your organization&apos;s plan.
+        This area requires {label} for your organization&apos;s plan.
       </p>
       <Link
         href={ROUTES.dashboard}

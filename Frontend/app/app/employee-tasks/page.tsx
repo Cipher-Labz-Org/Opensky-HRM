@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -75,12 +75,19 @@ interface ActiveOnboarding {
 type Tab = "templates" | "active" | "activeOnboarding";
 
 const CATEGORIES = ["HR", "IT & Assets", "Finance", "Department", "Security", "Other"];
-const inputClass = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
-const labelClass = "mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide";
+
+/** Match Command Center / dashboard surfaces */
+const kpiTileClass =
+  "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
+const panelClass = "rounded-2xl border border-slate-200 bg-white shadow-sm";
+const inputClass =
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20";
+const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 
 export default function EmployeeTasksPage() {
   const [tab, setTab] = useState<Tab>("templates");
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [templatesLoadError, setTemplatesLoadError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserLookup[]>([]);
   const [actives, setActives] = useState<ActiveOffboarding[]>([]);
   const [activeOnboardings, setActiveOnboardings] = useState<ActiveOnboarding[]>([]);
@@ -126,8 +133,14 @@ export default function EmployeeTasksPage() {
   }, [users, departments]);
 
   const loadTemplates = useCallback(async () => {
-    const [t, u, d] = await Promise.all([
-      apiFetch<Template[]>("/api/employee-tasks/templates").catch(() => []),
+    setTemplatesLoadError(null);
+    let t: Template[] = [];
+    try {
+      t = await apiFetch<Template[]>("/api/employee-tasks/templates");
+    } catch (e) {
+      setTemplatesLoadError(e instanceof Error ? e.message : "Could not load task templates.");
+    }
+    const [u, d] = await Promise.all([
       apiFetch<UserLookup[]>("/api/employee-tasks/users").catch(() => []),
       apiFetch<DepartmentLookup[]>("/api/organization/departments").catch(() => []),
     ]);
@@ -149,6 +162,27 @@ export default function EmployeeTasksPage() {
   useEffect(() => { loadTemplates(); loadActives(); loadActiveOnboardings(); }, [loadTemplates, loadActives, loadActiveOnboardings]);
 
   const filtered = typeFilter === "All" ? templates : templates.filter((t) => t.type === typeFilter);
+
+  const kpiStats = useMemo(
+    () => [
+      {
+        label: "Task templates",
+        value: templates.length,
+        sub: `${templates.filter((t) => t.type === "Onboarding").length} onboarding · ${templates.filter((t) => t.type === "Offboarding").length} offboarding`,
+      },
+      {
+        label: "Active onboardings",
+        value: activeOnboardings.length,
+        sub: "Employees in onboarding checklist",
+      },
+      {
+        label: "Active offboardings",
+        value: actives.length,
+        sub: "Employees in exit workflow",
+      },
+    ],
+    [templates, activeOnboardings.length, actives.length]
+  );
 
   // ── Template CRUD ──────────────────────────────────────────
 
@@ -263,10 +297,34 @@ export default function EmployeeTasksPage() {
     <>
       <AppTopbar title="Employee Tasks" subtitle="Manage onboarding and offboarding task templates, and track active processes." />
 
-      {/* ── Tab bar ───────────────────────────────────────────── */}
-      <div className="mb-6 flex items-center gap-1 rounded-xl bg-slate-100 p-1 w-fit">
-        {([["templates", "Task Templates"], ["activeOnboarding", "Active Onboardings"], ["active", "Active Offboardings"]] as const).map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)} className={`rounded-lg px-4 py-2 text-sm font-medium transition ${tab === key ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        {kpiStats.map((k) => (
+          <div key={k.label} className={kpiTileClass}>
+            <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{k.label}</div>
+            <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{k.value}</div>
+            <div className="mt-2 text-xs text-slate-600">{k.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-6 flex flex-wrap gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/90 p-1.5 shadow-sm">
+        {(
+          [
+            ["templates", "Task templates"],
+            ["activeOnboarding", "Active onboardings"],
+            ["active", "Active offboardings"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+              tab === key
+                ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/90"
+                : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
+            }`}
+          >
             {label}
           </button>
         ))}
@@ -277,31 +335,54 @@ export default function EmployeeTasksPage() {
          ═══════════════════════════════════════════════════════ */}
       {tab === "templates" && (
         <div>
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          {templatesLoadError ? (
+            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
+              <p className="font-medium">Templates could not be loaded</p>
+              <p className="mt-1 text-amber-900/90">{templatesLoadError}</p>
+              <button
+                type="button"
+                className="mt-3 rounded-lg bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900"
+                onClick={() => loadTemplates()}
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
+          <div className={`mb-4 flex flex-wrap items-center justify-between gap-3 ${panelClass} p-4`}>
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 p-0.5">
               {(["All", "Onboarding", "Offboarding"] as const).map((f) => (
-                <button key={f} onClick={() => setTypeFilter(f)} className={`rounded-lg px-3 py-1.5 text-xs font-medium transition border ${
-                  typeFilter === f
-                    ? f === "Onboarding" ? "bg-green-50 border-green-300 text-green-700"
-                      : f === "Offboarding" ? "bg-red-50 border-red-300 text-red-700"
-                      : "bg-blue-50 border-blue-300 text-blue-700"
-                    : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
-                }`}>{f}</button>
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setTypeFilter(f)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                    typeFilter === f ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-white/80"
+                  }`}
+                >
+                  {f}
+                </button>
               ))}
             </div>
             <Button onClick={openCreateTemplate}>+ New Template</Button>
           </div>
 
           {filtered.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center">
-              <p className="text-sm text-slate-400">No templates found. Create one to get started.</p>
+            <div className={`${panelClass} border-dashed py-16 text-center`}>
+              {templatesLoadError ? (
+                <p className="text-sm text-slate-500">Resolve the error above, then use Retry to load templates.</p>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  No templates yet. Use <strong className="text-slate-700">+ New Template</strong>, or restart the API once so
+                  standard &quot;Standard onboarding&quot; and &quot;Standard offboarding&quot; checklists can be seeded.
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
               {filtered.map((tpl) => {
                 const isExpanded = expandedTemplate === tpl.id;
                 return (
-                  <div key={tpl.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  <div key={tpl.id} className={`${panelClass} overflow-hidden`}>
                     <div className="flex items-center gap-3 px-6 py-4 cursor-pointer hover:bg-slate-50 transition" onClick={() => setExpandedTemplate(isExpanded ? null : tpl.id)}>
                       <svg className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
                       <div className="flex-1 min-w-0">
@@ -349,7 +430,7 @@ export default function EmployeeTasksPage() {
                                     ) : item.assignedToUserName ?? <span className="text-slate-300">—</span>}
                                   </td>
                                   <td className="px-2 py-2.5 text-right">
-                                    <button onClick={() => openEditItem(tpl.id, item)} className="mr-1 rounded p-1 text-slate-400 hover:text-blue-600 transition"><svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg></button>
+                                    <button type="button" onClick={() => openEditItem(tpl.id, item)} className="mr-1 rounded p-1 text-slate-400 transition hover:text-indigo-600"><svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg></button>
                                     <button onClick={() => handleDeleteItem(item.id)} className="rounded p-1 text-slate-400 hover:text-red-500 transition"><svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
                                   </td>
                                 </tr>
@@ -358,7 +439,11 @@ export default function EmployeeTasksPage() {
                           </table>
                         )}
                         <div className="px-6 py-3 bg-slate-50/30">
-                          <button onClick={() => openAddItem(tpl.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50">
+                          <button
+                            type="button"
+                            onClick={() => openAddItem(tpl.id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:border-indigo-300 hover:bg-indigo-50/60 hover:text-indigo-700"
+                          >
                             <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                             Add Task
                           </button>
@@ -379,8 +464,8 @@ export default function EmployeeTasksPage() {
       {tab === "activeOnboarding" && (
         <div>
           {activeOnboardings.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center">
-              <p className="text-sm text-slate-400">No active onboardings at the moment.</p>
+            <div className={`${panelClass} border-dashed py-16 text-center`}>
+              <p className="text-sm text-slate-500">No active onboardings at the moment.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -389,8 +474,8 @@ export default function EmployeeTasksPage() {
                 const isExpanded = expandedObEmp === a.employeeId;
                 const allDone = a.completedTasks === a.totalTasks && a.totalTasks > 0;
                 return (
-                  <div key={a.employeeId} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                    <div className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-slate-50 transition" onClick={() => setExpandedObEmp(isExpanded ? null : a.employeeId)}>
+                  <div key={a.employeeId} className={`${panelClass} overflow-hidden`}>
+                    <div className="flex cursor-pointer items-center gap-4 px-6 py-4 transition hover:bg-slate-50/80" onClick={() => setExpandedObEmp(isExpanded ? null : a.employeeId)}>
                       <svg className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -402,20 +487,26 @@ export default function EmployeeTasksPage() {
                         <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
                           <span>{a.completedTasks}/{a.totalTasks}</span><span>{progress}%</span>
                         </div>
-                        <div className="h-1.5 rounded-full bg-slate-100"><div className={`h-full rounded-full transition-all ${allDone ? "bg-green-500" : "bg-blue-500"}`} style={{ width: `${progress}%` }} /></div>
+                        <div className="h-1.5 rounded-full bg-slate-100">
+                          <div
+                            className={`h-full rounded-full transition-all ${allDone ? "bg-emerald-500" : "bg-gradient-to-r from-cyan-500 to-blue-600"}`}
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
                       </div>
                     </div>
 
                     {isExpanded && (
-                      <div className="border-t border-slate-100 divide-y divide-slate-50">
+                      <div className="divide-y divide-slate-100 border-t border-slate-100">
                         {a.tasks.map((task) => (
                           <div key={task.id} className="flex items-center gap-3 px-6 py-2.5">
                             <button
+                              type="button"
                               disabled={task.isCompleted || completing === task.id}
                               onClick={(e) => { e.stopPropagation(); handleCompleteOnboarding(task.id, a.employeeId); }}
-                              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition ${task.isCompleted ? "border-green-400 bg-green-400 text-white" : "border-slate-300 text-slate-300 hover:border-blue-400 hover:text-blue-400 cursor-pointer"}`}
+                              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition ${task.isCompleted ? "border-emerald-400 bg-emerald-500 text-white" : "cursor-pointer border-slate-300 text-slate-300 hover:border-indigo-400 hover:text-indigo-500"}`}
                             >
-                              {completing === task.id ? <div className="h-3 w-3 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" /> : task.isCompleted ? <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg> : null}
+                              {completing === task.id ? <div className="h-3 w-3 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-500" /> : task.isCompleted ? <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg> : null}
                             </button>
                             <span className={`flex-1 text-sm ${task.isCompleted ? "text-slate-400 line-through" : "text-slate-700"}`}>{task.title}</span>
                             <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{task.category}</span>
@@ -435,7 +526,7 @@ export default function EmployeeTasksPage() {
                                   }));
                                 } catch { alert("Failed to assign"); }
                               }}
-                              className={`shrink-0 w-36 rounded-lg border text-[11px] py-0.5 px-1.5 transition ${task.isCompleted ? "border-slate-100 bg-slate-50 text-slate-400" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 cursor-pointer"}`}
+                              className={`shrink-0 w-36 rounded-lg border py-0.5 pl-1.5 pr-1 text-[11px] transition ${task.isCompleted ? "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400" : "cursor-pointer border-slate-200 bg-white text-slate-600 hover:border-indigo-300"}`}
                             >
                               <option value="">— Unassigned —</option>
                               {getUsersForCategory(task.category).map((u) => <option key={u.id} value={u.id}>{u.username}{u.employeeName ? ` (${u.employeeName})` : ""}</option>)}
@@ -443,8 +534,8 @@ export default function EmployeeTasksPage() {
                           </div>
                         ))}
                         {allDone && (
-                          <div className="px-6 py-3 bg-green-50">
-                            <p className="text-xs text-green-600 font-medium">All onboarding tasks completed.</p>
+                          <div className="bg-emerald-50/80 px-6 py-3">
+                            <p className="text-xs font-medium text-emerald-800">All onboarding tasks completed.</p>
                           </div>
                         )}
                       </div>
@@ -463,8 +554,8 @@ export default function EmployeeTasksPage() {
       {tab === "active" && (
         <div>
           {actives.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center">
-              <p className="text-sm text-slate-400">No active offboardings at the moment.</p>
+            <div className={`${panelClass} border-dashed py-16 text-center`}>
+              <p className="text-sm text-slate-500">No active offboardings at the moment.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -473,8 +564,8 @@ export default function EmployeeTasksPage() {
                 const isExpanded = expandedEmp === a.employeeId;
                 const allDone = a.completedTasks === a.totalTasks && a.totalTasks > 0;
                 return (
-                  <div key={a.employeeId} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                    <div className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-slate-50 transition" onClick={() => setExpandedEmp(isExpanded ? null : a.employeeId)}>
+                  <div key={a.employeeId} className={`${panelClass} overflow-hidden`}>
+                    <div className="flex cursor-pointer items-center gap-4 px-6 py-4 transition hover:bg-slate-50/80" onClick={() => setExpandedEmp(isExpanded ? null : a.employeeId)}>
                       <svg className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -488,20 +579,26 @@ export default function EmployeeTasksPage() {
                         <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
                           <span>{a.completedTasks}/{a.totalTasks}</span><span>{progress}%</span>
                         </div>
-                        <div className="h-1.5 rounded-full bg-slate-100"><div className={`h-full rounded-full transition-all ${allDone ? "bg-green-500" : "bg-blue-500"}`} style={{ width: `${progress}%` }} /></div>
+                        <div className="h-1.5 rounded-full bg-slate-100">
+                          <div
+                            className={`h-full rounded-full transition-all ${allDone ? "bg-emerald-500" : "bg-gradient-to-r from-cyan-500 to-blue-600"}`}
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
                       </div>
                     </div>
 
                     {isExpanded && (
-                      <div className="border-t border-slate-100 divide-y divide-slate-50">
+                      <div className="divide-y divide-slate-100 border-t border-slate-100">
                         {a.tasks.map((task) => (
                           <div key={task.id} className="flex items-center gap-3 px-6 py-2.5">
                             <button
+                              type="button"
                               disabled={task.isCompleted || completing === task.id}
                               onClick={(e) => { e.stopPropagation(); handleComplete(task.id, a.employeeId); }}
-                              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition ${task.isCompleted ? "border-green-400 bg-green-400 text-white" : "border-slate-300 text-slate-300 hover:border-blue-400 hover:text-blue-400 cursor-pointer"}`}
+                              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition ${task.isCompleted ? "border-emerald-400 bg-emerald-500 text-white" : "cursor-pointer border-slate-300 text-slate-300 hover:border-indigo-400 hover:text-indigo-500"}`}
                             >
-                              {completing === task.id ? <div className="h-3 w-3 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" /> : task.isCompleted ? <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg> : null}
+                              {completing === task.id ? <div className="h-3 w-3 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-500" /> : task.isCompleted ? <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg> : null}
                             </button>
                             <span className={`flex-1 text-sm ${task.isCompleted ? "text-slate-400 line-through" : "text-slate-700"}`}>{task.title}</span>
                             <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{task.category}</span>
@@ -521,7 +618,7 @@ export default function EmployeeTasksPage() {
                                   }));
                                 } catch { alert("Failed to assign"); }
                               }}
-                              className={`shrink-0 w-36 rounded-lg border text-[11px] py-0.5 px-1.5 transition ${task.isCompleted ? "border-slate-100 bg-slate-50 text-slate-400" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 cursor-pointer"}`}
+                              className={`shrink-0 w-36 rounded-lg border py-0.5 pl-1.5 pr-1 text-[11px] transition ${task.isCompleted ? "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400" : "cursor-pointer border-slate-200 bg-white text-slate-600 hover:border-indigo-300"}`}
                             >
                               <option value="">— Unassigned —</option>
                               {getUsersForCategory(task.category).map((u) => <option key={u.id} value={u.id}>{u.username}{u.employeeName ? ` (${u.employeeName})` : ""}</option>)}
@@ -529,8 +626,8 @@ export default function EmployeeTasksPage() {
                           </div>
                         ))}
                         {allDone && (
-                          <div className="px-6 py-3 bg-green-50">
-                            <p className="text-xs text-green-600 font-medium">All tasks completed. User account has been deactivated.</p>
+                          <div className="bg-emerald-50/80 px-6 py-3">
+                            <p className="text-xs font-medium text-emerald-800">All tasks completed. User account has been deactivated.</p>
                           </div>
                         )}
                       </div>
@@ -567,14 +664,18 @@ export default function EmployeeTasksPage() {
             <div>
               <label className={labelClass}>Status</label>
               <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                <input type="checkbox" checked={tplActive} onChange={(e) => setTplActive(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
+                <input type="checkbox" checked={tplActive} onChange={(e) => setTplActive(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25" />
                 <span className="text-sm text-slate-600">Active</span>
               </label>
             </div>
           </div>
           <div className="flex justify-end gap-3 pt-2">
-            <button onClick={() => setShowTemplateModal(false)} className="rounded-full border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-            <button onClick={handleSaveTemplate} disabled={!tplName.trim() || tplSaving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{tplSaving ? "Saving..." : "Save"}</button>
+            <Button variant="secondary" type="button" onClick={() => setShowTemplateModal(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleSaveTemplate} disabled={!tplName.trim() || tplSaving}>
+              {tplSaving ? "Saving..." : "Save"}
+            </Button>
           </div>
         </div>
       </Modal>
@@ -611,9 +712,14 @@ export default function EmployeeTasksPage() {
                 <button key={t} type="button" onClick={() => { setItemAssignmentType(t); if (t === "Supervisor") setItemAssignee(""); }}
                   className={`rounded-lg px-3 py-1.5 text-xs font-medium transition border ${
                     itemAssignmentType === t
-                      ? t === "Supervisor" ? "bg-amber-50 border-amber-300 text-amber-700" : "bg-blue-50 border-blue-300 text-blue-700"
-                      : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
-                  }`}>{t === "Supervisor" ? "Employee\u2019s Supervisor" : "Specific User"}</button>
+                      ? t === "Supervisor"
+                        ? "border-amber-300 bg-amber-50 text-amber-800"
+                        : "border-indigo-300 bg-indigo-50 text-indigo-800"
+                      : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                  }`}
+                >
+                  {t === "Supervisor" ? "Employee\u2019s Supervisor" : "Specific User"}
+                </button>
               ))}
             </div>
             {itemAssignmentType === "User" ? (
@@ -628,11 +734,19 @@ export default function EmployeeTasksPage() {
             )}
           </div>
           <div className="flex justify-end gap-3 pt-2">
-            <button onClick={() => setShowItemModal(false)} className="rounded-full border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-            <button onClick={handleSaveItem} disabled={!itemTitle.trim() || itemSaving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{itemSaving ? "Saving..." : "Save"}</button>
+            <Button variant="secondary" type="button" onClick={() => setShowItemModal(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleSaveItem} disabled={!itemTitle.trim() || itemSaving}>
+              {itemSaving ? "Saving..." : "Save"}
+            </Button>
           </div>
         </div>
       </Modal>
+
+      <p className="footer-note">
+        Templates and assignments are stored in OpenSky HRM. Supervisors and category-based assignee lists depend on your org directory.
+      </p>
     </>
   );
 }

@@ -20,6 +20,7 @@ public interface ICustomerDataResetService
         string providedConfirmPhrase,
         bool allowInProduction,
         bool includeHangfire,
+        IReadOnlyList<string>? selectedTables,
         CancellationToken cancellationToken);
 }
 

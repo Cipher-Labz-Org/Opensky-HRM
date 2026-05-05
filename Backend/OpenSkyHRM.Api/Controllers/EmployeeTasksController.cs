@@ -11,7 +11,6 @@ namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
-[RequireLicensedModule("EmployeeTasks")]
 [Route("api/employee-tasks")]
 public class EmployeeTasksController : ControllerBase
 {
@@ -25,10 +24,12 @@ public class EmployeeTasksController : ControllerBase
     }
 
     [HttpGet("templates")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> GetTemplates([FromQuery] string? type = null)
         => Ok(await _svc.GetTemplatesAsync(type));
 
     [HttpGet("templates/{id:guid}")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> GetTemplate(Guid id)
     {
         var result = await _svc.GetTemplateByIdAsync(id);
@@ -36,10 +37,12 @@ public class EmployeeTasksController : ControllerBase
     }
 
     [HttpPost("templates")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> CreateTemplate([FromBody] CreateEmployeeTaskTemplateDto dto)
         => Ok(await _svc.CreateTemplateAsync(dto));
 
     [HttpPut("templates/{id:guid}")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> UpdateTemplate(Guid id, [FromBody] CreateEmployeeTaskTemplateDto dto)
     {
         var result = await _svc.UpdateTemplateAsync(id, dto);
@@ -47,14 +50,17 @@ public class EmployeeTasksController : ControllerBase
     }
 
     [HttpDelete("templates/{id:guid}")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> DeleteTemplate(Guid id)
         => await _svc.DeleteTemplateAsync(id) ? NoContent() : NotFound();
 
     [HttpPost("templates/{templateId:guid}/items")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> AddItem(Guid templateId, [FromBody] CreateEmployeeTaskTemplateItemDto dto)
         => Ok(await _svc.AddItemAsync(templateId, dto));
 
     [HttpPut("items/{itemId:guid}")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> UpdateItem(Guid itemId, [FromBody] CreateEmployeeTaskTemplateItemDto dto)
     {
         var result = await _svc.UpdateItemAsync(itemId, dto);
@@ -62,14 +68,17 @@ public class EmployeeTasksController : ControllerBase
     }
 
     [HttpDelete("items/{itemId:guid}")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> DeleteItem(Guid itemId)
         => await _svc.DeleteItemAsync(itemId) ? NoContent() : NotFound();
 
     [HttpGet("lookup")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> Lookup([FromQuery] string type = "Offboarding")
         => Ok(await _svc.GetTemplateLookupAsync(type));
 
     [HttpPost("create-from-template")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> CreateFromTemplate([FromBody] CreateFromTemplateRequest req)
     {
         await _svc.CreateTasksFromTemplateAsync(req.EmployeeId, req.TemplateId, req.TaskType);
@@ -77,6 +86,7 @@ public class EmployeeTasksController : ControllerBase
     }
 
     [HttpGet("users")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> GetUsers()
     {
         var users = await _db.Users
@@ -133,7 +143,53 @@ public class EmployeeTasksController : ControllerBase
 
     // ── Onboarding per-employee tasks ────────────────────────────
 
+    /// <summary>Pending (incomplete) onboarding and offboarding tasks for an employee, with assignee for profile widget.</summary>
+    [HttpGet("employees/{employeeId:guid}/pending-lifecycle-tasks")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
+    public async Task<IActionResult> GetPendingLifecycleTasksForEmployee(Guid employeeId)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Read"))
+            return Forbid();
+
+        var onboarding = await _db.OnboardingTasks
+            .AsNoTracking()
+            .Where(t => t.EmployeeId == employeeId && !t.IsCompleted && !t.IsDeleted)
+            .OrderBy(t => t.SortOrder)
+            .Select(t => new
+            {
+                t.Id,
+                kind = "Onboarding",
+                t.Title,
+                t.Category,
+                t.DueDate,
+                t.AssignmentType,
+                t.AssignedToUserId,
+                assignedToUserName = t.AssignedToUser != null ? t.AssignedToUser.Username : null,
+            })
+            .ToListAsync();
+
+        var offboarding = await _db.OffboardingTasks
+            .AsNoTracking()
+            .Where(t => t.EmployeeId == employeeId && !t.IsCompleted && !t.IsDeleted)
+            .OrderBy(t => t.SortOrder)
+            .Select(t => new
+            {
+                t.Id,
+                kind = "Offboarding",
+                t.Title,
+                t.Category,
+                t.DueDate,
+                t.AssignmentType,
+                t.AssignedToUserId,
+                assignedToUserName = t.AssignedToUser != null ? t.AssignedToUser.Username : null,
+            })
+            .ToListAsync();
+
+        return Ok(new { onboarding, offboarding });
+    }
+
     [HttpGet("onboarding/{employeeId:guid}/tasks")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> GetOnboardingTasks(Guid employeeId)
     {
         if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Read"))
@@ -176,6 +232,7 @@ public class EmployeeTasksController : ControllerBase
     }
 
     [HttpPut("onboarding/tasks/{taskId:guid}/assign")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> AssignOnboardingTask(Guid taskId, [FromBody] AssignOnboardingTaskRequest req)
     {
         var task = await _db.OnboardingTasks.FirstOrDefaultAsync(t => t.Id == taskId && !t.IsDeleted);
@@ -190,6 +247,7 @@ public class EmployeeTasksController : ControllerBase
     // ── Active onboardings ───────────────────────────────────────
 
     [HttpGet("onboarding/active")]
+    [RequireLicensedModuleAny("People", "Recruitment", "EmployeeTasks")]
     public async Task<IActionResult> GetActiveOnboardings()
     {
         var employeeIds = await _db.OnboardingTasks

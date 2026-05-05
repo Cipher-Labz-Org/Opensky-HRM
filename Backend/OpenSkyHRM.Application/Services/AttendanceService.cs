@@ -22,7 +22,7 @@ public class AttendanceService : IAttendanceService
         DateTime? fromDate = null, DateTime? toDate = null,
         IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
-        var today = DateTime.UtcNow.Date;
+        var today = DateTime.Now.Date;
         var from = fromDate?.Date ?? new DateTime(today.Year, today.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var to = toDate?.Date ?? today;
         if (to < from) to = from;
@@ -241,8 +241,8 @@ public class AttendanceService : IAttendanceService
 
     public async Task<AttendanceRecordDto> PunchAsync(Guid employeeId, PunchRequestDto dto)
     {
-        var today = DateTime.UtcNow.Date;
-        var now = DateTime.UtcNow;
+        var now = DateTime.Now;
+        var today = now.Date;
         var onLeaveToday = await HasApprovedLeaveOnDateAsync(employeeId, today);
         var isOut = dto.Type.Equals("out", StringComparison.OrdinalIgnoreCase);
         var source = string.IsNullOrWhiteSpace(dto.Source) ? "Mobile" : dto.Source.Trim();

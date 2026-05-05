@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, type FormEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react";
+import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
-import { formatDate } from "@/lib/date-utils";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import { API_BASE_URL } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField } from "@/components/ui";
+import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
 
 interface Component {
   id: string; name: string; code: string; type: string; category: string;
@@ -58,6 +60,32 @@ const TABS = ["Dashboard", "Components", "Employee Salary", "Variable Entry", "P
 type Tab = typeof TABS[number];
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
+const MONTH_NUMBER_OPTS: FormSelectOption[] = MONTHS.map((m, i) => ({ value: String(i + 1), label: m }));
+
+const PAYROLL_COMPONENT_TYPE_OPTS: FormSelectOption[] = [
+  { value: "Earning", label: "Earning" },
+  { value: "Deduction", label: "Deduction" },
+  { value: "StatutoryDeduction", label: "Statutory Deduction" },
+  { value: "StatutoryContribution", label: "Statutory Contribution" },
+];
+
+const PAYROLL_COMPONENT_CATEGORY_OPTS: FormSelectOption[] = [
+  { value: "Fixed", label: "Fixed" },
+  { value: "Variable", label: "Variable" },
+  { value: "Statutory", label: "Statutory" },
+  { value: "OneTime", label: "One Time" },
+];
+
+const YES_NO_TF_OPTS: FormSelectOption[] = [
+  { value: "false", label: "No" },
+  { value: "true", label: "Yes" },
+];
+
+const ACTIVE_STATUS_OPTS: FormSelectOption[] = [
+  { value: "true", label: "Active" },
+  { value: "false", label: "Inactive" },
+];
+
 const fmt = (n: number) => n.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const inputCls = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
@@ -77,111 +105,307 @@ export default function PayrollPage() {
   const [tab, setTab] = useState<Tab>("Dashboard");
 
   return (
-    <div className="mx-auto max-w-[1400px] px-6 py-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">Payroll & Compensation</h1>
-        <p className="mt-1 text-sm text-slate-500">Manage compensation components, run monthly payroll, and view pay statements.</p>
-      </div>
+    <>
+      <AppTopbar
+        title="Payroll & Compensation"
+        subtitle="Manage compensation components, run monthly payroll, and view pay statements."
+      />
 
-      {/* Tab bar */}
-      <div className="mb-6 flex gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1">
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition ${tab === t ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-          >{t}</button>
+      <div className="mt-6 mb-6 flex flex-wrap gap-2 overflow-x-auto pb-1">
+        {TABS.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={`whitespace-nowrap rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${
+              tab === t
+                ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+            }`}
+          >
+            {t}
+          </button>
         ))}
       </div>
 
-      {tab === "Dashboard" && <DashboardTab />}
+      {tab === "Dashboard" && <DashboardTab onOpenTab={setTab} />}
       {tab === "Components" && <ComponentsTab />}
       {tab === "Employee Salary" && <EmployeeSalaryTab />}
       {tab === "Variable Entry" && <VariableEntryTab />}
       {tab === "Payroll Run" && <PayrollRunTab />}
       {tab === "Pay Statements" && <PayStatementsTab />}
       {tab === "Settings" && <SettingsTab />}
-    </div>
+    </>
   );
 }
 
 /* ═══════════════════════════ DASHBOARD ═══════════════════════════ */
 
-function DashboardTab() {
+function payrollBatchStatusColor(status: string): string {
+  const u = status.toLowerCase();
+  if (u.includes("draft")) return "#94a3b8";
+  if (u.includes("calculat")) return "#3b82f6";
+  if (u.includes("review")) return "#6366f1";
+  if (u.includes("approv")) return "#22c55e";
+  if (u.includes("final")) return "#059669";
+  if (u.includes("cancel") || u.includes("reject")) return "#ef4444";
+  return "#64748b";
+}
+
+function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
-      apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=5"),
+      apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=8"),
       apiFetch<Settings>("/api/payroll/settings"),
-    ]).then(([b, s]) => { setBatches(b.items); setSettings(s); })
-      .catch(() => {}).finally(() => setLoading(false));
+    ])
+      .then(([b, s]) => {
+        const items = (b.items ?? []).slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setBatches(items);
+        setSettings(s);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <Loading />;
+  const latest = batches[0] ?? null;
 
-  const latest = batches[0];
-  const stats = [
-    { label: "Total Gross", value: latest ? `LKR ${fmt(latest.totalGross)}` : "—", color: "bg-blue-50 text-blue-700" },
-    { label: "Total Deductions", value: latest ? `LKR ${fmt(latest.totalDeductions)}` : "—", color: "bg-red-50 text-red-600" },
-    { label: "Total Net", value: latest ? `LKR ${fmt(latest.totalNet)}` : "—", color: "bg-green-50 text-green-700" },
-    { label: "Employees", value: latest ? String(latest.employeeCount) : "—", color: "bg-slate-50 text-slate-700" },
+  const latestBreakdown = useMemo(() => {
+    if (!latest) return [];
+    return [
+      { label: "Gross pay", value: Math.round(Number(latest.totalGross)), color: "#3b82f6" },
+      { label: "Deductions", value: Math.round(Number(latest.totalDeductions)), color: "#f97316" },
+      { label: "Net pay", value: Math.round(Number(latest.totalNet)), color: "#22c55e" },
+    ];
+  }, [latest]);
+
+  const netTrendBars = useMemo(() => {
+    const sorted = [...batches].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    return sorted.slice(-7).map((b) => ({
+      label: `${MONTHS[b.month - 1]?.slice(0, 3) ?? "?"}`,
+      count: Math.max(0, Math.round(Number(b.totalNet) / 1000)),
+    }));
+  }, [batches]);
+
+  const batchStatusMix = useMemo(() => {
+    const tally = new Map<string, number>();
+    for (const b of batches) {
+      const s = b.status || "Unknown";
+      tally.set(s, (tally.get(s) ?? 0) + 1);
+    }
+    return Array.from(tally.entries())
+      .map(([label, value]) => ({ label, value, color: payrollBatchStatusColor(label) }))
+      .sort((a, b) => b.value - a.value);
+  }, [batches]);
+
+  const timelineItems = useMemo(
+    () =>
+      [...batches]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 8)
+        .map((b) => ({
+          at: b.createdAt,
+          title: `${b.batchCode} · ${b.status}`,
+          body: `${MONTHS[b.month - 1]} ${b.year} · ${formatInt(b.employeeCount)} employees · Net LKR ${fmt(b.totalNet)}`,
+        })),
+    [batches]
+  );
+
+  const kpis = useMemo(() => {
+    if (!latest) {
+      return [
+        { label: "Total gross (latest run)", value: "—", sub: "No batches yet — start a payroll run" },
+        { label: "Total deductions", value: "—", sub: "—" },
+        { label: "Total net pay", value: "—", sub: "—" },
+        { label: "Employees in run", value: "—", sub: "—" },
+      ];
+    }
+    const period = `${MONTHS[latest.month - 1]} ${latest.year}`;
+    return [
+      {
+        label: "Total gross (latest run)",
+        value: `LKR ${fmt(latest.totalGross)}`,
+        sub: `${period} · batch ${latest.batchCode}`,
+      },
+      {
+        label: "Total deductions",
+        value: `LKR ${fmt(latest.totalDeductions)}`,
+        sub: "Statutory and other deductions in latest batch",
+      },
+      {
+        label: "Total net pay",
+        value: `LKR ${fmt(latest.totalNet)}`,
+        sub: "Take-home total for the latest batch",
+      },
+      {
+        label: "Employees in run",
+        value: formatInt(latest.employeeCount),
+        sub: `${formatInt(batches.length)} recent batch${batches.length === 1 ? "" : "es"} loaded`,
+      },
+    ];
+  }, [latest, batches.length]);
+
+  const quickLinks: { tab: Tab; title: string; sub: string }[] = [
+    { tab: "Components", title: "Components", sub: "Earnings, deductions, and formulas" },
+    { tab: "Employee Salary", title: "Employee salary", sub: "Fixed pay and assignments" },
+    { tab: "Variable Entry", title: "Variable entry", sub: "One-off adjustments" },
+    { tab: "Payroll Run", title: "Payroll run", sub: "Calculate and approve cycles" },
+    { tab: "Pay Statements", title: "Pay statements", sub: "Payslips and lines" },
+    { tab: "Settings", title: "Settings", sub: "EPF, ETF, and payroll rules" },
   ];
 
+  if (loading) {
+    return (
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {stats.map(s => (
-          <div key={s.label} className={`rounded-xl border border-slate-100 p-5 ${s.color}`}>
-            <div className="text-xs font-medium uppercase tracking-wider opacity-70">{s.label}</div>
-            <div className="mt-2 text-2xl font-bold">{s.value}</div>
-            {latest && <div className="mt-1 text-xs opacity-60">{MONTHS[latest.month - 1]} {latest.year}</div>}
+    <>
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {kpis.map((kpi) => (
+          <div
+            key={kpi.label}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
+            <div className="mt-2 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">{kpi.value}</div>
           </div>
         ))}
       </div>
 
-      <Card title="EPF / ETF Rates">
-        {settings && (
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-lg bg-slate-50 p-4 text-center">
-              <div className="text-xs text-slate-500">EPF (Employee)</div>
-              <div className="mt-1 text-xl font-bold text-slate-800">{(settings.epfEmployeeRate * 100).toFixed(0)}%</div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Latest run mix</h3>
+          </div>
+          {!latest || latestBreakdown.every((x) => x.value === 0) ? (
+            <p className="py-8 text-center text-sm text-slate-500">No batch totals to chart yet.</p>
+          ) : (
+            <HorizontalCompareBars items={latestBreakdown} />
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Net pay trend</h3>
+          </div>
+          {netTrendBars.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">No batches to plot.</p>
+          ) : (
+            <>
+              <WeeklyActivityBars data={netTrendBars} />
+            </>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">Batch status mix</h3>
+          </div>
+          {batchStatusMix.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">No status distribution yet.</p>
+          ) : (
+            <DonutMixChart values={batchStatusMix} />
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-slate-800">EPF / ETF rates</h3>
+        </div>
+        {settings ? (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
+              <div className="text-xs font-medium text-slate-500">EPF (Employee)</div>
+              <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployeeRate * 100).toFixed(0)}%</div>
             </div>
-            <div className="rounded-lg bg-slate-50 p-4 text-center">
-              <div className="text-xs text-slate-500">EPF (Employer)</div>
-              <div className="mt-1 text-xl font-bold text-slate-800">{(settings.epfEmployerRate * 100).toFixed(0)}%</div>
+            <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
+              <div className="text-xs font-medium text-slate-500">EPF (Employer)</div>
+              <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployerRate * 100).toFixed(0)}%</div>
             </div>
-            <div className="rounded-lg bg-slate-50 p-4 text-center">
-              <div className="text-xs text-slate-500">ETF (Employer)</div>
-              <div className="mt-1 text-xl font-bold text-slate-800">{(settings.etfEmployerRate * 100).toFixed(0)}%</div>
+            <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
+              <div className="text-xs font-medium text-slate-500">ETF (Employer)</div>
+              <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.etfEmployerRate * 100).toFixed(0)}%</div>
             </div>
           </div>
+        ) : (
+          <p className="py-6 text-center text-sm text-slate-500">Settings could not be loaded.</p>
         )}
-      </Card>
+      </div>
 
-      <Card title="Recent Payroll Batches">
-        {batches.length === 0 ? <EmptyState text="No payroll batches yet." /> : (
-          <table className="w-full text-left text-sm">
-            <thead><tr className="border-b text-xs text-slate-400">
-              <th className="pb-2 font-medium">Batch</th><th className="pb-2 font-medium">Period</th>
-              <th className="pb-2 font-medium">Employees</th><th className="pb-2 font-medium">Net Pay</th>
-              <th className="pb-2 font-medium">Status</th>
-            </tr></thead>
-            <tbody>
-              {batches.map(b => (
-                <tr key={b.id} className="border-b border-slate-50">
-                  <td className="py-2.5 font-medium text-slate-700">{b.batchCode}</td>
-                  <td className="py-2.5 text-slate-600">{MONTHS[b.month - 1]} {b.year}</td>
-                  <td className="py-2.5 text-slate-600">{b.employeeCount}</td>
-                  <td className="py-2.5 text-slate-700 font-medium">LKR {fmt(b.totalNet)}</td>
-                  <td className="py-2.5"><Badge status={b.status} /></td>
-                </tr>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">Recent batches</h3>
+            </div>
+            <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => onOpenTab("Payroll Run")}>
+              Go to run
+            </Button>
+          </div>
+          {batches.length === 0 ? (
+            <EmptyState text="No payroll batches yet." />
+          ) : timelineItems.length === 0 ? (
+            <p className="py-10 text-center text-sm text-slate-500">No timeline rows.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {timelineItems.map((ev, i) => (
+                <div
+                  key={`${ev.at}-${i}`}
+                  className="group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
+                >
+                  <div className="pt-0.5 text-[11px] font-medium text-slate-500">{formatDateTime(ev.at)}</div>
+                  <div className="min-w-0">
+                    <div className="mb-0.5 flex items-center gap-2">
+                      <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-indigo-500" />
+                      <strong className="truncate text-sm text-slate-800">{ev.title}</strong>
+                    </div>
+                    <div className="line-clamp-2 text-sm text-slate-600">{ev.body}</div>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
-    </div>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
+          </div>
+          <div className="grid max-h-[min(70vh,28rem)] gap-2.5 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-1">
+            {quickLinks.map((link) => (
+              <button
+                key={link.title}
+                type="button"
+                onClick={() => onOpenTab(link.tab)}
+                className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
+                  </div>
+                  <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
+                    →
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+    </>
   );
 }
 
@@ -286,35 +510,25 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
 
   return (
     <Modal open onClose={onClose} title={editing ? "Edit Component" : "Add Component"} wide>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form key={editing?.id ?? "new"} onSubmit={handleSubmit} className="space-y-4">
         {error && <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className={labelCls}>Name *</label><input name="name" required className={inputCls} defaultValue={editing?.name} /></div>
           <div><label className={labelCls}>Code *</label><input name="code" required className={inputCls} defaultValue={editing?.code} placeholder="e.g. BASIC" /></div>
           <div><label className={labelCls}>Type *</label>
-            <select name="type" className={inputCls} defaultValue={editing?.type || "Earning"}>
-              <option>Earning</option><option>Deduction</option><option>StatutoryDeduction</option><option>StatutoryContribution</option>
-            </select>
+            <FormSelect name="type" defaultValue={editing?.type || "Earning"} options={PAYROLL_COMPONENT_TYPE_OPTS} placeholder="Type" />
           </div>
           <div><label className={labelCls}>Category *</label>
-            <select name="category" className={inputCls} defaultValue={editing?.category || "Fixed"}>
-              <option>Fixed</option><option>Variable</option><option>Statutory</option><option>OneTime</option>
-            </select>
+            <FormSelect name="category" defaultValue={editing?.category || "Fixed"} options={PAYROLL_COMPONENT_CATEGORY_OPTS} placeholder="Category" />
           </div>
           <div><label className={labelCls}>Taxable</label>
-            <select name="isTaxable" className={inputCls} defaultValue={String(editing?.isTaxable ?? false)}>
-              <option value="false">No</option><option value="true">Yes</option>
-            </select>
+            <FormSelect name="isTaxable" defaultValue={String(editing?.isTaxable ?? false)} options={YES_NO_TF_OPTS} placeholder="—" />
           </div>
           <div><label className={labelCls}>Statutory</label>
-            <select name="isStatutory" className={inputCls} defaultValue={String(editing?.isStatutory ?? false)}>
-              <option value="false">No</option><option value="true">Yes</option>
-            </select>
+            <FormSelect name="isStatutory" defaultValue={String(editing?.isStatutory ?? false)} options={YES_NO_TF_OPTS} placeholder="—" />
           </div>
           <div><label className={labelCls}>Employer Contribution</label>
-            <select name="isEmployerContribution" className={inputCls} defaultValue={String(editing?.isEmployerContribution ?? false)}>
-              <option value="false">No</option><option value="true">Yes</option>
-            </select>
+            <FormSelect name="isEmployerContribution" defaultValue={String(editing?.isEmployerContribution ?? false)} options={YES_NO_TF_OPTS} placeholder="—" />
           </div>
           <div><label className={labelCls}>Sort Order</label><input name="sortOrder" type="number" className={inputCls} defaultValue={editing?.sortOrder ?? 0} /></div>
         </div>
@@ -323,9 +537,7 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
         <div><label className={labelCls}>Description</label><textarea name="description" className={inputCls} rows={2} defaultValue={editing?.description ?? ""} /></div>
         {editing && (
           <div><label className={labelCls}>Active</label>
-            <select name="isActive" className={inputCls} defaultValue={String(editing.isActive)}>
-              <option value="true">Active</option><option value="false">Inactive</option>
-            </select>
+            <FormSelect name="isActive" defaultValue={String(editing.isActive)} options={ACTIVE_STATUS_OPTS} placeholder="—" />
           </div>
         )}
         <div className="flex justify-end gap-3 pt-2">
@@ -371,9 +583,28 @@ function EmployeeSalaryTab() {
       .then(setAllEmployees).catch(() => {}).finally(() => setListLoading(false));
   }, []);
 
-  const departments = Array.from(new Set(allEmployees.map(e => e.department).filter(Boolean))).sort();
-  const grades = Array.from(new Set(allEmployees.map(e => e.grade).filter(Boolean))).sort();
-  const locations = Array.from(new Set(allEmployees.map(e => e.location).filter(Boolean))).sort();
+  const { departments, grades, locations } = useMemo(() => ({
+    departments: Array.from(new Set(allEmployees.map(e => e.department).filter(Boolean))).sort(),
+    grades: Array.from(new Set(allEmployees.map(e => e.grade).filter(Boolean))).sort(),
+    locations: Array.from(new Set(allEmployees.map(e => e.location).filter(Boolean))).sort(),
+  }), [allEmployees]);
+
+  const salaryDeptFilterOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All Depts" }, ...departments.map((d) => ({ value: d, label: d }))],
+    [departments]
+  );
+  const salaryGradeFilterOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All Grades" }, ...grades.map((g) => ({ value: g, label: g }))],
+    [grades]
+  );
+  const salaryLocationFilterOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All Locations" }, ...locations.map((l) => ({ value: l, label: l }))],
+    [locations]
+  );
+  const empSalaryBatchOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "Select Batch…" }, ...batches.map((b) => ({ value: b.id, label: `${b.batchCode} — ${MONTHS[b.month - 1]} ${b.year}` }))],
+    [batches]
+  );
 
   const filtered = allEmployees.filter(e => {
     if (filterDept && e.department !== filterDept) return false;
@@ -410,19 +641,34 @@ function EmployeeSalaryTab() {
       {/* Employee list */}
       <div className="w-[340px] shrink-0 space-y-2">
         <input className={inputCls + " !mb-0"} placeholder="Search name or code..." value={search} onChange={e => setSearch(e.target.value)} />
-        <div className="flex gap-1.5">
-          <select className={inputCls + " !mb-0 !py-1.5 !text-xs"} value={filterDept} onChange={e => setFilterDept(e.target.value)}>
-            <option value="">All Depts</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <select className={inputCls + " !mb-0 !py-1.5 !text-xs"} value={filterGrade} onChange={e => setFilterGrade(e.target.value)}>
-            <option value="">All Grades</option>
-            {grades.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
-          <select className={inputCls + " !mb-0 !py-1.5 !text-xs"} value={filterLocation} onChange={e => setFilterLocation(e.target.value)}>
-            <option value="">All Locations</option>
-            {locations.map(l => <option key={l} value={l}>{l}</option>)}
-          </select>
+        <div className="flex min-w-0 gap-1.5">
+          <div className="min-w-0 flex-1">
+            <FormSelect
+              value={filterDept}
+              onValueChange={setFilterDept}
+              options={salaryDeptFilterOpts}
+              placeholder="All Depts"
+              className="!h-9 !min-h-0 !py-0 text-xs"
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <FormSelect
+              value={filterGrade}
+              onValueChange={setFilterGrade}
+              options={salaryGradeFilterOpts}
+              placeholder="All Grades"
+              className="!h-9 !min-h-0 !py-0 text-xs"
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <FormSelect
+              value={filterLocation}
+              onValueChange={setFilterLocation}
+              options={salaryLocationFilterOpts}
+              placeholder="All Locations"
+              className="!h-9 !min-h-0 !py-0 text-xs"
+            />
+          </div>
         </div>
         <div className="text-xs text-slate-400">{filtered.length} employee{filtered.length !== 1 ? "s" : ""}</div>
         <div className="max-h-[420px] overflow-y-auto rounded-lg border border-slate-200">
@@ -453,11 +699,15 @@ function EmployeeSalaryTab() {
           </div>
           <div className="flex items-center gap-2">
             {compTab === "Variable" && (
-              <select className={inputCls + " !mb-0 !py-1.5 !text-xs w-auto min-w-[180px]"} value={selectedBatchId}
-                onChange={e => setSelectedBatchId(e.target.value)}>
-                <option value="">Select Batch...</option>
-                {batches.map(b => <option key={b.id} value={b.id}>{b.batchCode} — {MONTHS[b.month - 1]} {b.year}</option>)}
-              </select>
+              <div className="w-auto min-w-[180px] max-w-[240px] shrink-0">
+                <FormSelect
+                  value={selectedBatchId}
+                  onValueChange={setSelectedBatchId}
+                  options={empSalaryBatchOpts}
+                  placeholder="Select Batch…"
+                  className="!h-9 !min-h-0 !py-0 text-xs"
+                />
+              </div>
             )}
             <Button variant="secondary" onClick={() => setShowImport(true)}
               disabled={compTab === "Variable" && !selectedBatchId}>Import</Button>
@@ -693,6 +943,14 @@ function AssignComponentModal({ empId, components, batchId, onClose, onSaved }: 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const assignComponentOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "Select component…" },
+      ...components.filter((c) => c.isActive).map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })),
+    ],
+    [components]
+  );
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setError(""); setSubmitting(true);
     const fd = new FormData(e.currentTarget);
@@ -710,13 +968,10 @@ function AssignComponentModal({ empId, components, batchId, onClose, onSaved }: 
 
   return (
     <Modal open onClose={onClose} title="Assign Component">
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form key={`${empId}-${batchId ?? "fixed"}`} onSubmit={handleSubmit} className="space-y-4">
         {error && <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
         <div><label className={labelCls}>Component *</label>
-          <select name="componentId" required className={inputCls}>
-            <option value="">Select component...</option>
-            {components.filter(c => c.isActive).map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
-          </select>
+          <FormSelect name="componentId" required defaultValue="" options={assignComponentOpts} placeholder="Select component…" />
         </div>
         <div><label className={labelCls}>Amount (LKR) *</label>
           <input name="amount" type="number" step="0.01" required className={inputCls} />
@@ -781,6 +1036,21 @@ function VariableEntryTab() {
 
   useEffect(() => { loadEntries(); }, [loadEntries]);
 
+  const variableBatchOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "-- Select Batch --" },
+      ...batches.map((b) => ({ value: b.id, label: `${b.batchCode} — ${MONTHS[b.month - 1]} ${b.year}` })),
+    ],
+    [batches]
+  );
+  const variableCompOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "All Variable Components" },
+      ...components.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })),
+    ],
+    [components]
+  );
+
   function handleAmountChange(id: string, value: string) {
     setEditedAmounts(prev => ({ ...prev, [id]: value }));
   }
@@ -820,21 +1090,21 @@ function VariableEntryTab() {
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[220px]">
           <label className={labelCls}>Payroll Batch</label>
-          <select className={inputCls} value={selectedBatchId} onChange={e => setSelectedBatchId(e.target.value)}>
-            <option value="">-- Select Batch --</option>
-            {batches.map(b => (
-              <option key={b.id} value={b.id}>{b.batchCode} — {MONTHS[b.month - 1]} {b.year}</option>
-            ))}
-          </select>
+          <FormSelect
+            value={selectedBatchId}
+            onValueChange={setSelectedBatchId}
+            options={variableBatchOpts}
+            placeholder="-- Select Batch --"
+          />
         </div>
         <div className="min-w-[220px]">
           <label className={labelCls}>Component</label>
-          <select className={inputCls} value={selectedCompId} onChange={e => setSelectedCompId(e.target.value)}>
-            <option value="">All Variable Components</option>
-            {components.map(c => (
-              <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
-            ))}
-          </select>
+          <FormSelect
+            value={selectedCompId}
+            onValueChange={setSelectedCompId}
+            options={variableCompOpts}
+            placeholder="All Variable Components"
+          />
         </div>
         <div className="min-w-[200px]">
           <label className={labelCls}>Search</label>
@@ -940,10 +1210,22 @@ function PayrollRunTab() {
     setActionLoading(batchId);
     try {
       if (action === "calculate") {
+        if (!confirm("Run payroll calculation for this batch? Totals will be computed (or refreshed) from current compensation data.")) {
+          setActionLoading(null);
+          return;
+        }
         await apiFetch(`/api/payroll/batches/${batchId}/calculate`, { method: "POST" });
       } else if (action === "approve") {
+        if (!confirm("Approve this payroll batch? Confirm you have reviewed gross, deductions, and net pay before approving.")) {
+          setActionLoading(null);
+          return;
+        }
         await apiFetch(`/api/payroll/batches/${batchId}/approve`, { method: "PUT" });
       } else if (action === "finalize") {
+        if (!confirm("Finalize this payroll batch? Payslips will be locked for this period. Only continue if payroll is ready for release.")) {
+          setActionLoading(null);
+          return;
+        }
         await apiFetch(`/api/payroll/batches/${batchId}/finalize`, { method: "PUT" });
       } else if (action === "delete") {
         if (!confirm("Delete this batch?")) { setActionLoading(null); return; }
@@ -1040,9 +1322,27 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
       .finally(() => setEmpLoading(false));
   }, [step]);
 
-  const departments = Array.from(new Set(employees.map(e => e.department).filter(Boolean))).sort();
-  const grades = Array.from(new Set(employees.map(e => e.grade).filter(Boolean))).sort();
-  const locations = Array.from(new Set(employees.map(e => e.location).filter(Boolean))).sort();
+  const { departments, grades, locations } = useMemo(
+    () => ({
+      departments: Array.from(new Set(employees.map((e) => e.department).filter(Boolean))).sort(),
+      grades: Array.from(new Set(employees.map((e) => e.grade).filter(Boolean))).sort(),
+      locations: Array.from(new Set(employees.map((e) => e.location).filter(Boolean))).sort(),
+    }),
+    [employees]
+  );
+
+  const createBatchDeptOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All Departments" }, ...departments.map((d) => ({ value: d, label: d }))],
+    [departments]
+  );
+  const createBatchGradeOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All Grades" }, ...grades.map((g) => ({ value: g, label: g }))],
+    [grades]
+  );
+  const createBatchLocationOpts = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All Locations" }, ...locations.map((l) => ({ value: l, label: l }))],
+    [locations]
+  );
 
   const filtered = employees.filter(e => {
     if (filterDept && e.department !== filterDept) return false;
@@ -1089,9 +1389,12 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div><label className={labelCls}>Month *</label>
-              <select className={inputCls} value={month} onChange={e => setMonth(Number(e.target.value))}>
-                {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-              </select>
+              <FormSelect
+                value={String(month)}
+                onValueChange={(v) => setMonth(Number(v))}
+                options={MONTH_NUMBER_OPTS}
+                placeholder="Month"
+              />
             </div>
             <div><label className={labelCls}>Year *</label><input type="number" className={inputCls} value={year} onChange={e => setYear(Number(e.target.value))} /></div>
           </div>
@@ -1108,18 +1411,33 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
           <div className="flex flex-wrap items-center gap-2">
             <input className={inputCls + " !mb-0 min-w-[180px] flex-1"} placeholder="Search name or code..."
               value={search} onChange={e => setSearch(e.target.value)} />
-            <select className={inputCls + " !mb-0 w-auto min-w-[140px]"} value={filterDept} onChange={e => setFilterDept(e.target.value)}>
-              <option value="">All Departments</option>
-              {departments.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <select className={inputCls + " !mb-0 w-auto min-w-[120px]"} value={filterGrade} onChange={e => setFilterGrade(e.target.value)}>
-              <option value="">All Grades</option>
-              {grades.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
-            <select className={inputCls + " !mb-0 w-auto min-w-[130px]"} value={filterLocation} onChange={e => setFilterLocation(e.target.value)}>
-              <option value="">All Locations</option>
-              {locations.map(l => <option key={l} value={l}>{l}</option>)}
-            </select>
+            <div className="w-auto min-w-[140px] shrink-0">
+              <FormSelect
+                value={filterDept}
+                onValueChange={setFilterDept}
+                options={createBatchDeptOpts}
+                placeholder="All Departments"
+                className="!mb-0"
+              />
+            </div>
+            <div className="w-auto min-w-[120px] shrink-0">
+              <FormSelect
+                value={filterGrade}
+                onValueChange={setFilterGrade}
+                options={createBatchGradeOpts}
+                placeholder="All Grades"
+                className="!mb-0"
+              />
+            </div>
+            <div className="w-auto min-w-[130px] shrink-0">
+              <FormSelect
+                value={filterLocation}
+                onValueChange={setFilterLocation}
+                options={createBatchLocationOpts}
+                placeholder="All Locations"
+                className="!mb-0"
+              />
+            </div>
             <span className="whitespace-nowrap text-sm text-slate-500">{selected.size}/{employees.length} selected</span>
           </div>
 

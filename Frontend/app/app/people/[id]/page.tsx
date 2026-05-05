@@ -8,6 +8,7 @@ import { DatePickerField, FormSelect, type FormSelectOption } from "@/components
 import { COUNTRY_NAMES, NATIONALITY_NAMES } from "@/lib/people-form-lists";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { API_BASE_URL } from "@/config/constants";
 import {
   type EmploymentTypeCatalogItem,
@@ -83,6 +84,7 @@ interface EmployeeDetail {
   gradeName: string | null;
   jobTitleId: string | null;
   jobTitleName: string | null;
+  jobTitleDescription?: string | null;
   managerId: string | null;
   managerName: string | null;
   profileImageUrl: string | null;
@@ -279,9 +281,28 @@ interface StatusLookup extends Lookup { code: string }
 
 interface WidgetDef { id: string; label: string; icon: string; color: string }
 
+/** Pending onboarding/offboarding rows for the profile employee (from employee-tasks API). */
+interface PendingLifecycleTaskRow {
+  id: string;
+  kind: string;
+  title: string;
+  category: string;
+  dueDate: string | null;
+  assignmentType: string;
+  assignedToUserId: string | null;
+  assignedToUserName: string | null;
+}
+
 const ALL_WIDGETS: WidgetDef[] = [
   { id: "about", label: "About", color: "bg-slate-600", icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" },
   { id: "quickAccess", label: "Quick Access", color: "bg-slate-600", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
+  { id: "lifecycle", label: "Employee Lifecycle", color: "bg-sky-600", icon: "M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" },
+  {
+    id: "pendingLifecycleTasks",
+    label: "Onboarding & offboarding",
+    color: "bg-teal-600",
+    icon: "M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
+  },
   { id: "leaveBalance", label: "Leave Balance", color: "bg-indigo-500", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
   { id: "leaveList", label: "Leave List", color: "bg-violet-500", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
   { id: "timesheets", label: "Timesheets", color: "bg-teal-500", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
@@ -290,10 +311,219 @@ const ALL_WIDGETS: WidgetDef[] = [
   { id: "performance", label: "Performance Tracker Logs", color: "bg-orange-500", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
   { id: "attendancePunch", label: "Attendance", color: "bg-amber-500", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
 ];
-const DEFAULT_VISIBLE = ["about", "quickAccess", "attendancePunch", "leaveBalance", "leaveList", "timesheets", "timeAtWork", "goals", "performance"];
+const DEFAULT_VISIBLE = [
+  "about",
+  "quickAccess",
+  "lifecycle",
+  "pendingLifecycleTasks",
+  "attendancePunch",
+  "leaveBalance",
+  "leaveList",
+  "timesheets",
+  "timeAtWork",
+  "goals",
+  "performance",
+];
 
 const lifecycleColors: Record<string, string> = { Active: "bg-emerald-500", OnNotice: "bg-amber-500", Resigned: "bg-orange-500", Terminated: "bg-red-500", Retired: "bg-slate-400", Deceased: "bg-slate-400", Absconded: "bg-red-500" };
 const lifecycleLabels: Record<string, string> = { Active: "Active", OnNotice: "On Notice", Resigned: "Resigned", Terminated: "Terminated", Retired: "Retired", Deceased: "Deceased", Absconded: "Absconded" };
+
+/** Human-readable tenure from join date to end date (or today if end is omitted). */
+function formatTenureSpan(joinDateIso: string, endDateIso?: string | null): string {
+  const start = new Date(joinDateIso.split("T")[0]);
+  const end = endDateIso ? new Date(endDateIso.split("T")[0]) : new Date();
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return "—";
+  let y = end.getFullYear() - start.getFullYear();
+  let mo = end.getMonth() - start.getMonth();
+  const d = end.getDate() - start.getDate();
+  if (d < 0) mo -= 1;
+  if (mo < 0) {
+    y -= 1;
+    mo += 12;
+  }
+  const parts: string[] = [];
+  if (y > 0) parts.push(`${y} year${y === 1 ? "" : "s"}`);
+  if (mo > 0) parts.push(`${mo} month${mo === 1 ? "" : "s"}`);
+  if (parts.length === 0) return "< 1 month";
+  return parts.join(", ");
+}
+
+/** Canonical ladder: Intern → … → Director (template duration + role copy). */
+const CAREER_STEPS = [
+  {
+    id: "intern",
+    label: "Intern",
+    durationBand: "Duration: 3–6 months",
+    roleSummary:
+      "Role: Learning basics, assisting senior developers, and delivering small scoped tasks with close supervision.",
+  },
+  {
+    id: "junior",
+    label: "Junior",
+    durationBand: "Duration: 6–12 months",
+    roleSummary:
+      "Role: Owning well-defined stories, improving quality through reviews, and building fluency in team standards.",
+  },
+  {
+    id: "mid",
+    label: "Mid-Level",
+    durationBand: "Duration: 18–36 months",
+    roleSummary:
+      "Role: Leading features across teams, mentoring informally, and driving reliable delivery with limited oversight.",
+  },
+  {
+    id: "senior",
+    label: "Senior",
+    durationBand: "Duration: 24–48 months",
+    roleSummary:
+      "Role: Shaping technical direction, unblocking others, raising engineering standards, and influencing roadmaps.",
+  },
+  {
+    id: "team_lead",
+    label: "Team Lead",
+    durationBand: "Duration: 12–24 months",
+    roleSummary:
+      "Role: Coordinating sprint execution, coaching the team, and aligning delivery with product and stakeholders.",
+  },
+  {
+    id: "manager",
+    label: "Manager",
+    durationBand: "Duration: 24–60 months",
+    roleSummary:
+      "Role: People performance, hiring, capacity planning, and partnering with leadership on strategy and outcomes.",
+  },
+  {
+    id: "director",
+    label: "Director",
+    durationBand: "Duration: Varies by organization",
+    roleSummary:
+      "Role: Portfolio ownership, cross-functional strategy, executive alignment, and accountability for multi-team results.",
+  },
+] as const;
+
+interface CareerPathRow {
+  id: string;
+  ladderLabel: string;
+  displayTitle: string;
+  monthRange: string;
+  yearRange: string;
+  actualTenure: string;
+  durationBand: string;
+  roleSummary: string;
+  isCurrent: boolean;
+}
+
+function parseLocalDay(iso: string): Date {
+  const [y, m, d] = iso.split("T")[0].split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function toLocalIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+function formatMonthYearLocal(d: Date): string {
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+function formatYearLocal(d: Date): string {
+  return String(d.getFullYear());
+}
+
+function segmentRangeLocal(join: Date, end: Date, n: number, k: number): [Date, Date] {
+  const j = join.getTime();
+  const e = end.getTime();
+  const span = Math.max(0, e - j);
+  const start = new Date(j + (span * k) / n);
+  if (k === n - 1) return [start, new Date(end)];
+  const segEnd = new Date(j + (span * (k + 1)) / n);
+  return [start, segEnd];
+}
+
+function inferCareerLevelFromGrade(gradeName: string | null | undefined): number | null {
+  if (!gradeName?.trim()) return null;
+  const g = gradeName.toLowerCase();
+  if (/\b(intern|trainee|l\s*0|level\s*0)\b/i.test(g)) return 0;
+  if (/\b(junior|l\s*1|level\s*1|graduate)\b/i.test(g)) return 1;
+  if (/\b(mid|l\s*2|level\s*2|intermediate)\b/i.test(g)) return 2;
+  if (/\b(senior|l\s*3|level\s*3)\b/i.test(g)) return 3;
+  if (/\b(team\s*lead|l\s*4|level\s*4)\b/i.test(g)) return 4;
+  if (/\b(manager|l\s*5|level\s*5|head\s+of)\b/i.test(g)) return 5;
+  if (/\b(director|l\s*6|level\s*6|vp|vice\s*president|chief)\b/i.test(g)) return 6;
+  return null;
+}
+
+function inferCareerLevelFromKeywords(
+  jobTitle: string | null | undefined,
+  positionTitle: string | null | undefined,
+  gradeName: string | null | undefined,
+): number {
+  const t = `${jobTitle ?? ""} ${positionTitle ?? ""} ${gradeName ?? ""}`.toLowerCase();
+  if (!t.trim()) return 2;
+  const ordered: { level: number; pats: RegExp[] }[] = [
+    {
+      level: 6,
+      pats: [/\bdirector\b/, /\bvice\s*president\b/, /\bvp\b/, /\bchief\b/, /\bceo\b/, /\bcto\b/, /\bcfo\b/, /\bcoo\b/, /\bexecutive\b/],
+    },
+    {
+      level: 5,
+      pats: [/\bmanager\b/, /\bpeople\s+manager\b/, /\bengineering\s+manager\b/, /\bhead\s+of\b/],
+    },
+    { level: 4, pats: [/\bteam\s+lead\b/, /\bsquad\s+lead\b/, /\bchapter\s+lead\b/, /\btech\s+lead\b/] },
+    { level: 3, pats: [/\bsenior\b/, /\bsr\.?\b/, /\bprincipal\b/, /\bstaff\s+engineer\b/, /\barchitect\b/] },
+    { level: 2, pats: [/\bmid-level\b/, /\bmid\s+level\b/, /\bintermediate\b/] },
+    { level: 1, pats: [/\bjunior\b/, /\bjr\.?\b/, /\bgraduate\b/, /\bentry[-\s]?level\b/, /\bassociate\b/] },
+    { level: 0, pats: [/\bintern\b/, /\btrainee\b/, /\bapprentice\b/] },
+  ];
+  for (const { level, pats } of ordered) {
+    if (pats.some((p) => p.test(t))) return level;
+  }
+  const g = inferCareerLevelFromGrade(gradeName);
+  return g ?? 2;
+}
+
+function buildCareerProgressionRows(emp: EmployeeDetail): CareerPathRow[] {
+  const join = parseLocalDay(emp.joinDate);
+  const end = emp.terminationDate ? parseLocalDay(emp.terminationDate) : new Date();
+  if (Number.isNaN(join.getTime()) || Number.isNaN(end.getTime()) || end < join) return [];
+
+  const level = Math.min(
+    6,
+    Math.max(0, inferCareerLevelFromKeywords(emp.jobTitleName, emp.positionTitle, emp.gradeName)),
+  );
+  const n = level + 1;
+  const rows: CareerPathRow[] = [];
+
+  for (let k = n - 1; k >= 0; k--) {
+    const step = CAREER_STEPS[k];
+    const [a, b] = segmentRangeLocal(join, end, n, k);
+    const isCurrent = k === level;
+    const displayTitle = isCurrent ? (emp.jobTitleName ?? emp.positionTitle ?? step.label) : step.label;
+    const ya = formatYearLocal(a);
+    const yb = formatYearLocal(b);
+    const yearRange = ya === yb ? ya : `${ya} – ${yb}`;
+    const monthRange = `${formatMonthYearLocal(a)} – ${formatMonthYearLocal(b)}`;
+    const actualTenure = formatTenureSpan(toLocalIsoDate(a), toLocalIsoDate(b));
+
+    rows.push({
+      id: `career-${step.id}-${k}`,
+      ladderLabel: step.label,
+      displayTitle,
+      monthRange,
+      yearRange,
+      actualTenure,
+      durationBand: step.durationBand,
+      roleSummary: step.roleSummary,
+      isCurrent,
+    });
+  }
+  return rows;
+}
+
 const genderOptions = ["Male", "Female", "Other"];
 const sriLankaDistricts = ["Ampara","Anuradhapura","Badulla","Batticaloa","Colombo","Galle","Gampaha","Hambantota","Jaffna","Kalutara","Kandy","Kegalle","Kilinochchi","Kurunegala","Mannar","Matale","Matara","Monaragala","Mullaitivu","Nuwara Eliya","Polonnaruwa","Puttalam","Ratnapura","Trincomalee","Vavuniya"];
 
@@ -608,6 +838,10 @@ export default function EmployeeDetailPage() {
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
   const [employeeStatuses, setEmployeeStatuses] = useState<StatusLookup[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
+  /** Job tab dates — controlled so the pickers stay editable when parent re-renders (defaultValue-only pickers could appear stuck). */
+  const [jobFormJoinDate, setJobFormJoinDate] = useState("");
+  const [jobFormProbationEnd, setJobFormProbationEnd] = useState("");
+  const [jobFormPermanency, setJobFormPermanency] = useState("");
   const [supervisorPickList, setSupervisorPickList] = useState<Lookup[]>([]);
   const [subordinatePickList, setSubordinatePickList] = useState<Lookup[]>([]);
 
@@ -620,6 +854,11 @@ export default function EmployeeDetailPage() {
   const [attendanceTodayLoading, setAttendanceTodayLoading] = useState(false);
   const [attendanceTodayErr, setAttendanceTodayErr] = useState<string | null>(null);
   const [attendancePunching, setAttendancePunching] = useState(false);
+
+  const [pendingLifecycleLoading, setPendingLifecycleLoading] = useState(false);
+  const [pendingLifecycleErr, setPendingLifecycleErr] = useState<string | null>(null);
+  const [pendingOnboarding, setPendingOnboarding] = useState<PendingLifecycleTaskRow[]>([]);
+  const [pendingOffboarding, setPendingOffboarding] = useState<PendingLifecycleTaskRow[]>([]);
 
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -859,6 +1098,20 @@ export default function EmployeeDetailPage() {
               method: "PUT", body: JSON.stringify({ value: JSON.stringify(saved) }),
             }).catch(() => {});
           }
+          if (!saved.includes("lifecycle")) {
+            const qi = saved.indexOf("quickAccess");
+            saved.splice(qi >= 0 ? qi + 1 : 1, 0, "lifecycle");
+            apiFetch("/api/system-settings/EmployeeDashboardWidgets", {
+              method: "PUT", body: JSON.stringify({ value: JSON.stringify(saved) }),
+            }).catch(() => {});
+          }
+          if (!saved.includes("pendingLifecycleTasks")) {
+            const li = saved.indexOf("lifecycle");
+            saved.splice(li >= 0 ? li + 1 : 2, 0, "pendingLifecycleTasks");
+            apiFetch("/api/system-settings/EmployeeDashboardWidgets", {
+              method: "PUT", body: JSON.stringify({ value: JSON.stringify(saved) }),
+            }).catch(() => {});
+          }
           setVisibleWidgets(saved);
         } catch { /* defaults */ }
       }
@@ -873,7 +1126,7 @@ export default function EmployeeDetailPage() {
     setAttendanceTodayLoading(true);
     setAttendanceTodayErr(null);
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = formatLocalDateToIso(new Date());
       const res = await apiFetch<{ items: AttendancePunchRow[] }>(
         `/api/attendance?employeeId=${id}&from=${today}&to=${today}&page=1&pageSize=100`
       );
@@ -897,12 +1150,43 @@ export default function EmployeeDetailPage() {
     void loadAttendanceToday();
   }, [pageTab, visibleWidgets, id, loadAttendanceToday]);
 
+  const loadPendingLifecycleTasks = useCallback(async () => {
+    if (!id) return;
+    setPendingLifecycleLoading(true);
+    setPendingLifecycleErr(null);
+    try {
+      const res = await apiFetch<{ onboarding: PendingLifecycleTaskRow[]; offboarding: PendingLifecycleTaskRow[] }>(
+        `/api/employee-tasks/employees/${id}/pending-lifecycle-tasks`,
+      );
+      setPendingOnboarding(Array.isArray(res.onboarding) ? res.onboarding : []);
+      setPendingOffboarding(Array.isArray(res.offboarding) ? res.offboarding : []);
+    } catch (e) {
+      setPendingLifecycleErr(e instanceof Error ? e.message : "Could not load onboarding/offboarding tasks");
+      setPendingOnboarding([]);
+      setPendingOffboarding([]);
+    } finally {
+      setPendingLifecycleLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (pageTab !== "profile" || !visibleWidgets.includes("pendingLifecycleTasks") || !id) return;
+    void loadPendingLifecycleTasks();
+  }, [pageTab, visibleWidgets, id, loadPendingLifecycleTasks]);
+
   useEffect(() => {
     if (!emp) return;
     setDlType(emp.driversLicenseType ?? "");
     setDlIssue(emp.licenseIssueDate ? emp.licenseIssueDate.split("T")[0] : "");
     setDlExpiry(emp.licenseExpiryDate ? emp.licenseExpiryDate.split("T")[0] : "");
   }, [emp?.id, emp?.driversLicenseType, emp?.licenseIssueDate, emp?.licenseExpiryDate]);
+
+  useEffect(() => {
+    if (!emp) return;
+    setJobFormJoinDate(emp.joinDate ? emp.joinDate.split("T")[0] : "");
+    setJobFormProbationEnd(emp.probationEndDate ? emp.probationEndDate.split("T")[0] : "");
+    setJobFormPermanency(emp.dateOfPermanency ? emp.dateOfPermanency.split("T")[0] : "");
+  }, [emp?.id, emp?.joinDate, emp?.probationEndDate, emp?.dateOfPermanency]);
 
   useEffect(() => {
     if (!showMoreMenu) return;
@@ -1937,6 +2221,7 @@ export default function EmployeeDetailPage() {
       }
       const data = await res.json() as { profileImageUrl: string };
       setEmp({ ...emp, profileImageUrl: data.profileImageUrl });
+      window.dispatchEvent(new CustomEvent("opensky:profile-image-updated"));
       setShowPhotoModal(false);
       setPhotoFile(null);
       setPhotoPreview(null);
@@ -2078,6 +2363,8 @@ export default function EmployeeDetailPage() {
   };
   const fmtDateDisplay = formatDate;
 
+  const careerPathRows = useMemo(() => (emp ? buildCareerProgressionRows(emp) : []), [emp]);
+
   const jobEmploymentTypeOptions = useMemo(
     () => employmentTypeOptionsFromCatalog(employmentTypes),
     [employmentTypes]
@@ -2216,7 +2503,8 @@ export default function EmployeeDetailPage() {
       {/* ══════════════════════════════════════════════════
           TOP NAV BAR — Profile | Personal Details | Job | More
          ══════════════════════════════════════════════════ */}
-      <div className="mb-5 flex items-center gap-3">
+      {/* z-40 + isolate: keep tab row and its dropdowns above main tab content (later siblings paint on top by default) */}
+      <div className="relative z-40 isolate mb-5 flex flex-wrap items-center gap-3">
         {/* Back button */}
         <button type="button" onClick={() => router.push("/app/people")} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
           <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
@@ -2257,7 +2545,7 @@ export default function EmployeeDetailPage() {
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/></svg>
             </button>
             {showMoreMenu && (
-              <div className="absolute left-0 top-full z-30 mt-1.5 min-w-[200px] rounded-xl border border-slate-200/70 bg-white/80 py-1 shadow-lg shadow-slate-900/10 backdrop-blur-xl">
+              <div className="absolute left-0 top-full z-50 mt-1.5 min-w-[200px] rounded-xl border border-slate-200 bg-white py-1 shadow-xl ring-1 ring-slate-900/5">
                 {OVERFLOW_TABS.map((tab) => {
                   const active = pageTab === tab.key;
                   return (
@@ -2287,8 +2575,8 @@ export default function EmployeeDetailPage() {
           )}
         </div>
 
-        {/* Employee Search */}
-        <div ref={topSearchRef} className="relative ml-auto">
+        {/* Employee Search — keep above tab row when results overlap (stacking / wrap) */}
+        <div ref={topSearchRef} className={`relative ml-auto min-w-0 ${topSearchOpen ? "z-50" : "z-20"}`}>
           <div className="flex items-center rounded-full border border-slate-200 bg-white px-3 py-1">
             <svg className="mr-2 h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
             <input
@@ -2301,7 +2589,7 @@ export default function EmployeeDetailPage() {
             />
           </div>
           {topSearchOpen && topSearchResults.length > 0 && (
-            <div className="absolute right-0 top-full z-30 mt-1.5 w-72 rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+            <div className="absolute right-0 top-full z-[60] mt-1.5 w-72 rounded-xl border border-slate-200 bg-white py-1 shadow-xl ring-1 ring-slate-900/5">
               {topSearchResults.map((emp) => (
                 <button
                   key={emp.id}
@@ -2346,7 +2634,6 @@ export default function EmployeeDetailPage() {
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
               <div className={sectionCardHeaderRowSm}>
                 <div className="flex items-center gap-2"><SectionIcon path="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" color="bg-slate-600" /><h2 className="text-[15px] font-bold text-slate-700">About</h2></div>
-                <WidgetGear onRemove={() => removeWidget("about")} />
               </div>
               <div className="p-4">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start">
@@ -2429,6 +2716,270 @@ export default function EmployeeDetailPage() {
                     <div><div className="text-[10px] font-medium text-slate-400">{item.label}</div><div className="text-xs font-semibold text-slate-700">{item.sub}</div></div>
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* EMPLOYEE LIFECYCLE — About-width card, scrollable milestones + role responsibilities */}
+          {wOn("lifecycle") && (
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+              <div className={sectionCardHeaderRowSm}>
+                <div className="flex items-center gap-2">
+                  <SectionIcon path="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" color="bg-sky-600" />
+                  <h2 className="text-[15px] font-bold text-slate-700">Employee Lifecycle</h2>
+                </div>
+                <WidgetGear onRemove={() => removeWidget("lifecycle")} />
+              </div>
+              <div className="p-4">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start">
+                  <div className="flex w-full shrink-0 flex-col items-center border-b border-slate-100 pb-4 text-center md:w-[160px] md:border-b-0 md:border-r md:border-slate-100 md:pb-0 md:pr-4">
+                    <div className="grid h-[88px] w-[88px] place-items-center rounded-full border-4 border-sky-100 bg-gradient-to-br from-sky-400 to-blue-600 text-2xl font-extrabold text-white shadow-md shadow-sky-500/20">
+                      {initials}
+                    </div>
+                    <h3 className="mt-3 text-sm font-bold text-slate-800">{emp.fullName}</h3>
+                    <span className="mt-1 line-clamp-2 text-[11px] font-semibold leading-snug text-sky-900">
+                      {emp.jobTitleName ?? emp.positionTitle ?? "—"}
+                    </span>
+                    <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-700">
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${lifecycleColors[emp.status] ?? "bg-gray-400"}`} />
+                      {lifecycleLabels[emp.status] ?? emp.status}
+                    </span>
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      Tenure:{" "}
+                      <span className="font-semibold text-slate-700">
+                        {emp.terminationDate
+                          ? formatTenureSpan(emp.joinDate, emp.terminationDate)
+                          : formatTenureSpan(emp.joinDate)}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="min-w-0 flex-1 md:pl-1">
+                    <div
+                      className="max-h-[min(65vh,560px)] overflow-y-auto overflow-x-hidden overscroll-contain pr-2 [scrollbar-gutter:stable] scroll-smooth [scrollbar-width:thin] [scrollbar-color:rgb(203_213_225)_rgb(241_245_249)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100"
+                      title="Scroll to see lifecycle milestones and role responsibilities"
+                    >
+                      <h4 className="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                        <SectionIcon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" color="bg-sky-500" />
+                        Lifecycle milestones
+                      </h4>
+                      <ul className="space-y-0">
+                        {(() => {
+                          const milestones = (
+                            [
+                              { label: "Joined organization", date: emp.joinDate },
+                              emp.probationEndDate ? { label: "Probation ends", date: emp.probationEndDate } : null,
+                              emp.dateOfPermanency ? { label: "Permanent / confirmed", date: emp.dateOfPermanency } : null,
+                              emp.terminationDate
+                                ? {
+                                    label: "Separation",
+                                    date: emp.terminationDate,
+                                    sub:
+                                      emp.terminationReason && emp.terminationReason.trim().length > 0
+                                        ? emp.terminationReason.trim().length > 72
+                                          ? `${emp.terminationReason.trim().slice(0, 70)}…`
+                                          : emp.terminationReason.trim()
+                                        : undefined,
+                                  }
+                                : null,
+                            ] as ({ label: string; date: string; sub?: string } | null)[]
+                          )
+                            .filter((m): m is { label: string; date: string; sub?: string } => m != null)
+                            .sort(
+                              (a, b) =>
+                                new Date(a.date.split("T")[0]).getTime() - new Date(b.date.split("T")[0]).getTime(),
+                            );
+                          return milestones.map((m, idx) => (
+                            <li key={`${m.label}-${m.date}`} className="flex gap-3">
+                              <div className="flex w-4 shrink-0 flex-col items-center pt-1">
+                                <span className="h-2.5 w-2.5 rounded-full border-2 border-white bg-sky-500 shadow ring-1 ring-sky-200" />
+                                {idx < milestones.length - 1 && (
+                                  <span className="mt-1 min-h-[2.25rem] w-0 flex-1 border-l-2 border-slate-200" aria-hidden />
+                                )}
+                              </div>
+                              <div className={`min-w-0 flex-1 ${idx < milestones.length - 1 ? "pb-5" : ""}`}>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                  {m.label}
+                                </div>
+                                <div className="text-sm font-semibold text-slate-800">{fmtDateDisplay(m.date)}</div>
+                                {m.sub && <p className="mt-0.5 text-xs leading-snug text-slate-500">{m.sub}</p>}
+                              </div>
+                            </li>
+                          ));
+                        })()}
+                      </ul>
+                      <div className="mt-5 border-t border-slate-100 pt-4">
+                        <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                          <SectionIcon path="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" color="bg-violet-500" />
+                          Career progression
+                        </h4>
+                        <p className="mb-3 text-[10px] leading-snug text-slate-400">
+                          Ladder: Intern → Junior → Mid-Level → Senior → Team Lead → Manager → Director.{" "}
+                          <span className="font-medium text-slate-500">Current first, oldest last.</span> Stage dates
+                          are estimated from join → today (or separation) and your matched level until job history
+                          exists.
+                        </p>
+                        <ul className="space-y-0">
+                          {careerPathRows.map((row, idx) => (
+                            <li key={row.id} className="flex gap-3">
+                              <div className="flex w-4 shrink-0 flex-col items-center pt-1">
+                                <span
+                                  className={`h-2.5 w-2.5 rounded-full border-2 border-white shadow ring-1 ${
+                                    row.isCurrent
+                                      ? "bg-violet-600 ring-violet-200"
+                                      : "bg-violet-300 ring-violet-100"
+                                  }`}
+                                />
+                                {idx < careerPathRows.length - 1 && (
+                                  <span className="mt-1 min-h-[2.25rem] w-0 flex-1 border-l-2 border-slate-200" aria-hidden />
+                                )}
+                              </div>
+                              <div className={`min-w-0 flex-1 ${idx < careerPathRows.length - 1 ? "pb-5" : ""}`}>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                    {row.ladderLabel}
+                                  </span>
+                                  {row.isCurrent && (
+                                    <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-800">
+                                      Current
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-0.5 text-[15px] font-semibold leading-snug text-slate-900">
+                                  {row.displayTitle}
+                                </div>
+                                <div className="mt-1 text-base font-bold tracking-tight text-slate-800">{row.yearRange}</div>
+                                <div className="text-xs font-medium text-slate-600">{row.monthRange}</div>
+                                <div className="mt-0.5 text-[11px] text-slate-500">
+                                  In seat: <span className="font-semibold text-slate-700">{row.actualTenure}</span>
+                                </div>
+                                <p className="mt-2 text-[11px] font-medium leading-snug text-slate-600">{row.durationBand}</p>
+                                <p className="mt-1 text-xs leading-relaxed text-slate-600">{row.roleSummary}</p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="mt-5 border-t border-slate-100 pt-4">
+                        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                          <SectionIcon path="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" color="bg-indigo-500" />
+                          Role &amp; responsibilities
+                        </h4>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2.5">
+                          <InfoRow label="Job title" value={emp.jobTitleName ?? emp.positionTitle ?? "—"} />
+                          <InfoRow label="Department" value={emp.departmentName ?? "—"} />
+                          <InfoRow label="Reports to" value={emp.managerName ?? "—"} />
+                          <div className="mt-2 border-t border-slate-200/80 pt-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                              Responsibilities
+                            </div>
+                            {emp.jobTitleDescription && emp.jobTitleDescription.trim().length > 0 ? (
+                              <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
+                                {emp.jobTitleDescription.trim()}
+                              </p>
+                            ) : (
+                              <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                                No job title description yet. Add text under{" "}
+                                <span className="font-medium text-slate-600">Organization → Job titles</span> for this
+                                role.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPageTab("job")}
+                  className="mt-4 w-full rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-600 transition hover:border-sky-300 hover:bg-sky-50/60 hover:text-sky-800"
+                >
+                  Open Job &amp; organization tab
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ONBOARDING & OFFBOARDING — pending tasks for this employee (assigned user shown) */}
+          {wOn("pendingLifecycleTasks") && (
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+              <div className={sectionCardHeaderRowSm}>
+                <div className="flex items-center gap-2">
+                  <SectionIcon
+                    path="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+                    color="bg-teal-600"
+                  />
+                  <h2 className="text-[15px] font-bold text-slate-700">Onboarding &amp; offboarding</h2>
+                </div>
+                <WidgetGear onRemove={() => removeWidget("pendingLifecycleTasks")} />
+              </div>
+              <div className="p-4">
+                {pendingLifecycleLoading && (
+                  <div className="flex justify-center py-8">
+                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-teal-200 border-t-teal-600" />
+                  </div>
+                )}
+                {!pendingLifecycleLoading && pendingLifecycleErr && (
+                  <p className="text-center text-xs text-amber-700">{pendingLifecycleErr}</p>
+                )}
+                {!pendingLifecycleLoading && !pendingLifecycleErr && (
+                  <div className="max-h-[min(52vh,420px)] space-y-5 overflow-y-auto pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin]">
+                    {(() => {
+                      const renderSection = (label: string, rows: PendingLifecycleTaskRow[]) => (
+                        <div>
+                          <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</span>
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                              {rows.length} pending
+                            </span>
+                          </div>
+                          {rows.length === 0 ? (
+                            <p className="text-xs text-slate-400">No pending tasks.</p>
+                          ) : (
+                            <ul className="space-y-2">
+                              {rows.map((t) => (
+                                <li
+                                  key={`${t.kind}-${t.id}`}
+                                  className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-xs shadow-sm"
+                                >
+                                  <div className="font-semibold text-slate-800">{t.title}</div>
+                                  {t.category ? (
+                                    <div className="mt-0.5 text-[11px] text-slate-500">{t.category}</div>
+                                  ) : null}
+                                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                                    <span>
+                                      <span className="text-slate-400">Assigned to:</span>{" "}
+                                      <span className="font-medium text-slate-700">
+                                        {t.assignedToUserName?.trim() || "—"}
+                                      </span>
+                                    </span>
+                                    {t.dueDate ? (
+                                      <span>
+                                        <span className="text-slate-400">Due:</span>{" "}
+                                        <span className="font-medium text-slate-700">{formatDate(t.dueDate)}</span>
+                                      </span>
+                                    ) : null}
+                                    {t.assignmentType ? (
+                                      <span className="text-slate-400">
+                                        Type: <span className="text-slate-600">{t.assignmentType}</span>
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                      return (
+                        <>
+                          {renderSection("Onboarding tasks", pendingOnboarding)}
+                          {renderSection("Offboarding tasks", pendingOffboarding)}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2974,6 +3525,10 @@ export default function EmployeeDetailPage() {
                         { key: "job_confirmation", name: "Job Confirmation Letter" },
                         { key: "probation_confirmation", name: "Probation Confirmation Letter" },
                         { key: "experience_letter", name: "Experience Letter" },
+                        { key: "resignation_letter", name: "Resignation Letter" },
+                        { key: "appointment_letter", name: "Appointment Letter" },
+                        { key: "confirmation_letter", name: "Confirmation Letter" },
+                        { key: "contract_letter", name: "Contract Letter" },
                       ].map((doc) => (
                         <div key={doc.key} className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition">
                           <span className="text-sm text-slate-700">{doc.name}</span>
@@ -3040,9 +3595,9 @@ export default function EmployeeDetailPage() {
             </div>
             <div className="p-6">
               <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-                <div><label className={labelClass}>Joined Date *</label><DatePickerField name="joinDate" required className={inputClass} defaultValue={fmtDate(emp.joinDate)} /></div>
-                <div><label className={labelClass}>Probation End Date</label><DatePickerField name="probationEndDate" className={inputClass} defaultValue={emp.probationEndDate ? fmtDate(emp.probationEndDate) : ""} /></div>
-                <div><label className={labelClass}>Date of Permanency</label><DatePickerField name="dateOfPermanency" className={inputClass} defaultValue={emp.dateOfPermanency ? fmtDate(emp.dateOfPermanency) : ""} /></div>
+                <div><label className={labelClass}>Joined Date *</label><DatePickerField name="joinDate" required className={inputClass} value={jobFormJoinDate} onChange={setJobFormJoinDate} /></div>
+                <div><label className={labelClass}>Probation End Date</label><DatePickerField name="probationEndDate" className={inputClass} value={jobFormProbationEnd} onChange={setJobFormProbationEnd} /></div>
+                <div><label className={labelClass}>Date of Permanency</label><DatePickerField name="dateOfPermanency" className={inputClass} value={jobFormPermanency} onChange={setJobFormPermanency} /></div>
                 <div><label className={labelClass}>Job Title</label><FormSelect name="jobTitleId" defaultValue={emp.jobTitleId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...jobTitles.map((j) => ({ value: j.id, label: j.name }))]} /></div>
                 <div><label className={labelClass}>Department *</label><FormSelect name="departmentId" required defaultValue={emp.departmentId} options={departments.map((d) => ({ value: d.id, label: d.name }))} /></div>
                 <div><label className={labelClass}>Employment Type *</label><FormSelect name="employmentType" required defaultValue={emp.employmentType} options={jobEmploymentTypeSelectOptions} /></div>
@@ -3607,7 +4162,68 @@ export default function EmployeeDetailPage() {
             </div>
           </Modal>
 
-          {/* Education List */}
+          {/* Formal qualifications (same backing store as education; qualification name is the credential title) */}
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className={sectionCardHeaderRow}>
+              <div className="flex items-center gap-2.5">
+                <SectionIcon path="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" color="bg-emerald-600" />
+                <h2 className="text-base font-bold text-slate-800">Qualifications</h2>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-500">{educations.length} record(s)</span>
+                <button type="button" onClick={() => openEduModal()} className={sectionHeaderAddBtn} title="Add">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                </button>
+              </div>
+            </div>
+            {educations.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-slate-400">No records yet.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
+                      <th className="px-6 py-3">Qualification</th>
+                      <th className="px-4 py-3">Level</th>
+                      <th className="px-4 py-3">Institute</th>
+                      <th className="px-4 py-3">Major</th>
+                      <th className="px-4 py-3">Year</th>
+                      <th className="px-4 py-3">Period</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {educations.map((edu) => (
+                      <tr key={`qual-${edu.id}`} className="border-b border-slate-50 transition hover:bg-slate-50">
+                        <td className="px-6 py-3 font-medium text-slate-800">{edu.qualificationName?.trim() || "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{edu.level}</td>
+                        <td className="px-4 py-3 text-slate-600">{edu.institute ?? "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{edu.major ?? "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{edu.year ?? "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {formatDate(edu.startDate) || "—"}
+                          {" – "}
+                          {edu.endDate ? formatDate(edu.endDate) : "Present"}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => openEduModal(edu)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => deleteEducation(edu.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Education: academic structure and study metadata (same API as qualifications) */}
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className={sectionCardHeaderRow}>
               <div className="flex items-center gap-2.5">
@@ -3629,7 +4245,6 @@ export default function EmployeeDetailPage() {
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
                       <th className="px-6 py-3">Level</th>
-                      <th className="px-4 py-3">Qualification</th>
                       <th className="px-4 py-3">Institute</th>
                       <th className="px-4 py-3">Major</th>
                       <th className="px-4 py-3">Year</th>
@@ -3643,7 +4258,6 @@ export default function EmployeeDetailPage() {
                     {educations.map((edu) => (
                       <tr key={edu.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{edu.level}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.qualificationName ?? "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{edu.institute ?? "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{edu.major ?? "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{edu.year ?? "—"}</td>
@@ -3672,7 +4286,7 @@ export default function EmployeeDetailPage() {
             )}
           </div>
 
-          {/* ── Skills Section ── */}
+          {/* ── Skills Section (separate from formal qualifications) ── */}
           <Modal open={showSkillModal} onClose={closeSkillModal} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">{editingSkill ? "Edit Skill" : "Add Skill"}</h3>

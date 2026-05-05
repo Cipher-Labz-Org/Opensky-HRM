@@ -35,6 +35,10 @@ public class AuthService : IAuthService
         var user = await _db.Users
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.Permissions)
             .Include(u => u.Employee)
+            .Include(u => u.AssignedLocations)
+            .Include(u => u.AssignedBusinessUnits)
+            .Include(u => u.AssignedGrades)
+            .Include(u => u.AssignedJobTitles)
             .FirstOrDefaultAsync(u => !u.IsDeleted && (
                 u.Username.ToLower() == loginLower ||
                 (u.Email != null && u.Email.ToLower() == loginLower)));
@@ -79,6 +83,10 @@ public class AuthService : IAuthService
         var user = await _db.Users
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.Permissions)
             .Include(u => u.Employee)
+            .Include(u => u.AssignedLocations)
+            .Include(u => u.AssignedBusinessUnits)
+            .Include(u => u.AssignedGrades)
+            .Include(u => u.AssignedJobTitles)
             .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted)
             ?? throw new KeyNotFoundException("User not found.");
 
@@ -94,7 +102,11 @@ public class AuthService : IAuthService
         if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
             throw new UnauthorizedAccessException("Current password is incorrect.");
 
+        if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
+            throw new UnauthorizedAccessException("New password must be at least 6 characters.");
+
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+        user.MustChangePassword = false;
         user.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
     }
@@ -104,13 +116,18 @@ public class AuthService : IAuthService
         if (await _db.Users.AnyAsync(u => u.Username == dto.Username && !u.IsDeleted))
             throw new InvalidOperationException($"Username '{dto.Username}' already exists.");
 
-        if (await _db.Users.AnyAsync(u => u.Email == dto.Email && !u.IsDeleted))
-            throw new InvalidOperationException($"Email '{dto.Email}' already exists.");
+        var normalizedEmail = string.IsNullOrWhiteSpace(dto.Email)
+            ? $"user-{Guid.NewGuid():N}@noemail.opensky.hrm"
+            : dto.Email.Trim();
+
+        if (!string.IsNullOrWhiteSpace(dto.Email) &&
+            await _db.Users.AnyAsync(u => u.Email == normalizedEmail && !u.IsDeleted))
+            throw new InvalidOperationException($"Email '{normalizedEmail}' already exists.");
 
         var user = new User
         {
             Username = dto.Username,
-            Email = dto.Email,
+            Email = normalizedEmail,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
             IsActive = dto.IsActive,
             EmployeeId = dto.EmployeeId
@@ -123,6 +140,13 @@ public class AuthService : IAuthService
 
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
+
+        await AddUserScopeAssignmentsAsync(
+            user.Id,
+            dto.AssignedLocationIds,
+            dto.AssignedBusinessUnitIds,
+            dto.AssignedGradeIds,
+            dto.AssignedJobTitleIds);
 
         return await GetUserByIdAsync(user.Id) ?? throw new InvalidOperationException("Failed to retrieve created user.");
     }
@@ -158,6 +182,74 @@ public class AuthService : IAuthService
 
             foreach (var roleId in dto.RoleIds)
                 _db.UserRoles.Add(new UserRole { UserId = id, RoleId = roleId });
+        }
+
+        if (dto.AssignedLocationIds != null)
+        {
+            var existingLocs = await _db.UserAssignedLocations.Where(x => x.UserId == id).ToListAsync();
+            _db.UserAssignedLocations.RemoveRange(existingLocs);
+            await _db.SaveChangesAsync();
+            if (dto.AssignedLocationIds.Count > 0)
+            {
+                var validLocIds = await _db.Locations
+                    .Where(l => !l.IsDeleted && dto.AssignedLocationIds.Contains(l.Id))
+                    .Select(l => l.Id)
+                    .ToListAsync();
+                foreach (var lid in validLocIds.Distinct())
+                    _db.UserAssignedLocations.Add(new UserAssignedLocation { UserId = id, LocationId = lid });
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        if (dto.AssignedBusinessUnitIds != null)
+        {
+            var existing = await _db.UserAssignedBusinessUnits.Where(x => x.UserId == id).ToListAsync();
+            _db.UserAssignedBusinessUnits.RemoveRange(existing);
+            await _db.SaveChangesAsync();
+            if (dto.AssignedBusinessUnitIds.Count > 0)
+            {
+                var validIds = await _db.BusinessUnits
+                    .Where(b => !b.IsDeleted && dto.AssignedBusinessUnitIds.Contains(b.Id))
+                    .Select(b => b.Id)
+                    .ToListAsync();
+                foreach (var bid in validIds.Distinct())
+                    _db.UserAssignedBusinessUnits.Add(new UserAssignedBusinessUnit { UserId = id, BusinessUnitId = bid });
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        if (dto.AssignedGradeIds != null)
+        {
+            var existing = await _db.UserAssignedGrades.Where(x => x.UserId == id).ToListAsync();
+            _db.UserAssignedGrades.RemoveRange(existing);
+            await _db.SaveChangesAsync();
+            if (dto.AssignedGradeIds.Count > 0)
+            {
+                var validIds = await _db.Grades
+                    .Where(g => !g.IsDeleted && dto.AssignedGradeIds.Contains(g.Id))
+                    .Select(g => g.Id)
+                    .ToListAsync();
+                foreach (var gid in validIds.Distinct())
+                    _db.UserAssignedGrades.Add(new UserAssignedGrade { UserId = id, GradeId = gid });
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        if (dto.AssignedJobTitleIds != null)
+        {
+            var existing = await _db.UserAssignedJobTitles.Where(x => x.UserId == id).ToListAsync();
+            _db.UserAssignedJobTitles.RemoveRange(existing);
+            await _db.SaveChangesAsync();
+            if (dto.AssignedJobTitleIds.Count > 0)
+            {
+                var validIds = await _db.JobTitles
+                    .Where(j => !j.IsDeleted && dto.AssignedJobTitleIds.Contains(j.Id))
+                    .Select(j => j.Id)
+                    .ToListAsync();
+                foreach (var jid in validIds.Distinct())
+                    _db.UserAssignedJobTitles.Add(new UserAssignedJobTitle { UserId = id, JobTitleId = jid });
+            }
+            await _db.SaveChangesAsync();
         }
 
         user.UpdatedAt = DateTime.UtcNow;
@@ -201,6 +293,10 @@ public class AuthService : IAuthService
         return await _db.Users
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
             .Include(u => u.Employee)
+            .Include(u => u.AssignedLocations)
+            .Include(u => u.AssignedBusinessUnits)
+            .Include(u => u.AssignedGrades)
+            .Include(u => u.AssignedJobTitles)
             .Where(u => !u.IsDeleted)
             .OrderBy(u => u.Username)
             .Select(u => new UserListDto
@@ -213,7 +309,11 @@ public class AuthService : IAuthService
                 EmployeeName = u.Employee != null ? u.Employee.FirstName + " " + u.Employee.LastName : null,
                 Roles = u.UserRoles.Select(ur => ur.Role.Name).ToList(),
                 LastLoginAt = u.LastLoginAt,
-                CreatedAt = u.CreatedAt
+                CreatedAt = u.CreatedAt,
+                AssignedLocationIds = u.AssignedLocations.Select(a => a.LocationId).ToList(),
+                AssignedBusinessUnitIds = u.AssignedBusinessUnits.Select(a => a.BusinessUnitId).ToList(),
+                AssignedGradeIds = u.AssignedGrades.Select(a => a.GradeId).ToList(),
+                AssignedJobTitleIds = u.AssignedJobTitles.Select(a => a.JobTitleId).ToList()
             })
             .ToListAsync();
     }
@@ -223,6 +323,10 @@ public class AuthService : IAuthService
         return await _db.Users
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
             .Include(u => u.Employee)
+            .Include(u => u.AssignedLocations)
+            .Include(u => u.AssignedBusinessUnits)
+            .Include(u => u.AssignedGrades)
+            .Include(u => u.AssignedJobTitles)
             .Where(u => u.Id == id && !u.IsDeleted)
             .Select(u => new UserListDto
             {
@@ -234,7 +338,11 @@ public class AuthService : IAuthService
                 EmployeeName = u.Employee != null ? u.Employee.FirstName + " " + u.Employee.LastName : null,
                 Roles = u.UserRoles.Select(ur => ur.Role.Name).ToList(),
                 LastLoginAt = u.LastLoginAt,
-                CreatedAt = u.CreatedAt
+                CreatedAt = u.CreatedAt,
+                AssignedLocationIds = u.AssignedLocations.Select(a => a.LocationId).ToList(),
+                AssignedBusinessUnitIds = u.AssignedBusinessUnits.Select(a => a.BusinessUnitId).ToList(),
+                AssignedGradeIds = u.AssignedGrades.Select(a => a.GradeId).ToList(),
+                AssignedJobTitleIds = u.AssignedJobTitles.Select(a => a.JobTitleId).ToList()
             })
             .FirstOrDefaultAsync();
     }
@@ -355,7 +463,62 @@ public class AuthService : IAuthService
             ProfileImageUrl = user.Employee?.ProfileImageUrl,
             Roles = roles.Select(r => r.Code).ToList(),
             Permissions = allPermissions,
-            LicensedModules = licensedModules.ToList()
+            LicensedModules = licensedModules.ToList(),
+            AssignedLocationIds = user.AssignedLocations.Select(a => a.LocationId).ToList(),
+            AssignedBusinessUnitIds = user.AssignedBusinessUnits.Select(a => a.BusinessUnitId).ToList(),
+            AssignedGradeIds = user.AssignedGrades.Select(a => a.GradeId).ToList(),
+            AssignedJobTitleIds = user.AssignedJobTitles.Select(a => a.JobTitleId).ToList(),
+            MustChangePassword = user.MustChangePassword
         };
+    }
+
+    private async Task AddUserScopeAssignmentsAsync(
+        Guid userId,
+        List<Guid>? locationIds,
+        List<Guid>? businessUnitIds,
+        List<Guid>? gradeIds,
+        List<Guid>? jobTitleIds)
+    {
+        if (locationIds is { Count: > 0 })
+        {
+            var valid = await _db.Locations
+                .Where(l => !l.IsDeleted && locationIds.Contains(l.Id))
+                .Select(l => l.Id)
+                .ToListAsync();
+            foreach (var id in valid.Distinct())
+                _db.UserAssignedLocations.Add(new UserAssignedLocation { UserId = userId, LocationId = id });
+        }
+
+        if (businessUnitIds is { Count: > 0 })
+        {
+            var valid = await _db.BusinessUnits
+                .Where(b => !b.IsDeleted && businessUnitIds.Contains(b.Id))
+                .Select(b => b.Id)
+                .ToListAsync();
+            foreach (var id in valid.Distinct())
+                _db.UserAssignedBusinessUnits.Add(new UserAssignedBusinessUnit { UserId = userId, BusinessUnitId = id });
+        }
+
+        if (gradeIds is { Count: > 0 })
+        {
+            var valid = await _db.Grades
+                .Where(g => !g.IsDeleted && gradeIds.Contains(g.Id))
+                .Select(g => g.Id)
+                .ToListAsync();
+            foreach (var id in valid.Distinct())
+                _db.UserAssignedGrades.Add(new UserAssignedGrade { UserId = userId, GradeId = id });
+        }
+
+        if (jobTitleIds is { Count: > 0 })
+        {
+            var valid = await _db.JobTitles
+                .Where(j => !j.IsDeleted && jobTitleIds.Contains(j.Id))
+                .Select(j => j.Id)
+                .ToListAsync();
+            foreach (var id in valid.Distinct())
+                _db.UserAssignedJobTitles.Add(new UserAssignedJobTitle { UserId = userId, JobTitleId = id });
+        }
+
+        await _db.SaveChangesAsync();
     }
 }

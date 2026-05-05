@@ -69,6 +69,8 @@ public class EmployeeDto
     public string? GradeName { get; set; }
     public Guid? JobTitleId { get; set; }
     public string? JobTitleName { get; set; }
+    /// <summary>From the linked job title catalog (Organization). Shown on profile lifecycle as role responsibilities.</summary>
+    public string? JobTitleDescription { get; set; }
     public Guid? ManagerId { get; set; }
     public string? ManagerName { get; set; }
     public string? ProfileImageUrl { get; set; }

@@ -8,6 +8,8 @@ public static class TransactionalEmailTemplateSeeder
 {
     public const string LeaveApplicationKey = "Email_LeaveApplication";
     public const string RecruitmentOfferKey = "Email_RecruitmentOffer";
+    public const string RecruitmentInterviewCandidateKey = "Email_RecruitmentInterviewCandidate";
+    public const string RecruitmentInterviewInterviewerKey = "Email_RecruitmentInterviewInterviewer";
 
     public static async Task EnsureAsync(AppDbContext context)
     {
@@ -31,6 +33,30 @@ public static class TransactionalEmailTemplateSeeder
                 TemplateKey = RecruitmentOfferKey,
                 Subject = "Offer of Employment – {{PositionTitle}}",
                 HtmlContent = RecruitmentOfferHtml,
+                IsActive = true,
+            });
+        }
+
+        if (!await context.DocumentTemplates.AnyAsync(t => t.TemplateKey == RecruitmentInterviewCandidateKey))
+        {
+            context.DocumentTemplates.Add(new DocumentTemplate
+            {
+                Name = "Email: Interview scheduled (candidate)",
+                TemplateKey = RecruitmentInterviewCandidateKey,
+                Subject = "Interview scheduled: {{InterviewTitle}}",
+                HtmlContent = RecruitmentInterviewCandidateHtml,
+                IsActive = true,
+            });
+        }
+
+        if (!await context.DocumentTemplates.AnyAsync(t => t.TemplateKey == RecruitmentInterviewInterviewerKey))
+        {
+            context.DocumentTemplates.Add(new DocumentTemplate
+            {
+                Name = "Email: Interview scheduled (interviewer)",
+                TemplateKey = RecruitmentInterviewInterviewerKey,
+                Subject = "Interview assignment: {{CandidateName}}",
+                HtmlContent = RecruitmentInterviewInterviewerHtml,
                 IsActive = true,
             });
         }
@@ -123,5 +149,62 @@ public static class TransactionalEmailTemplateSeeder
   </div>
 </body>
 </html>
+""";
+
+    private const string RecruitmentInterviewCandidateHtml = """
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;margin:0;padding:0;background:#f5f6fa;">
+  <div style="max-width:600px;margin:20px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+    <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2B7DE9 100%);padding:28px 36px;color:white;">
+      <h1 style="margin:0;font-size:22px;font-weight:600;">Your interview is scheduled</h1>
+      <p style="margin:8px 0 0;opacity:0.9;font-size:14px;">OpenSky HRM</p>
+    </div>
+    <div style="padding:28px 36px;">
+      <p style="font-size:16px;margin:0 0 16px;">Hi <strong>{{CandidateName}}</strong>,</p>
+      <p style="font-size:15px;line-height:1.6;margin:0 0 20px;">You have been scheduled for an interview for <strong>{{RequisitionTitle}}</strong>.</p>
+      <div style="background:#f8f9fe;border-radius:8px;padding:18px 22px;margin:0 0 20px;">
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <tr><td style="padding:8px 0;color:#666;">Session</td><td style="padding:8px 0;font-weight:600;text-align:right;">{{InterviewTitle}}</td></tr>
+          <tr><td style="padding:8px 0;color:#666;">When</td><td style="padding:8px 0;font-weight:600;text-align:right;">{{ScheduledAt}}</td></tr>
+          <tr><td style="padding:8px 0;color:#666;">Duration</td><td style="padding:8px 0;font-weight:600;text-align:right;">{{DurationMinutes}} minutes</td></tr>
+          <tr><td style="padding:8px 0;color:#666;">Type</td><td style="padding:8px 0;text-align:right;">{{InterviewType}}</td></tr>
+          <tr><td style="padding:8px 0;color:#666;">Location</td><td style="padding:8px 0;text-align:right;">{{Location}}</td></tr>
+          <tr><td style="padding:8px 0;color:#666;">Interviewer</td><td style="padding:8px 0;text-align:right;">{{InterviewerName}}</td></tr>
+        </table>
+      </div>
+      <p style="font-size:14px;line-height:1.6;color:#555;margin:0;">If you need to reschedule, please contact HR.</p>
+    </div>
+    <div style="background:#f5f6fa;padding:16px 36px;text-align:center;font-size:12px;color:#999;">This is an automated message from OpenSky HRM.</div>
+  </div>
+</body></html>
+""";
+
+    private const string RecruitmentInterviewInterviewerHtml = """
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;margin:0;padding:0;background:#f5f6fa;">
+  <div style="max-width:600px;margin:20px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+    <div style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);padding:28px 36px;color:white;">
+      <h1 style="margin:0;font-size:22px;font-weight:600;">Interview assignment</h1>
+      <p style="margin:8px 0 0;opacity:0.85;font-size:14px;">OpenSky HRM</p>
+    </div>
+    <div style="padding:28px 36px;">
+      <p style="font-size:16px;margin:0 0 16px;">Hi <strong>{{InterviewerName}}</strong>,</p>
+      <p style="font-size:15px;line-height:1.6;margin:0 0 20px;">You are scheduled to interview <strong>{{CandidateName}}</strong> for <strong>{{RequisitionTitle}}</strong>.</p>
+      <div style="background:#f8f9fe;border-radius:8px;padding:18px 22px;margin:0 0 20px;">
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <tr><td style="padding:8px 0;color:#666;">Session</td><td style="padding:8px 0;font-weight:600;text-align:right;">{{InterviewTitle}}</td></tr>
+          <tr><td style="padding:8px 0;color:#666;">When</td><td style="padding:8px 0;font-weight:600;text-align:right;">{{ScheduledAt}}</td></tr>
+          <tr><td style="padding:8px 0;color:#666;">Duration</td><td style="padding:8px 0;font-weight:600;text-align:right;">{{DurationMinutes}} minutes</td></tr>
+          <tr><td style="padding:8px 0;color:#666;">Type</td><td style="padding:8px 0;text-align:right;">{{InterviewType}}</td></tr>
+          <tr><td style="padding:8px 0;color:#666;">Location</td><td style="padding:8px 0;text-align:right;">{{Location}}</td></tr>
+        </table>
+      </div>
+      <p style="font-size:14px;line-height:1.6;color:#555;margin:0;">Please review the candidate in OpenSky HRM before the session.</p>
+    </div>
+    <div style="background:#f5f6fa;padding:16px 36px;text-align:center;font-size:12px;color:#999;">This is an automated message from OpenSky HRM.</div>
+  </div>
+</body></html>
 """;
 }

@@ -35,5 +35,16 @@ public class Requisition : AuditableEntity
     public Guid? PositionId { get; set; }
     public Position? Position { get; set; }
 
+    /// <summary>Where to send “new application” notifications for this role (SendGrid/SMTP). Falls back to global recruitment inbox if empty.</summary>
+    public string? ApplicationNotificationEmail { get; set; }
+
+    /// <summary>JSON array of role timeline entries (title, period, details). Edited on requisition detail screen.</summary>
+    public string? RoleTimelineJson { get; set; }
+
+    /// <summary>File name on disk under wwwroot/uploads/requisitions (unique per upload).</summary>
+    public string? SupportingPdfStoredFileName { get; set; }
+
+    public string? SupportingPdfOriginalFileName { get; set; }
+
     public ICollection<Candidate> Candidates { get; set; } = new List<Candidate>();
 }

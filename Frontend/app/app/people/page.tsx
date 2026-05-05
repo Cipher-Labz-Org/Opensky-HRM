@@ -54,6 +54,58 @@ const emptyFilters: Filters = {
   departmentId: "", jobTitleId: "", locationId: "", managerId: "",
 };
 
+type PeopleSortKey =
+  | "employeeCode"
+  | "name"
+  | "jobTitle"
+  | "status"
+  | "employmentType"
+  | "department"
+  | "location"
+  | "supervisor";
+
+function PeopleSortHeader({
+  label,
+  sortKey,
+  activeKey,
+  asc,
+  onSort,
+  className = "",
+}: {
+  label: string;
+  sortKey: PeopleSortKey;
+  activeKey: PeopleSortKey;
+  asc: boolean;
+  onSort: (k: PeopleSortKey) => void;
+  className?: string;
+}) {
+  const active = activeKey === sortKey;
+  return (
+    <th className={`py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${className}`.trim()}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex max-w-full items-center gap-1 rounded px-0.5 py-0.5 -mx-0.5 text-left transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/50"
+      >
+        <span className="min-w-0">{label}</span>
+        {active && (
+          <span className="shrink-0 text-slate-400" aria-hidden>
+            {asc ? (
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+              </svg>
+            ) : (
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            )}
+          </span>
+        )}
+      </button>
+    </th>
+  );
+}
+
 const statusColorMap: Record<string, string> = {
   Active: "bg-emerald-50 text-emerald-600",
   OnNotice: "bg-amber-50 text-amber-600",
@@ -94,6 +146,8 @@ export default function PeoplePage() {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [activeOnly, setActiveOnly] = useState(true);
+  const [sortBy, setSortBy] = useState<PeopleSortKey>("employeeCode");
+  const [sortAsc, setSortAsc] = useState(true);
 
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
@@ -130,11 +184,19 @@ export default function PeoplePage() {
     });
   }, []);
 
-  const loadEmployees = useCallback(async (f: Filters, p: number, exclTerminated: boolean) => {
+  const loadEmployees = useCallback(async (
+    f: Filters,
+    p: number,
+    exclTerminated: boolean,
+    sortKey: PeopleSortKey,
+    asc: boolean,
+  ) => {
     setLoading(true);
     const params = new URLSearchParams();
     params.set("page", String(p));
     params.set("pageSize", "10");
+    params.set("sortBy", sortKey);
+    params.set("sortDir", asc ? "asc" : "desc");
     if (f.search) params.set("search", f.search);
     if (f.employeeCode) params.set("search", f.employeeCode);
     if (f.status) params.set("status", f.status);
@@ -158,7 +220,9 @@ export default function PeoplePage() {
     }
   }, []);
 
-  useEffect(() => { loadEmployees(appliedFilters, page, activeOnly); }, [appliedFilters, page, activeOnly, loadEmployees]);
+  useEffect(() => {
+    loadEmployees(appliedFilters, page, activeOnly, sortBy, sortAsc);
+  }, [appliedFilters, page, activeOnly, sortBy, sortAsc, loadEmployees]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -188,6 +252,17 @@ export default function PeoplePage() {
     setAppliedFilters(emptyFilters);
     setQuickSearch("");
     setPage(1);
+    setSortBy("employeeCode");
+    setSortAsc(true);
+  }
+
+  function handleSortColumn(key: PeopleSortKey) {
+    setPage(1);
+    if (sortBy === key) setSortAsc((a) => !a);
+    else {
+      setSortBy(key);
+      setSortAsc(true);
+    }
   }
 
   const activeFilterCount = Object.values(appliedFilters).filter(Boolean).length;
@@ -254,7 +329,6 @@ export default function PeoplePage() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-800">People Hub</h1>
-            <p className="mt-0.5 text-[13px] text-slate-400">Manage your workforce — employees, contracts, and lifecycle.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {(isAdmin || hasPermission("People", "Read")) && !showSimplifiedView && (
@@ -377,7 +451,7 @@ export default function PeoplePage() {
       <CreateEmployeeModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        onCreated={() => { loadEmployees(appliedFilters, page, activeOnly); }}
+        onCreated={() => { loadEmployees(appliedFilters, page, activeOnly, sortBy, sortAsc); }}
       />
       )}
 
@@ -520,14 +594,14 @@ export default function PeoplePage() {
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
                     <th className="w-10 py-2.5 pl-5 pr-1"></th>
-                    <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Employee Id</th>
-                    <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Name</th>
-                    <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Job Title</th>
-                    <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                    <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Emp. Type</th>
-                    <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Department</th>
-                    <th className="py-2.5 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Location</th>
-                    <th className="py-2.5 px-3 pr-5 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Supervisor</th>
+                    <PeopleSortHeader label="Employee Id" sortKey="employeeCode" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                    <PeopleSortHeader label="Name" sortKey="name" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                    <PeopleSortHeader label="Job Title" sortKey="jobTitle" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                    <PeopleSortHeader label="Status" sortKey="status" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                    <PeopleSortHeader label="Emp. Type" sortKey="employmentType" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                    <PeopleSortHeader label="Department" sortKey="department" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                    <PeopleSortHeader label="Location" sortKey="location" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                    <PeopleSortHeader label="Supervisor" sortKey="supervisor" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} className="pr-5" />
                   </tr>
                 </thead>
                 <tbody>

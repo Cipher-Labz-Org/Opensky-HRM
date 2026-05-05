@@ -49,6 +49,8 @@ public class AppDbContext : DbContext
     public DbSet<RosterAssignment> RosterAssignments => Set<RosterAssignment>();
     public DbSet<ShiftPattern> ShiftPatterns => Set<ShiftPattern>();
     public DbSet<BiometricDevice> BiometricDevices => Set<BiometricDevice>();
+    public DbSet<BiometricRawEvent> BiometricRawEvents => Set<BiometricRawEvent>();
+    public DbSet<BiometricPunchEvent> BiometricPunchEvents => Set<BiometricPunchEvent>();
     public DbSet<PunchImportBatch> PunchImportBatches => Set<PunchImportBatch>();
 
     // Recruitment & Onboarding
@@ -107,6 +109,10 @@ public class AppDbContext : DbContext
     public DbSet<Permission> Permissions => Set<Permission>();
     public DbSet<User> Users => Set<User>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
+    public DbSet<UserAssignedLocation> UserAssignedLocations => Set<UserAssignedLocation>();
+    public DbSet<UserAssignedBusinessUnit> UserAssignedBusinessUnits => Set<UserAssignedBusinessUnit>();
+    public DbSet<UserAssignedGrade> UserAssignedGrades => Set<UserAssignedGrade>();
+    public DbSet<UserAssignedJobTitle> UserAssignedJobTitles => Set<UserAssignedJobTitle>();
     public DbSet<CompanyCalendar> CompanyCalendars => Set<CompanyCalendar>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<OutboundEmailLog> OutboundEmailLogs => Set<OutboundEmailLog>();

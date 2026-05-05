@@ -659,11 +659,13 @@ public class BulkUploadController : ControllerBase
                 existing.Entitled = entitled!.Value;
                 existing.Used = used ?? 0;
                 existing.CarriedForward = carried ?? 0;
+                existing.BroughtForwardDays = Math.Max(existing.BroughtForwardDays, carried ?? 0);
                 updated++;
                 results.Add(new LeaveBalanceRowResult(r, empCode!, leaveTypeName!, "Updated", new List<string>()));
             }
             else
             {
+                var cf = carried ?? 0;
                 var balance = new LeaveBalance
                 {
                     EmployeeId = emp!.Id,
@@ -671,7 +673,8 @@ public class BulkUploadController : ControllerBase
                     Year = year,
                     Entitled = entitled!.Value,
                     Used = used ?? 0,
-                    CarriedForward = carried ?? 0,
+                    CarriedForward = cf,
+                    BroughtForwardDays = cf,
                 };
                 _db.LeaveBalances.Add(balance);
                 existingBalances.Add(balance);

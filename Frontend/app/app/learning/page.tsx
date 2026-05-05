@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { CreateCourseModal } from "@/components/forms/CreateCourseModal";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -131,34 +132,94 @@ export default function LearningPage() {
   const openAssignments = trainingAssignments.filter(
     (t) => t.status === "Assigned" || t.status === "InProgress",
   );
-  const expiringSoon = certSummaries.reduce((s, r) => s + r.expiringWithin90Days, 0);
 
-  const kpis = [
-    {
-      label: "Active courses",
-      value: activeCourses.length,
-      icon: "M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v15.128c.918-.304 1.927-.472 3-.472s2.082.168 3 .472V4.512A8.966 8.966 0 0012 6.042z",
-      color: "bg-blue-100 text-blue-600",
-    },
-    {
-      label: "Open assignments",
-      value: openAssignments.length,
-      icon: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z",
-      color: "bg-amber-100 text-amber-600",
-    },
-    {
-      label: "Cert. types tracked",
-      value: certSummaries.length,
-      icon: "M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z",
-      color: "bg-green-100 text-green-600",
-    },
-    {
-      label: "Expiring ≤90 days",
-      value: expiringSoon,
-      icon: "M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z",
-      color: "bg-purple-100 text-purple-600",
-    },
-  ];
+  const dashboardKpis = useMemo(() => {
+    const total = courses.length;
+    const act = courses.filter((x) => x.isActive).length;
+    const open = trainingAssignments.filter((t) => t.status === "Assigned" || t.status === "InProgress").length;
+    const exp = certSummaries.reduce((s, r) => s + r.expiringWithin90Days, 0);
+    return [
+      {
+        label: "Active courses",
+        value: formatInt(act),
+        sub: `${formatInt(total)} total in catalog`,
+      },
+      {
+        label: "Open assignments",
+        value: formatInt(open),
+        sub: "Assigned or in progress",
+      },
+      {
+        label: "Certification types",
+        value: formatInt(certSummaries.length),
+        sub: "Tracked in compliance view",
+      },
+      {
+        label: "Certs expiring ≤90d",
+        value: formatInt(exp),
+        sub: "Across all certification types",
+      },
+    ];
+  }, [courses, trainingAssignments, certSummaries]);
+
+  const skillCoverageBars = useMemo(() => {
+    const colors = ["#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#0ea5e9", "#22c55e", "#f59e0b"];
+    return [...skillCov]
+      .sort((a, b) => b.employeeCountWithSkill - a.employeeCountWithSkill)
+      .slice(0, 8)
+      .map((s, i) => ({
+        label: s.skillName,
+        value: s.employeeCountWithSkill,
+        color: colors[i % colors.length],
+      }));
+  }, [skillCov]);
+
+  const certExpiryBars = useMemo(() => {
+    return certSummaries
+      .filter((c) => c.expiringWithin90Days > 0)
+      .sort((a, b) => b.expiringWithin90Days - a.expiringWithin90Days)
+      .slice(0, 10)
+      .map((c) => ({
+        label: c.name.length > 28 ? `${c.name.slice(0, 26)}…` : c.name,
+        value: c.expiringWithin90Days,
+        color: "#f59e0b",
+      }));
+  }, [certSummaries]);
+
+  const certAssignedDonut = useMemo(() => {
+    const palette = ["#22c55e", "#3b82f6", "#8b5cf6", "#f59e0b", "#14b8a6", "#ec4899", "#64748b", "#eab308"];
+    return certSummaries
+      .filter((c) => c.assignedCount > 0)
+      .slice(0, 8)
+      .map((c, i) => ({
+        label: c.name.length > 22 ? `${c.name.slice(0, 20)}…` : c.name,
+        value: c.assignedCount,
+        color: palette[i % palette.length],
+      }));
+  }, [certSummaries]);
+
+  const assignmentStatusBars = useMemo(() => {
+    const tally = new Map<string, number>();
+    for (const t of trainingAssignments) {
+      const s = t.status || "Unknown";
+      tally.set(s, (tally.get(s) ?? 0) + 1);
+    }
+    const palette = ["#3b82f6", "#f59e0b", "#22c55e", "#94a3b8", "#ef4444", "#8b5cf6"];
+    return Array.from(tally.entries())
+      .map(([label, value], i) => ({ label, value, color: palette[i % palette.length] }))
+      .sort((a, b) => b.value - a.value);
+  }, [trainingAssignments]);
+
+  const assignmentTimeline = useMemo(() => {
+    return [...trainingAssignments]
+      .sort((a, b) => new Date(b.assignedAt).getTime() - new Date(a.assignedAt).getTime())
+      .slice(0, 8)
+      .map((t) => ({
+        at: t.assignedAt,
+        title: `${t.employeeName} · ${t.courseTitle}`,
+        body: `${t.status}${t.dueDate ? ` · Due ${formatDate(t.dueDate)}` : ""}`,
+      }));
+  }, [trainingAssignments]);
 
   return (
     <>
@@ -167,13 +228,17 @@ export default function LearningPage() {
         subtitle="Course catalog, training assignments, certifications, and skill matrix."
       />
 
-      <div className="mb-5 flex items-center gap-2 flex-wrap">
+      <div className="mt-6 mb-6 flex flex-wrap gap-2">
         {PAGE_TABS.map((t) => (
           <button
             key={t.key}
             type="button"
             onClick={() => setPageTab(t.key)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${pageTab === t.key ? "bg-blue-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            className={`rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${
+              pageTab === t.key
+                ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+            }`}
           >
             {t.label}
           </button>
@@ -189,112 +254,187 @@ export default function LearningPage() {
       {pageTab === "dashboard" && (
         <div className="space-y-6">
           {loading && courses.length === 0 && !loadErr ? (
-            <div className="py-10 text-center text-sm text-slate-400">Loading…</div>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" />
+              ))}
+            </div>
           ) : (
             <>
-          <div className="mb-6 flex items-center justify-between">
-            <div className="text-sm text-slate-500">
-              {loading ? "Refreshing…" : `${courses.length} course(s) in catalog`}
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" variant="secondary" onClick={() => refresh()}>
-                Refresh
-              </Button>
-              <Button onClick={() => setShowCreate(true)}>+ New course</Button>
-            </div>
-          </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                <div className="text-sm text-slate-600">
+                  {loading ? "Refreshing…" : `${formatInt(courses.length)} course(s) in catalog`}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => refresh()}>
+                    Refresh
+                  </Button>
+                  <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => setShowCreate(true)}>
+                    + New course
+                  </Button>
+                </div>
+              </div>
 
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {kpis.map((k) => (
-              <div key={k.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${k.color}`}>
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d={k.icon} />
-                    </svg>
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                {dashboardKpis.map((kpi) => (
+                  <div
+                    key={kpi.label}
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
+                    <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
                   </div>
-                  <div>
-                    <p className="text-2xl font-bold text-slate-800">{k.value}</p>
-                    <p className="text-xs text-slate-500">{k.label}</p>
+                ))}
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-slate-800">Skill coverage</h3>
+                  </div>
+                  {skillCoverageBars.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-500">No skill coverage data.</p>
+                  ) : (
+                    <HorizontalCompareBars items={skillCoverageBars} />
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-slate-800">Assignment status</h3>
+                  </div>
+                  {assignmentStatusBars.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-500">No assignments loaded.</p>
+                  ) : (
+                    <HorizontalCompareBars items={assignmentStatusBars} />
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-slate-800">Cert. assignments</h3>
+                  </div>
+                  {certAssignedDonut.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-500">No certification assignments.</p>
+                  ) : (
+                    <DonutMixChart values={certAssignedDonut} />
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-slate-800">Certifications expiring (90d)</h3>
+                </div>
+                {certExpiryBars.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-slate-500">No expiring certifications in the next 90 days.</p>
+                ) : (
+                  <HorizontalCompareBars items={certExpiryBars} />
+                )}
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-base font-semibold text-slate-900">Recent assignments</h3>
+                    </div>
+                    <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => setPageTab("assignments")}>
+                      All assignments
+                    </Button>
+                  </div>
+                  {assignmentTimeline.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-slate-500">No training assignments yet.</p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {assignmentTimeline.map((ev, i) => (
+                        <div
+                          key={`${ev.at}-${i}`}
+                          className="group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
+                        >
+                          <div className="pt-0.5 text-[11px] font-medium text-slate-500">{formatDateTime(ev.at)}</div>
+                          <div className="min-w-0">
+                            <div className="mb-0.5 flex items-center gap-2">
+                              <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-teal-500" />
+                              <strong className="truncate text-sm text-slate-800">{ev.title}</strong>
+                            </div>
+                            <div className="line-clamp-2 text-sm text-slate-600">{ev.body}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4">
+                    <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
+                  </div>
+                  <div className="grid gap-2.5">
+                    {(
+                      [
+                        ["courses", "Course catalog", "View and add courses"],
+                        ["assignments", "Assignments", "Review training status"],
+                        ["certifications", "Certifications", "Compliance and expiry"],
+                        ["skills", "Skills & matrix", "Coverage and proficiency"],
+                      ] as const
+                    ).map(([key, title]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setPageTab(key)}
+                        className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-800">{title}</div>
+                          </div>
+                          <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
+                            →
+                          </span>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
-              <CardHeader title="Open training assignments" />
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-50 text-left">
-                      <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Course</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Status</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Due</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {openAssignments.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-6 text-center text-slate-400">
-                          No open assignments.
-                        </td>
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-100 px-5 py-4">
+                  <h4 className="text-base font-semibold text-slate-900">Open training assignments</h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-left">
+                        <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>
+                        <th className="px-4 py-2.5 font-semibold text-slate-600">Course</th>
+                        <th className="px-4 py-2.5 font-semibold text-slate-600">Status</th>
+                        <th className="px-4 py-2.5 font-semibold text-slate-600">Due</th>
                       </tr>
-                    ) : (
-                      openAssignments.slice(0, 12).map((t) => (
-                        <tr key={t.id} className="hover:bg-slate-50/50">
-                          <td className="px-6 py-3 font-medium text-slate-700">{t.employeeName}</td>
-                          <td className="px-4 py-3 text-slate-600">{t.courseTitle}</td>
-                          <td className="px-4 py-3 text-slate-600">{t.status}</td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {formatDate(t.dueDate)}
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {openAssignments.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-6 text-center text-slate-400">
+                            No open assignments.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        openAssignments.slice(0, 12).map((t) => (
+                          <tr key={t.id} className="hover:bg-slate-50/50">
+                            <td className="px-6 py-3 font-medium text-slate-700">{t.employeeName}</td>
+                            <td className="px-4 py-3 text-slate-600">{t.courseTitle}</td>
+                            <td className="px-4 py-3 text-slate-600">{t.status}</td>
+                            <td className="px-4 py-3 text-slate-600">{formatDate(t.dueDate)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <CardHeader title="Quick actions" />
-              <div className="space-y-3 p-6">
-                <button
-                  type="button"
-                  onClick={() => setPageTab("courses")}
-                  className="flex w-full items-center gap-3 rounded-xl border border-slate-200 p-3.5 text-left transition hover:bg-slate-50"
-                >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100">
-                    <svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700">Manage catalog</p>
-                    <p className="text-xs text-slate-400">View and add courses</p>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPageTab("assignments")}
-                  className="flex w-full items-center gap-3 rounded-xl border border-slate-200 p-3.5 text-left transition hover:bg-slate-50"
-                >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100">
-                    <svg className="h-4 w-4 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700">All assignments</p>
-                    <p className="text-xs text-slate-400">Review training status</p>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
             </>
           )}
         </div>

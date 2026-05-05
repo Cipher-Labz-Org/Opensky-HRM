@@ -1,4 +1,8 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Recruitment;
 using OpenSkyHRM.Application.Interfaces;
@@ -12,7 +16,32 @@ public class RecruitmentService : IRecruitmentService
 {
     private readonly AppDbContext _db;
     private readonly ISystemSettingService _settings;
-    public RecruitmentService(AppDbContext db, ISystemSettingService settings) { _db = db; _settings = settings; }
+    private readonly IEmailService _email;
+    private readonly ILogger<RecruitmentService> _logger;
+    private readonly IHostEnvironment _hostEnv;
+    private readonly IConfiguration _configuration;
+
+    public RecruitmentService(
+        AppDbContext db,
+        ISystemSettingService settings,
+        IEmailService email,
+        ILogger<RecruitmentService> logger,
+        IHostEnvironment hostEnv,
+        IConfiguration configuration)
+    {
+        _db = db;
+        _settings = settings;
+        _email = email;
+        _logger = logger;
+        _hostEnv = hostEnv;
+        _configuration = configuration;
+    }
+
+    private bool ResumeFileExists(Guid candidateId)
+    {
+        var path = Path.Combine(_hostEnv.ContentRootPath, "wwwroot", "uploads", "candidates", candidateId.ToString(), "resume.pdf");
+        return File.Exists(path);
+    }
 
     // ── Requisitions ─────────────────────────────────────────────
 
@@ -59,11 +88,15 @@ public class RecruitmentService : IRecruitmentService
         var req = new Requisition
         {
             Title = dto.Title, Code = dto.Code, Description = dto.Description, Vacancies = dto.Vacancies,
+            Status = ApprovalStatus.Pending,
             TargetDate = dto.TargetDate, Priority = dto.Priority, EmploymentType = dto.EmploymentType,
             ExperienceMin = dto.ExperienceMin, ExperienceMax = dto.ExperienceMax,
             SalaryMin = dto.SalaryMin, SalaryMax = dto.SalaryMax, Skills = dto.Skills,
             DepartmentId = dto.DepartmentId, JobTitleId = dto.JobTitleId,
             HiringManagerId = dto.HiringManagerId, LocationId = dto.LocationId, PositionId = dto.PositionId,
+            ApplicationNotificationEmail = string.IsNullOrWhiteSpace(dto.ApplicationNotificationEmail)
+                ? null
+                : dto.ApplicationNotificationEmail.Trim(),
         };
         _db.Requisitions.Add(req);
         await _db.SaveChangesAsync();
@@ -80,6 +113,9 @@ public class RecruitmentService : IRecruitmentService
         req.ExperienceMax = dto.ExperienceMax; req.SalaryMin = dto.SalaryMin; req.SalaryMax = dto.SalaryMax;
         req.Skills = dto.Skills; req.DepartmentId = dto.DepartmentId; req.JobTitleId = dto.JobTitleId;
         req.HiringManagerId = dto.HiringManagerId; req.LocationId = dto.LocationId; req.PositionId = dto.PositionId;
+        req.ApplicationNotificationEmail = string.IsNullOrWhiteSpace(dto.ApplicationNotificationEmail)
+            ? null
+            : dto.ApplicationNotificationEmail.Trim();
         await _db.SaveChangesAsync();
         return (await GetRequisitionByIdAsync(req.Id))!;
     }
@@ -96,7 +132,21 @@ public class RecruitmentService : IRecruitmentService
     {
         var req = await _db.Requisitions.FindAsync(id)
             ?? throw new InvalidOperationException("Requisition not found");
+        if (req.Status != ApprovalStatus.Pending)
+            throw new InvalidOperationException("Only pending requisitions can be approved.");
         req.Status = ApprovalStatus.Approved;
+        await _db.SaveChangesAsync();
+        return (await GetRequisitionByIdAsync(id))!;
+    }
+
+    public async Task<RequisitionDto> RejectRequisitionAsync(Guid id, string? remarks = null)
+    {
+        var req = await _db.Requisitions.FindAsync(id)
+            ?? throw new InvalidOperationException("Requisition not found");
+        if (req.Status != ApprovalStatus.Pending)
+            throw new InvalidOperationException("Only pending requisitions can be rejected.");
+        _ = remarks;
+        req.Status = ApprovalStatus.Rejected;
         await _db.SaveChangesAsync();
         return (await GetRequisitionByIdAsync(id))!;
     }
@@ -105,8 +155,40 @@ public class RecruitmentService : IRecruitmentService
     {
         var req = await _db.Requisitions.FindAsync(id)
             ?? throw new InvalidOperationException("Requisition not found");
-        req.Status = ApprovalStatus.Approved;
+        if (req.Status != ApprovalStatus.Approved)
+            throw new InvalidOperationException("Only approved requisitions can be closed.");
+        if (req.ClosedAt.HasValue)
+            throw new InvalidOperationException("Requisition is already closed.");
         req.ClosedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return (await GetRequisitionByIdAsync(id))!;
+    }
+
+    public async Task<RequisitionDto> SaveRequisitionProfileAsync(Guid id, SaveRequisitionProfileDto dto)
+    {
+        var req = await _db.Requisitions.FindAsync(id)
+            ?? throw new InvalidOperationException("Requisition not found");
+        req.RoleTimelineJson = JsonSerializer.Serialize(dto.Timeline ?? new List<RequisitionTimelineEntryDto>());
+        await _db.SaveChangesAsync();
+        return (await GetRequisitionByIdAsync(id))!;
+    }
+
+    public async Task<RequisitionDto> SetSupportingPdfAsync(Guid id, string storedFileName, string originalFileName)
+    {
+        var req = await _db.Requisitions.FindAsync(id)
+            ?? throw new InvalidOperationException("Requisition not found");
+        req.SupportingPdfStoredFileName = storedFileName;
+        req.SupportingPdfOriginalFileName = originalFileName;
+        await _db.SaveChangesAsync();
+        return (await GetRequisitionByIdAsync(id))!;
+    }
+
+    public async Task<RequisitionDto> DeleteSupportingPdfAsync(Guid id)
+    {
+        var req = await _db.Requisitions.FindAsync(id)
+            ?? throw new InvalidOperationException("Requisition not found");
+        req.SupportingPdfStoredFileName = null;
+        req.SupportingPdfOriginalFileName = null;
         await _db.SaveChangesAsync();
         return (await GetRequisitionByIdAsync(id))!;
     }
@@ -127,10 +209,10 @@ public class RecruitmentService : IRecruitmentService
                 c.FirstName.Contains(search) || c.LastName.Contains(search) || c.Email.Contains(search));
 
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(c => c.CreatedAt)
+        var rows = await query.OrderByDescending(c => c.CreatedAt)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(c => MapCandidate(c))
             .ToListAsync();
+        var items = rows.Select(MapCandidate).ToList();
 
         return new PagedResult<CandidateDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
@@ -147,15 +229,17 @@ public class RecruitmentService : IRecruitmentService
 
         if (c == null) return null;
 
+        var m = MapCandidate(c);
         return new CandidateDetailDto
         {
-            Id = c.Id, FirstName = c.FirstName, LastName = c.LastName, FullName = c.FullName,
-            Email = c.Email, Phone = c.Phone, ResumeUrl = c.ResumeUrl, Source = c.Source, Stage = c.Stage,
-            AppliedAt = c.AppliedAt, CurrentTitle = c.CurrentTitle, CurrentCompany = c.CurrentCompany,
-            ExpectedSalary = c.ExpectedSalary, NoticePeriod = c.NoticePeriod, Notes = c.Notes,
-            Rating = c.Rating, RejectionReason = c.RejectionReason, Tags = c.Tags,
-            RequisitionId = c.RequisitionId, RequisitionTitle = c.Requisition?.Title,
-            EmployeeId = c.EmployeeId,
+            Id = m.Id, FirstName = m.FirstName, LastName = m.LastName, FullName = m.FullName,
+            Email = m.Email, Phone = m.Phone, ResumeUrl = m.ResumeUrl, Source = m.Source, Stage = m.Stage,
+            AppliedAt = m.AppliedAt, CurrentTitle = m.CurrentTitle, CurrentCompany = m.CurrentCompany,
+            ExpectedSalary = m.ExpectedSalary, NoticePeriod = m.NoticePeriod, Notes = m.Notes,
+            Rating = m.Rating, RejectionReason = m.RejectionReason, Tags = m.Tags,
+            RequisitionId = m.RequisitionId, RequisitionTitle = m.RequisitionTitle,
+            EmployeeId = m.EmployeeId,
+            HasUploadedResume = m.HasUploadedResume,
             Interviews = c.Interviews.OrderByDescending(i => i.ScheduledAt).Select(i => MapInterview(i)).ToList(),
             Offer = c.Offer != null ? MapOffer(c.Offer) : null,
             Activities = c.Activities.OrderByDescending(a => a.PerformedAt)
@@ -184,6 +268,82 @@ public class RecruitmentService : IRecruitmentService
 
         await _db.SaveChangesAsync();
         return (await GetCandidatesAsync(1, 1, dto.RequisitionId)).Items.First();
+    }
+
+    public async Task<JobApplicationEmailNotificationResultDto> NotifyJobApplicationSubmittedAsync(Guid candidateId)
+    {
+        if (!await _email.IsConfiguredAsync())
+        {
+            const string msg =
+                "Email provider is not configured. Set SendGrid:ApiKey (recommended) or Smtp:Host in appsettings, user secrets, or environment variables (e.g. SendGrid__ApiKey).";
+            _logger.LogWarning(
+                "New application (candidate {CandidateId}) saved but {Msg}",
+                candidateId, msg);
+            return new JobApplicationEmailNotificationResultDto
+            {
+                Status = "skipped_no_email_provider",
+                Message = msg,
+            };
+        }
+
+        var c = await _db.Candidates
+            .Include(x => x.Requisition)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == candidateId);
+        if (c is null)
+            return new JobApplicationEmailNotificationResultDto { Status = "failed", Message = "Candidate not found." };
+
+        var notifyEmail = c.Requisition?.ApplicationNotificationEmail?.Trim();
+        if (string.IsNullOrWhiteSpace(notifyEmail))
+            notifyEmail = _configuration["Recruitment:ApplicationNotificationEmail"]?.Trim();
+        if (string.IsNullOrWhiteSpace(notifyEmail))
+            notifyEmail = (await _settings.GetAsync("Recruitment_ApplicationNotificationEmail"))?.Trim();
+
+        if (string.IsNullOrWhiteSpace(notifyEmail))
+        {
+            const string msg =
+                "No recruitment inbox address. Set \"Application notification email\" on the requisition (edit requisition), or set Recruitment:ApplicationNotificationEmail / system setting Recruitment_ApplicationNotificationEmail.";
+            _logger.LogWarning(
+                "New application (candidate {CandidateId}) saved but {Msg}",
+                candidateId, msg);
+            return new JobApplicationEmailNotificationResultDto { Status = "skipped_no_inbox", Message = msg };
+        }
+
+        var reqTitle = c.Requisition?.Title?.Trim() ?? "Position";
+        var reqCode = c.Requisition?.Code?.Trim() ?? "—";
+        var resumeUploaded = ResumeFileExists(candidateId);
+
+        try
+        {
+            var name = $"{c.FirstName} {c.LastName}".Trim();
+            if (string.IsNullOrWhiteSpace(name)) name = c.Email;
+
+            await _email.SendJobApplicationNotificationToInboxAsync(
+                notifyEmail,
+                name,
+                c.Email,
+                c.Phone,
+                reqTitle,
+                reqCode,
+                candidateId,
+                resumeUploaded);
+
+            _logger.LogInformation("Application notification email sent for candidate {CandidateId} to {Inbox}", candidateId, notifyEmail);
+            return new JobApplicationEmailNotificationResultDto
+            {
+                Status = "sent",
+                Message = $"Notification sent to {notifyEmail}.",
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send application notification email for candidate {CandidateId}", candidateId);
+            return new JobApplicationEmailNotificationResultDto
+            {
+                Status = "failed",
+                Message = ex.Message,
+            };
+        }
     }
 
     public async Task<CandidateDto> UpdateCandidateAsync(UpdateCandidateDto dto)
@@ -230,7 +390,7 @@ public class RecruitmentService : IRecruitmentService
         return MapCandidate(c);
     }
 
-    public async Task<Guid> HireCandidateAsync(Guid id)
+    public async Task<HireCandidateResult> HireCandidateAsync(Guid id)
     {
         var c = await _db.Candidates
             .Include(x => x.Requisition)
@@ -241,11 +401,51 @@ public class RecruitmentService : IRecruitmentService
         if (c.Stage != "Hired" && c.Stage != "Offer")
             throw new InvalidOperationException("Candidate must be in Offer or Hired stage to convert");
 
+        // Idempotent: already linked to an employee (double submit, or refresh after success).
+        // Use IgnoreQueryFilters so a soft-deleted linked employee is detected; clear stale FK below.
+        if (c.EmployeeId is { } existingEmpId)
+        {
+            var linked = await _db.Employees.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(e => e.Id == existingEmpId);
+            if (linked != null && !linked.IsDeleted)
+            {
+                c.Stage = "Hired";
+                await _db.SaveChangesAsync();
+                return new HireCandidateResult(linked.Id, CreatedNewEmployee: false);
+            }
+
+            // Broken FK or soft-deleted employee — clear so we can create or re-link after email check.
+            c.EmployeeId = null;
+        }
+
+        var emailTrimmed = (c.Email ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(emailTrimmed))
+            throw new InvalidOperationException("Candidate email is required to create an employee record.");
+
+        var emailLower = emailTrimmed.ToLowerInvariant();
+        // Unique index on Email applies to ALL rows including soft-deleted; global query filter would hide conflicts.
+        var existingByEmail = await _db.Employees
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Email.ToLower() == emailLower);
+        if (existingByEmail != null)
+        {
+            if (existingByEmail.IsDeleted)
+            {
+                throw new InvalidOperationException(
+                    $"The email '{emailTrimmed}' is still tied to a former employee record in the database (deleted/archived). " +
+                    "An administrator must change that archived employee's email in People (or permanently remove the row) before this candidate can use the same address.");
+            }
+
+            throw new InvalidOperationException(
+                $"An employee with email '{emailTrimmed}' already exists ({existingByEmail.EmployeeCode}: {existingByEmail.FirstName} {existingByEmail.LastName}). " +
+                "Update the candidate's email in recruitment, or open the existing employee in People.");
+        }
+
         var employee = new Employee
         {
             FirstName = c.FirstName,
             LastName = c.LastName,
-            Email = c.Email,
+            Email = emailTrimmed,
             Phone = c.Phone,
             DepartmentId = c.Offer?.DepartmentId ?? c.Requisition.DepartmentId,
             PositionId = c.Offer?.PositionId ?? c.Requisition.PositionId,
@@ -272,8 +472,49 @@ public class RecruitmentService : IRecruitmentService
         }
 
         LogActivity(c.Id, "Hired", $"Candidate converted to employee {employee.FullName}");
-        await _db.SaveChangesAsync();
-        return employee.Id;
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            if (!IsEmployeesEmailUniqueViolation(ex))
+                throw;
+
+            DetachAddedEmployee(employee);
+            await _db.Entry(c).ReloadAsync();
+            if (c.EmployeeId is { } recoveredId)
+                return new HireCandidateResult(recoveredId, CreatedNewEmployee: false);
+
+            throw new InvalidOperationException(
+                $"This email is already used by another employee record (including possible archived users not visible in normal lists). " +
+                $"Try a different email for the candidate, or ask an admin to free '{emailTrimmed}'.",
+                ex);
+        }
+
+        return new HireCandidateResult(employee.Id, CreatedNewEmployee: true);
+    }
+
+    /// <summary>Detects Postgres unique_violation on Employees.Email (message shape varies by Npgsql / redacted detail).</summary>
+    private static bool IsEmployeesEmailUniqueViolation(DbUpdateException ex)
+    {
+        for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+        {
+            var msg = inner.Message ?? string.Empty;
+            if (msg.Contains("IX_Employees_Email", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (msg.Contains("23505", StringComparison.Ordinal) && msg.Contains("email", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private void DetachAddedEmployee(Employee employee)
+    {
+        var entry = _db.Entry(employee);
+        if (entry.State == EntityState.Added)
+            entry.State = EntityState.Detached;
     }
 
     // ── Interviews ───────────────────────────────────────────────
@@ -310,10 +551,68 @@ public class RecruitmentService : IRecruitmentService
         LogActivity(dto.CandidateId, "Interview", $"Interview scheduled: {dto.Title}");
         await _db.SaveChangesAsync();
 
+        if (dto.NotifyCandidateByEmail || dto.NotifyInterviewerByEmail)
+        {
+            try
+            {
+                await SendInterviewScheduledEmailsAsync(dto, interview);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Interview {InterviewId} was created but one or more notification emails failed.", interview.Id);
+            }
+        }
+
         return (await _db.Interviews
             .Include(i => i.Interviewer).Include(i => i.Scorecards).Include(i => i.Candidate)
             .FirstAsync(i => i.Id == interview.Id))
             .Let(MapInterview);
+    }
+
+    private async Task SendInterviewScheduledEmailsAsync(CreateInterviewDto dto, Interview interview)
+    {
+        var cand = await _db.Candidates.AsNoTracking()
+            .Include(c => c.Requisition)
+            .FirstOrDefaultAsync(c => c.Id == dto.CandidateId);
+        if (cand == null) return;
+
+        var requisitionTitle = cand.Requisition?.Title ?? "Open position";
+        var loc = string.IsNullOrWhiteSpace(dto.Location) ? null : dto.Location;
+        var intType = string.IsNullOrWhiteSpace(dto.InterviewType) ? null : dto.InterviewType;
+        var interviewerDisplay = interview.InterviewerName;
+
+        if (dto.NotifyCandidateByEmail && !string.IsNullOrWhiteSpace(cand.Email))
+        {
+            await _email.SendInterviewScheduledToCandidateAsync(
+                cand.Email,
+                cand.FullName,
+                dto.Title,
+                dto.ScheduledAt,
+                dto.Duration,
+                loc,
+                intType,
+                interviewerDisplay,
+                requisitionTitle);
+        }
+
+        if (dto.NotifyInterviewerByEmail && dto.InterviewerId.HasValue)
+        {
+            var emp = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == dto.InterviewerId.Value);
+            if (emp != null && !string.IsNullOrWhiteSpace(emp.Email))
+            {
+                await _email.SendInterviewScheduledToInterviewerAsync(
+                    emp.Email,
+                    emp.FullName,
+                    cand.FullName,
+                    dto.Title,
+                    dto.ScheduledAt,
+                    dto.Duration,
+                    loc,
+                    intType,
+                    requisitionTitle);
+            }
+        }
     }
 
     public async Task<InterviewDto> UpdateInterviewAsync(UpdateInterviewDto dto)
@@ -448,6 +747,8 @@ public class RecruitmentService : IRecruitmentService
     {
         var offer = await _db.Offers.FindAsync(dto.Id)
             ?? throw new InvalidOperationException("Offer not found");
+        if (offer.Status != ApprovalStatus.Pending)
+            throw new InvalidOperationException("Only pending offers can be edited.");
         offer.SalaryOffered = dto.SalaryOffered; offer.Currency = dto.Currency;
         offer.OfferDate = dto.OfferDate; offer.ExpiryDate = dto.ExpiryDate;
         offer.Remarks = dto.Remarks; offer.JoiningDate = dto.JoiningDate;
@@ -461,6 +762,10 @@ public class RecruitmentService : IRecruitmentService
     {
         var offer = await _db.Offers.FindAsync(id)
             ?? throw new InvalidOperationException("Offer not found");
+        if (offer.Status == ApprovalStatus.Approved)
+            return MapOffer(offer);
+        if (offer.Status != ApprovalStatus.Pending)
+            throw new InvalidOperationException("Only pending offers can be approved.");
         offer.Status = ApprovalStatus.Approved;
         LogActivity(offer.CandidateId, "OfferSent", "Offer approved");
         await _db.SaveChangesAsync();
@@ -471,6 +776,10 @@ public class RecruitmentService : IRecruitmentService
     {
         var offer = await _db.Offers.Include(o => o.Candidate).FirstOrDefaultAsync(o => o.Id == id)
             ?? throw new InvalidOperationException("Offer not found");
+        if (offer.AcceptedAt.HasValue)
+            return MapOffer(offer);
+        if (offer.Status != ApprovalStatus.Approved)
+            throw new InvalidOperationException("Offer must be approved before it can be marked as accepted.");
         offer.Status = ApprovalStatus.Approved;
         offer.AcceptedAt = DateTime.UtcNow;
         if (offer.Candidate != null)
@@ -486,6 +795,12 @@ public class RecruitmentService : IRecruitmentService
     {
         var offer = await _db.Offers.FindAsync(id)
             ?? throw new InvalidOperationException("Offer not found");
+        if (offer.Status == ApprovalStatus.Rejected)
+            return MapOffer(offer);
+        if (offer.AcceptedAt.HasValue)
+            throw new InvalidOperationException("Accepted offers cannot be rejected.");
+        if (offer.Status != ApprovalStatus.Pending && offer.Status != ApprovalStatus.Approved)
+            throw new InvalidOperationException("This offer can no longer be rejected.");
         offer.Status = ApprovalStatus.Rejected;
         offer.RejectedAt = DateTime.UtcNow;
         offer.RejectionReason = reason;
@@ -506,6 +821,7 @@ public class RecruitmentService : IRecruitmentService
 
         return new OfferEmailInfoDto
         {
+            Status = offer.Status.ToString(),
             CandidateEmail = offer.Candidate.Email,
             CandidateName = offer.Candidate.FullName,
             PositionTitle = offer.Position?.Title ?? offer.JobTitle?.Title,
@@ -596,6 +912,20 @@ public class RecruitmentService : IRecruitmentService
         });
     }
 
+    private static List<RequisitionTimelineEntryDto> DeserializeTimeline(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new List<RequisitionTimelineEntryDto>();
+        try
+        {
+            return JsonSerializer.Deserialize<List<RequisitionTimelineEntryDto>>(json)
+                ?? new List<RequisitionTimelineEntryDto>();
+        }
+        catch
+        {
+            return new List<RequisitionTimelineEntryDto>();
+        }
+    }
+
     private static RequisitionDto MapRequisition(Requisition r) => new()
     {
         Id = r.Id, Title = r.Title, Code = r.Code, Description = r.Description,
@@ -608,9 +938,13 @@ public class RecruitmentService : IRecruitmentService
         LocationName = r.Location?.Name, LocationId = r.LocationId,
         PositionTitle = r.Position?.Title, PositionId = r.PositionId,
         CandidateCount = r.Candidates?.Count ?? 0,
+        Timeline = DeserializeTimeline(r.RoleTimelineJson),
+        SupportingPdfOriginalFileName = r.SupportingPdfOriginalFileName,
+        HasSupportingPdf = !string.IsNullOrEmpty(r.SupportingPdfStoredFileName),
+        ApplicationNotificationEmail = r.ApplicationNotificationEmail,
     };
 
-    private static CandidateDto MapCandidate(Candidate c) => new()
+    private CandidateDto MapCandidate(Candidate c) => new()
     {
         Id = c.Id, FirstName = c.FirstName, LastName = c.LastName, FullName = c.FullName,
         Email = c.Email, Phone = c.Phone, ResumeUrl = c.ResumeUrl, Source = c.Source, Stage = c.Stage,
@@ -619,6 +953,7 @@ public class RecruitmentService : IRecruitmentService
         Rating = c.Rating, RejectionReason = c.RejectionReason, Tags = c.Tags,
         RequisitionId = c.RequisitionId, RequisitionTitle = c.Requisition?.Title,
         EmployeeId = c.EmployeeId,
+        HasUploadedResume = ResumeFileExists(c.Id),
     };
 
     private static InterviewDto MapInterview(Interview i) => new()

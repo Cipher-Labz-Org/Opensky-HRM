@@ -1,0 +1,11 @@
+# Easy local email testing without SendGrid.
+# Run:  docker compose -f docker-compose.mailhog.yml up -d
+# SMTP: localhost:1025   Web UI (inbox): http://localhost:8025
+# Then: dotnet run --project OpenSkyHRM.Api --launch-profile http-MailHog
+
+services:
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"

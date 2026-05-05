@@ -10,8 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application;
-using OpenSkyHRM.Application.DTOs.LeaveAttendance;
-using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Persistence;
 using OpenSkyHRM.Persistence.Auditing;
 using OpenSkyHRM.Persistence.Seeders;
@@ -19,6 +18,9 @@ using OpenSkyHRM.Persistence.Seeders;
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Optional per-machine overrides (e.g. local MailHog SMTP). File is gitignored — copy from appsettings.Local.example.json.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 static bool IsSafePgIdentifier(string? name)
 {
@@ -154,8 +156,28 @@ if (dbAvailable)
 }
 
 // --- CORS (allow Next.js frontend) ---
-var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>()
-    ?? new[] { "http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001" };
+// Next.js picks the next free port (3000, 3001, 3002, …) when the default is busy — include a dev port range.
+var localNextDevOrigins = Enumerable.Range(0, 11)
+    .SelectMany(p =>
+    {
+        var port = 3000 + p;
+        return new[] { $"http://localhost:{port}", $"http://127.0.0.1:{port}" };
+    })
+    .ToArray();
+
+var configuredCors = builder.Configuration.GetSection("Cors:Origins").Get<string[]>();
+string[] corsOrigins;
+if (configuredCors is { Length: > 0 })
+{
+    corsOrigins = builder.Environment.IsDevelopment()
+        ? configuredCors.Concat(localNextDevOrigins).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+        : configuredCors;
+}
+else
+{
+    corsOrigins = localNextDevOrigins;
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
@@ -165,6 +187,19 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Helpful when interview/offer/recruitment application emails show SkippedNotConfigured in Email delivery log.
+{
+    var cfg = builder.Configuration;
+    if (!OutboundEmailConfiguration.IsEmailProviderConfigured(cfg))
+    {
+        Console.WriteLine(
+            "WARNING: Outbound email is not configured. Set SendGrid:ApiKey (dotnet user-secrets set SendGrid:ApiKey <key>) or SENDGRID_API_KEY / SendGrid__ApiKey, " +
+            "or set Smtp:Host (and credentials if required). For local Mailpit/MailHog, copy appsettings.Local.example.json to appsettings.Local.json. " +
+            "Until configured, transactional emails are skipped with status SkippedNotConfigured (see OutboundEmailLogs). " +
+            "Same settings apply to leave confirmations, recruitment inbox mail, interviews, and offers.");
+    }
+}
 
 // Apply pending EF migrations whenever PostgreSQL is reachable (adds licensing tables, etc.).
 if (dbAvailable)
@@ -243,8 +278,12 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await LicensingSeeder.EnsureAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.EmployeeLifecycleTemplateSeeder.EnsureAsync(db);
+        await db.SaveChangesAsync();
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureCatalogLeaveTypesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchCasualLeaveMonthlyEveryYearAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureShopOfficeSickLeaveRuleAsync(db);
 
         // Dev safety: ensure there is always at least one usable admin after resets.
         // This does not overwrite existing users; it only bootstraps if no active ADMIN user exists.
@@ -324,26 +363,8 @@ if (dbAvailable)
 
 app.MapControllers();
 
-// Minimal API fallback for carry-forward (avoids 404 when controller route is not matched)
-app.MapPost("/api/leave/process-carry-forward", async (HttpContext context) =>
-{
-    var scope = LeaveAccessHelper.ResolveScope(context.User, "Update");
-    if (scope != "All")
-        return Results.Forbid();
-    var body = await context.Request.ReadFromJsonAsync<CarryForwardRequest>();
-    if (body == null)
-        return Results.BadRequest(new { message = "Request body must include fromYear and toYear." });
-    try
-    {
-        var leaveService = context.RequestServices.GetRequiredService<ILeaveService>();
-        var result = await leaveService.ProcessCarryForwardAsync(body.FromYear, body.ToYear);
-        return Results.Ok(result);
-    }
-    catch (InvalidOperationException ex)
-    {
-        return Results.BadRequest(new { message = ex.Message });
-    }
-}).RequireAuthorization();
+// Do not add minimal API routes for endpoints already on LeaveController — duplicate paths
+// break Swashbuckle and return 500 for /swagger/v1/swagger.json.
 
 app.MapGet("/", () => Results.Redirect("/swagger"));
 

@@ -13,6 +13,12 @@ public class ReportItemDto
     public string Key { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    /// <summary>When true, the report accepts optional <c>departmentId</c> (GUID) to limit rows to one department.</summary>
+    public bool SupportsDepartmentFilter { get; set; }
+    /// <summary>
+    /// UI period control: <c>none</c>, <c>dateRange</c> (from/to), <c>yearMonth</c>, <c>singleDate</c> (date), <c>monthOnly</c> (month 1–12).
+    /// </summary>
+    public string PeriodFilterMode { get; set; } = "none";
 }
 
 public class ReportResultDto

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { ROUTES } from "@/config/routes";
 
-/** Old URL: help now opens as a slide-over from People Hub (header ? icon). */
+/** Canonical People Hub guide lives under /app/help/people */
 export default function PeopleHelpLegacyRedirect() {
-  redirect(ROUTES.people);
+  redirect(ROUTES.peopleHelp);
 }
