@@ -508,4 +508,3 @@ D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Api.deps.json
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Api.runtimeconfig.json
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Api.dll
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Api.pdb
-D:\Opensky-HRM\Backend\OpenSkyHRM.Api\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
