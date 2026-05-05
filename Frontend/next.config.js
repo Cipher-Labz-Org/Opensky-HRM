@@ -1,7 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  distDir: ".dist",
+  // Vercel expects the default ".next" output unless project settings override it.
+  // Keep ".dist" for local workflows to avoid churn with existing local caches.
+  distDir: process.env.VERCEL ? ".next" : ".dist",
   transpilePackages: ["jspdf", "jspdf-autotable"],
   async redirects() {
     return [
