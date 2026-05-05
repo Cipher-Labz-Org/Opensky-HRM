@@ -4300,11 +4300,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj",
+      "projectUniqueName": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj",
       "projectName": "OpenSkyHRM.Api",
-      "projectPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj",
+      "projectPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Api\\OpenSkyHRM.Api.csproj",
       "packagesPath": "C:\\Users\\asus\\.nuget\\packages\\",
-      "outputPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Api\\obj\\",
+      "outputPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Api\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -4326,11 +4326,11 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj": {
-              "projectPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj"
+            "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj": {
+              "projectPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Application\\OpenSkyHRM.Application.csproj"
             },
-            "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
-              "projectPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj"
+            "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
+              "projectPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj"
             }
           }
         }

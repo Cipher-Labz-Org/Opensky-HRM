@@ -6,10 +6,26 @@
 /.vs
 /Frontend/.next
 /Frontend/node_modules
+/Frontend/.dist
+/Frontend/.vercel
 
 # Build outputs
 **/bin/
 **/obj/
+**/TestResults/
+**/coverage/
+
+# IDE and user-specific files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+
+# Coverage artifacts
+*.coverage
+*.coveragexml
 
 # Local SMTP / secrets (copy from appsettings.Local.example.json)
 Backend/OpenSkyHRM.Api/appsettings.Local.json
+
+.vercel

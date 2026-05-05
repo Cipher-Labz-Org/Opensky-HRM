@@ -1725,6 +1725,98 @@
         }
       }
     },
+    "/api/biometric/adms/health": {
+      "get": {
+        "tags": [
+          "BiometricAdms"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/biometric/adms/ping": {
+      "get": {
+        "tags": [
+          "BiometricAdms"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "BiometricAdms"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/biometric/adms/logs": {
+      "post": {
+        "tags": [
+          "BiometricAdms"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/biometric/adms/recent/raw": {
+      "get": {
+        "tags": [
+          "BiometricAdms"
+        ],
+        "parameters": [
+          {
+            "name": "take",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/biometric/adms/recent/punches": {
+      "get": {
+        "tags": [
+          "BiometricAdms"
+        ],
+        "parameters": [
+          {
+            "name": "take",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/BulkUpload/template": {
       "get": {
         "tags": [
@@ -2510,32 +2602,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary"
-                  },
-                  "description": {
-                    "type": "string"
-                  }
-                }
-              },
-              "encoding": {
-                "file": {
-                  "style": "form"
-                },
-                "description": {
-                  "style": "form"
-                }
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "OK"
@@ -2604,17 +2670,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateAttachmentRequest"
+                "$ref": "#/components/schemas/UpdateEmployeeAttachmentRequest"
               }
             },
             "text/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateAttachmentRequest"
+                "$ref": "#/components/schemas/UpdateEmployeeAttachmentRequest"
               }
             },
             "application/*+json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateAttachmentRequest"
+                "$ref": "#/components/schemas/UpdateEmployeeAttachmentRequest"
               }
             }
           }
@@ -3131,6 +3197,20 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortDir",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -3499,6 +3579,29 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/Employees/{id}/reporting/supervisor-candidates": {
+      "get": {
+        "tags": [
+          "Employees"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK"
@@ -4022,6 +4125,29 @@
       "get": {
         "tags": [
           "EmployeeTasks"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/employee-tasks/employees/{employeeId}/pending-lifecycle-tasks": {
+      "get": {
+        "tags": [
+          "EmployeeTasks"
+        ],
+        "parameters": [
+          {
+            "name": "employeeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -4937,6 +5063,85 @@
         }
       }
     },
+    "/api/leave/requests/with-document": {
+      "post": {
+        "tags": [
+          "Leave"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employeeId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "leaveTypeId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "startDate": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endDate": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "totalDays": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "coveragePerson": {
+                    "type": "string"
+                  },
+                  "medicalCertificate": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "encoding": {
+                "employeeId": {
+                  "style": "form"
+                },
+                "leaveTypeId": {
+                  "style": "form"
+                },
+                "startDate": {
+                  "style": "form"
+                },
+                "endDate": {
+                  "style": "form"
+                },
+                "totalDays": {
+                  "style": "form"
+                },
+                "reason": {
+                  "style": "form"
+                },
+                "coveragePerson": {
+                  "style": "form"
+                },
+                "medicalCertificate": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/leave/requests/{id}/approve": {
       "post": {
         "tags": [
@@ -5315,6 +5520,14 @@
               "type": "integer",
               "format": "int32"
             }
+          },
+          {
+            "name": "asOfMonth",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
           }
         ],
         "responses": {
@@ -5332,6 +5545,14 @@
         "parameters": [
           {
             "name": "year",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "asOfMonth",
             "in": "query",
             "schema": {
               "type": "integer",
@@ -5450,6 +5671,78 @@
         }
       }
     },
+    "/api/leave/process-carry-forward": {
+      "post": {
+        "tags": [
+          "Leave"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarryForwardRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarryForwardRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarryForwardRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/leave/carry-forward-availability": {
+      "get": {
+        "tags": [
+          "Leave"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Leave"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCarryForwardAvailabilitySettingsDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCarryForwardAvailabilitySettingsDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCarryForwardAvailabilitySettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/leave/holidays": {
       "get": {
         "tags": [
@@ -5554,6 +5847,38 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/leave/shop-office-entitlement/{employeeId}": {
+      "get": {
+        "tags": [
+          "Leave"
+        ],
+        "parameters": [
+          {
+            "name": "employeeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "year",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0
             }
           }
         ],
@@ -6183,18 +6508,6 @@
               "format": "uuid"
             }
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/leave/process-carry-forward": {
-      "post": {
-        "tags": [
-          "OpenSkyHRM.Api"
         ],
         "responses": {
           "200": {
@@ -6978,6 +7291,110 @@
             "application/*+json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateEmploymentStatusTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Organization"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/Organization/skills": {
+      "get": {
+        "tags": [
+          "Organization"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Organization"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/Organization/skills/{id}": {
+      "put": {
+        "tags": [
+          "Organization"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
               }
             }
           }
@@ -7927,6 +8344,214 @@
         }
       }
     },
+    "/api/employees/profile-attachment-types": {
+      "get": {
+        "tags": [
+          "ProfileAttachmentTypes"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ProfileAttachmentTypes"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/organization/employee-attachment-types": {
+      "get": {
+        "tags": [
+          "ProfileAttachmentTypes"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ProfileAttachmentTypes"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/employees/profile-attachment-types/{id}": {
+      "put": {
+        "tags": [
+          "ProfileAttachmentTypes"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ProfileAttachmentTypes"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/organization/employee-attachment-types/{id}": {
+      "put": {
+        "tags": [
+          "ProfileAttachmentTypes"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeAttachmentTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ProfileAttachmentTypes"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/Recruitment/requisitions": {
       "get": {
         "tags": [
@@ -8117,6 +8742,48 @@
         }
       }
     },
+    "/api/Recruitment/requisitions/{id}/reject": {
+      "post": {
+        "tags": [
+          "Recruitment"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequisitionDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequisitionDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequisitionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/Recruitment/requisitions/{id}/close": {
       "post": {
         "tags": [
@@ -8286,6 +8953,98 @@
         }
       },
       "delete": {
+        "tags": [
+          "Recruitment"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/Recruitment/candidates/apply": {
+      "post": {
+        "tags": [
+          "Recruitment"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "firstName": {
+                    "type": "string"
+                  },
+                  "lastName": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "phone": {
+                    "type": "string"
+                  },
+                  "requisitionId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "resume": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "encoding": {
+                "firstName": {
+                  "style": "form"
+                },
+                "lastName": {
+                  "style": "form"
+                },
+                "email": {
+                  "style": "form"
+                },
+                "phone": {
+                  "style": "form"
+                },
+                "requisitionId": {
+                  "style": "form"
+                },
+                "source": {
+                  "style": "form"
+                },
+                "resume": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/Recruitment/candidates/{id}/resume": {
+      "get": {
         "tags": [
           "Recruitment"
         ],
@@ -9536,6 +10295,110 @@
         }
       }
     },
+    "/api/employees/skills-catalog": {
+      "get": {
+        "tags": [
+          "SkillCatalog"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "SkillCatalog"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/employees/skills-catalog/{id}": {
+      "put": {
+        "tags": [
+          "SkillCatalog"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillCatalogDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "SkillCatalog"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/system-settings": {
       "get": {
         "tags": [
@@ -10467,6 +11330,14 @@
           "toYear": {
             "type": "integer",
             "format": "int32"
+          },
+          "employeeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -11069,6 +11940,31 @@
         },
         "additionalProperties": false
       },
+      "CreateEmployeeAttachmentTypeDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateEmployeeCertificationRequest": {
         "type": "object",
         "properties": {
@@ -11179,6 +12075,10 @@
             "type": "string",
             "nullable": true
           },
+          "district": {
+            "type": "string",
+            "nullable": true
+          },
           "pollingDivision": {
             "type": "string",
             "nullable": true
@@ -11224,6 +12124,10 @@
             "nullable": true
           },
           "permanentZipPostalCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "permanentDistrict": {
             "type": "string",
             "nullable": true
           },
@@ -11281,6 +12185,15 @@
           },
           "driversLicenseNumber": {
             "type": "string",
+            "nullable": true
+          },
+          "driversLicenseType": {
+            "type": "string",
+            "nullable": true
+          },
+          "licenseIssueDate": {
+            "type": "string",
+            "format": "date-time",
             "nullable": true
           },
           "licenseExpiryDate": {
@@ -11531,6 +12444,12 @@
           "interviewerName": {
             "type": "string",
             "nullable": true
+          },
+          "notifyCandidateByEmail": {
+            "type": "boolean"
+          },
+          "notifyInterviewerByEmail": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -11999,6 +12918,10 @@
             "type": "string",
             "format": "uuid",
             "nullable": true
+          },
+          "applicationNotificationEmail": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -12276,6 +13199,27 @@
         },
         "additionalProperties": false
       },
+      "CreateSkillCatalogDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateSkillMatrixRequest": {
         "type": "object",
         "properties": {
@@ -12377,6 +13321,38 @@
               "format": "uuid"
             },
             "nullable": true
+          },
+          "assignedLocationIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
+          },
+          "assignedBusinessUnitIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
+          },
+          "assignedGradeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
+          },
+          "assignedJobTitleIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -12393,6 +13369,13 @@
           "includeHangfire": {
             "type": "boolean"
           },
+          "selectedTables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
           "confirmPhrase": {
             "type": "string",
             "nullable": true
@@ -12404,6 +13387,10 @@
         "type": "object",
         "properties": {
           "level": {
+            "type": "string",
+            "nullable": true
+          },
+          "qualificationName": {
             "type": "string",
             "nullable": true
           },
@@ -12431,6 +13418,10 @@
           "endDate": {
             "type": "string",
             "format": "date-time",
+            "nullable": true
+          },
+          "remark": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -12740,6 +13731,11 @@
             "type": "string",
             "nullable": true
           },
+          "employeeId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
           "latitude": {
             "type": "number",
             "format": "double",
@@ -12748,6 +13744,10 @@
           "longitude": {
             "type": "number",
             "format": "double",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -12784,6 +13784,16 @@
         "type": "object",
         "properties": {
           "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RejectRequisitionDto": {
+        "type": "object",
+        "properties": {
+          "remarks": {
             "type": "string",
             "nullable": true
           }
@@ -12933,16 +13943,6 @@
         },
         "additionalProperties": false
       },
-      "UpdateAttachmentRequest": {
-        "type": "object",
-        "properties": {
-          "description": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
       "UpdateAttendanceRecordDto": {
         "type": "object",
         "properties": {
@@ -13055,6 +14055,27 @@
           "rating": {
             "type": "integer",
             "format": "int32",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateCarryForwardAvailabilitySettingsDto": {
+        "type": "object",
+        "properties": {
+          "availabilityMonths": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "narrativeIntro": {
+            "type": "string",
+            "nullable": true
+          },
+          "narrativePoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "nullable": true
           }
         },
@@ -13195,6 +14216,24 @@
         },
         "additionalProperties": false
       },
+      "UpdateEmployeeAttachmentRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "attachmentTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiryDate": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "UpdateEmployeeCertificationRequest": {
         "type": "object",
         "properties": {
@@ -13291,6 +14330,10 @@
             "type": "string",
             "nullable": true
           },
+          "district": {
+            "type": "string",
+            "nullable": true
+          },
           "pollingDivision": {
             "type": "string",
             "nullable": true
@@ -13336,6 +14379,10 @@
             "nullable": true
           },
           "permanentZipPostalCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "permanentDistrict": {
             "type": "string",
             "nullable": true
           },
@@ -13393,6 +14440,15 @@
           },
           "driversLicenseNumber": {
             "type": "string",
+            "nullable": true
+          },
+          "driversLicenseType": {
+            "type": "string",
+            "nullable": true
+          },
+          "licenseIssueDate": {
+            "type": "string",
+            "format": "date-time",
             "nullable": true
           },
           "licenseExpiryDate": {
@@ -13573,6 +14629,12 @@
           "interviewerName": {
             "type": "string",
             "nullable": true
+          },
+          "notifyCandidateByEmail": {
+            "type": "boolean"
+          },
+          "notifyInterviewerByEmail": {
+            "type": "boolean"
           },
           "id": {
             "type": "string",
@@ -13808,6 +14870,10 @@
           "positionId": {
             "type": "string",
             "format": "uuid",
+            "nullable": true
+          },
+          "applicationNotificationEmail": {
+            "type": "string",
             "nullable": true
           },
           "id": {
@@ -14175,6 +15241,38 @@
               "format": "uuid"
             },
             "nullable": true
+          },
+          "assignedLocationIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
+          },
+          "assignedBusinessUnitIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
+          },
+          "assignedGradeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
+          },
+          "assignedJobTitleIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -14201,6 +15299,10 @@
             "nullable": true
           },
           "jobTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "employmentType": {
             "type": "string",
             "nullable": true
           },
@@ -14244,6 +15346,9 @@
     },
     {
       "name": "Biometric"
+    },
+    {
+      "name": "BiometricAdms"
     },
     {
       "name": "BulkUpload"
@@ -14324,6 +15429,9 @@
       "name": "Performance"
     },
     {
+      "name": "ProfileAttachmentTypes"
+    },
+    {
       "name": "Recruitment"
     },
     {
@@ -14337,6 +15445,9 @@
     },
     {
       "name": "Shift"
+    },
+    {
+      "name": "SkillCatalog"
     },
     {
       "name": "SystemSettings"

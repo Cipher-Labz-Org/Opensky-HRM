@@ -28,6 +28,7 @@ public class CustomerDataResetController : ControllerBase
         bool DryRun,
         bool AllowInProduction,
         bool IncludeHangfire,
+        IReadOnlyList<string>? SelectedTables,
         string? ConfirmPhrase);
 
     private string GetConfirmPhrase()
@@ -61,6 +62,7 @@ public class CustomerDataResetController : ControllerBase
                 providedPhrase,
                 request.AllowInProduction,
                 request.IncludeHangfire,
+                request.SelectedTables,
                 cancellationToken);
             return Ok(new { dryRun = false, result });
         }

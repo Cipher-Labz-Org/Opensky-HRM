@@ -24,7 +24,6 @@ public static class DbSeeder
             await TransactionalEmailTemplateSeeder.EnsureAsync(context);
             await PayrollSeeder.SeedAsync(context);
             await EmployeeLifecycleTemplateSeeder.EnsureAsync(context);
-            await AppraisalTemplateSeeder.EnsureAsync(context);
 
             await context.SaveChangesAsync();
             logger.LogInformation("Database seeding completed.");
