@@ -301,7 +301,7 @@ function EmployeeUploadSection() {
             <h4 className="mb-2 text-sm font-semibold text-slate-800">How to import employees</h4>
             <ol className="list-inside list-decimal space-y-1 text-xs text-slate-600">
               <li>Click <strong>Download template</strong> to get the Excel file with all columns pre-formatted.</li>
-              <li>Fill in employee data. <strong>First Name, Last Name, Email, Department, Gender, Date of Birth, Joined Date</strong> are required.</li>
+              <li>Fill in employee data. <strong>First Name, Last Name, Department, Gender, Date of Birth, Joined Date</strong> are required. <strong>Email</strong> and <strong>Username</strong> are optional.</li>
               <li>Use values from the lookup sheets (Departments, Grades, etc.) for dropdown fields.</li>
               <li><strong>Employment Type</strong> and <strong>Employee Status</strong> must match the codes on the <strong>Reference</strong> sheet (same codes as Organization / People Hub).</li>
               <li>Leave <strong>Employee Code</strong> blank to auto-generate, or provide unique codes.</li>
@@ -310,6 +310,7 @@ function EmployeeUploadSection() {
             <p className="mt-3 text-xs text-slate-600">
               Optional: enable <strong>Create employee logins</strong> below to add a user account (Employee role) per imported row with
               temporary password <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong>. Those users must set a new password on first sign-in.
+              If <strong>Username</strong> is provided in the sheet, it is used (with uniqueness suffix if needed).
             </p>
           </div>
           <DropZone file={file} fileRef={fileRef} dragOver={dragOver} setDragOver={setDragOver} onFileChange={handleFileChange} />

@@ -49,7 +49,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
 
   return (
     <header
-      className="sticky top-0 z-[45] flex h-[60px] shrink-0 items-center justify-end rounded-2xl border-b border-[#157fb8] bg-[#1a92d5] px-4 sm:px-6"
+      className="sticky top-0 z-[45] flex h-[60px] shrink-0 items-center justify-end rounded-none border-b border-[#157fb8] bg-[#1a92d5] px-4 sm:px-6"
       role="banner"
     >
       <div className="flex items-center gap-0.5 sm:gap-1">

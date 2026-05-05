@@ -131,12 +131,12 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
         </div>
       ) : (
         <div className="relative mx-2 mt-2 overflow-hidden rounded-[30px] border border-[#e7edf6] bg-[#f6f7f9] shadow-[0_24px_52px_-30px_rgba(37,99,235,0.45)]">
-          <div className="px-4 pt-4">
+          <div className="px-4 pt-1 pb-1">
             <div className="flex justify-center">
-              <img src="/brand-logo.svg" alt={appName} className="h-10 max-w-[220px] object-contain" />
+              <img src="/OPENSKY%20HR%20LOGO%20(1).png" alt={appName} className="h-[7rem] max-w-[360px] object-contain" />
             </div>
 
-            <div className="mt-4 text-center">
+            <div className="-mt-6 text-center">
               <div className="relative mx-auto h-20 w-20">
                 <div className="h-20 w-20 overflow-hidden rounded-full border-[6px] border-[#e9eef7] bg-[#dde6f4]">
                   {profileImageUrl ? (
@@ -157,14 +157,14 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
               </div>
             </div>
 
-            <div className="my-4 rounded-full bg-[#eceff4] px-2 py-2">
+            <div className="my-1 rounded-full bg-[#eceff4] px-2 py-1.5">
               <div className="flex items-center rounded-full bg-[#eceff4] px-3">
                 <input
                   type="text"
                   placeholder="Search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-transparent py-1.5 text-xs text-[#5f739f] outline-none placeholder:text-[#8ea0bc]"
+                  className="w-full bg-transparent py-1 text-xs text-[#5f739f] outline-none placeholder:text-[#8ea0bc]"
                 />
                 <svg className="h-4 w-4 text-[#6b81ac]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35m1.35-5.15a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />

@@ -200,6 +200,9 @@ public class BulkUploadController : ControllerBase
             var firstName = Cell(row, "First Name");
             var lastName = Cell(row, "Last Name");
             var email = Cell(row, "Email");
+            // Prefer explicit username from import sheet for login creation.
+            // Support common header variants to avoid user template mismatches.
+            var usernameFromSheet = CellAny(row, "Username", "User Name", "UseName");
             var deptName = Cell(row, "Department");
             var genderStr = Cell(row, "Gender");
             var dobStr = DateCell(row, "Date of Birth");
@@ -207,7 +210,6 @@ public class BulkUploadController : ControllerBase
 
             if (string.IsNullOrEmpty(firstName)) errors.Add("First Name is required");
             if (string.IsNullOrEmpty(lastName)) errors.Add("Last Name is required");
-            if (string.IsNullOrEmpty(email)) errors.Add("Email is required");
             if (string.IsNullOrEmpty(deptName)) errors.Add("Department is required");
             if (dobStr is null) errors.Add("Date of Birth is required");
             if (joinStr is null) errors.Add("Joined Date is required");
@@ -283,6 +285,13 @@ public class BulkUploadController : ControllerBase
                 continue;
             }
 
+            // Email is optional for import UX, but DB keeps Employee.Email required + unique.
+            // Use deterministic placeholder when missing so rows can still be imported safely.
+            var hasProvidedEmail = !string.IsNullOrWhiteSpace(email);
+            var resolvedEmail = hasProvidedEmail
+                ? email!
+                : $"noemail+{empCode!.ToLowerInvariant()}@import.local";
+
             var buName = Cell(row, "Business Unit");
             var bu = buName != null ? businessUnits.FirstOrDefault(b => b.Name.Equals(buName, StringComparison.OrdinalIgnoreCase)) : null;
             var gradeName = Cell(row, "Grade");
@@ -315,7 +324,7 @@ public class BulkUploadController : ControllerBase
                 FirstName = firstName!,
                 MiddleName = Cell(row, "Middle Name"),
                 LastName = lastName!,
-                Email = email!,
+                Email = resolvedEmail,
                 Phone = Cell(row, "Phone"),
                 DateOfBirth = DateTime.SpecifyKind(dobStr!.Value, DateTimeKind.Utc),
                 Gender = gender,
@@ -377,7 +386,14 @@ public class BulkUploadController : ControllerBase
             List<string>? rowNotes = null;
             if (createUserLogins && employeeRoleId.HasValue)
             {
-                if (await _db.Users.AnyAsync(u => u.Email == employee.Email && !u.IsDeleted))
+                if (!hasProvidedEmail)
+                {
+                    rowNotes = new List<string>
+                    {
+                        "Employee imported; no login created — email was blank in the uploaded row.",
+                    };
+                }
+                else if (await _db.Users.AnyAsync(u => u.Email == employee.Email && !u.IsDeleted))
                 {
                     rowNotes = new List<string>
                     {
@@ -387,7 +403,7 @@ public class BulkUploadController : ControllerBase
                 else
                 {
                     var username = await EnsureUniqueUsernameForImportAsync(
-                        _db, importUsernamesReserved, email!, firstName!, lastName!, HttpContext.RequestAborted);
+                        _db, importUsernamesReserved, usernameFromSheet, email!, firstName!, lastName!, HttpContext.RequestAborted);
                     importUsernamesReserved.Add(username);
                     var user = new User
                     {
@@ -498,13 +514,16 @@ public class BulkUploadController : ControllerBase
     private static async Task<string> EnsureUniqueUsernameForImportAsync(
         AppDbContext db,
         HashSet<string> batchReserved,
+        string? preferredUsername,
         string email,
         string firstName,
         string lastName,
         CancellationToken cancellationToken = default)
     {
         string basePart;
-        if (!string.IsNullOrWhiteSpace(email) && email.Contains('@', StringComparison.Ordinal))
+        if (!string.IsNullOrWhiteSpace(preferredUsername))
+            basePart = preferredUsername;
+        else if (!string.IsNullOrWhiteSpace(email) && email.Contains('@', StringComparison.Ordinal))
             basePart = email[..email.IndexOf('@', StringComparison.Ordinal)];
         else
             basePart = $"{firstName}.{lastName}";
@@ -533,6 +552,7 @@ public class BulkUploadController : ControllerBase
         "Middle Name",
         "Last Name",
         "Email",
+        "Username",
         "Phone",
         "Gender",
         "Date of Birth",

@@ -215,6 +215,22 @@ if (dbAvailable)
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync();
 
+        // Drift guard: EF history can claim "current" while the actual DB lacks a column (partial restore / manual edits).
+        // Missing "Users"."MustChangePassword" makes login and seeding fail with Postgres 42703.
+        try
+        {
+            await using var repairConn = new Npgsql.NpgsqlConnection(defaultConn);
+            await repairConn.OpenAsync();
+            await using var repairCmd = repairConn.CreateCommand();
+            repairCmd.CommandText =
+                @"ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""MustChangePassword"" boolean NOT NULL DEFAULT false;";
+            await repairCmd.ExecuteNonQueryAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"WARNING: Users.MustChangePassword schema repair skipped: {ex.Message}");
+        }
+
         // Repair corrupted Hangfire schema from partial installs so the auto-installer can start fresh.
         try
         {

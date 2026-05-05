@@ -3,7 +3,7 @@ import { ROUTES } from "@/config/routes";
 import Link from "next/link";
 
 /**
- * Marketing layout for /, /pricing, /contact. Server-rendered; no client pathname.
+ * Marketing layout for /pricing, /contact. Server-rendered; no client pathname.
  */
 export default function MarketingLayout({
   children,
