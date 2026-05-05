@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {}
+    "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {}
   },
   "projects": {
-    "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
+    "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
+        "projectUniqueName": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
         "projectName": "OpenSkyHRM.Domain",
-        "projectPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
+        "projectPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
         "packagesPath": "C:\\Users\\asus\\.nuget\\packages\\",
-        "outputPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\obj\\",
+        "outputPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -70,14 +70,14 @@
         }
       }
     },
-    "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
+    "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
+        "projectUniqueName": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
         "projectName": "OpenSkyHRM.Persistence",
-        "projectPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
+        "projectPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\OpenSkyHRM.Persistence.csproj",
         "packagesPath": "C:\\Users\\asus\\.nuget\\packages\\",
-        "outputPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\obj\\",
+        "outputPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Persistence\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -99,8 +99,8 @@
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
-              "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
-                "projectPath": "d:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
+              "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj": {
+                "projectPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj"
               }
             }
           }

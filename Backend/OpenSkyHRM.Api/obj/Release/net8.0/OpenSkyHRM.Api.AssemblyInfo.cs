@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("OpenSkyHRM.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0dabdfb80c16935e8d63efdd2da7402701ffdbb0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+030e6691272d71d9ac27dc600075d3ad563087de")]
 [assembly: System.Reflection.AssemblyProductAttribute("OpenSkyHRM.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("OpenSkyHRM.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
