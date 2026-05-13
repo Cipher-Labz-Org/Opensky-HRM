@@ -51,6 +51,36 @@ public class RequisitionDto
     public string? ApplicationNotificationEmail { get; set; }
 }
 
+/// <summary>Safe payload for anonymous careers pages (no notification inbox or internal-only metadata).</summary>
+public class PublicRequisitionDto
+{
+    public Guid Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public int Vacancies { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime? TargetDate { get; set; }
+    public string? Priority { get; set; }
+    public string? EmploymentType { get; set; }
+    public int? ExperienceMin { get; set; }
+    public int? ExperienceMax { get; set; }
+    public decimal? SalaryMin { get; set; }
+    public decimal? SalaryMax { get; set; }
+    public string? Skills { get; set; }
+    public string? DepartmentName { get; set; }
+    public Guid DepartmentId { get; set; }
+    public string? JobTitleName { get; set; }
+    public Guid? JobTitleId { get; set; }
+    public string? HiringManagerName { get; set; }
+    public Guid? HiringManagerId { get; set; }
+    public string? LocationName { get; set; }
+    public Guid? LocationId { get; set; }
+    public string? PositionTitle { get; set; }
+    public Guid? PositionId { get; set; }
+    public List<RequisitionTimelineEntryDto> Timeline { get; set; } = new();
+}
+
 public class CreateRequisitionDto
 {
     public string Title { get; set; } = string.Empty;

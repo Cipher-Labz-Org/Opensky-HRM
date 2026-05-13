@@ -31,12 +31,18 @@ const ROUTE_PREFIX_TO_MODULE: { prefix: string; module: string }[] = [
 /** Employee task templates API allows People, Recruitment, or EmployeeTasks — mirror that for the page gate. */
 const EMPLOYEE_TASKS_LICENSE_ANY = ["People", "Recruitment", "EmployeeTasks"] as const;
 
+/** Central approvals hub: leave and overtime need Leave and/or Attendance. */
+const APPROVALS_LICENSE_ANY = ["Leave", "Attendance"] as const;
+
 /**
  * License rule for a path. Use for client-side gating; must stay aligned with API
  * `[RequireLicensedModuleAny]` on `EmployeeTasksController` actions.
  */
 export function getAppPathLicense(pathname: string): AppPathLicense | null {
   const path = pathname.split("?")[0] ?? pathname;
+  if (path === "/app/approvals" || path.startsWith("/app/approvals/")) {
+    return { anyOf: APPROVALS_LICENSE_ANY };
+  }
   const sorted = [...ROUTE_PREFIX_TO_MODULE].sort(
     (a, b) => b.prefix.length - a.prefix.length
   );

@@ -126,3 +126,33 @@ D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Persistence.deps.json
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Persistence.runtimeconfig.json
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Persistence.dll
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Persistence.pdb
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Persistence.deps.json
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Persistence.runtimeconfig.json
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Persistence.dll
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Persistence.pdb
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Domain.dll
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\bin\Debug\net8.0\OpenSkyHRM.Domain.pdb
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.csproj.AssemblyReference.cache
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.GeneratedMSBuildEditorConfig.editorconfig
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.AssemblyInfoInputs.cache
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.AssemblyInfo.cs
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.csproj.CoreCompileInputs.cache
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.sourcelink.json
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyH.5E98DCE9.Up2Date
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.dll
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\refint\OpenSkyHRM.Persistence.dll
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.pdb
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\OpenSkyHRM.Persistence.genruntimeconfig.cache
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Persistence\obj\Debug\net8.0\ref\OpenSkyHRM.Persistence.dll
+d:\Opensky new\Opensky-HRM\Backend\_tmp_buildcheck\OpenSkyHRM.Persistence.deps.json
+d:\Opensky new\Opensky-HRM\Backend\_tmp_buildcheck\OpenSkyHRM.Persistence.runtimeconfig.json
+d:\Opensky new\Opensky-HRM\Backend\_tmp_buildcheck\OpenSkyHRM.Persistence.dll
+d:\Opensky new\Opensky-HRM\Backend\_tmp_buildcheck\OpenSkyHRM.Persistence.pdb
+d:\Opensky new\Opensky-HRM\Backend\_bu2\OpenSkyHRM.Persistence.deps.json
+d:\Opensky new\Opensky-HRM\Backend\_bu2\OpenSkyHRM.Persistence.runtimeconfig.json
+d:\Opensky new\Opensky-HRM\Backend\_bu2\OpenSkyHRM.Persistence.dll
+d:\Opensky new\Opensky-HRM\Backend\_bu2\OpenSkyHRM.Persistence.pdb
+d:\Opensky new\Opensky-HRM\Backend\_bu3\OpenSkyHRM.Persistence.deps.json
+d:\Opensky new\Opensky-HRM\Backend\_bu3\OpenSkyHRM.Persistence.runtimeconfig.json
+d:\Opensky new\Opensky-HRM\Backend\_bu3\OpenSkyHRM.Persistence.dll
+d:\Opensky new\Opensky-HRM\Backend\_bu3\OpenSkyHRM.Persistence.pdb

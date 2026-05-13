@@ -151,8 +151,13 @@ export default function RequisitionDetailPage() {
   const [resumeDrag, setResumeDrag] = useState(false);
   const [applySubmitting, setApplySubmitting] = useState(false);
   const [applyMessage, setApplyMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [shareOrigin, setShareOrigin] = useState("");
 
   const resumeInputId = useId();
+
+  useEffect(() => {
+    setShareOrigin(typeof window !== "undefined" ? window.location.origin : "");
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -259,6 +264,8 @@ export default function RequisitionDetailPage() {
     }
   };
 
+  const careersPublicUrl = shareOrigin ? `${shareOrigin}/careers/requisition/${id}` : "";
+
   if (loading) {
     return (
       <>
@@ -334,6 +341,76 @@ export default function RequisitionDetailPage() {
             </Button>
           </div>
         </div>
+
+        {careersPublicUrl ? (
+          <section className="mb-6 rounded-xl border border-sky-200/80 bg-gradient-to-b from-sky-50/90 to-white px-4 py-4 shadow-sm sm:px-5">
+            <h3 className="text-sm font-bold text-slate-800">Share this job</h3>
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+              Post the public link on LinkedIn, job boards, or WhatsApp. When someone applies through this link, their
+              details appear in Recruitment → Candidates for this requisition (source:{" "}
+              <span className="font-medium text-slate-700">Public careers link</span>). The link only works while this
+              requisition is <span className="font-medium">Approved</span> and not <span className="font-medium">Closed</span>.
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                type="text"
+                readOnly
+                value={careersPublicUrl}
+                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-800 sm:text-xs"
+                aria-label="Public careers URL"
+              />
+              <button
+                type="button"
+                className="shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(careersPublicUrl);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              >
+                Copy link
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(
+                [
+                  {
+                    label: "LinkedIn",
+                    href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(careersPublicUrl)}`,
+                  },
+                  {
+                    label: "Facebook",
+                    href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(careersPublicUrl)}`,
+                  },
+                  {
+                    label: "X / Twitter",
+                    href: `https://twitter.com/intent/tweet?url=${encodeURIComponent(careersPublicUrl)}&text=${encodeURIComponent(`Apply: ${req.title}`)}`,
+                  },
+                  {
+                    label: "WhatsApp",
+                    href: `https://wa.me/?text=${encodeURIComponent(`${req.title}\n${careersPublicUrl}`)}`,
+                  },
+                  {
+                    label: "Email",
+                    href: `mailto:?subject=${encodeURIComponent(`Job: ${req.title}`)}&body=${encodeURIComponent(`Apply here:\n${careersPublicUrl}`)}`,
+                  },
+                ] as const
+              ).map((s) => (
+                <a
+                  key={s.label}
+                  href={s.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:border-sky-300 hover:bg-sky-50/60 hover:text-sky-900"
+                >
+                  {s.label}
+                </a>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-md sm:rounded-2xl">
           <header className={`${gradientBarClass} rounded-t-xl sm:rounded-t-2xl`}>

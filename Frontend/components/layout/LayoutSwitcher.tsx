@@ -17,6 +17,7 @@ const APP_PATHS = [
   "/employee-tasks",
   "/employee-actions",
   "/leave",
+  "/approvals",
   "/attendance",
   "/payroll",
   "/performance",
@@ -80,6 +81,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       title: "Workforce",
       items: [
         { href: ROUTES.leave, label: "Leave & Absence" },
+        { href: ROUTES.approvals, label: "Approvals" },
         { href: ROUTES.attendance, label: "Time & Attendance" },
         { href: ROUTES.payroll, label: "Payroll" },
         { href: ROUTES.performance, label: "Performance" },

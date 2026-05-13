@@ -10,6 +10,8 @@ import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { API_BASE_URL } from "@/config/constants";
+import { ROUTES } from "@/config/routes";
+import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
 import {
   type EmploymentTypeCatalogItem,
   employmentTypeDisplayName,
@@ -205,13 +207,6 @@ interface SkillMatrixRow {
   notes: string | null;
 }
 
-interface AttendancePunchRow {
-  id: string;
-  punchIn: string | null;
-  punchOut: string | null;
-  workedHours: number | null;
-}
-
 interface CourseOption {
   id: string;
   title: string;
@@ -296,6 +291,12 @@ interface PendingLifecycleTaskRow {
 const ALL_WIDGETS: WidgetDef[] = [
   { id: "about", label: "About", color: "bg-slate-600", icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" },
   { id: "quickAccess", label: "Quick Access", color: "bg-slate-600", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
+  {
+    id: "birthdaysNotices",
+    label: "Birthdays & notices",
+    color: "bg-rose-500",
+    icon: "M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9",
+  },
   { id: "lifecycle", label: "Employee Lifecycle", color: "bg-sky-600", icon: "M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" },
   {
     id: "pendingLifecycleTasks",
@@ -306,23 +307,22 @@ const ALL_WIDGETS: WidgetDef[] = [
   { id: "leaveBalance", label: "Leave Balance", color: "bg-indigo-500", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
   { id: "leaveList", label: "Leave List", color: "bg-violet-500", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
   { id: "timesheets", label: "Timesheets", color: "bg-teal-500", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
-  { id: "timeAtWork", label: "Time At Work", color: "bg-cyan-500", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
-  { id: "goals", label: "Goals/OKRs", color: "bg-emerald-500", icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" },
-  { id: "performance", label: "Performance Tracker Logs", color: "bg-orange-500", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
-  { id: "attendancePunch", label: "Attendance", color: "bg-amber-500", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
 ];
+const ALL_WIDGET_IDS = new Set(ALL_WIDGETS.map((w) => w.id));
+
+function normalizeVisibleWidgetIds(ids: string[]): string[] {
+  return ids.filter((id) => ALL_WIDGET_IDS.has(id));
+}
+
 const DEFAULT_VISIBLE = [
   "about",
   "quickAccess",
+  "birthdaysNotices",
   "lifecycle",
   "pendingLifecycleTasks",
-  "attendancePunch",
   "leaveBalance",
   "leaveList",
   "timesheets",
-  "timeAtWork",
-  "goals",
-  "performance",
 ];
 
 const lifecycleColors: Record<string, string> = { Active: "bg-emerald-500", OnNotice: "bg-amber-500", Resigned: "bg-orange-500", Terminated: "bg-red-500", Retired: "bg-slate-400", Deceased: "bg-slate-400", Absconded: "bg-red-500" };
@@ -348,56 +348,42 @@ function formatTenureSpan(joinDateIso: string, endDateIso?: string | null): stri
   return parts.join(", ");
 }
 
-/** Canonical ladder: Intern → … → Director (template duration + role copy). */
+/** Canonical ladder: Intern → … → Director (template duration bands). */
 const CAREER_STEPS = [
   {
     id: "intern",
     label: "Intern",
     durationBand: "Duration: 3–6 months",
-    roleSummary:
-      "Role: Learning basics, assisting senior developers, and delivering small scoped tasks with close supervision.",
   },
   {
     id: "junior",
     label: "Junior",
     durationBand: "Duration: 6–12 months",
-    roleSummary:
-      "Role: Owning well-defined stories, improving quality through reviews, and building fluency in team standards.",
   },
   {
     id: "mid",
     label: "Mid-Level",
     durationBand: "Duration: 18–36 months",
-    roleSummary:
-      "Role: Leading features across teams, mentoring informally, and driving reliable delivery with limited oversight.",
   },
   {
     id: "senior",
     label: "Senior",
     durationBand: "Duration: 24–48 months",
-    roleSummary:
-      "Role: Shaping technical direction, unblocking others, raising engineering standards, and influencing roadmaps.",
   },
   {
     id: "team_lead",
     label: "Team Lead",
     durationBand: "Duration: 12–24 months",
-    roleSummary:
-      "Role: Coordinating sprint execution, coaching the team, and aligning delivery with product and stakeholders.",
   },
   {
     id: "manager",
     label: "Manager",
     durationBand: "Duration: 24–60 months",
-    roleSummary:
-      "Role: People performance, hiring, capacity planning, and partnering with leadership on strategy and outcomes.",
   },
   {
     id: "director",
     label: "Director",
     durationBand: "Duration: Varies by organization",
-    roleSummary:
-      "Role: Portfolio ownership, cross-functional strategy, executive alignment, and accountability for multi-team results.",
   },
 ] as const;
 
@@ -409,7 +395,6 @@ interface CareerPathRow {
   yearRange: string;
   actualTenure: string;
   durationBand: string;
-  roleSummary: string;
   isCurrent: boolean;
 }
 
@@ -517,7 +502,6 @@ function buildCareerProgressionRows(emp: EmployeeDetail): CareerPathRow[] {
       yearRange,
       actualTenure,
       durationBand: step.durationBand,
-      roleSummary: step.roleSummary,
       isCurrent,
     });
   }
@@ -850,10 +834,6 @@ export default function EmployeeDetailPage() {
   const [draftWidgets, setDraftWidgets] = useState<string[]>(DEFAULT_VISIBLE);
   const [configSaving, setConfigSaving] = useState(false);
 
-  const [attendanceToday, setAttendanceToday] = useState<AttendancePunchRow[]>([]);
-  const [attendanceTodayLoading, setAttendanceTodayLoading] = useState(false);
-  const [attendanceTodayErr, setAttendanceTodayErr] = useState<string | null>(null);
-  const [attendancePunching, setAttendancePunching] = useState(false);
 
   const [pendingLifecycleLoading, setPendingLifecycleLoading] = useState(false);
   const [pendingLifecycleErr, setPendingLifecycleErr] = useState<string | null>(null);
@@ -1091,16 +1071,16 @@ export default function EmployeeDetailPage() {
               method: "PUT", body: JSON.stringify({ value: JSON.stringify(saved) }),
             }).catch(() => {});
           }
-          if (!saved.includes("attendancePunch")) {
+          if (!saved.includes("lifecycle")) {
             const qi = saved.indexOf("quickAccess");
-            saved.splice(qi >= 0 ? qi + 1 : 1, 0, "attendancePunch");
+            saved.splice(qi >= 0 ? qi + 1 : 1, 0, "lifecycle");
             apiFetch("/api/system-settings/EmployeeDashboardWidgets", {
               method: "PUT", body: JSON.stringify({ value: JSON.stringify(saved) }),
             }).catch(() => {});
           }
-          if (!saved.includes("lifecycle")) {
+          if (!saved.includes("birthdaysNotices")) {
             const qi = saved.indexOf("quickAccess");
-            saved.splice(qi >= 0 ? qi + 1 : 1, 0, "lifecycle");
+            saved.splice(qi >= 0 ? qi + 1 : 1, 0, "birthdaysNotices");
             apiFetch("/api/system-settings/EmployeeDashboardWidgets", {
               method: "PUT", body: JSON.stringify({ value: JSON.stringify(saved) }),
             }).catch(() => {});
@@ -1112,7 +1092,7 @@ export default function EmployeeDetailPage() {
               method: "PUT", body: JSON.stringify({ value: JSON.stringify(saved) }),
             }).catch(() => {});
           }
-          setVisibleWidgets(saved);
+          setVisibleWidgets(normalizeVisibleWidgetIds(saved));
         } catch { /* defaults */ }
       }
     } catch { setMsg({ type: "err", text: "Employee not found." }); }
@@ -1121,34 +1101,19 @@ export default function EmployeeDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const loadAttendanceToday = useCallback(async () => {
-    if (!id) return;
-    setAttendanceTodayLoading(true);
-    setAttendanceTodayErr(null);
-    try {
-      const today = formatLocalDateToIso(new Date());
-      const res = await apiFetch<{ items: AttendancePunchRow[] }>(
-        `/api/attendance?employeeId=${id}&from=${today}&to=${today}&page=1&pageSize=100`
-      );
-      const items = [...(res.items ?? [])];
-      items.sort((a, b) => {
-        const ta = a.punchIn ? new Date(a.punchIn).getTime() : 0;
-        const tb = b.punchIn ? new Date(b.punchIn).getTime() : 0;
-        return ta - tb;
-      });
-      setAttendanceToday(items);
-    } catch (e) {
-      setAttendanceTodayErr(e instanceof Error ? e.message : "Failed to load attendance");
-      setAttendanceToday([]);
-    } finally {
-      setAttendanceTodayLoading(false);
-    }
-  }, [id]);
-
   useEffect(() => {
-    if (pageTab !== "profile" || !visibleWidgets.includes("attendancePunch") || !id) return;
-    void loadAttendanceToday();
-  }, [pageTab, visibleWidgets, id, loadAttendanceToday]);
+    if (pageTab !== "profile" || !emp || typeof window === "undefined") return;
+    if (!visibleWidgets.includes("birthdaysNotices")) return;
+    function scrollToBirthdays() {
+      if (window.location.hash !== "#birthdays-notices") return;
+      window.setTimeout(() => {
+        document.getElementById("birthdays-notices")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 150);
+    }
+    scrollToBirthdays();
+    window.addEventListener("hashchange", scrollToBirthdays);
+    return () => window.removeEventListener("hashchange", scrollToBirthdays);
+  }, [emp, pageTab, visibleWidgets]);
 
   const loadPendingLifecycleTasks = useCallback(async () => {
     if (!id) return;
@@ -1228,46 +1193,26 @@ export default function EmployeeDetailPage() {
     }, 300);
   }
 
-  function openConfig() { setDraftWidgets([...visibleWidgets]); setShowConfig(true); }
+  function openConfig() { setDraftWidgets(normalizeVisibleWidgetIds([...visibleWidgets])); setShowConfig(true); }
   function toggleDraftWidget(wid: string) { setDraftWidgets((p) => p.includes(wid) ? p.filter((x) => x !== wid) : [...p, wid]); }
   async function saveConfig() {
     setConfigSaving(true);
     try {
-      await apiFetch("/api/system-settings/EmployeeDashboardWidgets", { method: "PUT", body: JSON.stringify({ value: JSON.stringify(draftWidgets) }) });
-      setVisibleWidgets(draftWidgets); setShowConfig(false);
+      const normalized = normalizeVisibleWidgetIds(draftWidgets);
+      await apiFetch("/api/system-settings/EmployeeDashboardWidgets", { method: "PUT", body: JSON.stringify({ value: JSON.stringify(normalized) }) });
+      setVisibleWidgets(normalized); setShowConfig(false);
     } catch { /* */ } finally { setConfigSaving(false); }
   }
   const wOn = (wid: string) => visibleWidgets.includes(wid);
 
   async function removeWidget(wid: string) {
-    const updated = visibleWidgets.filter((w) => w !== wid);
+    const updated = normalizeVisibleWidgetIds(visibleWidgets.filter((w) => w !== wid));
     setVisibleWidgets(updated);
     try {
       await apiFetch("/api/system-settings/EmployeeDashboardWidgets", {
         method: "PUT", body: JSON.stringify({ value: JSON.stringify(updated) }),
       });
     } catch { /* ignore */ }
-  }
-
-  async function handleAttendancePunch() {
-    if (!id || attendancePunching) return;
-    const open = [...attendanceToday]
-      .filter((r) => r.punchIn && !r.punchOut)
-      .sort((a, b) => new Date(b.punchIn!).getTime() - new Date(a.punchIn!).getTime())[0];
-    const type = open ? "out" : "in";
-    setAttendancePunching(true);
-    try {
-      await apiFetch("/api/attendance/punch", {
-        method: "POST",
-        body: JSON.stringify({ type, source: "PeopleProfile", employeeId: id }),
-      });
-      setMsg({ type: "ok", text: type === "in" ? "Checked in." : "Checked out." });
-      await loadAttendanceToday();
-    } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : "Punch failed" });
-    } finally {
-      setAttendancePunching(false);
-    }
   }
 
   async function uploadAttachment() {
@@ -2418,6 +2363,184 @@ export default function EmployeeDetailPage() {
   const initials = `${emp.firstName[0]}${emp.lastName[0]}`;
   const isProfileTab = pageTab === "profile";
 
+  function renderEmployeeLifecycleHeader() {
+    return (
+      <div className={sectionCardHeaderRowSm}>
+        <div className="flex items-center gap-2">
+          <SectionIcon path="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" color="bg-sky-600" />
+          <h2 className="text-[15px] font-bold text-slate-700">Employee Lifecycle</h2>
+        </div>
+        <WidgetGear onRemove={() => removeWidget("lifecycle")} />
+      </div>
+    );
+  }
+
+  function renderEmployeeLifecycleMain() {
+    return (
+      <>
+        <div className="flex flex-col gap-4 md:flex-row md:items-start">
+          <div className="flex w-full shrink-0 flex-col items-center border-b border-slate-100 pb-4 text-center md:w-[160px] md:border-b-0 md:border-r md:border-slate-100 md:pb-0 md:pr-4">
+            <div className="grid h-[88px] w-[88px] place-items-center rounded-full border-4 border-sky-100 bg-gradient-to-br from-sky-400 to-blue-600 text-2xl font-extrabold text-white shadow-md shadow-sky-500/20">
+              {initials}
+            </div>
+            <h3 className="mt-3 text-sm font-bold text-slate-800">{emp.fullName}</h3>
+            <span className="mt-1 line-clamp-2 text-[11px] font-semibold leading-snug text-sky-900">
+              {emp.jobTitleName ?? emp.positionTitle ?? "—"}
+            </span>
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-700">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${lifecycleColors[emp.status] ?? "bg-gray-400"}`} />
+              {lifecycleLabels[emp.status] ?? emp.status}
+            </span>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Tenure:{" "}
+              <span className="font-semibold text-slate-700">
+                {emp.terminationDate
+                  ? formatTenureSpan(emp.joinDate, emp.terminationDate)
+                  : formatTenureSpan(emp.joinDate)}
+              </span>
+            </p>
+          </div>
+          <div className="min-w-0 flex-1 md:pl-1">
+            <div
+              className="max-h-[min(65vh,560px)] overflow-y-auto overflow-x-hidden overscroll-contain pr-2 [scrollbar-gutter:stable] scroll-smooth [scrollbar-width:thin] [scrollbar-color:rgb(203_213_225)_rgb(241_245_249)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100"
+              title="Scroll to see lifecycle milestones and role responsibilities"
+            >
+              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                <SectionIcon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" color="bg-sky-500" />
+                Lifecycle milestones
+              </h4>
+              <ul className="space-y-0">
+                {(() => {
+                  const milestones = (
+                    [
+                      { label: "Joined organization", date: emp.joinDate },
+                      emp.probationEndDate ? { label: "Probation ends", date: emp.probationEndDate } : null,
+                      emp.dateOfPermanency ? { label: "Permanent / confirmed", date: emp.dateOfPermanency } : null,
+                      emp.terminationDate
+                        ? {
+                            label: "Separation",
+                            date: emp.terminationDate,
+                            sub:
+                              emp.terminationReason && emp.terminationReason.trim().length > 0
+                                ? emp.terminationReason.trim().length > 72
+                                  ? `${emp.terminationReason.trim().slice(0, 70)}…`
+                                  : emp.terminationReason.trim()
+                                : undefined,
+                          }
+                        : null,
+                    ] as ({ label: string; date: string; sub?: string } | null)[]
+                  )
+                    .filter((m): m is { label: string; date: string; sub?: string } => m != null)
+                    .sort(
+                      (a, b) =>
+                        new Date(a.date.split("T")[0]).getTime() - new Date(b.date.split("T")[0]).getTime(),
+                    );
+                  return milestones.map((m, idx) => (
+                    <li key={`${m.label}-${m.date}`} className="flex gap-3">
+                      <div className="flex w-4 shrink-0 flex-col items-center pt-1">
+                        <span className="h-2.5 w-2.5 rounded-full border-2 border-white bg-sky-500 shadow ring-1 ring-sky-200" />
+                        {idx < milestones.length - 1 && (
+                          <span className="mt-1 min-h-[2.25rem] w-0 flex-1 border-l-2 border-slate-200" aria-hidden />
+                        )}
+                      </div>
+                      <div className={`min-w-0 flex-1 ${idx < milestones.length - 1 ? "pb-5" : ""}`}>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          {m.label}
+                        </div>
+                        <div className="text-sm font-semibold text-slate-800">{fmtDateDisplay(m.date)}</div>
+                        {m.sub && <p className="mt-0.5 text-xs leading-snug text-slate-500">{m.sub}</p>}
+                      </div>
+                    </li>
+                  ));
+                })()}
+              </ul>
+              <div className="mt-5 border-t border-slate-100 pt-4">
+                <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                  <SectionIcon path="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" color="bg-violet-500" />
+                  Career progression
+                </h4>
+                <ul className="space-y-0">
+                  {careerPathRows.map((row, idx) => (
+                    <li key={row.id} className="flex gap-3">
+                      <div className="flex w-4 shrink-0 flex-col items-center pt-1">
+                        <span
+                          className={`h-2.5 w-2.5 rounded-full border-2 border-white shadow ring-1 ${
+                            row.isCurrent
+                              ? "bg-violet-600 ring-violet-200"
+                              : "bg-violet-300 ring-violet-100"
+                          }`}
+                        />
+                        {idx < careerPathRows.length - 1 && (
+                          <span className="mt-1 min-h-[2.25rem] w-0 flex-1 border-l-2 border-slate-200" aria-hidden />
+                        )}
+                      </div>
+                      <div className={`min-w-0 flex-1 ${idx < careerPathRows.length - 1 ? "pb-5" : ""}`}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                            {row.ladderLabel}
+                          </span>
+                          {row.isCurrent && (
+                            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-800">
+                              Current
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 text-[15px] font-semibold leading-snug text-slate-900">
+                          {row.displayTitle}
+                        </div>
+                        <div className="mt-1 text-base font-bold tracking-tight text-slate-800">{row.yearRange}</div>
+                        <div className="text-xs font-medium text-slate-600">{row.monthRange}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          In seat: <span className="font-semibold text-slate-700">{row.actualTenure}</span>
+                        </div>
+                        <p className="mt-2 text-[11px] font-medium leading-snug text-slate-600">{row.durationBand}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="mt-5 border-t border-slate-100 pt-4">
+                <h4 className="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                  <SectionIcon path="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" color="bg-indigo-500" />
+                  Role &amp; responsibilities
+                </h4>
+                <div className="rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2.5">
+                  <InfoRow label="Job title" value={emp.jobTitleName ?? emp.positionTitle ?? "—"} />
+                  <InfoRow label="Department" value={emp.departmentName ?? "—"} />
+                  <InfoRow label="Reports to" value={emp.managerName ?? "—"} />
+                  <div className="mt-2 border-t border-slate-200/80 pt-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      Responsibilities
+                    </div>
+                    {emp.jobTitleDescription && emp.jobTitleDescription.trim().length > 0 ? (
+                      <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
+                        {emp.jobTitleDescription.trim()}
+                      </p>
+                    ) : (
+                      <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                        No job title description yet. Add text under{" "}
+                        <span className="font-medium text-slate-600">Organization → Job titles</span> for this
+                        role.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setPageTab("job")}
+          className="mt-4 w-full rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-600 transition hover:border-sky-300 hover:bg-sky-50/60 hover:text-sky-800"
+        >
+          Open Job &amp; organization tab
+        </button>
+      </>
+    );
+  }
+
+
   return (
     <>
       {/* Widget Config Modal */}
@@ -2628,22 +2751,25 @@ export default function EmployeeDetailPage() {
           TAB: PROFILE — About card + Quick Access + widgets
          ══════════════════════════════════════════════════ */}
       {isProfileTab && (
-        <div className="grid gap-5 lg:grid-cols-3">
-          {/* ABOUT CARD — spans 2 columns */}
+        <div className="grid items-start gap-5 lg:grid-cols-2">
+          {/* Left column stack: keeps Onboarding directly under About (avoids a tall empty grid cell beside Quick Access). */}
+          {(wOn("about") || (wOn("lifecycle") && !wOn("about")) || wOn("pendingLifecycleTasks")) && (
+            <div className="flex min-w-0 flex-col gap-3">
+          {/* ABOUT CARD */}
           {wOn("about") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className={sectionCardHeaderRowSm}>
                 <div className="flex items-center gap-2"><SectionIcon path="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" color="bg-slate-600" /><h2 className="text-[15px] font-bold text-slate-700">About</h2></div>
               </div>
               <div className="p-4">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start">
                   {/* Avatar */}
-                  <div className="flex w-[160px] shrink-0 flex-col items-center text-center">
+                  <div className="flex w-[132px] shrink-0 flex-col items-center text-center sm:w-[148px]">
                     <button type="button" onClick={openPhotoModal} className="relative group cursor-pointer">
                       {emp.profileImageUrl ? (
-                        <img src={`${API_BASE_URL}${emp.profileImageUrl}`} alt={emp.fullName} className="h-[120px] w-[120px] rounded-full border-4 border-slate-100 object-cover" />
+                        <img src={`${API_BASE_URL}${emp.profileImageUrl}`} alt={emp.fullName} className="h-[104px] w-[104px] rounded-full border-4 border-slate-100 object-cover sm:h-[112px] sm:w-[112px]" />
                       ) : (
-                        <div className="grid h-[120px] w-[120px] place-items-center rounded-full border-4 border-slate-100 bg-gradient-to-br from-blue-100 to-indigo-100 text-4xl font-extrabold text-blue-800">{initials}</div>
+                        <div className="grid h-[104px] w-[104px] place-items-center rounded-full border-4 border-slate-100 bg-gradient-to-br from-blue-100 to-indigo-100 text-3xl font-extrabold text-blue-800 sm:h-[112px] sm:w-[112px] sm:text-4xl">{initials}</div>
                       )}
                       <div className="absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-full border-2 border-white bg-slate-100 transition group-hover:bg-slate-200">
                         <svg className="h-3 w-3 text-slate-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
@@ -2659,7 +2785,7 @@ export default function EmployeeDetailPage() {
                     </div>
                   </div>
                   {/* Info sections — vertical with scroll */}
-                  <div className="min-w-0 flex-1 max-h-[240px] overflow-y-auto overflow-x-hidden pl-4 pr-1">
+                  <div className="min-w-0 flex-1 max-h-[min(200px,42vh)] overflow-y-auto overflow-x-hidden pl-3 pr-1 sm:pl-4">
                     <div className="space-y-4">
                       <div>
                         <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-slate-600"><SectionIcon path="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" color="bg-blue-500" />Basic Info</h4>
@@ -2693,216 +2819,32 @@ export default function EmployeeDetailPage() {
                     </div>
                   </div>
                 </div>
+
+                {wOn("lifecycle") && (
+                  <div className="mt-5 border-t border-slate-100 pt-4">
+                    {renderEmployeeLifecycleHeader()}
+                    <div className="pt-2">
+                      {renderEmployeeLifecycleMain()}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* QUICK ACCESS */}
-          {wOn("quickAccess") && (
+
+          {wOn("lifecycle") && !wOn("about") && (
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className={sectionCardHeaderRowSm}>
-                <div className="flex items-center gap-2"><SectionIcon path="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" color="bg-slate-600" /><h2 className="text-[15px] font-bold text-slate-700">Quick Access</h2></div>
-                <WidgetGear onRemove={() => removeWidget("quickAccess")} />
-              </div>
-              <div className="space-y-0.5 p-3">
-                {[
-                  { label: "Performance", sub: "Appraisals", bg: "bg-orange-500", icon: "M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" },
-                  { label: "Goals", sub: "Goals", bg: "bg-emerald-500", icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" },
-                  { label: "Career Development", sub: "Individual Development Plans", bg: "bg-amber-500", icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" },
-                  { label: "Discipline", sub: "Disciplinary Cases", bg: "bg-red-500", icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" },
-                ].map((item) => (
-                  <button key={item.sub} type="button" className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50">
-                    <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${item.bg}`}><svg className="h-3.5 w-3.5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d={item.icon}/></svg></div>
-                    <div><div className="text-[10px] font-medium text-slate-400">{item.label}</div><div className="text-xs font-semibold text-slate-700">{item.sub}</div></div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* EMPLOYEE LIFECYCLE — About-width card, scrollable milestones + role responsibilities */}
-          {wOn("lifecycle") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
-              <div className={sectionCardHeaderRowSm}>
-                <div className="flex items-center gap-2">
-                  <SectionIcon path="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" color="bg-sky-600" />
-                  <h2 className="text-[15px] font-bold text-slate-700">Employee Lifecycle</h2>
-                </div>
-                <WidgetGear onRemove={() => removeWidget("lifecycle")} />
-              </div>
+              {renderEmployeeLifecycleHeader()}
               <div className="p-4">
-                <div className="flex flex-col gap-4 md:flex-row md:items-start">
-                  <div className="flex w-full shrink-0 flex-col items-center border-b border-slate-100 pb-4 text-center md:w-[160px] md:border-b-0 md:border-r md:border-slate-100 md:pb-0 md:pr-4">
-                    <div className="grid h-[88px] w-[88px] place-items-center rounded-full border-4 border-sky-100 bg-gradient-to-br from-sky-400 to-blue-600 text-2xl font-extrabold text-white shadow-md shadow-sky-500/20">
-                      {initials}
-                    </div>
-                    <h3 className="mt-3 text-sm font-bold text-slate-800">{emp.fullName}</h3>
-                    <span className="mt-1 line-clamp-2 text-[11px] font-semibold leading-snug text-sky-900">
-                      {emp.jobTitleName ?? emp.positionTitle ?? "—"}
-                    </span>
-                    <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-700">
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${lifecycleColors[emp.status] ?? "bg-gray-400"}`} />
-                      {lifecycleLabels[emp.status] ?? emp.status}
-                    </span>
-                    <p className="mt-2 text-[11px] text-slate-500">
-                      Tenure:{" "}
-                      <span className="font-semibold text-slate-700">
-                        {emp.terminationDate
-                          ? formatTenureSpan(emp.joinDate, emp.terminationDate)
-                          : formatTenureSpan(emp.joinDate)}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="min-w-0 flex-1 md:pl-1">
-                    <div
-                      className="max-h-[min(65vh,560px)] overflow-y-auto overflow-x-hidden overscroll-contain pr-2 [scrollbar-gutter:stable] scroll-smooth [scrollbar-width:thin] [scrollbar-color:rgb(203_213_225)_rgb(241_245_249)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100"
-                      title="Scroll to see lifecycle milestones and role responsibilities"
-                    >
-                      <h4 className="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-600">
-                        <SectionIcon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" color="bg-sky-500" />
-                        Lifecycle milestones
-                      </h4>
-                      <ul className="space-y-0">
-                        {(() => {
-                          const milestones = (
-                            [
-                              { label: "Joined organization", date: emp.joinDate },
-                              emp.probationEndDate ? { label: "Probation ends", date: emp.probationEndDate } : null,
-                              emp.dateOfPermanency ? { label: "Permanent / confirmed", date: emp.dateOfPermanency } : null,
-                              emp.terminationDate
-                                ? {
-                                    label: "Separation",
-                                    date: emp.terminationDate,
-                                    sub:
-                                      emp.terminationReason && emp.terminationReason.trim().length > 0
-                                        ? emp.terminationReason.trim().length > 72
-                                          ? `${emp.terminationReason.trim().slice(0, 70)}…`
-                                          : emp.terminationReason.trim()
-                                        : undefined,
-                                  }
-                                : null,
-                            ] as ({ label: string; date: string; sub?: string } | null)[]
-                          )
-                            .filter((m): m is { label: string; date: string; sub?: string } => m != null)
-                            .sort(
-                              (a, b) =>
-                                new Date(a.date.split("T")[0]).getTime() - new Date(b.date.split("T")[0]).getTime(),
-                            );
-                          return milestones.map((m, idx) => (
-                            <li key={`${m.label}-${m.date}`} className="flex gap-3">
-                              <div className="flex w-4 shrink-0 flex-col items-center pt-1">
-                                <span className="h-2.5 w-2.5 rounded-full border-2 border-white bg-sky-500 shadow ring-1 ring-sky-200" />
-                                {idx < milestones.length - 1 && (
-                                  <span className="mt-1 min-h-[2.25rem] w-0 flex-1 border-l-2 border-slate-200" aria-hidden />
-                                )}
-                              </div>
-                              <div className={`min-w-0 flex-1 ${idx < milestones.length - 1 ? "pb-5" : ""}`}>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                  {m.label}
-                                </div>
-                                <div className="text-sm font-semibold text-slate-800">{fmtDateDisplay(m.date)}</div>
-                                {m.sub && <p className="mt-0.5 text-xs leading-snug text-slate-500">{m.sub}</p>}
-                              </div>
-                            </li>
-                          ));
-                        })()}
-                      </ul>
-                      <div className="mt-5 border-t border-slate-100 pt-4">
-                        <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-slate-600">
-                          <SectionIcon path="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" color="bg-violet-500" />
-                          Career progression
-                        </h4>
-                        <p className="mb-3 text-[10px] leading-snug text-slate-400">
-                          Ladder: Intern → Junior → Mid-Level → Senior → Team Lead → Manager → Director.{" "}
-                          <span className="font-medium text-slate-500">Current first, oldest last.</span> Stage dates
-                          are estimated from join → today (or separation) and your matched level until job history
-                          exists.
-                        </p>
-                        <ul className="space-y-0">
-                          {careerPathRows.map((row, idx) => (
-                            <li key={row.id} className="flex gap-3">
-                              <div className="flex w-4 shrink-0 flex-col items-center pt-1">
-                                <span
-                                  className={`h-2.5 w-2.5 rounded-full border-2 border-white shadow ring-1 ${
-                                    row.isCurrent
-                                      ? "bg-violet-600 ring-violet-200"
-                                      : "bg-violet-300 ring-violet-100"
-                                  }`}
-                                />
-                                {idx < careerPathRows.length - 1 && (
-                                  <span className="mt-1 min-h-[2.25rem] w-0 flex-1 border-l-2 border-slate-200" aria-hidden />
-                                )}
-                              </div>
-                              <div className={`min-w-0 flex-1 ${idx < careerPathRows.length - 1 ? "pb-5" : ""}`}>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                    {row.ladderLabel}
-                                  </span>
-                                  {row.isCurrent && (
-                                    <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-800">
-                                      Current
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="mt-0.5 text-[15px] font-semibold leading-snug text-slate-900">
-                                  {row.displayTitle}
-                                </div>
-                                <div className="mt-1 text-base font-bold tracking-tight text-slate-800">{row.yearRange}</div>
-                                <div className="text-xs font-medium text-slate-600">{row.monthRange}</div>
-                                <div className="mt-0.5 text-[11px] text-slate-500">
-                                  In seat: <span className="font-semibold text-slate-700">{row.actualTenure}</span>
-                                </div>
-                                <p className="mt-2 text-[11px] font-medium leading-snug text-slate-600">{row.durationBand}</p>
-                                <p className="mt-1 text-xs leading-relaxed text-slate-600">{row.roleSummary}</p>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="mt-5 border-t border-slate-100 pt-4">
-                        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-600">
-                          <SectionIcon path="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" color="bg-indigo-500" />
-                          Role &amp; responsibilities
-                        </h4>
-                        <div className="rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2.5">
-                          <InfoRow label="Job title" value={emp.jobTitleName ?? emp.positionTitle ?? "—"} />
-                          <InfoRow label="Department" value={emp.departmentName ?? "—"} />
-                          <InfoRow label="Reports to" value={emp.managerName ?? "—"} />
-                          <div className="mt-2 border-t border-slate-200/80 pt-2">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                              Responsibilities
-                            </div>
-                            {emp.jobTitleDescription && emp.jobTitleDescription.trim().length > 0 ? (
-                              <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
-                                {emp.jobTitleDescription.trim()}
-                              </p>
-                            ) : (
-                              <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-                                No job title description yet. Add text under{" "}
-                                <span className="font-medium text-slate-600">Organization → Job titles</span> for this
-                                role.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setPageTab("job")}
-                  className="mt-4 w-full rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-600 transition hover:border-sky-300 hover:bg-sky-50/60 hover:text-sky-800"
-                >
-                  Open Job &amp; organization tab
-                </button>
+                {renderEmployeeLifecycleMain()}
               </div>
             </div>
           )}
 
           {/* ONBOARDING & OFFBOARDING — pending tasks for this employee (assigned user shown) */}
           {wOn("pendingLifecycleTasks") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className={sectionCardHeaderRowSm}>
                 <div className="flex items-center gap-2">
                   <SectionIcon
@@ -2984,99 +2926,45 @@ export default function EmployeeDetailPage() {
             </div>
           )}
 
-          {/* ATTENDANCE — check-in / check-out (multiple segments per day) */}
-          {wOn("attendancePunch") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className={sectionCardHeaderRowSm}>
-                <div className="flex items-center gap-2">
-                  <SectionIcon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" color="bg-amber-500" />
-                  <h2 className="text-[15px] font-bold text-slate-700">Attendance</h2>
-                </div>
-                <WidgetGear onRemove={() => removeWidget("attendancePunch")} />
-              </div>
-              <div className="p-4">
-                {attendanceTodayLoading && (
-                  <div className="flex justify-center py-6">
-                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-200 border-t-amber-600" />
+            </div>
+          )}
+
+          {(wOn("quickAccess") || wOn("birthdaysNotices")) && (
+            <div className="flex min-w-0 flex-col gap-5">
+              {/* QUICK ACCESS */}
+              {wOn("quickAccess") && (
+                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <div className={sectionCardHeaderRowSm}>
+                    <div className="flex items-center gap-2"><SectionIcon path="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" color="bg-slate-600" /><h2 className="text-[15px] font-bold text-slate-700">Quick Access</h2></div>
+                    <WidgetGear onRemove={() => removeWidget("quickAccess")} />
                   </div>
-                )}
-                {!attendanceTodayLoading && attendanceTodayErr && (
-                  <p className="text-center text-xs text-red-600">{attendanceTodayErr}</p>
-                )}
-                {!attendanceTodayLoading && !attendanceTodayErr && (
-                  <>
-                    {(() => {
-                      const open = [...attendanceToday]
-                        .filter((r) => r.punchIn && !r.punchOut)
-                        .sort((a, b) => new Date(b.punchIn!).getTime() - new Date(a.punchIn!).getTime())[0];
-                      const isIn = !!open;
-                      return (
-                        <button
-                          type="button"
-                          disabled={attendancePunching}
-                          onClick={() => void handleAttendancePunch()}
-                          className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-bold text-white shadow-md transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60 ${
-                            isIn
-                              ? "bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700"
-                              : "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
-                          }`}
-                        >
-                          {attendancePunching ? (
-                            <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                          ) : (
-                            <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                              {isIn ? (
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                              ) : (
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                              )}
-                            </svg>
-                          )}
-                          {attendancePunching ? "Saving…" : isIn ? "Check out" : "Check in"}
-                        </button>
-                      );
-                    })()}
-                    <p className="mt-2 text-center text-[11px] text-slate-400">
-                      You can check in and out several times today; each pair is saved as a segment.
-                    </p>
-                    {attendanceToday.length > 0 && (
-                      <div className="mt-4 max-h-[140px] space-y-2 overflow-y-auto border-t border-slate-100 pt-3">
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Today</div>
-                        {attendanceToday.map((row, idx) => (
-                          <div
-                            key={row.id}
-                            className="flex flex-col gap-0.5 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600"
-                          >
-                            <span className="font-semibold text-slate-700">Segment {idx + 1}</span>
-                            <span>
-                              <span className="text-slate-400">In:</span> {formatDateTime(row.punchIn)}
-                            </span>
-                            <span>
-                              <span className="text-slate-400">Out:</span>{" "}
-                              {row.punchOut ? formatDateTime(row.punchOut) : <span className="font-medium text-amber-700">Open</span>}
-                            </span>
-                            {row.workedHours != null && row.punchOut && (
-                              <span className="text-slate-400">{Number(row.workedHours).toFixed(2)} h</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <a
-                      href="/app/attendance"
-                      className="mt-3 block text-center text-[11px] font-semibold text-amber-700 hover:text-amber-800"
-                    >
-                      Open Time & Attendance
-                    </a>
-                  </>
-                )}
-              </div>
+                  <div className="space-y-0.5 p-3">
+                    {[
+                      { label: "Career Development", sub: "Individual Development Plans", bg: "bg-amber-500", icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" },
+                      { label: "Discipline", sub: "Disciplinary Cases", bg: "bg-red-500", icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" },
+                    ].map((item) => (
+                      <button key={item.sub} type="button" className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50">
+                        <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${item.bg}`}><svg className="h-3.5 w-3.5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d={item.icon}/></svg></div>
+                        <div><div className="text-[10px] font-medium text-slate-400">{item.label}</div><div className="text-xs font-semibold text-slate-700">{item.sub}</div></div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {wOn("birthdaysNotices") && (
+                <div id="birthdays-notices" className="min-w-0 scroll-mt-28">
+                  <BirthdaysCompanyNoticesWidget
+                    scrollAnchorHref={`${ROUTES.people}/${id}#birthdays-notices`}
+                  />
+                </div>
+              )}
             </div>
           )}
 
           {/* LEAVE BALANCE */}
           {wOn("leaveBalance") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
               <div className={sectionCardHeaderRowSm}><div className="flex items-center gap-2"><SectionIcon path="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" color="bg-indigo-500" /><h2 className="text-[15px] font-bold text-slate-700">Leave Balance</h2></div><WidgetGear onRemove={() => removeWidget("leaveBalance")} /></div>
               <div className="p-4"><div className="space-y-3">{[{type:"Annual Leave",used:5,total:14,color:"bg-blue-500"},{type:"Sick Leave",used:2,total:7,color:"bg-amber-500"},{type:"Casual Leave",used:1,total:3,color:"bg-emerald-500"}].map((lv)=>(<div key={lv.type}><div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium text-slate-600">{lv.type}</span><span className="text-slate-400">{lv.used}/{lv.total} used</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${lv.color}`} style={{width:`${(lv.used/lv.total)*100}%`}}/></div></div>))}</div><p className="mt-4 text-center text-[11px] text-slate-400">Data synced from Leave module</p></div>
             </div>
@@ -3084,7 +2972,7 @@ export default function EmployeeDetailPage() {
 
           {/* LEAVE LIST */}
           {wOn("leaveList") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
               <div className={sectionCardHeaderRowSm}><div className="flex items-center gap-2"><SectionIcon path="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" color="bg-violet-500" /><h2 className="text-[15px] font-bold text-slate-700">Leave List</h2></div><WidgetGear onRemove={() => removeWidget("leaveList")} /></div>
               <div className="p-4"><p className="mb-3 text-xs text-slate-500">Leave Request(s) From {new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"})}</p><div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5"><div><div className="text-xs font-semibold text-slate-700">No pending requests</div><div className="text-[11px] text-slate-400">All caught up</div></div><span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Clear</span></div><button type="button" className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50">View Leave List</button></div>
             </div>
@@ -3092,35 +2980,12 @@ export default function EmployeeDetailPage() {
 
           {/* TIMESHEETS */}
           {wOn("timesheets") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
               <div className={sectionCardHeaderRowSm}><div className="flex items-center gap-2"><SectionIcon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" color="bg-teal-500" /><h2 className="text-[15px] font-bold text-slate-700">Timesheets</h2></div><WidgetGear onRemove={() => removeWidget("timesheets")} /></div>
               <div className="p-4"><div className="grid grid-cols-3 gap-2">{[{label:"Today",value:"8h 15m",sub:"On track"},{label:"This Week",value:"36h",sub:"4 days logged"},{label:"This Month",value:"142h",sub:"Target: 160h"}].map((ts)=>(<div key={ts.label} className="rounded-xl bg-slate-50 px-2 py-2.5 text-center"><div className="text-[9px] font-medium uppercase tracking-wider text-slate-400">{ts.label}</div><div className="mt-0.5 text-base font-extrabold text-slate-800">{ts.value}</div><div className="text-[9px] text-slate-400">{ts.sub}</div></div>))}</div><button type="button" className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50">View Full Timesheets</button></div>
             </div>
           )}
 
-          {/* TIME AT WORK */}
-          {wOn("timeAtWork") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className={sectionCardHeaderRowSm}><div className="flex items-center gap-2"><SectionIcon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" color="bg-cyan-500" /><h2 className="text-[15px] font-bold text-slate-700">Time At Work</h2></div><WidgetGear onRemove={() => removeWidget("timeAtWork")} /></div>
-              <div className="p-4"><div className="space-y-2">{[{day:"Monday",hours:"8h 30m"},{day:"Tuesday",hours:"8h 15m"},{day:"Wednesday",hours:"8h 45m"},{day:"Thursday",hours:"7h 50m"},{day:"Friday",hours:"8h 00m"}].map((d)=>(<div key={d.day} className="flex items-center justify-between"><span className="text-xs text-slate-600">{d.day}</span><div className="flex items-center gap-2"><div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-cyan-400" style={{width:`${(parseFloat(d.hours)/9)*100}%`}}/></div><span className="w-12 text-right text-[11px] font-semibold text-slate-700">{d.hours}</span></div></div>))}</div><div className="mt-3 rounded-lg bg-cyan-50 px-3 py-2 text-center text-xs font-semibold text-cyan-700">Total: 41h 20m this week</div></div>
-            </div>
-          )}
-
-          {/* GOALS/OKRS */}
-          {wOn("goals") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className={sectionCardHeaderRowSm}><div className="flex items-center gap-2"><SectionIcon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" color="bg-emerald-500" /><h2 className="text-[15px] font-bold text-slate-700">Goals/OKRs</h2></div><WidgetGear onRemove={() => removeWidget("goals")} /></div>
-              <div className="p-4"><div className="space-y-2">{[{goal:"Complete Q1 Targets",progress:75,status:"On Track"},{goal:"Skill Development",progress:40,status:"In Progress"},{goal:"Team Collaboration",progress:90,status:"Ahead"}].map((g)=>(<div key={g.goal} className="rounded-xl bg-slate-50 px-3 py-2"><div className="mb-1 flex items-center justify-between"><span className="text-[11px] font-semibold text-slate-700">{g.goal}</span><span className={`text-[9px] font-bold ${g.progress>=75?"text-emerald-600":"text-amber-600"}`}>{g.status}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-slate-200"><div className={`h-full rounded-full ${g.progress>=75?"bg-emerald-400":"bg-amber-400"}`} style={{width:`${g.progress}%`}}/></div></div>))}</div></div>
-            </div>
-          )}
-
-          {/* PERFORMANCE TRACKER */}
-          {wOn("performance") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className={sectionCardHeaderRowSm}><div className="flex items-center gap-2"><SectionIcon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" color="bg-orange-500" /><h2 className="text-[15px] font-bold text-slate-700">Performance</h2></div><WidgetGear onRemove={() => removeWidget("performance")} /></div>
-              <div className="p-4"><div className="space-y-2">{[{date:"Mar 10, 2026",type:"Monthly Review",rating:"4.2/5",color:"text-emerald-600"},{date:"Feb 15, 2026",type:"Peer Feedback",rating:"Positive",color:"text-blue-600"},{date:"Jan 20, 2026",type:"Quarterly Appraisal",rating:"3.8/5",color:"text-amber-600"}].map((log)=>(<div key={log.date} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2"><div><div className="text-[11px] font-semibold text-slate-700">{log.type}</div><div className="text-[10px] text-slate-400">{log.date}</div></div><span className={`text-[11px] font-bold ${log.color}`}>{log.rating}</span></div>))}</div><button type="button" className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50">View All Logs</button></div>
-            </div>
-          )}
         </div>
       )}
 

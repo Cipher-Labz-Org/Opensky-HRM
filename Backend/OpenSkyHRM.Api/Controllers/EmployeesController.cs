@@ -1,8 +1,11 @@
+using System.Globalization;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Application.Services;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
 using OpenSkyHRM.Api.Filters;
@@ -18,11 +21,13 @@ public class EmployeesController : ControllerBase
 {
     private readonly IEmployeeService _employeeService;
     private readonly AppDbContext _db;
+    private readonly IUserNotificationService _notifications;
 
-    public EmployeesController(IEmployeeService employeeService, AppDbContext db)
+    public EmployeesController(IEmployeeService employeeService, AppDbContext db, IUserNotificationService notifications)
     {
         _employeeService = employeeService;
         _db = db;
+        _notifications = notifications;
     }
 
     /// <summary>Paged People Hub audit entries (employee profile, related records, compensation). Respects People:Read scope.</summary>
@@ -417,6 +422,146 @@ public class EmployeesController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Today's birthdays follow People:Read scope. Upcoming lists all active employees company-wide whose
+    /// birthday falls in the next 30 calendar days after today (exclusive of today).
+    /// </summary>
+    [HttpGet("birthdays/summary")]
+    public async Task<IActionResult> GetBirthdaySummary(CancellationToken cancellationToken = default)
+    {
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        if (allowedIds is { Count: 0 })
+            return Ok(new BirthdaySummaryResponse([], []));
+
+        var today = DateTime.UtcNow.Date;
+        const int upcomingBirthdayHorizonDays = 30;
+        var upcomingEnd = today.AddDays(upcomingBirthdayHorizonDays);
+
+        var baseQuery = _db.Employees.AsNoTracking()
+            .Include(e => e.Department)
+            .Where(e =>
+                e.DateOfBirth.Year > 1900
+                && (e.TerminationDate == null || e.TerminationDate.Value.Date >= today));
+
+        var companyEmployees = await baseQuery.ToListAsync(cancellationToken);
+
+        var todayEmployees = allowedIds is null
+            ? companyEmployees
+            : companyEmployees.Where(e => allowedIds.Contains(e.Id)).ToList();
+
+        var todayList = new List<BirthdayPersonDto>();
+        var upcomingList = new List<BirthdayPersonDto>();
+
+        foreach (var emp in todayEmployees)
+        {
+            if (!EmployeeBirthdayDigestReminderService.IsBirthdayAnniversary(today, emp.DateOfBirth))
+                continue;
+            todayList.Add(new BirthdayPersonDto(
+                emp.Id,
+                FormatEmployeeDisplayName(emp),
+                emp.Department?.Name,
+                emp.ProfileImageUrl,
+                DateOnly.FromDateTime(today).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                true,
+                0));
+        }
+
+        for (var d = today.AddDays(1); d <= upcomingEnd; d = d.AddDays(1))
+        {
+            foreach (var emp in companyEmployees)
+            {
+                if (!EmployeeBirthdayDigestReminderService.IsBirthdayAnniversary(d, emp.DateOfBirth))
+                    continue;
+                upcomingList.Add(new BirthdayPersonDto(
+                    emp.Id,
+                    FormatEmployeeDisplayName(emp),
+                    emp.Department?.Name,
+                    emp.ProfileImageUrl,
+                    DateOnly.FromDateTime(d).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    false,
+                    (int)(d - today).TotalDays));
+            }
+        }
+
+        todayList.Sort((a, b) => string.Compare(a.FullName, b.FullName, StringComparison.OrdinalIgnoreCase));
+        upcomingList.Sort((a, b) =>
+        {
+            var c = string.Compare(a.OccasionDate, b.OccasionDate, StringComparison.Ordinal);
+            return c != 0 ? c : string.Compare(a.FullName, b.FullName, StringComparison.OrdinalIgnoreCase);
+        });
+
+        return Ok(new BirthdaySummaryResponse(todayList, upcomingList));
+    }
+
+    /// <summary>Sends an in-app birthday wish to other active user accounts linked to the target employee (never the sender).</summary>
+    [HttpPost("birthdays/wish")]
+    public async Task<IActionResult> PostBirthdayWish([FromBody] BirthdayWishRequest dto,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, dto.ToEmployeeId))
+            return Forbid();
+
+        var fromUserId = GetCurrentUserAccountId();
+        if (fromUserId is null)
+            return Unauthorized();
+
+        var fromUser = await _db.Users.AsNoTracking()
+            .Include(u => u.Employee)
+            .FirstOrDefaultAsync(u => u.Id == fromUserId.Value, cancellationToken);
+        if (fromUser is null)
+            return Unauthorized();
+
+        var senderName = fromUser.Employee != null
+            ? FormatEmployeeDisplayName(fromUser.Employee)
+            : (fromUser.Username.Trim().Length > 0 ? fromUser.Username.Trim() : "Someone");
+
+        var linkedUserIds = await _db.Users.AsNoTracking()
+            .Where(u => u.EmployeeId == dto.ToEmployeeId && u.IsActive && !u.IsDeleted)
+            .Select(u => u.Id)
+            .ToListAsync(cancellationToken);
+
+        if (linkedUserIds.Count == 0)
+            return Ok(new { sent = false, reason = "noLinkedUser", notificationsCreated = 0 });
+
+        var toUserIds = linkedUserIds.Where(id => id != fromUserId.Value).ToList();
+        if (toUserIds.Count == 0)
+            return Ok(new { sent = false, reason = "noOtherRecipients", notificationsCreated = 0 });
+
+        const string title = "Birthday wishes!";
+        var body = $"{senderName} wished you a happy birthday. 🎉";
+        if (!string.IsNullOrWhiteSpace(dto.Message))
+        {
+            var msg = dto.Message.Trim();
+            if (msg.Length > 500)
+                msg = msg.Substring(0, 500);
+            body += $"{Environment.NewLine}{Environment.NewLine}{msg}";
+        }
+        const string category = "BirthdayWish";
+        var runDate = DateTime.UtcNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        var inserted = 0;
+
+        foreach (var uid in toUserIds)
+        {
+            var dedupe = $"BD-WISH:{runDate}:{fromUserId.Value}:{dto.ToEmployeeId}:{uid}";
+            if (await _notifications.TryCreateDedupedAsync(uid, dedupe, title, body, category, null, fromUserId.Value,
+                    cancellationToken))
+                inserted++;
+        }
+
+        return Ok(new { sent = inserted > 0, notificationsCreated = inserted });
+    }
+
+    private static string FormatEmployeeDisplayName(Employee emp) =>
+        string.IsNullOrWhiteSpace(emp.MiddleName)
+            ? $"{emp.FirstName} {emp.LastName}".Trim()
+            : $"{emp.FirstName} {emp.MiddleName} {emp.LastName}".Trim();
+
+    private Guid? GetCurrentUserAccountId()
+    {
+        var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+        return Guid.TryParse(sub, out var id) ? id : null;
+    }
+
     private static IActionResult? LicenseDateValidationProblem(DateTime? issue, DateTime? expiry)
     {
         if (issue.HasValue && issue.Value.Date > DateTime.UtcNow.Date)
@@ -453,4 +598,24 @@ public class ReactivateRequest
     public bool UpdateJoinDate { get; set; }
     public DateTime? JoinDate { get; set; }
     public bool WithOnboarding { get; set; }
+}
+
+public sealed record BirthdayPersonDto(
+    Guid EmployeeId,
+    string FullName,
+    string? DepartmentName,
+    string? ProfileImageUrl,
+    string OccasionDate,
+    bool IsToday,
+    int DaysUntil);
+
+public sealed record BirthdaySummaryResponse(
+    IReadOnlyList<BirthdayPersonDto> Today,
+    IReadOnlyList<BirthdayPersonDto> Upcoming);
+
+public sealed class BirthdayWishRequest
+{
+    public Guid ToEmployeeId { get; set; }
+    /// <summary>Optional personal note appended to the wish notification (max 500 characters).</summary>
+    public string? Message { get; set; }
 }

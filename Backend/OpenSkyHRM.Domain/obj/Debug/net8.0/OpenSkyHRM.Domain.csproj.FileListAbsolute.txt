@@ -91,3 +91,24 @@ D:\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\ref\OpenSkyHRM.Domain.
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Domain.deps.json
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Domain.dll
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Domain.pdb
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.deps.json
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.dll
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.pdb
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.GeneratedMSBuildEditorConfig.editorconfig
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.AssemblyInfoInputs.cache
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.AssemblyInfo.cs
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.csproj.CoreCompileInputs.cache
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.sourcelink.json
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.dll
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\refint\OpenSkyHRM.Domain.dll
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.pdb
+d:\Opensky new\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\ref\OpenSkyHRM.Domain.dll
+d:\Opensky new\Opensky-HRM\Backend\_tmp_buildcheck\OpenSkyHRM.Domain.deps.json
+d:\Opensky new\Opensky-HRM\Backend\_tmp_buildcheck\OpenSkyHRM.Domain.dll
+d:\Opensky new\Opensky-HRM\Backend\_tmp_buildcheck\OpenSkyHRM.Domain.pdb
+d:\Opensky new\Opensky-HRM\Backend\_bu2\OpenSkyHRM.Domain.deps.json
+d:\Opensky new\Opensky-HRM\Backend\_bu2\OpenSkyHRM.Domain.dll
+d:\Opensky new\Opensky-HRM\Backend\_bu2\OpenSkyHRM.Domain.pdb
+d:\Opensky new\Opensky-HRM\Backend\_bu3\OpenSkyHRM.Domain.deps.json
+d:\Opensky new\Opensky-HRM\Backend\_bu3\OpenSkyHRM.Domain.dll
+d:\Opensky new\Opensky-HRM\Backend\_bu3\OpenSkyHRM.Domain.pdb

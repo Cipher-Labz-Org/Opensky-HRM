@@ -83,6 +83,32 @@ public class RecruitmentService : IRecruitmentService
         return r == null ? null : MapRequisition(r);
     }
 
+    public async Task<bool> RequisitionAcceptsPublicApplicationsAsync(Guid id)
+    {
+        var row = await _db.Requisitions.AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => new { x.ClosedAt, x.Status })
+            .FirstOrDefaultAsync();
+        if (row == null) return false;
+        if (row.ClosedAt.HasValue) return false;
+        return row.Status == ApprovalStatus.Approved || row.Status == ApprovalStatus.PendingLevel2;
+    }
+
+    public async Task<(PublicRequisitionDto? dto, string? denyCode)> TryGetPublicJobPostingAsync(Guid id)
+    {
+        var r = await _db.Requisitions
+            .Include(x => x.Department).Include(x => x.JobTitle)
+            .Include(x => x.HiringManager).Include(x => x.Location)
+            .Include(x => x.Position)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id);
+        if (r == null) return (null, "not_found");
+        if (r.ClosedAt.HasValue) return (null, "closed");
+        if (r.Status != ApprovalStatus.Approved && r.Status != ApprovalStatus.PendingLevel2)
+            return (null, "not_published");
+        return (MapPublicRequisition(r), null);
+    }
+
     public async Task<RequisitionDto> CreateRequisitionAsync(CreateRequisitionDto dto)
     {
         var req = new Requisition
@@ -942,6 +968,35 @@ public class RecruitmentService : IRecruitmentService
         SupportingPdfOriginalFileName = r.SupportingPdfOriginalFileName,
         HasSupportingPdf = !string.IsNullOrEmpty(r.SupportingPdfStoredFileName),
         ApplicationNotificationEmail = r.ApplicationNotificationEmail,
+    };
+
+    private static PublicRequisitionDto MapPublicRequisition(Requisition r) => new()
+    {
+        Id = r.Id,
+        Title = r.Title,
+        Code = r.Code,
+        Description = r.Description,
+        Vacancies = r.Vacancies,
+        Status = r.Status.ToString(),
+        TargetDate = r.TargetDate,
+        Priority = r.Priority,
+        EmploymentType = r.EmploymentType,
+        ExperienceMin = r.ExperienceMin,
+        ExperienceMax = r.ExperienceMax,
+        SalaryMin = r.SalaryMin,
+        SalaryMax = r.SalaryMax,
+        Skills = r.Skills,
+        DepartmentName = r.Department?.Name,
+        DepartmentId = r.DepartmentId,
+        JobTitleName = r.JobTitle?.Title,
+        JobTitleId = r.JobTitleId,
+        HiringManagerName = r.HiringManager != null ? r.HiringManager.FullName : null,
+        HiringManagerId = r.HiringManagerId,
+        LocationName = r.Location?.Name,
+        LocationId = r.LocationId,
+        PositionTitle = r.Position?.Title,
+        PositionId = r.PositionId,
+        Timeline = DeserializeTimeline(r.RoleTimelineJson),
     };
 
     private CandidateDto MapCandidate(Candidate c) => new()
