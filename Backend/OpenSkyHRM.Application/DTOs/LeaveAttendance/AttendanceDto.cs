@@ -82,4 +82,16 @@ public class OvertimeNopayResultDto
     public int LateDays { get; set; }
     public int PresentDays { get; set; }
     public int AbsentDays { get; set; }
+
+    /// <summary>When set, OT for this row was approved or rejected for the requested period.</summary>
+    public string? OvertimeApprovalStatus { get; set; }
+    public DateTime? OvertimeApprovedAt { get; set; }
+    public string? OvertimeApproverName { get; set; }
+    public decimal? ApprovedOvertimeHoursSnapshot { get; set; }
+    public bool OvertimeHoursOutdated { get; set; }
+}
+
+public class ApproveRejectOvertimeNopayDto
+{
+    public string? Remarks { get; set; }
 }

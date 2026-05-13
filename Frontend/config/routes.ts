@@ -28,6 +28,7 @@ export const ROUTES = {
 
   // App – Workforce
   leave: "/app/leave",
+  approvals: "/app/approvals",
   attendance: "/app/attendance",
   payroll: "/app/payroll",
   performance: "/app/performance",

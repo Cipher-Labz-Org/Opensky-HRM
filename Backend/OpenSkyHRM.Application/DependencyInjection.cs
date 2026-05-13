@@ -31,6 +31,9 @@ public static class DependencyInjection
         services.AddScoped<IAppraisalService, AppraisalService>();
         services.AddScoped<ILearningService, LearningService>();
         services.AddScoped<ITrainingAssignmentService, TrainingAssignmentService>();
+        services.AddScoped<IUserNotificationService, UserNotificationService>();
+        services.AddScoped<IDrugTransportLicenseExpiryReminderService, DrugTransportLicenseExpiryReminderService>();
+        services.AddScoped<IEmployeeBirthdayDigestReminderService, EmployeeBirthdayDigestReminderService>();
         services.AddScoped<ICertificationService, CertificationService>();
         services.AddScoped<ISettingsService, SettingsService>();
         services.AddScoped<ISystemSettingService, SystemSettingService>();
@@ -47,6 +50,8 @@ public static class DependencyInjection
         services.AddScoped<ReportGenerationJob>();
         services.AddScoped<AnalyticsSnapshotRefreshJob>();
         services.AddScoped<TrainingDueReminderJob>();
+        services.AddScoped<DrugTransportLicenseExpiryReminderJob>();
+        services.AddScoped<EmployeeBirthdayDigestReminderJob>();
 
         return services;
     }

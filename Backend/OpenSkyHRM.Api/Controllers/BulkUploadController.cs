@@ -15,6 +15,9 @@ namespace OpenSkyHRM.Api.Controllers;
 [Route("api/[controller]")]
 public class BulkUploadController : ControllerBase
 {
+    /// <summary>Default password for users created via bulk import when <c>Create employee logins</c> is enabled (must match Administration UI).</summary>
+    public const string BulkImportDefaultLoginPassword = "123";
+
     private readonly AppDbContext _db;
 
     public BulkUploadController(AppDbContext db) => _db = db;
@@ -51,6 +54,16 @@ public class BulkUploadController : ControllerBase
             ws.Cell(1, i + 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#1e40af");
             ws.Cell(1, i + 1).Style.Font.FontColor = XLColor.White;
         }
+
+        var usernameColIndex = Array.FindIndex(cols, static c => string.Equals(c, "Username", StringComparison.OrdinalIgnoreCase));
+        if (usernameColIndex >= 0)
+        {
+            var uc = ws.Cell(1, usernameColIndex + 1);
+            uc.CreateComment();
+            uc.GetComment().AddText(
+                "Optional: used as sign-in username when \"Create employee logins\" is enabled. Must be unique in the system. Leave blank to auto-generate from email or name.");
+        }
+
         ws.Columns().AdjustToContents(1, 1);
 
         AddLookupSheet(wb, "Departments", _db.Departments.Where(d => !d.IsDeleted).Select(d => new { d.Name }).ToList().Select(d => d.Name));
@@ -94,7 +107,7 @@ public class BulkUploadController : ControllerBase
 
     [HttpPost("employees")]
     [RequestSizeLimit(20_000_000)]
-    public async Task<IActionResult> UploadEmployees(IFormFile file)
+    public async Task<IActionResult> UploadEmployees(IFormFile file, [FromForm] string? createUserLogins = null)
     {
         if (file is null || file.Length == 0)
             return BadRequest("No file uploaded.");
@@ -102,6 +115,13 @@ public class BulkUploadController : ControllerBase
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (ext != ".xlsx" && ext != ".xls")
             return BadRequest("Only .xlsx or .xls files are supported.");
+
+        var wantLogins = string.Equals(createUserLogins, "true", StringComparison.OrdinalIgnoreCase);
+        var loginJobs = new List<(int Row, Employee Emp, string? UsernameFromSheet)>();
+        var reservedSheetUsernames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usernamesTaken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var un in await _db.Users.AsNoTracking().Where(u => !u.IsDeleted).Select(u => u.Username).ToListAsync())
+            usernamesTaken.Add(un);
 
         var departments = await _db.Departments.Where(d => !d.IsDeleted).ToListAsync();
         var businessUnits = await _db.BusinessUnits.Where(b => !b.IsDeleted).ToListAsync();
@@ -184,7 +204,8 @@ public class BulkUploadController : ControllerBase
 
             var firstName = Cell(row, "First Name");
             var lastName = Cell(row, "Last Name");
-            var email = Cell(row, "Email");
+            var emailWork = Cell(row, "Email");
+            var usernameFromSheet = CellAny(row, "Username", "User name");
             var deptName = Cell(row, "Department");
             var genderStr = Cell(row, "Gender");
             var dobStr = DateCell(row, "Date of Birth");
@@ -192,7 +213,6 @@ public class BulkUploadController : ControllerBase
 
             if (string.IsNullOrEmpty(firstName)) errors.Add("First Name is required");
             if (string.IsNullOrEmpty(lastName)) errors.Add("Last Name is required");
-            if (string.IsNullOrEmpty(email)) errors.Add("Email is required");
             if (string.IsNullOrEmpty(deptName)) errors.Add("Department is required");
             if (dobStr is null) errors.Add("Date of Birth is required");
             if (joinStr is null) errors.Add("Joined Date is required");
@@ -220,6 +240,12 @@ public class BulkUploadController : ControllerBase
             var empCode = Cell(row, "Employee Code");
             if (!string.IsNullOrEmpty(empCode) && existingCodes.Contains(empCode))
                 errors.Add($"Employee Code '{empCode}' already exists");
+
+            var usernameNorm = NormalizeUsernameCandidate(usernameFromSheet);
+            if (!string.IsNullOrEmpty(usernameNorm) && usernamesTaken.Contains(usernameNorm))
+                errors.Add($"Username '{usernameNorm}' is already in use");
+            if (!string.IsNullOrEmpty(usernameNorm) && !reservedSheetUsernames.Add(usernameNorm))
+                errors.Add($"Duplicate Username '{usernameNorm}' in this file");
 
             var posCodeRaw = Cell(row, "Position Code");
             Position? position = null;
@@ -261,6 +287,9 @@ public class BulkUploadController : ControllerBase
             if (string.IsNullOrEmpty(empCode))
                 empCode = await GenerateNextCode(existingCodes);
 
+            var personalEmailCol = Cell(row, "Personal Email");
+            var resolvedEmail = ResolveEmployeeWorkEmail(emailWork, personalEmailCol, empCode!);
+
             if (!string.IsNullOrEmpty(mgrCodeRaw) && mgrCodeRaw.Equals(empCode, StringComparison.OrdinalIgnoreCase))
             {
                 skipped++;
@@ -300,7 +329,7 @@ public class BulkUploadController : ControllerBase
                 FirstName = firstName!,
                 MiddleName = Cell(row, "Middle Name"),
                 LastName = lastName!,
-                Email = email!,
+                Email = resolvedEmail,
                 Phone = Cell(row, "Phone"),
                 DateOfBirth = DateTime.SpecifyKind(dobStr!.Value, DateTimeKind.Utc),
                 Gender = gender,
@@ -365,11 +394,139 @@ public class BulkUploadController : ControllerBase
                 managerLookup[empCode!] = employee.Id;
             created++;
             results.Add(new RowResult(r, firstName!, lastName!, true, new List<string>()));
+            if (wantLogins)
+                loginJobs.Add((r, employee, usernameFromSheet));
         }
 
         await _db.SaveChangesAsync();
 
-        return Ok(new UploadResult(created, skipped, lastRow - 1, results));
+        var loginsCreated = 0;
+        if (wantLogins && loginJobs.Count > 0)
+        {
+            var employeeRoleId = await _db.SecurityRoles.AsNoTracking()
+                .Where(x => x.Code == "EMPLOYEE")
+                .Select(x => x.Id)
+                .FirstOrDefaultAsync();
+            if (employeeRoleId != Guid.Empty)
+            {
+                foreach (var job in loginJobs)
+                {
+                    if (await _db.Users.AnyAsync(u => u.EmployeeId == job.Emp.Id && !u.IsDeleted))
+                        continue;
+
+                    string username;
+                    try
+                    {
+                        username = AllocateUsername(usernamesTaken, job.UsernameFromSheet, job.Emp.EmployeeCode, job.Emp.FirstName, job.Emp.LastName, job.Emp.Email);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        ReplaceRowNotes(results, job.Row, new List<string> { "Login not created: could not allocate a unique username." });
+                        continue;
+                    }
+
+                    var user = new User
+                    {
+                        Username = username,
+                        Email = job.Emp.Email,
+                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(BulkImportDefaultLoginPassword),
+                        MustChangePassword = true,
+                        IsActive = true,
+                        EmployeeId = job.Emp.Id,
+                    };
+                    user.UserRoles.Add(new UserRole { RoleId = employeeRoleId });
+                    _db.Users.Add(user);
+                    loginsCreated++;
+                    ReplaceRowNotes(results, job.Row, new List<string> { $"User login created (username: {username})." });
+                }
+
+                await _db.SaveChangesAsync();
+            }
+        }
+
+        return Ok(new UploadResult(created, skipped, lastRow - 1, loginsCreated, results));
+    }
+
+    private static void ReplaceRowNotes(List<RowResult> results, int row, List<string> notes)
+    {
+        for (var i = 0; i < results.Count; i++)
+        {
+            if (results[i].Row != row || !results[i].Success) continue;
+            results[i] = results[i] with { Notes = notes };
+            return;
+        }
+    }
+
+    private static string ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
+    {
+        if (!string.IsNullOrWhiteSpace(workEmail)) return workEmail.Trim();
+        if (!string.IsNullOrWhiteSpace(personalEmail)) return personalEmail.Trim();
+        var local = SanitizeUsernameSegment(employeeCode);
+        if (string.IsNullOrEmpty(local)) local = "employee";
+        return $"{local}@import.openskyhrm.local";
+    }
+
+    private static string NormalizeUsernameCandidate(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        return SanitizeUsernameSegment(raw.Trim());
+    }
+
+    private static string SanitizeUsernameSegment(string value, int maxLen = 64)
+    {
+        var chars = value.Where(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-').Take(maxLen).ToArray();
+        return new string(chars);
+    }
+
+    /// <summary>Reserves a unique username; mutates <paramref name="taken"/>.</summary>
+    private static string AllocateUsername(HashSet<string> taken, string? fromSheet, string empCode, string firstName, string lastName, string email)
+    {
+        string? TryOnce(string candidate)
+        {
+            var baseName = SanitizeUsernameSegment(candidate);
+            if (string.IsNullOrEmpty(baseName)) return null;
+            if (baseName.Length > 64) baseName = baseName[..64];
+            var name = baseName;
+            var n = 2;
+            while (taken.Contains(name))
+            {
+                var suffix = $"-{n++}";
+                var max = Math.Max(1, 64 - suffix.Length);
+                name = (baseName.Length > max ? baseName[..max] : baseName) + suffix;
+                if (n > 10_000) return null;
+            }
+
+            taken.Add(name);
+            return name;
+        }
+
+        var fromSheetNorm = NormalizeUsernameCandidate(fromSheet);
+        if (!string.IsNullOrEmpty(fromSheetNorm))
+        {
+            var u = TryOnce(fromSheetNorm);
+            if (u != null) return u;
+        }
+
+        var at = email.IndexOf('@');
+        if (at > 0)
+        {
+            var u = TryOnce(email[..at]);
+            if (u != null) return u;
+        }
+
+        var fn = SanitizeUsernameSegment(firstName, 32);
+        var ln = SanitizeUsernameSegment(lastName, 32);
+        var combined = string.IsNullOrEmpty(fn) ? ln : string.IsNullOrEmpty(ln) ? fn : $"{fn}.{ln}";
+        var u2 = TryOnce(combined);
+        if (u2 != null) return u2;
+
+        var u3 = TryOnce(SanitizeUsernameSegment(empCode));
+        if (u3 != null) return u3;
+
+        var u4 = TryOnce("user-" + Guid.NewGuid().ToString("n")[..10]);
+        if (u4 != null) return u4;
+
+        throw new InvalidOperationException("Could not allocate username.");
     }
 
     private static async Task<Dictionary<string, string>> BuildEmploymentTypeCodeMapAsync(AppDbContext db)
@@ -453,6 +610,7 @@ public class BulkUploadController : ControllerBase
         "First Name",
         "Middle Name",
         "Last Name",
+        "Username",
         "Email",
         "Phone",
         "Gender",
@@ -688,8 +846,8 @@ public class BulkUploadController : ControllerBase
         return Ok(new LeaveBalanceUploadResult(created, updated, skipped, lastRow - 1, results));
     }
 
-    public record RowResult(int Row, string FirstName, string LastName, bool Success, List<string> Errors);
-    public record UploadResult(int Created, int Skipped, int TotalRows, List<RowResult> Results);
+    public record RowResult(int Row, string FirstName, string LastName, bool Success, List<string> Errors, List<string>? Notes = null);
+    public record UploadResult(int Created, int Skipped, int TotalRows, int LoginsCreated, List<RowResult> Results);
     public record LeaveBalanceRowResult(int Row, string EmployeeCode, string LeaveType, string Status, List<string> Errors);
     public record LeaveBalanceUploadResult(int Created, int Updated, int Skipped, int TotalRows, List<LeaveBalanceRowResult> Results);
 }
