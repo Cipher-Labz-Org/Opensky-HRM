@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import Link from "next/link";
+import { ROUTES } from "@/config/routes";
 
 /** Solid brand/accent colors (no gradients). */
 const DASH_WORKFORCE_ROW_COLORS: string[] = ["#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5"];
@@ -226,7 +227,8 @@ export default function DashboardPage() {
   const quickLinks = [
     { href: "/app/people", title: "People Hub", sub: "Employee records and profiles" },
     { href: "/app/org-structure", title: "Org structure", sub: "Departments and reporting hierarchy" },
-    { href: "/app/leave", title: "Leave", sub: "Requests and approvals" },
+    { href: ROUTES.approvals, title: "Approvals", sub: "Leave and overtime sign-off" },
+    { href: "/app/leave", title: "Leave", sub: "Balances, policies, and requests" },
     { href: "/app/recruitment", title: "Recruitment", sub: "Requisitions and pipeline" },
   ];
 

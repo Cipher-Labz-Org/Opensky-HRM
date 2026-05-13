@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Tokens;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application;
 using OpenSkyHRM.Application.Common;
+using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Persistence;
 using OpenSkyHRM.Persistence.Auditing;
 using OpenSkyHRM.Persistence.Seeders;
@@ -299,6 +300,29 @@ if (dbAvailable)
     }
 }
 
+// Birthday digest: run once at startup so the bell is not empty until Hangfire's daily cron.
+// In Development, optional seed nudges EMP-0001 into the 7-day window when no one matches (see appsettings.Development.json).
+if (dbAvailable)
+{
+    try
+    {
+        using var birthdayScope = app.Services.CreateScope();
+        var birthdayDb = birthdayScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var utc = DateTime.UtcNow;
+        var devSample = app.Environment.IsDevelopment()
+                        && app.Configuration.GetValue<bool>("Birthdays:EnsureDevSampleInWindowOnStartup", false);
+        if (devSample)
+            await BirthdayDigestDevDataSeeder.EnsureSampleBirthdayInWindowIfEmptyAsync(birthdayDb, utc);
+
+        var digest = birthdayScope.ServiceProvider.GetRequiredService<IEmployeeBirthdayDigestReminderService>();
+        await digest.ProcessForUtcDateAsync(utc);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Birthday digest on startup failed: {ex.Message}");
+    }
+}
+
 // --- Middleware Pipeline ---
 var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
 Directory.CreateDirectory(wwwrootPath);
@@ -354,6 +378,16 @@ if (dbAvailable)
             "training-overdue-reminders",
             job => job.ExecuteAsync(CancellationToken.None),
             Hangfire.Cron.Daily(5, 0));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.DrugTransportLicenseExpiryReminderJob>(
+            "drug-transport-license-expiry-reminders",
+            job => job.ExecuteAsync(CancellationToken.None),
+            Hangfire.Cron.Daily(5, 30));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.EmployeeBirthdayDigestReminderJob>(
+            "employee-birthday-digest",
+            job => job.ExecuteAsync(CancellationToken.None),
+            Hangfire.Cron.Daily(6, 0));
     }
     catch (Exception ex)
     {

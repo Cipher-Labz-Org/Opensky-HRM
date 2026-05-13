@@ -45,6 +45,11 @@ const ALL_NAV_GROUPS: NavGroup[] = [
     title: "Workforce",
     items: [
       { href: ROUTES.leave, label: "Leave & Absence", module: "Leave" },
+      {
+        href: ROUTES.approvals,
+        label: "Approvals",
+        moduleAnyOf: ["Leave", "Attendance"],
+      },
       { href: ROUTES.attendance, label: "Time & Attendance", module: "Attendance" },
       { href: ROUTES.payroll, label: "Payroll", module: "Payroll" },
       { href: ROUTES.performance, label: "Performance", module: "Performance" },

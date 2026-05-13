@@ -135,4 +135,40 @@ public class AttendanceController : ControllerBase
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
         return Ok(await _attendanceService.CalculateOvertimeNopayAsync(from, to, employeeId, allowedIds));
     }
+
+    [HttpPost("overtime-nopay/approve")]
+    public async Task<IActionResult> ApproveOvertimeNopay(
+        [FromQuery] DateTime from,
+        [FromQuery] DateTime to,
+        [FromQuery] Guid employeeId,
+        [FromBody] ApproveRejectOvertimeNopayDto? dto)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
+            return Forbid();
+        var approverId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+        if (!approverId.HasValue)
+            return BadRequest(new { message = "Your account must be linked to an employee to approve overtime." });
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var result = await _attendanceService.SetOvertimeNopayPeriodApprovalAsync(
+            from, to, employeeId, approverId.Value, true, dto?.Remarks, allowedIds);
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpPost("overtime-nopay/reject")]
+    public async Task<IActionResult> RejectOvertimeNopay(
+        [FromQuery] DateTime from,
+        [FromQuery] DateTime to,
+        [FromQuery] Guid employeeId,
+        [FromBody] ApproveRejectOvertimeNopayDto? dto)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
+            return Forbid();
+        var approverId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+        if (!approverId.HasValue)
+            return BadRequest(new { message = "Your account must be linked to an employee to reject overtime." });
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var result = await _attendanceService.SetOvertimeNopayPeriodApprovalAsync(
+            from, to, employeeId, approverId.Value, false, dto?.Remarks, allowedIds);
+        return result == null ? NotFound() : Ok(result);
+    }
 }

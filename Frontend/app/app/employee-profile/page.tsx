@@ -9,6 +9,7 @@ import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
 import { type EmploymentTypeCatalogItem, employmentTypeDisplayName } from "@/lib/employment-types";
+import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
 
 function dash(v: string | null | undefined): string {
   const s = v?.trim();
@@ -341,6 +342,7 @@ export default function EmployeeProfilePage() {
   const [dirOpen, setDirOpen] = useState(false);
   const [dirLoading, setDirLoading] = useState(false);
   const searchWrapRef = useRef<HTMLDivElement>(null);
+  const birthdaysAnchorRef = useRef<HTMLDivElement>(null);
   const dirSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectiveEmployeeId = selectedEmployeeId ?? employeeId;
@@ -485,6 +487,19 @@ export default function EmployeeProfilePage() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [dirOpen]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || loading || !emp) return;
+    function scrollToBirthdaysWidget() {
+      if (window.location.hash !== "#birthdays-notices") return;
+      window.setTimeout(() => {
+        birthdaysAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+    }
+    scrollToBirthdaysWidget();
+    window.addEventListener("hashchange", scrollToBirthdaysWidget);
+    return () => window.removeEventListener("hashchange", scrollToBirthdaysWidget);
+  }, [loading, emp]);
+
   function handleDirSearchInput(query: string) {
     setDirSearch(query);
     if (dirSearchTimer.current) clearTimeout(dirSearchTimer.current);
@@ -620,6 +635,7 @@ export default function EmployeeProfilePage() {
     : "?";
 
   const toc = [
+    { id: "birthdays-notices", label: "Birthdays" },
     { id: "bio-personal", label: "Personal" },
     { id: "bio-contact", label: "Contact" },
     { id: "bio-job", label: "Job" },
@@ -788,6 +804,10 @@ export default function EmployeeProfilePage() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div id="birthdays-notices" ref={birthdaysAnchorRef} className="mb-6 scroll-mt-36">
+        <BirthdaysCompanyNoticesWidget />
       </div>
 
       <div className="space-y-6 pb-12">

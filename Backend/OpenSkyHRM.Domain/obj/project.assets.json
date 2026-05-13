@@ -14,11 +14,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
+      "projectUniqueName": "d:\\Opensky new\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
       "projectName": "OpenSkyHRM.Domain",
-      "projectPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
+      "projectPath": "d:\\Opensky new\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\OpenSkyHRM.Domain.csproj",
       "packagesPath": "C:\\Users\\asus\\.nuget\\packages\\",
-      "outputPath": "D:\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\obj\\",
+      "outputPath": "d:\\Opensky new\\Opensky-HRM\\Backend\\OpenSkyHRM.Domain\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
