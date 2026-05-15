@@ -1,5 +1,5 @@
 # Copies appsettings.Local.example.json to appsettings.Local.json so the API uses local MailHog SMTP (127.0.0.1:1025).
-# Start MailHog first:  .\Backend\scripts\start-mailhog.ps1  (requires Docker)
+# Start MailHog first:  .\Backend\Scripts\start-mailhog.ps1  (requires Docker)
 # Or run from Backend: docker compose -f docker-compose.mailhog.yml up -d
 
 $ErrorActionPreference = "Stop"
