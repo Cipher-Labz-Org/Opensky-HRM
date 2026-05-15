@@ -303,8 +303,8 @@ function EmployeeUploadSection() {
               <li>Click <strong>Download template</strong> to get the Excel file with all columns pre-formatted.</li>
               <li>
                 Fill in employee data. <strong>First Name, Last Name, Department, Gender, Date of Birth, Joined Date</strong> are required.{" "}
-                <strong>Email</strong> is optional if <strong>Personal Email</strong> is set; otherwise a placeholder work email is generated from the employee code. The template includes an optional{" "}
-                <strong>Username</strong> column (after <strong>Last Name</strong>) for sign-in accounts.
+                <strong>Email</strong> is optional if <strong>Personal Email</strong> is set; otherwise a placeholder work email is generated from the employee code. The template includes a{" "}
+                <strong>Username</strong> column (after <strong>Last Name</strong>). If you enable <strong>Create employee logins</strong> for the upload, <strong>every row must have a Username</strong> (letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, or <code className="text-[11px]">-</code>; unique). Rows with an empty Username are skipped. Turn the option off to import employees without creating any logins.
               </li>
               <li>Use values from the lookup sheets (Departments, Grades, etc.) for dropdown fields.</li>
               <li><strong>Employment Type</strong> and <strong>Employee Status</strong> must match the codes on the <strong>Reference</strong> sheet (same codes as Organization / People Hub).</li>
@@ -312,9 +312,8 @@ function EmployeeUploadSection() {
               <li>Upload the completed file below.</li>
             </ol>
             <p className="mt-3 text-xs text-slate-600">
-              Optional: enable <strong>Create employee logins</strong> below to add a user account (Employee role) per imported row with
-              temporary password <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong>. Those users must set a new password on first sign-in.
-              If <strong>Username</strong> is filled in the sheet, that value is used for the new login (letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, <code className="text-[11px]">-</code> only; unique across the system, with a numeric suffix if needed). Otherwise a username is generated from email or name.
+              When <strong>Create employee logins</strong> is checked, <strong>every row must have Username</strong> filled or that row is skipped. Default password{" "}
+              <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong> and mandatory password change on first sign-in. Allowed characters: letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, <code className="text-[11px]">-</code> (unique; a numeric suffix may be added to avoid collisions). With the option off, Username is ignored and no logins are created.
             </p>
           </div>
           <DropZone file={file} fileRef={fileRef} dragOver={dragOver} setDragOver={setDragOver} onFileChange={handleFileChange} />
@@ -326,7 +325,7 @@ function EmployeeUploadSection() {
               onChange={(e) => setCreateUserLogins(e.target.checked)}
             />
             <span>
-              <span className="font-semibold text-slate-900">Create employee logins</span> — Employee role, default password{" "}
+              <span className="font-semibold text-slate-900">Create employee logins</span> — requires <strong>Username</strong> on every row (skipped if empty); default password{" "}
               <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong>, mandatory password change on first login.
             </span>
           </label>

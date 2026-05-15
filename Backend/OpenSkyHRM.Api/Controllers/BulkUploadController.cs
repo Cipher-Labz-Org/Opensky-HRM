@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -61,7 +63,7 @@ public class BulkUploadController : ControllerBase
             var uc = ws.Cell(1, usernameColIndex + 1);
             uc.CreateComment();
             uc.GetComment().AddText(
-                "Optional: used as sign-in username when \"Create employee logins\" is enabled. Must be unique in the system. Leave blank to auto-generate from email or name.");
+                "When \"Create employee logins\" is enabled on upload: every data row must have a login name in this column (letters, digits, . _ - only; unique). Leave blank only when you are not using Create employee logins for that upload.");
         }
 
         ws.Columns().AdjustToContents(1, 1);
@@ -166,21 +168,23 @@ public class BulkUploadController : ControllerBase
 
         using var stream = file.OpenReadStream();
         using var wb = new XLWorkbook(stream);
-        var ws = wb.Worksheet(1);
+        var ws = GetEmployeeImportWorksheet(wb);
 
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int c = 1; c <= (ws.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
+        var lastCol = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
+        for (int c = 1; c <= lastCol; c++)
         {
-            var header = ws.Cell(1, c).GetString().Trim();
-            if (!string.IsNullOrEmpty(header))
-                headerMap[header] = c;
+            var rawHeader = GetCellTrimmedDisplayText(ws.Cell(1, c));
+            if (string.IsNullOrEmpty(rawHeader)) continue;
+            var key = NormalizeImportHeaderKey(rawHeader);
+            if (string.IsNullOrEmpty(key)) continue;
+            headerMap[key] = c;
         }
 
         string? Cell(IXLRow row, string colName)
         {
-            if (!headerMap.TryGetValue(colName, out int c)) return null;
-            var val = row.Cell(c).GetString().Trim();
-            return string.IsNullOrEmpty(val) ? null : val;
+            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
+            return GetCellTrimmedDisplayText(row.Cell(c));
         }
 
         string? CellAny(IXLRow row, params string[] colNames)
@@ -195,11 +199,13 @@ public class BulkUploadController : ControllerBase
 
         DateTime? DateCell(IXLRow row, string colName)
         {
-            if (!headerMap.TryGetValue(colName, out int c)) return null;
+            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
             var cell = row.Cell(c);
             if (cell.DataType == XLDataType.DateTime) return cell.GetDateTime();
-            var s = cell.GetString().Trim();
-            if (DateTime.TryParse(s, out var dt)) return dt;
+            var s = GetCellTrimmedDisplayText(cell);
+            if (string.IsNullOrEmpty(s)) return null;
+            if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt)) return dt;
+            if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return dt;
             return null;
         }
 
@@ -212,7 +218,7 @@ public class BulkUploadController : ControllerBase
             var firstName = Cell(row, "First Name");
             var lastName = Cell(row, "Last Name");
             var emailWork = Cell(row, "Email");
-            var usernameFromSheet = CellAny(row, "Username", "User name");
+            var usernameFromSheet = ReadUsernameFromImportRow(row, headerMap);
             var deptName = Cell(row, "Department");
             var genderStr = Cell(row, "Gender");
             var dobStr = DateCell(row, "Date of Birth");
@@ -223,6 +229,8 @@ public class BulkUploadController : ControllerBase
             if (string.IsNullOrEmpty(deptName)) errors.Add("Department is required");
             if (dobStr is null) errors.Add("Date of Birth is required");
             if (joinStr is null) errors.Add("Joined Date is required");
+            if (wantLogins && string.IsNullOrEmpty(NormalizeUsernameCandidate(usernameFromSheet)))
+                errors.Add("Username is required in the Username column on this row when Create employee logins is enabled. Turn off Create employee logins to import employees without accounts, or enter a Username for each row.");
 
             var dept = departments.FirstOrDefault(d => d.Name.Equals(deptName, StringComparison.OrdinalIgnoreCase));
             if (dept is null && !string.IsNullOrEmpty(deptName)) errors.Add($"Department '{deptName}' not found");
@@ -247,12 +255,6 @@ public class BulkUploadController : ControllerBase
             var empCode = Cell(row, "Employee Code");
             if (!string.IsNullOrEmpty(empCode) && existingCodes.Contains(empCode))
                 errors.Add($"Employee Code '{empCode}' already exists");
-
-            var usernameNorm = NormalizeUsernameCandidate(usernameFromSheet);
-            if (!string.IsNullOrEmpty(usernameNorm) && usernamesTaken.Contains(usernameNorm))
-                errors.Add($"Username '{usernameNorm}' is already in use");
-            if (!string.IsNullOrEmpty(usernameNorm) && !reservedSheetUsernames.Add(usernameNorm))
-                errors.Add($"Duplicate Username '{usernameNorm}' in this file");
 
             var posCodeRaw = Cell(row, "Position Code");
             Position? position = null;
@@ -293,6 +295,23 @@ public class BulkUploadController : ControllerBase
 
             if (string.IsNullOrEmpty(empCode))
                 empCode = await GenerateNextCode(existingCodes);
+
+            var willCreateLoginForRow = ShouldCreateImportUserForRow(usernameFromSheet, wantLogins);
+            if (willCreateLoginForRow)
+            {
+                var usernameNorm = NormalizeUsernameCandidate(usernameFromSheet);
+                if (usernamesTaken.Contains(usernameNorm))
+                    errors.Add($"Username '{usernameNorm}' is already in use");
+                else if (!reservedSheetUsernames.Add(usernameNorm))
+                    errors.Add($"Duplicate Username '{usernameNorm}' in this file");
+            }
+
+            if (errors.Count > 0)
+            {
+                skipped++;
+                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false, errors));
+                continue;
+            }
 
             var personalEmailCol = Cell(row, "Personal Email");
             var resolvedEmail = ResolveEmployeeWorkEmail(emailWork, personalEmailCol, empCode!);
@@ -443,7 +462,7 @@ public class BulkUploadController : ControllerBase
                     string username;
                     try
                     {
-                        username = AllocateUsername(usernamesTaken, job.UsernameFromSheet, job.Emp.EmployeeCode, job.Emp.FirstName, job.Emp.LastName, job.Emp.Email);
+                        username = AllocateUsernameFromImportSheet(usernamesTaken, job.UsernameFromSheet);
                     }
                     catch (InvalidOperationException)
                     {
@@ -483,6 +502,111 @@ public class BulkUploadController : ControllerBase
         }
     }
 
+    private static IXLWorksheet GetEmployeeImportWorksheet(XLWorkbook wb)
+    {
+        foreach (var sheet in wb.Worksheets)
+        {
+            if (string.Equals(sheet.Name, "Employees", StringComparison.OrdinalIgnoreCase))
+                return sheet;
+        }
+
+        return wb.Worksheet(1);
+    }
+
+    /// <summary>Trim BOM/zero-width/NBSP and collapse whitespace so template headers still match after Excel edits.</summary>
+    private static string NormalizeImportHeaderKey(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var s = raw.Trim();
+        s = s.Replace("\uFEFF", "", StringComparison.Ordinal);
+        s = s.Replace("\u00A0", " ", StringComparison.Ordinal);
+        s = s.Replace("\u200B", "", StringComparison.Ordinal);
+        s = s.Replace("\u200C", "", StringComparison.Ordinal);
+        s = s.Replace("\u200D", "", StringComparison.Ordinal);
+        s = Regex.Replace(s, @"\s+", " ", RegexOptions.CultureInvariant).Trim();
+        return s;
+    }
+
+    private static bool ShouldCreateImportUserForRow(string? usernameFromSheet, bool wantLogins)
+    {
+        if (!wantLogins) return false;
+        return !string.IsNullOrEmpty(NormalizeUsernameCandidate(usernameFromSheet));
+    }
+
+    /// <summary>Reads display text from a cell (text, number, boolean) so Username is not missed when Excel stores it as a number.</summary>
+    private static string? GetCellTrimmedDisplayText(IXLCell cell)
+    {
+        if (cell.DataType == XLDataType.Blank)
+            return null;
+
+        switch (cell.DataType)
+        {
+            case XLDataType.Text:
+            {
+                var t = cell.GetString().Trim();
+                return string.IsNullOrEmpty(t) ? null : t;
+            }
+            case XLDataType.Number:
+                if (cell.TryGetValue<double>(out var dbl))
+                {
+                    if (double.IsNaN(dbl) || double.IsInfinity(dbl))
+                        return null;
+                    if (Math.Abs(dbl - Math.Truncate(dbl)) < 1e-9)
+                        return ((long)Math.Truncate(dbl)).ToString(CultureInfo.InvariantCulture);
+                    return dbl.ToString("G", CultureInfo.InvariantCulture);
+                }
+                var fmt = cell.GetFormattedString().Trim();
+                return string.IsNullOrEmpty(fmt) ? null : fmt;
+            case XLDataType.Boolean:
+                return cell.GetBoolean() ? "true" : "false";
+            case XLDataType.DateTime:
+                return cell.GetDateTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            default:
+            {
+                var s = cell.GetFormattedString().Trim();
+                if (!string.IsNullOrEmpty(s)) return s;
+                s = cell.GetString().Trim();
+                return string.IsNullOrEmpty(s) ? null : s;
+            }
+        }
+    }
+
+    private static readonly string[] UsernameImportHeaderKeys =
+    [
+        "Username",
+        "User name",
+        "User Name",
+        "Login",
+        "Login ID",
+        "Login Id",
+        "User ID",
+        "User Id",
+        "UserName",
+    ];
+
+    private static string? ReadUsernameFromImportRow(IXLRow row, Dictionary<string, int> headerMap)
+    {
+        foreach (var header in UsernameImportHeaderKeys)
+        {
+            var key = NormalizeImportHeaderKey(header);
+            if (!headerMap.TryGetValue(key, out var col)) continue;
+            var text = GetCellTrimmedDisplayText(row.Cell(col));
+            if (!string.IsNullOrEmpty(text)) return text;
+        }
+
+        foreach (var kv in headerMap)
+        {
+            var compact = NormalizeImportHeaderKey(kv.Key).Replace(" ", "", StringComparison.Ordinal);
+            if (compact.Equals("Username", StringComparison.OrdinalIgnoreCase))
+            {
+                var text = GetCellTrimmedDisplayText(row.Cell(kv.Value));
+                if (!string.IsNullOrEmpty(text)) return text;
+            }
+        }
+
+        return null;
+    }
+
     private static string ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
     {
         if (!string.IsNullOrWhiteSpace(workEmail)) return workEmail.Trim();
@@ -504,8 +628,8 @@ public class BulkUploadController : ControllerBase
         return new string(chars);
     }
 
-    /// <summary>Reserves a unique username; mutates <paramref name="taken"/>.</summary>
-    private static string AllocateUsername(HashSet<string> taken, string? fromSheet, string empCode, string firstName, string lastName, string email)
+    /// <summary>Reserves a unique username from the import sheet only (no email/name/code fallbacks). Mutates <paramref name="taken"/>.</summary>
+    private static string AllocateUsernameFromImportSheet(HashSet<string> taken, string? fromSheet)
     {
         string? TryOnce(string candidate)
         {
@@ -527,30 +651,11 @@ public class BulkUploadController : ControllerBase
         }
 
         var fromSheetNorm = NormalizeUsernameCandidate(fromSheet);
-        if (!string.IsNullOrEmpty(fromSheetNorm))
-        {
-            var u = TryOnce(fromSheetNorm);
-            if (u != null) return u;
-        }
+        if (string.IsNullOrEmpty(fromSheetNorm))
+            throw new InvalidOperationException("Username required.");
 
-        var at = email.IndexOf('@');
-        if (at > 0)
-        {
-            var u = TryOnce(email[..at]);
-            if (u != null) return u;
-        }
-
-        var fn = SanitizeUsernameSegment(firstName, 32);
-        var ln = SanitizeUsernameSegment(lastName, 32);
-        var combined = string.IsNullOrEmpty(fn) ? ln : string.IsNullOrEmpty(ln) ? fn : $"{fn}.{ln}";
-        var u2 = TryOnce(combined);
-        if (u2 != null) return u2;
-
-        var u3 = TryOnce(SanitizeUsernameSegment(empCode));
-        if (u3 != null) return u3;
-
-        var u4 = TryOnce("user-" + Guid.NewGuid().ToString("n")[..10]);
-        if (u4 != null) return u4;
+        var u = TryOnce(fromSheetNorm);
+        if (u != null) return u;
 
         throw new InvalidOperationException("Could not allocate username.");
     }
