@@ -12,6 +12,11 @@
 # Build outputs
 **/bin/
 **/obj/
+
+# Accidental local publish copies under Backend (do not commit)
+Backend/_buildtmp*/
+Backend/_apicheck*/
+Backend/_persistencecheck*/
 **/TestResults/
 **/coverage/
 
