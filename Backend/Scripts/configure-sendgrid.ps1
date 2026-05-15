@@ -1,8 +1,8 @@
 # Saves your SendGrid API key so the API can send email using one key for all flows:
 # leave confirmations, recruitment (new candidate application to HR inbox), interviews, offers.
 # You must create a key once at https://app.sendgrid.com/settings/api_keys (Mail Send permission).
-# Run from repo root:  .\Backend\scripts\configure-sendgrid.ps1
-# Or:  powershell -File .\Backend\scripts\configure-sendgrid.ps1
+# Run from repo root:  .\Backend\Scripts\configure-sendgrid.ps1
+# Or:  powershell -File .\Backend\Scripts\configure-sendgrid.ps1
 #
 # Key source order (first non-empty wins; copied into dotnet user-secrets as SendGrid:ApiKey):
 #   1) SENDGRID_API_KEY — Process, then User, then Machine (same names the API reads at runtime)

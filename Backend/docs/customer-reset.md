@@ -21,8 +21,8 @@ It intentionally **keeps** master/reference catalogs and configuration tables (l
 
 1. In `psql` (or your DB admin tool), set the production guard override only if needed:
    - `SET openskyhrm_reset_allow = 'true';`
-2. Run:
-   - `\i reset_customer_transaction_data.sql`
+2. Run (from the `Backend` directory in `psql`, or use an absolute path):
+   - `\i Scripts/reset_customer_transaction_data.sql`
 3. Start (or restart) the API.
    - The API runs EF migrations and ensures the baseline licensing catalog automatically.
 
