@@ -379,7 +379,80 @@ public class AttendanceService : IAttendanceService
             });
         }
 
-        return results.OrderBy(r => r.EmployeeName).ToList();
+        var ordered = results.OrderBy(r => r.EmployeeName).ToList();
+        await ApplyOvertimeNopayPeriodApprovalsAsync(ordered, from.Date, to.Date);
+        return ordered;
+    }
+
+    private async Task ApplyOvertimeNopayPeriodApprovalsAsync(List<OvertimeNopayResultDto> results, DateTime periodFrom, DateTime periodTo)
+    {
+        if (results.Count == 0) return;
+
+        var ids = results.Select(r => r.EmployeeId).ToList();
+        var approvals = await _db.Set<OvertimeNopayPeriodApproval>()
+            .AsNoTracking()
+            .Include(a => a.Approver)
+            .Where(a => !a.IsDeleted && a.PeriodFrom == periodFrom && a.PeriodTo == periodTo && ids.Contains(a.EmployeeId))
+            .ToListAsync();
+
+        foreach (var r in results)
+        {
+            var ap = approvals.FirstOrDefault(a => a.EmployeeId == r.EmployeeId);
+            if (ap == null) continue;
+
+            r.OvertimeApprovalStatus = ap.Status.ToString();
+            r.OvertimeApprovedAt = ap.ActionAt;
+            r.OvertimeApproverName = ap.Approver != null ? ap.Approver.FirstName + " " + ap.Approver.LastName : null;
+            r.ApprovedOvertimeHoursSnapshot = ap.OvertimeHoursSnapshot;
+            r.OvertimeHoursOutdated = ap.Status == ApprovalStatus.Approved
+                && Math.Abs(ap.OvertimeHoursSnapshot - r.OvertimeHours) > 0.02m;
+        }
+    }
+
+    public async Task<OvertimeNopayResultDto?> SetOvertimeNopayPeriodApprovalAsync(
+        DateTime from,
+        DateTime to,
+        Guid employeeId,
+        Guid approverEmployeeId,
+        bool approve,
+        string? remarks,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null)
+    {
+        if (allowedEmployeeIds != null && !allowedEmployeeIds.Contains(employeeId))
+            return null;
+
+        var periodFrom = from.Date;
+        var periodTo = to.Date;
+
+        var rows = await CalculateOvertimeNopayAsync(from, to, employeeId, allowedEmployeeIds);
+        var row = rows.FirstOrDefault();
+        if (row == null) return null;
+
+        var existing = await _db.Set<OvertimeNopayPeriodApproval>()
+            .FirstOrDefaultAsync(a => !a.IsDeleted && a.EmployeeId == employeeId && a.PeriodFrom == periodFrom && a.PeriodTo == periodTo);
+
+        if (existing == null)
+        {
+            existing = new OvertimeNopayPeriodApproval
+            {
+                EmployeeId = employeeId,
+                PeriodFrom = periodFrom,
+                PeriodTo = periodTo,
+            };
+            _db.Set<OvertimeNopayPeriodApproval>().Add(existing);
+        }
+
+        existing.Status = approve ? ApprovalStatus.Approved : ApprovalStatus.Rejected;
+        existing.ApproverId = approverEmployeeId;
+        existing.ActionAt = DateTime.UtcNow;
+        existing.Remarks = string.IsNullOrWhiteSpace(remarks) ? null : remarks.Trim();
+        existing.OvertimeHoursSnapshot = row.OvertimeHours;
+        existing.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+
+        var refreshed = await CalculateOvertimeNopayAsync(from, to, employeeId, allowedEmployeeIds);
+        return refreshed.FirstOrDefault();
     }
 
     /// <summary>

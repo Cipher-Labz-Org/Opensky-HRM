@@ -37,6 +37,30 @@ public class RecruitmentController : ControllerBase
         return r == null ? NotFound() : Ok(r);
     }
 
+    /// <summary>Public careers page: approved, open requisitions only (no auth).</summary>
+    [AllowAnonymous]
+    [HttpGet("public/requisitions/{id}")]
+    public async Task<IActionResult> GetPublicRequisition(Guid id)
+    {
+        var (dto, deny) = await _svc.TryGetPublicJobPostingAsync(id);
+        if (deny == "not_found")
+            return NotFound(new { code = deny, message = "No job was found for this link. Check the URL or ask HR for an updated link." });
+        if (deny == "closed")
+            return NotFound(new
+            {
+                code = deny,
+                message = "This requisition is closed and is no longer accepting applications.",
+            });
+        if (deny == "not_published")
+            return NotFound(new
+            {
+                code = deny,
+                message =
+                    "This job is not available on the public careers page yet. In Recruitment, the requisition must be approved (or pending final approval) and not closed.",
+            });
+        return Ok(dto);
+    }
+
     [HttpPost("requisitions")]
     public async Task<IActionResult> CreateRequisition([FromBody] CreateRequisitionDto dto)
         => Ok(await _svc.CreateRequisitionAsync(dto));
@@ -96,6 +120,7 @@ public class RecruitmentController : ControllerBase
         => Ok(await _svc.CreateCandidateAsync(dto));
 
     /// <summary>Public-style apply with PDF resume: saves candidate then stores file at wwwroot/uploads/candidates/{id}/resume.pdf.</summary>
+    [AllowAnonymous]
     [HttpPost("candidates/apply")]
     [RequestSizeLimit(15 * 1024 * 1024)]
     [RequestFormLimits(MultipartBodyLengthLimit = 15 * 1024 * 1024)]
@@ -115,8 +140,20 @@ public class RecruitmentController : ControllerBase
         if (resume.ContentType != "application/pdf" && ext != ".pdf")
             return BadRequest(new { message = "Resume must be a PDF file." });
 
+        var isAnon = !(User.Identity?.IsAuthenticated ?? false);
+        if (isAnon && !await _svc.RequisitionAcceptsPublicApplicationsAsync(requisitionId))
+            return NotFound(new
+            {
+                message =
+                    "This position is not open for applications. The requisition must be Approved (or pending final approval) and not closed.",
+            });
+
         var notes =
             $"Applied via job application form. Resume (PDF): {resume.FileName}";
+
+        var resolvedSource = isAnon
+            ? "Public careers link"
+            : (string.IsNullOrWhiteSpace(source) ? "Direct" : source.Trim());
 
         var dto = new CreateCandidateDto
         {
@@ -125,7 +162,7 @@ public class RecruitmentController : ControllerBase
             Email = email?.Trim() ?? "",
             Phone = phone?.Trim(),
             ResumeUrl = resume.FileName,
-            Source = string.IsNullOrWhiteSpace(source) ? "Direct" : source.Trim(),
+            Source = resolvedSource,
             RequisitionId = requisitionId,
             Notes = notes,
         };

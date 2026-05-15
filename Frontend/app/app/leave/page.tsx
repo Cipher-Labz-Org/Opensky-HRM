@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo, useId, Fragment, type FormEvent, type ReactNode } from "react";
+import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
@@ -16,6 +18,8 @@ import {
 } from "@/lib/workspace-charts";
 import { useAuth } from "@/contexts/auth-context";
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
+import { LeaveRequestsPanel } from "@/components/workforce/LeaveRequestsPanel";
+import { ROUTES } from "@/config/routes";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -266,30 +270,6 @@ function fmtDate(d: string) {
   return formatDate(d);
 }
 
-function StatusBadge({ status, responsibleUser }: { status: string; responsibleUser?: string | null }) {
-  const colors: Record<string, string> = {
-    Pending: "bg-amber-100 text-amber-700",
-    PendingLevel2: "bg-orange-100 text-orange-700",
-    Approved: "bg-green-100 text-green-700",
-    Rejected: "bg-red-100 text-red-700",
-    Cancelled: "bg-slate-100 text-slate-500",
-  };
-  const labels: Record<string, string> = {
-    Pending: "Pending L1",
-    PendingLevel2: "Pending L2",
-  };
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${colors[status] ?? "bg-slate-100 text-slate-500"}`}>
-        {labels[status] ?? status}
-      </span>
-      {responsibleUser && (
-        <span className="text-[10px] text-slate-500" title={`Responsible: ${responsibleUser}`}>{responsibleUser}</span>
-      )}
-    </div>
-  );
-}
-
 function CardHeader({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
@@ -445,8 +425,26 @@ export default function LeavePage() {
         <DashboardTab onApplyLeave={() => setPageTab("applyLeave")} onOpenTab={(tab) => setPageTab(tab)} />
       )}
       {pageTab === "applyLeave" && <ApplyLeaveTab isEmployeeView={isEmployeeView || isSupervisorView} currentEmployeeId={user?.employeeId ?? null} />}
-      {pageTab === "requests" && <RequestsTab onApplyLeave={() => setPageTab("applyLeave")} isEmployeeView={isEmployeeView || isSupervisorView} currentEmployeeId={user?.employeeId ?? null} showApprovalActions={!isEmployeeView && !isSupervisorView} />}
-      {pageTab === "approvals" && <RequestsTab onApplyLeave={() => setPageTab("applyLeave")} isEmployeeView={false} currentEmployeeId={user?.employeeId ?? null} showApprovalActions={true} teamOnly />}
+      {pageTab === "requests" && (
+        <LeaveRequestsPanel
+          onApplyLeave={() => setPageTab("applyLeave")}
+          isEmployeeView={isEmployeeView || isSupervisorView}
+          currentEmployeeId={user?.employeeId ?? null}
+          showApprovalActions={false}
+        />
+      )}
+      {pageTab === "approvals" && (
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-800">Pending Approvals</h2>
+          <p className="mt-2 max-w-xl text-sm text-slate-600">
+            Leave and overtime approvals are handled in one place: use{" "}
+            <Link href={ROUTES.approvals} className="font-medium text-[#2E7BBF] hover:underline">
+              Workforce → Approvals
+            </Link>{" "}
+            to review and approve or reject team leave requests.
+          </p>
+        </div>
+      )}
       {pageTab === "balances" && <BalancesTab />}
       {pageTab === "carryForward" && <CarryForwardTab />}
       {pageTab === "assignLeaveType" && <AssignLeaveTypeTab />}
@@ -787,17 +785,6 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     setMessage(null);
   }, [selectedTypeId, leaveTypesForApply]);
 
-  const employeeFormOptions = useMemo<FormSelectOption[]>(
-    () => [
-      { value: "", label: "Select employee…" },
-      ...employees.map((e) => ({
-        value: e.id,
-        label: `${e.firstName} ${e.lastName}${e.employeeCode ? ` (${e.employeeCode})` : ` (${e.id.slice(0, 8)})`}`,
-      })),
-    ],
-    [employees]
-  );
-
   useEffect(() => {
     setMedicalFile(null);
     setMedicalDrag(false);
@@ -1035,15 +1022,17 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
         </div>
         {!isEmployeeView && (
           <div className="w-full shrink-0 sm:max-w-xs sm:min-w-[220px]">
-            <FormSelect
+            <EmployeeSearchCombobox
               value={selectedEmpId}
-              onValueChange={(v) => {
-                setSelectedEmpId(v);
+              placeholder="Type name or employee code…"
+              onPick={(emp) => {
+                setSelectedEmpId(emp?.id ?? "");
                 setSelectedTypeId("");
                 setMessage(null);
+                if (emp) {
+                  setEmployees((prev) => (prev.some((e) => e.id === emp.id) ? prev : [...prev, emp]));
+                }
               }}
-              options={employeeFormOptions}
-              placeholder="Select employee…"
             />
           </div>
         )}
@@ -1420,329 +1409,6 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  PHASE 2 – Leave Requests Tab
-// ═══════════════════════════════════════════════════════════════
-
-function RequestsTab({
-  onApplyLeave,
-  isEmployeeView,
-  currentEmployeeId,
-  showApprovalActions = false,
-  teamOnly = false,
-}: {
-  onApplyLeave: () => void;
-  isEmployeeView: boolean;
-  currentEmployeeId: string | null;
-  showApprovalActions?: boolean;
-  teamOnly?: boolean;
-}) {
-  const [data, setData] = useState<PagedResult<LeaveRequest> | null>(null);
-  const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState(teamOnly ? "Pending" : "");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [actionId, setActionId] = useState<string | null>(null);
-  const [actionType, setActionType] = useState<"approve" | "reject">("approve");
-  const [remarks, setRemarks] = useState("");
-  const [acting, setActing] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const pageSize = 15;
-
-  const load = useCallback(() => {
-    let url = `/api/leave/requests?page=${page}&pageSize=${pageSize}`;
-    if (isEmployeeView && currentEmployeeId) url += `&employeeId=${currentEmployeeId}`;
-    if (teamOnly) url += `&excludeSelf=true`;
-    if (statusFilter) url += `&status=${statusFilter}`;
-    if (fromDate) url += `&fromDate=${fromDate}`;
-    if (toDate) url += `&toDate=${toDate}`;
-    apiFetch<PagedResult<LeaveRequest>>(url).then(setData);
-  }, [page, statusFilter, fromDate, toDate, isEmployeeView, currentEmployeeId, teamOnly]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const totalPages = data ? Math.ceil(data.totalCount / pageSize) : 1;
-  const showEmployeeCol = !isEmployeeView || teamOnly;
-  const nCols = 5 + (showEmployeeCol ? 1 : 0) + (showApprovalActions ? 1 : 0);
-  const tableTitle = teamOnly
-    ? "Team leave — pending review"
-    : isEmployeeView
-      ? "My leave requests"
-      : "Leave requests";
-  const tableSub =
-    teamOnly
-      ? "Requests from your team that need approval or that match your filters."
-      : isEmployeeView
-        ? "Your submitted requests and their current status."
-        : "All employees’ leave requests. Filter by status and dates as needed.";
-
-  function openAction(id: string, type: "approve" | "reject") {
-    setActionId(id);
-    setActionType(type);
-    setRemarks("");
-    setActionError(null);
-  }
-
-  async function submitAction() {
-    if (!actionId) return;
-    setActing(true);
-    setActionError(null);
-    try {
-      await apiFetch(`/api/leave/requests/${actionId}/${actionType}`, {
-        method: "POST",
-        body: JSON.stringify({ remarks }),
-      });
-      setActionId(null);
-      load();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Failed to submit action.");
-    } finally {
-      setActing(false);
-    }
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end gap-4">
-        <div>
-          <label className={labelClass}>Status</label>
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-            className={inputClass + " w-48 shadow-sm"}
-          >
-            <option value="">All</option>
-            <option value="Pending">Pending L1</option>
-            <option value="PendingLevel2">Pending L2</option>
-            <option value="Approved">Approved</option>
-            <option value="Rejected">Rejected</option>
-            <option value="Cancelled">Cancelled</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelClass}>From Date</label>
-          <DatePickerField
-            value={fromDate}
-            onChange={(v) => {
-              setFromDate(v);
-              setPage(1);
-            }}
-            className={inputClass + " w-40 shadow-sm"}
-          />
-        </div>
-        <div>
-          <label className={labelClass}>To Date</label>
-          <DatePickerField
-            value={toDate}
-            onChange={(v) => {
-              setToDate(v);
-              setPage(1);
-            }}
-            className={inputClass + " w-40 shadow-sm"}
-          />
-        </div>
-        <Button onClick={onApplyLeave}>+ New Request</Button>
-      </div>
-
-      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
-        <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
-          <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">{tableTitle}</h2>
-          <p className="mt-1 text-xs text-slate-500 sm:text-sm">{tableSub}</p>
-        </div>
-        <div className="max-h-[min(70vh,48rem)] overflow-x-auto overflow-y-auto">
-          <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
-            <thead>
-              <tr>
-                {showEmployeeCol && (
-                  <th
-                    className="sticky top-0 z-10 min-w-[8.5rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
-                    scope="col"
-                  >
-                    Employee
-                  </th>
-                )}
-                <th
-                  className="sticky top-0 z-10 min-w-[7.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
-                  Type
-                </th>
-                <th
-                  className="sticky top-0 z-10 min-w-[7.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
-                  Start
-                </th>
-                <th
-                  className="sticky top-0 z-10 min-w-[7.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
-                  End
-                </th>
-                <th
-                  className="sticky top-0 z-10 min-w-[4.5rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pr-2"
-                  scope="col"
-                >
-                  Days
-                </th>
-                <th
-                  className="sticky top-0 z-10 min-w-[8.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
-                  Status
-                </th>
-                {showApprovalActions && (
-                  <th
-                    className="sticky top-0 z-10 w-28 border-b border-slate-200/90 bg-slate-100/95 py-3 pl-1 pr-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur sm:pr-3"
-                    scope="col"
-                  >
-                    Actions
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {!data && (
-                <tr>
-                  <td colSpan={nCols} className="px-6 py-16 text-center">
-                    <div className="inline-flex items-center gap-2 text-slate-500">
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" />
-                      <span>Loading requests…</span>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {data && data.items.length === 0 && (
-                <tr>
-                  <td colSpan={nCols} className="px-6 py-16 text-center text-slate-500">
-                    <p className="text-sm">
-                      {teamOnly ? "No team requests match these filters." : "No requests found."}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">Try adjusting status or date range.</p>
-                  </td>
-                </tr>
-              )}
-              {data?.items.map((r) => (
-                <tr key={r.id} className="group border-b border-slate-100/90 transition hover:bg-sky-50/35">
-                  {showEmployeeCol && (
-                    <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-2 pr-2 transition group-hover:border-sky-500/60 sm:pl-3 sm:pr-2">
-                      <p className="font-medium text-slate-800">{r.employeeName}</p>
-                      <p className="text-xs text-slate-500 tabular-nums">{r.employeeCode}</p>
-                    </td>
-                  )}
-                  <td
-                    className={
-                      (showEmployeeCol ? "px-2" : "border-l-4 border-sky-400/45 bg-slate-50/25 pl-2 pr-2 transition group-hover:border-sky-500/60 sm:pl-3") + " py-2.5 font-medium text-slate-800 sm:pr-2"
-                    }
-                  >
-                    {r.leaveTypeName}
-                  </td>
-                  <td className="px-2 py-2.5 sm:px-3">
-                    <span className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-0.5 text-xs font-medium text-slate-700">
-                      {fmtDate(r.startDate)}
-                    </span>
-                  </td>
-                  <td className="px-2 py-2.5 sm:px-3">
-                    <span className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-0.5 text-xs font-medium text-slate-700">
-                      {fmtDate(r.endDate)}
-                    </span>
-                  </td>
-                  <td className="min-w-[4.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pr-2 text-right sm:pl-1 sm:pr-3">
-                    <span className="text-base font-semibold tabular-nums text-emerald-800">{r.totalDays}</span>
-                  </td>
-                  <td className="px-2 py-2.5 sm:pl-1 sm:pr-3">
-                    <StatusBadge status={r.status} responsibleUser={r.responsibleUserName} />
-                  </td>
-                  {showApprovalActions && (
-                    <td className="py-2.5 pl-0 pr-1 text-right sm:pr-2">
-                      {r.status === "Pending" || r.status === "PendingLevel2" ? (
-                        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openAction(r.id, "approve")}
-                            className="rounded-lg border border-emerald-200/90 bg-emerald-50/70 px-2.5 py-1 text-xs font-medium text-emerald-900 transition hover:bg-emerald-100/80"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openAction(r.id, "reject")}
-                            className="rounded-lg border border-rose-200/80 bg-rose-50/50 px-2.5 py-1 text-xs font-medium text-rose-800 transition hover:bg-rose-100/80"
-                          >
-                            Reject
-                          </button>
-                      </div>
-                      ) : (
-                        <span className="text-xs text-slate-300">—</span>
-                    )}
-                  </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {data && totalPages > 1 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/30 px-4 py-3 sm:px-6">
-            <p className="text-xs text-slate-500">
-              Page {page} of {totalPages} ({data.totalCount} total)
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage(page - 1)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                Prev
-              </button>
-              <button
-                type="button"
-                disabled={page >= totalPages}
-                onClick={() => setPage(page + 1)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <Modal open={!!actionId} onClose={() => { setActionId(null); setActionError(null); }} title={actionType === "approve" ? "Approve Request" : "Reject Request"}>
-        <div className="space-y-4">
-          {(() => {
-            const req = data?.items.find((r) => r.id === actionId);
-            return req ? (
-              <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <p><strong>{req.employeeName}</strong> — {req.leaveTypeName}</p>
-                <p className="text-xs text-slate-400">{fmtDate(req.startDate)} to {fmtDate(req.endDate)} ({req.totalDays} days) — Level {req.currentApprovalLevel}</p>
-              </div>
-            ) : null;
-          })()}
-          <div>
-            <label className={labelClass}>Remarks</label>
-            <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3} className={inputClass} placeholder="Optional remarks..." />
-          </div>
-          {actionError && (
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>
-          )}
-          <div className="flex justify-end gap-3">
-            <Button variant="secondary" onClick={() => setActionId(null)}>Cancel</Button>
-            <Button onClick={submitAction} disabled={acting}>
-              {acting ? "Processing..." : actionType === "approve" ? "Confirm Approve" : "Confirm Reject"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
     </div>
   );
 }

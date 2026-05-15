@@ -8,6 +8,11 @@ public interface IRecruitmentService
     // Requisitions
     Task<PagedResult<RequisitionDto>> GetRequisitionsAsync(int page = 1, int pageSize = 20, string? status = null, Guid? departmentId = null, string? priority = null);
     Task<RequisitionDto?> GetRequisitionByIdAsync(Guid id);
+    /// <summary>Approved, not-closed requisition for public careers pages (no internal-only fields).</summary>
+    /// <summary>Approved (or level-2 pending) and not closed — for anonymous apply checks without loading full graph.</summary>
+    Task<bool> RequisitionAcceptsPublicApplicationsAsync(Guid id);
+    /// <summary>Full public posting when allowed; denyCode: not_found | closed | not_published.</summary>
+    Task<(PublicRequisitionDto? dto, string? denyCode)> TryGetPublicJobPostingAsync(Guid id);
     Task<RequisitionDto> CreateRequisitionAsync(CreateRequisitionDto dto);
     Task<RequisitionDto> UpdateRequisitionAsync(UpdateRequisitionDto dto);
     Task DeleteRequisitionAsync(Guid id);

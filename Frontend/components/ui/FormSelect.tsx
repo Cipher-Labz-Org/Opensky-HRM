@@ -7,6 +7,9 @@ const EMPTY = "__opensky_select_empty__";
 
 export type FormSelectOption = { value: string; label: string };
 
+/** `slate` = Approvals-style: compact radius, neutral border, gray hover + white text in list. */
+export type FormSelectTone = "blue" | "slate";
+
 export type FormSelectProps = {
   id?: string;
   name?: string;
@@ -18,31 +21,52 @@ export type FormSelectProps = {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  tone?: FormSelectTone;
 };
 
-const triggerClass =
+const triggerBlue =
   "flex h-[42px] w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2 text-left text-sm text-slate-800 shadow-sm outline-none transition-all duration-200 " +
   "hover:border-slate-300 hover:shadow " +
   "focus:border-[#2E7BBF] focus:shadow-md focus:shadow-[#2E7BBF]/10 focus:ring-[3px] focus:ring-[#2E7BBF]/20 " +
   "disabled:cursor-not-allowed disabled:opacity-50 " +
   "[&[data-placeholder]]:text-slate-400";
 
-const contentClass =
+const triggerSlate =
+  "flex h-[42px] w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-left text-sm font-normal text-slate-800 shadow-sm outline-none transition-all duration-200 " +
+  "hover:border-slate-400 hover:shadow " +
+  "focus:border-slate-400 focus:shadow-md focus:ring-[3px] focus:ring-slate-400/25 " +
+  "disabled:cursor-not-allowed disabled:opacity-50 " +
+  "[&[data-placeholder]]:text-slate-500";
+
+const contentBlue =
   "z-[10050] max-h-[min(280px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-slate-200/90 bg-white py-1 shadow-lg shadow-slate-900/10 ring-1 ring-slate-200/60";
 
-const itemClass =
+const contentSlate =
+  "z-[10050] max-h-[min(280px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/15";
+
+const itemBlue =
   "relative flex cursor-pointer select-none items-center rounded-md py-2 pl-3 pr-8 text-sm text-slate-700 outline-none " +
   "data-[disabled]:pointer-events-none data-[disabled]:opacity-40 " +
   "data-[highlighted]:bg-[#e3eef8] data-[highlighted]:text-[#1a5f94] " +
   "data-[state=checked]:bg-[#e3eef8]/90 data-[state=checked]:font-semibold data-[state=checked]:text-[#1a5f94]";
 
-const chevron = (
-  <SelectPrimitive.Icon className="shrink-0 text-[#2E7BBF]">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  </SelectPrimitive.Icon>
-);
+const itemSlate =
+  "relative flex cursor-pointer select-none items-center rounded-md py-2.5 pl-3 pr-8 text-sm text-slate-700 outline-none " +
+  "data-[disabled]:pointer-events-none data-[disabled]:opacity-40 " +
+  "data-[highlighted]:bg-slate-600 data-[highlighted]:text-white " +
+  "data-[state=checked]:bg-slate-100 data-[state=checked]:font-medium data-[state=checked]:text-slate-900 " +
+  "data-[state=checked]:data-[highlighted]:bg-slate-600 data-[state=checked]:data-[highlighted]:text-white";
+
+function Chevron({ tone }: { tone: FormSelectTone }) {
+  const cls = tone === "slate" ? "shrink-0 text-slate-600" : "shrink-0 text-[#2E7BBF]";
+  return (
+    <SelectPrimitive.Icon className={cls}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    </SelectPrimitive.Icon>
+  );
+}
 
 export function FormSelect({
   id,
@@ -55,6 +79,7 @@ export function FormSelect({
   required,
   disabled,
   className = "",
+  tone = "blue",
 }: FormSelectProps) {
   const isControlled = valueProp !== undefined;
   const [internal, setInternal] = React.useState(defaultValue);
@@ -84,6 +109,11 @@ export function FormSelect({
     setFormValue(rv === EMPTY ? "" : rv);
   };
 
+  const triggerClass = tone === "slate" ? triggerSlate : triggerBlue;
+  const contentClass = tone === "slate" ? contentSlate : contentBlue;
+  const itemClass = tone === "slate" ? itemSlate : itemBlue;
+  const sideOffset = tone === "slate" ? 4 : 6;
+
   return (
     <SelectPrimitive.Root value={radixValue} onValueChange={onRadixChange} disabled={disabled}>
       {name != null ? <input type="hidden" name={name} value={formValue} required={required} /> : null}
@@ -91,14 +121,14 @@ export function FormSelect({
         <span className="min-w-0 flex-1 truncate text-left">
           <SelectPrimitive.Value placeholder={placeholder} />
         </span>
-        {chevron}
+        <Chevron tone={tone} />
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
         <SelectPrimitive.Content
           className={contentClass}
           position="popper"
           side="bottom"
-          sideOffset={6}
+          sideOffset={sideOffset}
           align="start"
           collisionPadding={12}
         >

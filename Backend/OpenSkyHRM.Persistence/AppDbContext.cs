@@ -45,6 +45,7 @@ public class AppDbContext : DbContext
     public DbSet<Holiday> Holidays => Set<Holiday>();
     public DbSet<LeaveEntitlementRule> LeaveEntitlementRules => Set<LeaveEntitlementRule>();
     public DbSet<AttendanceRecord> AttendanceRecords => Set<AttendanceRecord>();
+    public DbSet<OvertimeNopayPeriodApproval> OvertimeNopayPeriodApprovals => Set<OvertimeNopayPeriodApproval>();
     public DbSet<RosterTemplate> RosterTemplates => Set<RosterTemplate>();
     public DbSet<RosterAssignment> RosterAssignments => Set<RosterAssignment>();
     public DbSet<ShiftPattern> ShiftPatterns => Set<ShiftPattern>();
@@ -108,6 +109,7 @@ public class AppDbContext : DbContext
     public DbSet<SecurityRole> SecurityRoles => Set<SecurityRole>();
     public DbSet<Permission> Permissions => Set<Permission>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<UserAssignedLocation> UserAssignedLocations => Set<UserAssignedLocation>();
     public DbSet<UserAssignedBusinessUnit> UserAssignedBusinessUnits => Set<UserAssignedBusinessUnit>();

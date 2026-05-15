@@ -74,6 +74,7 @@ public static class CustomerTransactionPurgeMatrix
         "AnalyticsSnapshotCaches",
         "AuditLogs",
         "OutboundEmailLogs",
+        "UserNotifications",
     ];
 }
 
