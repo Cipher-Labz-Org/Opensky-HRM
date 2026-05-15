@@ -97,3 +97,21 @@ D:\Opensky-HRM\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\ref\OpenSkyHRM.Ap
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Application.deps.json
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Application.dll
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Application.pdb
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Application.deps.json
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Application.dll
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Application.pdb
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Domain.dll
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Persistence.dll
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Domain.pdb
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\bin\Debug\net8.0\OpenSkyHRM.Persistence.pdb
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.csproj.AssemblyReference.cache
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.GeneratedMSBuildEditorConfig.editorconfig
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.AssemblyInfoInputs.cache
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.AssemblyInfo.cs
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.csproj.CoreCompileInputs.cache
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.sourcelink.json
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyH.35F70ABE.Up2Date
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.dll
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\refint\OpenSkyHRM.Application.dll
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\OpenSkyHRM.Application.pdb
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Application\obj\Debug\net8.0\ref\OpenSkyHRM.Application.dll

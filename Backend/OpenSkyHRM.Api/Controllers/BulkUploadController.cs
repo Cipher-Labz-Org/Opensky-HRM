@@ -1,7 +1,9 @@
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Api.Filters;
@@ -18,6 +20,14 @@ public class BulkUploadController : ControllerBase
     private readonly AppDbContext _db;
 
     public BulkUploadController(AppDbContext db) => _db = db;
+
+    /// <summary>Same local-part rules as EmployeeService for placeholder work email when the sheet leaves Email blank.</summary>
+    private static string SanitizeForNoEmailLocalPart(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return $"e-{Guid.NewGuid():N}";
+        var s = Regex.Replace(code.Trim(), @"[^\w\-\.]", "_");
+        return string.IsNullOrEmpty(s) ? $"e-{Guid.NewGuid():N}" : s;
+    }
 
     [HttpGet("template")]
     public async Task<IActionResult> DownloadTemplate()
@@ -124,8 +134,22 @@ public class BulkUploadController : ControllerBase
             .Select(t => t.Code)
             .FirstOrDefaultAsync() ?? nameof(EmployeeStatus.Active);
 
-        var existingEmployees = await _db.Employees.Where(e => !e.IsDeleted).Select(e => new { e.Id, e.EmployeeCode }).ToListAsync();
+        var existingEmployees = await _db.Employees
+            .Where(e => !e.IsDeleted)
+            .Select(e => new { e.Id, e.EmployeeCode, e.Email })
+            .ToListAsync();
         var existingCodes = existingEmployees.Select(e => e.EmployeeCode).ToList();
+        var emailToEmployeeCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in existingEmployees)
+        {
+            if (string.IsNullOrWhiteSpace(e.Email)) continue;
+            var key = NormalizeEmail(e.Email);
+            if (!emailToEmployeeCode.ContainsKey(key))
+                emailToEmployeeCode[key] = e.EmployeeCode;
+        }
+
+        var emailsSeenInUpload = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         var managerLookup = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         foreach (var e in existingEmployees)
         {
@@ -192,10 +216,16 @@ public class BulkUploadController : ControllerBase
 
             if (string.IsNullOrEmpty(firstName)) errors.Add("First Name is required");
             if (string.IsNullOrEmpty(lastName)) errors.Add("Last Name is required");
-            if (string.IsNullOrEmpty(email)) errors.Add("Email is required");
             if (string.IsNullOrEmpty(deptName)) errors.Add("Department is required");
             if (dobStr is null) errors.Add("Date of Birth is required");
             if (joinStr is null) errors.Add("Joined Date is required");
+
+            if (!string.IsNullOrEmpty(email))
+            {
+                var emailKey = NormalizeEmail(email);
+                if (emailToEmployeeCode.TryGetValue(emailKey, out var ownerCode))
+                    errors.Add($"Email already belongs to employee '{ownerCode}'");
+            }
 
             var dept = departments.FirstOrDefault(d => d.Name.Equals(deptName, StringComparison.OrdinalIgnoreCase));
             if (dept is null && !string.IsNullOrEmpty(deptName)) errors.Add($"Department '{deptName}' not found");
@@ -294,13 +324,26 @@ public class BulkUploadController : ControllerBase
                 continue;
             }
 
+            var resolvedEmail = string.IsNullOrWhiteSpace(email)
+                ? $"{SanitizeForNoEmailLocalPart(empCode!)}@employee.noemail.opensky.hrm"
+                : email.Trim();
+
+            var emailKeyFinal = NormalizeEmail(resolvedEmail);
+            if (emailsSeenInUpload.Contains(emailKeyFinal))
+            {
+                skipped++;
+                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
+                    new List<string> { "Duplicate Email in this file (same address on more than one row)" }));
+                continue;
+            }
+
             var employee = new Employee
             {
                 EmployeeCode = empCode!,
                 FirstName = firstName!,
                 MiddleName = Cell(row, "Middle Name"),
                 LastName = lastName!,
-                Email = email!,
+                Email = resolvedEmail,
                 Phone = Cell(row, "Phone"),
                 DateOfBirth = DateTime.SpecifyKind(dobStr!.Value, DateTimeKind.Utc),
                 Gender = gender,
@@ -361,28 +404,47 @@ public class BulkUploadController : ControllerBase
 
             _db.Employees.Add(employee);
             existingCodes.Add(empCode!);
+            emailsSeenInUpload.Add(emailKeyFinal);
             if (!managerLookup.ContainsKey(empCode!))
                 managerLookup[empCode!] = employee.Id;
             created++;
             results.Add(new RowResult(r, firstName!, lastName!, true, new List<string>()));
         }
 
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState == "23505")
+        {
+            return Conflict(new
+            {
+                message = "Import could not be saved: a duplicate value violates a unique rule in the database (often email or employee code). Remove or correct duplicates in the file and try again.",
+                constraint = pg.ConstraintName,
+            });
+        }
 
         return Ok(new UploadResult(created, skipped, lastRow - 1, results));
     }
 
+    private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
+
     private static async Task<Dictionary<string, string>> BuildEmploymentTypeCodeMapAsync(AppDbContext db)
     {
-        var codes = await db.EmploymentStatusTypes.AsNoTracking()
+        var rows = await db.EmploymentStatusTypes.AsNoTracking()
             .Where(t => !t.IsDeleted)
-            .Select(t => t.Code)
+            .Select(t => new { t.Code, t.Name })
             .ToListAsync();
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var c in codes)
+        foreach (var r in rows)
         {
-            if (!string.IsNullOrWhiteSpace(c))
-                map[c] = c;
+            if (!string.IsNullOrWhiteSpace(r.Code))
+                map[r.Code.Trim()] = r.Code.Trim();
+            if (!string.IsNullOrWhiteSpace(r.Name)
+                && !string.IsNullOrWhiteSpace(r.Code)
+                && !string.Equals(r.Name.Trim(), r.Code.Trim(), StringComparison.OrdinalIgnoreCase)
+                && !map.ContainsKey(r.Name.Trim()))
+                map[r.Name.Trim()] = r.Code.Trim();
         }
 
         foreach (var n in Enum.GetNames<EmploymentType>())
@@ -390,6 +452,53 @@ public class BulkUploadController : ControllerBase
             if (!map.ContainsKey(n))
                 map[n] = n;
         }
+
+        // Labels often used in spreadsheets / legacy sheets (keys are case-insensitive).
+        string Canon(EmploymentType e)
+        {
+            var name = e.ToString();
+            return map.TryGetValue(name, out var c) ? c : name;
+        }
+
+        void TryAlias(string label, EmploymentType e)
+        {
+            if (map.ContainsKey(label)) return;
+            map[label] = Canon(e);
+        }
+
+        TryAlias("Permanent", EmploymentType.FullTimePermanent);
+        TryAlias("Perm", EmploymentType.FullTimePermanent);
+        TryAlias("Full Time Permanent", EmploymentType.FullTimePermanent);
+        TryAlias("Full-Time Permanent", EmploymentType.FullTimePermanent);
+        TryAlias("FT Permanent", EmploymentType.FullTimePermanent);
+        TryAlias("FTE Permanent", EmploymentType.FullTimePermanent);
+
+        TryAlias("Part Time Permanent", EmploymentType.PartTimePermanent);
+        TryAlias("Part-Time Permanent", EmploymentType.PartTimePermanent);
+        TryAlias("Part Permanent", EmploymentType.PartTimePermanent);
+
+        TryAlias("Full Time Contract", EmploymentType.FullTimeContract);
+        TryAlias("Full-Time Contract", EmploymentType.FullTimeContract);
+        TryAlias("Contract", EmploymentType.FullTimeContract);
+        TryAlias("FT Contract", EmploymentType.FullTimeContract);
+
+        TryAlias("Part Time Contract", EmploymentType.PartTimeContract);
+        TryAlias("Part-Time Contract", EmploymentType.PartTimeContract);
+
+        TryAlias("Probation", EmploymentType.FullTimeProbation);
+        TryAlias("Full Time Probation", EmploymentType.FullTimeProbation);
+        TryAlias("Full-Time Probation", EmploymentType.FullTimeProbation);
+        TryAlias("On Probation", EmploymentType.FullTimeProbation);
+
+        TryAlias("Internship", EmploymentType.FullTimeInternship);
+        TryAlias("Intern", EmploymentType.FullTimeInternship);
+        TryAlias("Full Time Internship", EmploymentType.FullTimeInternship);
+        TryAlias("Full-Time Internship", EmploymentType.FullTimeInternship);
+
+        TryAlias("Part Time Internship", EmploymentType.PartTimeInternship);
+        TryAlias("Part-Time Internship", EmploymentType.PartTimeInternship);
+
+        TryAlias("Freelance", EmploymentType.Freelance);
 
         return map;
     }

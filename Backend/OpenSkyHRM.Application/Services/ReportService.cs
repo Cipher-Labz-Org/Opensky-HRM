@@ -66,7 +66,7 @@ public class ReportService : IReportService
                 Reports = new()
                 {
                     new() { Key = "payroll-register", Name = "Payroll Register", Description = "Monthly payroll summary by employee with gross, deductions, net" },
-                    new() { Key = "salary-register", Name = "Salary Register", Description = "Current salary details for all active employees" },
+                    new() { Key = "salary-register", Name = "Salary Register", Description = "Current salary per active employee; each pay component is a column (new components appear automatically)" },
                     new() { Key = "salary-revision-history", Name = "Salary Revision History", Description = "Historical salary changes with effective dates" },
                     new() { Key = "department-cost", Name = "Department Payroll Cost", Description = "Total payroll cost broken down by department" },
                     new() { Key = "bank-transfer-list", Name = "Bank Transfer List", Description = "Bank account details for salary transfers" },
@@ -865,19 +865,90 @@ public class ReportService : IReportService
 
     private async Task<ReportResultDto> SalaryRegisterReport(Dictionary<string, string>? filters)
     {
-        var q = _db.Set<EmployeeCompensation>().Include(c => c.Employee).ThenInclude(e => e.Department)
+        var q = _db.Set<EmployeeCompensation>().AsNoTracking()
+            .Include(c => c.Employee).ThenInclude(e => e.Department)
             .Include(c => c.Component)
             .Where(c => !c.IsDeleted && c.Employee.Status != "Terminated").AsQueryable();
         if (TryGetDepartmentId(filters, out var deptId))
             q = q.Where(c => c.Employee.DepartmentId == deptId);
-        var data = await q.OrderBy(c => c.Employee.FirstName).ThenBy(c => c.Component.Name).ToListAsync();
-        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Component", "Amount", "Currency" };
-        var rows = data.Select(c => new Dictionary<string, object?>
+
+        var data = await q.ToListAsync();
+
+        var masterDefs = await _db.Set<CompensationComponent>().AsNoTracking()
+            .Where(c => !c.IsDeleted && c.IsActive)
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+            .Select(c => new { c.Id, c.Name, c.Code })
+            .ToListAsync();
+
+        var masterIds = masterDefs.Select(m => m.Id).ToHashSet();
+        var extraIdSet = data.Select(c => c.ComponentId).Distinct().Where(id => !masterIds.Contains(id)).ToHashSet();
+        var extras = data
+            .Where(c => extraIdSet.Contains(c.ComponentId))
+            .GroupBy(c => c.ComponentId)
+            .Select(g => (Id: g.Key, Name: g.First().Component.Name, Code: g.First().Component.Code))
+            .OrderBy(t => t.Name)
+            .ToList();
+
+        var allDefs = masterDefs.Select(m => (m.Id, m.Name, m.Code)).Concat(extras).ToList();
+        var nameFrequency = allDefs
+            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var columnHeaders = allDefs
+            .Select(d => nameFrequency[d.Name] > 1 ? $"{d.Name} ({d.Code})" : d.Name)
+            .ToList();
+
+        var amountsByEmp = data
+            .GroupBy(c => c.EmployeeId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.GroupBy(c => c.ComponentId).ToDictionary(x => x.Key, x => x.Sum(c => c.Amount)));
+
+        var currencyByEmp = data
+            .GroupBy(c => c.EmployeeId)
+            .ToDictionary(
+                g => g.Key,
+                g =>
+                {
+                    var cur = g.Select(x => x.Currency).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    return cur.Count == 0 ? null : cur.Count == 1 ? cur[0] : string.Join(", ", cur);
+                });
+
+        var employees = data
+            .GroupBy(c => c.EmployeeId)
+            .Select(g => g.First().Employee)
+            .OrderBy(e => e.FirstName).ThenBy(e => e.LastName).ThenBy(e => e.EmployeeCode)
+            .ToList();
+
+        var cols = new List<string> { "Employee Code", "Employee Name", "Department" };
+        cols.AddRange(columnHeaders);
+        cols.Add("Currency");
+
+        var rows = new List<Dictionary<string, object?>>(employees.Count);
+
+        foreach (var emp in employees)
         {
-            ["Employee Code"] = c.Employee.EmployeeCode, ["Employee Name"] = c.Employee.FullName,
-            ["Department"] = c.Employee.Department?.Name, ["Component"] = c.Component.Name,
-            ["Amount"] = c.Amount, ["Currency"] = c.Currency,
-        }).ToList();
+            amountsByEmp.TryGetValue(emp.Id, out var compAmounts);
+            compAmounts ??= new Dictionary<Guid, decimal>();
+            currencyByEmp.TryGetValue(emp.Id, out var currencyCell);
+
+            var row = new Dictionary<string, object?>
+            {
+                ["Employee Code"] = emp.EmployeeCode,
+                ["Employee Name"] = emp.FullName,
+                ["Department"] = emp.Department?.Name,
+            };
+
+            for (var i = 0; i < allDefs.Count; i++)
+            {
+                var id = allDefs[i].Id;
+                var header = columnHeaders[i];
+                row[header] = compAmounts.TryGetValue(id, out var amt) ? amt : null;
+            }
+
+            row["Currency"] = currencyCell;
+            rows.Add(row);
+        }
+
         return Build("Salary Register", cols, rows);
     }
 

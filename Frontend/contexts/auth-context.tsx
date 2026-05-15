@@ -72,6 +72,11 @@ interface AuthContextType {
   hasPermission: (module: string, action: string) => boolean;
   getPeopleReadScope: () => "Own" | "Team" | "All" | null;
   getLeaveReadScope: () => "Own" | "Team" | "All" | null;
+  /**
+   * Payroll UX: full admin screens vs employee self-service (own payslip + salary advance only).
+   * "none" = no Payroll Read in profile (e.g. before permissions sync).
+   */
+  getPayrollAccessLevel: () => "none" | "self" | "full";
   hasRole: (roleCode: string) => boolean;
   isAdmin: boolean;
 }
@@ -89,6 +94,7 @@ const AuthContext = createContext<AuthContextType>({
   hasPermission: () => false,
   getPeopleReadScope: () => null,
   getLeaveReadScope: () => null,
+  getPayrollAccessLevel: () => "none",
   hasRole: () => false,
   isAdmin: false,
 });
@@ -272,6 +278,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return "Own";
   };
 
+  const getPayrollAccessLevel = (): "none" | "self" | "full" => {
+    if (!user) return "none";
+    if (roleListMatches(user.roles, "ADMIN")) return "full";
+    const payrollPerms = user.permissions.filter((x) => x.module === "Payroll");
+    if (payrollPerms.length === 0) return "none";
+    if (payrollPerms.some((p) => (p.scope ?? "All").toLowerCase() === "all")) return "full";
+    return "self";
+  };
+
   const hasRole = (roleCode: string): boolean => {
     if (!user) return false;
     return roleListMatches(user.roles, roleCode);
@@ -292,6 +307,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         hasPermission,
         getPeopleReadScope,
         getLeaveReadScope,
+        getPayrollAccessLevel,
         hasRole,
         isAdmin,
       }}

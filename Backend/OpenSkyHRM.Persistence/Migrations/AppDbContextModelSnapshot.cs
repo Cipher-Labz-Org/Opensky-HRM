@@ -4745,6 +4745,70 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.ToTable("RosterTemplates", (string)null);
                 });
 
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.SalaryAdvanceRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("PayrollBatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PayrollBatchId");
+
+                    b.HasIndex("EmployeeId", "PayrollBatchId", "Status");
+
+                    b.ToTable("SalaryAdvanceRequests", (string)null);
+                });
+
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.SalaryRevision", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5260,7 +5324,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("MustChangePassword")
-                        .HasColumnType("boolean");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -6427,6 +6493,25 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("DefaultShiftPattern");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.SalaryAdvanceRequest", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("OpenSkyHRM.Domain.Entities.PayrollBatch", "PayrollBatch")
+                        .WithMany()
+                        .HasForeignKey("PayrollBatchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("PayrollBatch");
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.SalaryRevision", b =>

@@ -1,4 +1,5 @@
 using System;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -34,11 +35,17 @@ public class PayrollController : ControllerBase
 
     [HttpGet("components")]
     public async Task<IActionResult> GetComponents()
-        => Ok(await _payrollService.GetComponentsAsync());
+    {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
+        return Ok(await _payrollService.GetComponentsAsync());
+    }
 
     [HttpGet("components/{id:guid}")]
     public async Task<IActionResult> GetComponent(Guid id)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var result = await _payrollService.GetComponentByIdAsync(id);
         return result is null ? NotFound() : Ok(result);
     }
@@ -46,6 +53,8 @@ public class PayrollController : ControllerBase
     [HttpPost("components")]
     public async Task<IActionResult> CreateComponent([FromBody] CreateComponentDto dto)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var result = await _payrollService.CreateComponentAsync(dto);
         return CreatedAtAction(nameof(GetComponent), new { id = result.Id }, result);
     }
@@ -53,6 +62,8 @@ public class PayrollController : ControllerBase
     [HttpPut("components/{id:guid}")]
     public async Task<IActionResult> UpdateComponent(Guid id, [FromBody] UpdateComponentDto dto)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var result = await _payrollService.UpdateComponentAsync(id, dto);
         return result is null ? NotFound() : Ok(result);
     }
@@ -60,6 +71,8 @@ public class PayrollController : ControllerBase
     [HttpDelete("components/{id:guid}")]
     public async Task<IActionResult> DeleteComponent(Guid id)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var ok = await _payrollService.DeleteComponentAsync(id);
         return ok ? NoContent() : NotFound();
     }
@@ -69,6 +82,8 @@ public class PayrollController : ControllerBase
     [HttpGet("compensation/variable")]
     public async Task<IActionResult> GetVariableCompensation([FromQuery] Guid batchId, [FromQuery] Guid? componentId = null)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var query = _db.EmployeeCompensations
             .Include(ec => ec.Employee)
             .Include(ec => ec.Component)
@@ -93,6 +108,8 @@ public class PayrollController : ControllerBase
     [HttpPut("compensation/variable/bulk")]
     public async Task<IActionResult> BulkUpdateVariable([FromBody] BulkVariableUpdateRequest request)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         if (request.Updates is null || request.Updates.Count == 0)
             return BadRequest(new { message = "No updates provided." });
 
@@ -124,6 +141,8 @@ public class PayrollController : ControllerBase
     [HttpPost("compensation/{employeeId:guid}")]
     public async Task<IActionResult> CreateCompensation(Guid employeeId, [FromBody] CreateEmployeeCompensationDto dto)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
             return Forbid();
         var result = await _payrollService.CreateEmployeeCompensationAsync(employeeId, dto);
@@ -133,6 +152,8 @@ public class PayrollController : ControllerBase
     [HttpPut("compensation/line/{id:guid}")]
     public async Task<IActionResult> UpdateCompensation(Guid id, [FromBody] UpdateEmployeeCompensationDto dto)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var result = await _payrollService.UpdateEmployeeCompensationAsync(id, dto);
         return result is null ? NotFound() : Ok(result);
     }
@@ -140,6 +161,8 @@ public class PayrollController : ControllerBase
     [HttpDelete("compensation/line/{id:guid}")]
     public async Task<IActionResult> DeleteCompensation(Guid id)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var ok = await _payrollService.DeleteEmployeeCompensationAsync(id);
         return ok ? NoContent() : NotFound();
     }
@@ -148,11 +171,17 @@ public class PayrollController : ControllerBase
 
     [HttpGet("revisions")]
     public async Task<IActionResult> GetRevisions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
-        => Ok(await _payrollService.GetRevisionsAsync(page, pageSize));
+    {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
+        return Ok(await _payrollService.GetRevisionsAsync(page, pageSize));
+    }
 
     [HttpPost("revisions")]
     public async Task<IActionResult> CreateRevision([FromBody] CreateSalaryRevisionDto dto)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var result = await _payrollService.CreateRevisionAsync(dto);
         return Created(string.Empty, result);
     }
@@ -160,6 +189,8 @@ public class PayrollController : ControllerBase
     [HttpPut("revisions/{id:guid}/approve")]
     public async Task<IActionResult> ApproveRevision(Guid id)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var userName = User.Identity?.Name ?? "System";
         try
         {
@@ -175,6 +206,8 @@ public class PayrollController : ControllerBase
     [HttpPut("revisions/{id:guid}/reject")]
     public async Task<IActionResult> RejectRevision(Guid id, [FromBody] RejectRevisionRequest request)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var userName = User.Identity?.Name ?? "System";
         try
         {
@@ -191,11 +224,17 @@ public class PayrollController : ControllerBase
 
     [HttpGet("batches")]
     public async Task<IActionResult> GetBatches([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
-        => Ok(await _payrollService.GetBatchesAsync(page, pageSize));
+    {
+        if (!PayrollAccessHelper.CanAccessPayrollBatchListing(User))
+            return Forbid();
+        return Ok(await _payrollService.GetBatchesAsync(page, pageSize));
+    }
 
     [HttpGet("batches/{id:guid}")]
     public async Task<IActionResult> GetBatch(Guid id)
     {
+        if (!PayrollAccessHelper.CanAccessPayrollBatchListing(User))
+            return Forbid();
         var result = await _payrollService.GetBatchByIdAsync(id);
         return result is null ? NotFound() : Ok(result);
     }
@@ -203,13 +242,33 @@ public class PayrollController : ControllerBase
     [HttpPost("batches")]
     public async Task<IActionResult> CreateBatch([FromBody] CreatePayrollBatchDto dto)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var result = await _payrollService.CreateBatchAsync(dto);
         return Created(string.Empty, result);
+    }
+
+    [HttpPut("batches/{id:guid}")]
+    public async Task<IActionResult> UpdateBatch(Guid id, [FromBody] UpdatePayrollBatchDto dto)
+    {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
+        try
+        {
+            var result = await _payrollService.UpdateBatchAsync(id, dto);
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpGet("active-employees")]
     public async Task<IActionResult> GetActiveEmployees()
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var employees = await _db.Employees
             .Include(e => e.Department)
             .Include(e => e.Grade)
@@ -232,6 +291,8 @@ public class PayrollController : ControllerBase
     [HttpGet("eligible-employees")]
     public async Task<IActionResult> GetEligibleEmployees()
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var employeesWithComp = await _db.EmployeeCompensations
             .Where(ec => ec.IsActive && (ec.EffectiveTo == null || ec.EffectiveTo >= DateTime.UtcNow))
             .Select(ec => ec.EmployeeId)
@@ -260,9 +321,12 @@ public class PayrollController : ControllerBase
     [HttpPost("batches/{id:guid}/calculate")]
     public async Task<IActionResult> CalculateBatch(Guid id)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         try
         {
-            var batch = await _engine.CalculateBatchAsync(id);
+            await _payrollService.ReconcileSalaryAdvanceDeductionLinesForBatchAsync(id);
+            await _engine.CalculateBatchAsync(id);
             var result = await _payrollService.GetBatchByIdAsync(id);
             return Ok(result);
         }
@@ -275,6 +339,8 @@ public class PayrollController : ControllerBase
     [HttpPut("batches/{id:guid}/approve")]
     public async Task<IActionResult> ApproveBatch(Guid id)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var batch = await _db.PayrollBatches.FindAsync(id);
         if (batch is null) return NotFound();
         if (batch.Status != BatchStatus.Calculated && batch.Status != BatchStatus.Reviewed)
@@ -289,6 +355,8 @@ public class PayrollController : ControllerBase
     [HttpPut("batches/{id:guid}/finalize")]
     public async Task<IActionResult> FinalizeBatch(Guid id)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var batch = await _db.PayrollBatches
             .Include(b => b.PayStatements)
             .FirstOrDefaultAsync(b => b.Id == id);
@@ -306,6 +374,8 @@ public class PayrollController : ControllerBase
     [HttpDelete("batches/{id:guid}")]
     public async Task<IActionResult> DeleteBatch(Guid id)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         var ok = await _payrollService.DeleteBatchAsync(id);
         return ok ? NoContent() : BadRequest(new { message = "Only Draft batches can be deleted." });
     }
@@ -315,24 +385,67 @@ public class PayrollController : ControllerBase
     [HttpGet("statements")]
     public async Task<IActionResult> GetStatements([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? employeeId = null)
     {
-        if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
-            return Forbid();
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        return Ok(await _payrollService.GetStatementsAsync(page, pageSize, employeeId, allowedIds));
+        IReadOnlyList<Guid>? allowedIds;
+        Guid? filterEmployeeId = employeeId;
+
+        if (PayrollAccessHelper.HasPayrollAllScope(User))
+        {
+            if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
+                return Forbid();
+            allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        }
+        else
+        {
+            var selfId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+            if (!selfId.HasValue)
+                return Forbid();
+            if (!PayrollAccessHelper.HasPayrollOwnScope(User))
+                return Forbid();
+            allowedIds = new[] { selfId.Value };
+            filterEmployeeId = selfId;
+        }
+
+        return Ok(await _payrollService.GetStatementsAsync(page, pageSize, filterEmployeeId, allowedIds));
     }
 
     [HttpGet("statements/{id:guid}")]
     public async Task<IActionResult> GetStatement(Guid id)
     {
         var result = await _payrollService.GetStatementByIdAsync(id);
-        return result is null ? NotFound() : Ok(result);
+        if (result is null)
+            return NotFound();
+        if (PayrollAccessHelper.HasPayrollAllScope(User))
+        {
+            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, result.EmployeeId, "Read"))
+                return Forbid();
+        }
+        else
+        {
+            if (!PayrollAccessHelper.HasPayrollOwnScope(User))
+                return Forbid();
+            var selfId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+            if (!selfId.HasValue || result.EmployeeId != selfId.Value)
+                return Forbid();
+        }
+        return Ok(result);
     }
 
     [HttpGet("statements/employee/{employeeId:guid}")]
     public async Task<IActionResult> GetStatementsByEmployee(Guid employeeId)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Read"))
-            return Forbid();
+        if (PayrollAccessHelper.HasPayrollAllScope(User))
+        {
+            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Read"))
+                return Forbid();
+        }
+        else
+        {
+            if (!PayrollAccessHelper.HasPayrollOwnScope(User))
+                return Forbid();
+            var selfId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+            if (!selfId.HasValue || employeeId != selfId.Value)
+                return Forbid();
+        }
         return Ok(await _payrollService.GetStatementsByEmployeeAsync(employeeId));
     }
 
@@ -340,17 +453,138 @@ public class PayrollController : ControllerBase
 
     [HttpGet("settings")]
     public async Task<IActionResult> GetSettings()
-        => Ok(await _payrollService.GetPayrollSettingsAsync());
+    {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
+        return Ok(await _payrollService.GetPayrollSettingsAsync());
+    }
 
     [HttpPut("settings")]
     public async Task<IActionResult> UpdateSettings([FromBody] PayrollSettingsDto dto)
-        => Ok(await _payrollService.UpdatePayrollSettingsAsync(dto));
+    {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
+        return Ok(await _payrollService.UpdatePayrollSettingsAsync(dto));
+    }
+
+    // ── Salary advance requests ───────────────────────────────────────
+
+    [HttpGet("advance-requests/active-batches")]
+    public async Task<IActionResult> GetActiveAdvanceBatches()
+    {
+        if (!PayrollAccessHelper.CanAccessPayrollBatchListing(User))
+            return Forbid();
+        return Ok(await _payrollService.GetActivePayrunBatchOptionsForAdvanceAsync());
+    }
+
+    [HttpGet("advance-requests/my")]
+    public async Task<IActionResult> GetMyAdvanceRequests()
+    {
+        if (!PayrollAccessHelper.CanUseSalaryAdvanceEmployeeApis(User))
+            return Forbid();
+        var empId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+        if (!empId.HasValue)
+            return BadRequest(new { message = "Your account must be linked to an employee to use salary advances." });
+        return Ok(await _payrollService.GetSalaryAdvanceRequestsForEmployeeAsync(empId.Value));
+    }
+
+    [HttpPost("advance-requests")]
+    public async Task<IActionResult> CreateAdvanceRequest([FromBody] CreateSalaryAdvanceRequestDto dto)
+    {
+        Guid targetEmployeeId;
+        var surrogate = dto.EmployeeId.HasValue && dto.EmployeeId.Value != Guid.Empty;
+
+        if (surrogate)
+        {
+            if (!PayrollAccessHelper.HasPayrollAllScope(User) && !PayrollAccessHelper.CanManageSalaryAdvanceApprovals(User))
+                return Forbid();
+            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, dto.EmployeeId!.Value, "Read"))
+                return Forbid();
+            targetEmployeeId = dto.EmployeeId.Value;
+        }
+        else
+        {
+            if (!PayrollAccessHelper.CanUseSalaryAdvanceEmployeeApis(User))
+                return Forbid();
+            var empId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+            if (!empId.HasValue)
+            {
+                return BadRequest(new
+                {
+                    message = "Your account must be linked to an employee to submit for yourself. As HR/payroll admin, choose an employee in the request form.",
+                });
+            }
+            targetEmployeeId = empId.Value;
+        }
+
+        try
+        {
+            var created = await _payrollService.CreateSalaryAdvanceRequestAsync(targetEmployeeId, dto);
+            return Created(string.Empty, created);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("advance-requests/hr-queue")]
+    public async Task<IActionResult> GetHrAdvanceQueue([FromQuery] string? status = null)
+    {
+        if (!PayrollAccessHelper.CanManageSalaryAdvanceApprovals(User))
+            return Forbid();
+
+        var allowed = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        return Ok(await _payrollService.GetSalaryAdvanceRequestsForHrAsync(status, allowed));
+    }
+
+    [HttpPost("advance-requests/{id:guid}/approve")]
+    public async Task<IActionResult> ApproveAdvanceRequest(Guid id)
+    {
+        if (!PayrollAccessHelper.CanManageSalaryAdvanceApprovals(User))
+            return Forbid();
+        try
+        {
+            var userName = User.Identity?.Name
+                ?? User.FindFirstValue(ClaimTypes.Email)
+                ?? User.FindFirstValue(ClaimTypes.Name)
+                ?? "HR";
+            var result = await _payrollService.ApproveSalaryAdvanceRequestAsync(id, userName);
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("advance-requests/{id:guid}/reject")]
+    public async Task<IActionResult> RejectAdvanceRequest(Guid id, [FromBody] RejectSalaryAdvanceRequestDto? dto)
+    {
+        if (!PayrollAccessHelper.CanManageSalaryAdvanceApprovals(User))
+            return Forbid();
+        try
+        {
+            var userName = User.Identity?.Name
+                ?? User.FindFirstValue(ClaimTypes.Email)
+                ?? User.FindFirstValue(ClaimTypes.Name)
+                ?? "HR";
+            var result = await _payrollService.RejectSalaryAdvanceRequestAsync(id, userName, dto?.Reason);
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 
     // ── Bulk Import ───────────────────────────────────────────────────
 
     [HttpGet("compensation/import-template")]
     public async Task<IActionResult> DownloadImportTemplate([FromQuery] string? category = null)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         ComponentCategory? catEnum = category != null && Enum.TryParse<ComponentCategory>(category, true, out var parsed) ? parsed : null;
 
         var components = await _db.CompensationComponents
@@ -381,6 +615,8 @@ public class PayrollController : ControllerBase
     [HttpPost("compensation/import")]
     public async Task<IActionResult> ImportCompensation(IFormFile file, [FromQuery] string? effectiveFrom = null, [FromQuery] Guid? batchId = null)
     {
+        if (!PayrollAccessHelper.HasPayrollAllScope(User))
+            return Forbid();
         if (file is null || file.Length == 0)
             return BadRequest(new { message = "No file uploaded." });
 

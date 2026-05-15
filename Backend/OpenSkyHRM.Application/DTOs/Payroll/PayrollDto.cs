@@ -117,7 +117,14 @@ public class PayrollBatchDto
     public decimal TotalEmployerCost { get; set; }
     public string? Notes { get; set; }
     public int SelectedCount { get; set; }
+    public List<Guid> SelectedEmployeeIds { get; set; } = new();
     public DateTime CreatedAt { get; set; }
+}
+
+public class UpdatePayrollBatchDto
+{
+    public string? Notes { get; set; }
+    public List<Guid> EmployeeIds { get; set; } = new();
 }
 
 public class CreatePayrollBatchDto
@@ -188,4 +195,50 @@ public class PayrollFormulaDto
     public DateTime EffectiveFrom { get; set; }
     public DateTime? EffectiveTo { get; set; }
     public bool IsActive { get; set; }
+}
+
+// ── Salary advance requests ───────────────────────────────────────
+
+public class PayrollAdvanceBatchOptionDto
+{
+    public Guid Id { get; set; }
+    public string BatchCode { get; set; } = string.Empty;
+    public int Month { get; set; }
+    public int Year { get; set; }
+    public string Status { get; set; } = string.Empty;
+}
+
+public class SalaryAdvanceRequestDto
+{
+    public Guid Id { get; set; }
+    public Guid EmployeeId { get; set; }
+    public string EmployeeName { get; set; } = string.Empty;
+    public string EmployeeCode { get; set; } = string.Empty;
+    public Guid PayrollBatchId { get; set; }
+    public string BatchCode { get; set; } = string.Empty;
+    public int BatchMonth { get; set; }
+    public int BatchYear { get; set; }
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "LKR";
+    public string Status { get; set; } = string.Empty;
+    public string? Remarks { get; set; }
+    public string? ReviewedBy { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+    public string? RejectionReason { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class CreateSalaryAdvanceRequestDto
+{
+    public Guid PayrollBatchId { get; set; }
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "LKR";
+    public string? Remarks { get; set; }
+    /// <summary>When set, HR/payroll admin creates the request for this employee (requires Payroll scope to manage advances).</summary>
+    public Guid? EmployeeId { get; set; }
+}
+
+public class RejectSalaryAdvanceRequestDto
+{
+    public string? Reason { get; set; }
 }

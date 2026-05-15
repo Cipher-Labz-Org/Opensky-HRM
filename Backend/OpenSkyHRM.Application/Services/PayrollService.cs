@@ -314,6 +314,25 @@ public class PayrollService : IPayrollService
         return MapBatchDto(entity);
     }
 
+    public async Task<PayrollBatchDto?> UpdateBatchAsync(Guid id, UpdatePayrollBatchDto dto)
+    {
+        var entity = await _db.PayrollBatches.FindAsync(id);
+        if (entity is null) return null;
+
+        if (entity.Status != BatchStatus.Draft && entity.Status != BatchStatus.Calculated && entity.Status != BatchStatus.Reviewed)
+            throw new InvalidOperationException($"Only Draft, Calculated, or Reviewed batches can be edited. Current: {entity.Status}");
+
+        if (dto.EmployeeIds.Count == 0)
+            throw new InvalidOperationException("Select at least one employee.");
+
+        entity.SelectedEmployeeIds = System.Text.Json.JsonSerializer.Serialize(dto.EmployeeIds);
+        entity.EmployeeCount = dto.EmployeeIds.Count;
+        entity.Notes = dto.Notes;
+
+        await _db.SaveChangesAsync();
+        return MapBatchDto(entity);
+    }
+
     public async Task<bool> DeleteBatchAsync(Guid id)
     {
         var entity = await _db.PayrollBatches.FindAsync(id);
@@ -417,7 +436,295 @@ public class PayrollService : IPayrollService
         return dto;
     }
 
+    // ── Salary advance requests ─────────────────────────────────────
+
+    public async Task<List<PayrollAdvanceBatchOptionDto>> GetActivePayrunBatchOptionsForAdvanceAsync()
+    {
+        var openStatuses = new[]
+        {
+            BatchStatus.Draft,
+            BatchStatus.Calculated,
+            BatchStatus.Reviewed,
+            BatchStatus.Approved,
+        };
+        return await _db.PayrollBatches
+            .AsNoTracking()
+            .Where(b => openStatuses.Contains(b.Status))
+            .OrderByDescending(b => b.Year).ThenByDescending(b => b.Month).ThenByDescending(b => b.CreatedAt)
+            .Select(b => new PayrollAdvanceBatchOptionDto
+            {
+                Id = b.Id,
+                BatchCode = b.BatchCode,
+                Month = b.Month,
+                Year = b.Year,
+                Status = b.Status.ToString(),
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<SalaryAdvanceRequestDto>> GetSalaryAdvanceRequestsForEmployeeAsync(Guid employeeId)
+    {
+        return await _db.SalaryAdvanceRequests
+            .AsNoTracking()
+            .Where(r => r.EmployeeId == employeeId)
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new SalaryAdvanceRequestDto
+            {
+                Id = r.Id,
+                EmployeeId = r.EmployeeId,
+                EmployeeName = r.Employee.FirstName + " " + r.Employee.LastName,
+                EmployeeCode = r.Employee.EmployeeCode,
+                PayrollBatchId = r.PayrollBatchId,
+                BatchCode = r.PayrollBatch.BatchCode,
+                BatchMonth = r.PayrollBatch.Month,
+                BatchYear = r.PayrollBatch.Year,
+                Amount = r.Amount,
+                Currency = r.Currency,
+                Status = r.Status.ToString(),
+                Remarks = r.Remarks,
+                ReviewedBy = r.ReviewedBy,
+                ReviewedAt = r.ReviewedAt,
+                RejectionReason = r.RejectionReason,
+                CreatedAt = r.CreatedAt,
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<SalaryAdvanceRequestDto>> GetSalaryAdvanceRequestsForHrAsync(string? status, IReadOnlyList<Guid>? allowedEmployeeIds)
+    {
+        var q = _db.SalaryAdvanceRequests
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status)
+            && Enum.TryParse<SalaryAdvanceRequestStatus>(status, true, out var st))
+        {
+            q = q.Where(r => r.Status == st);
+        }
+
+        if (allowedEmployeeIds != null)
+            q = q.Where(r => allowedEmployeeIds.Contains(r.EmployeeId));
+
+        var list = await q
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new SalaryAdvanceRequestDto
+            {
+                Id = r.Id,
+                EmployeeId = r.EmployeeId,
+                EmployeeName = r.Employee.FirstName + " " + r.Employee.LastName,
+                EmployeeCode = r.Employee.EmployeeCode,
+                PayrollBatchId = r.PayrollBatchId,
+                BatchCode = r.PayrollBatch.BatchCode,
+                BatchMonth = r.PayrollBatch.Month,
+                BatchYear = r.PayrollBatch.Year,
+                Amount = r.Amount,
+                Currency = r.Currency,
+                Status = r.Status.ToString(),
+                Remarks = r.Remarks,
+                ReviewedBy = r.ReviewedBy,
+                ReviewedAt = r.ReviewedAt,
+                RejectionReason = r.RejectionReason,
+                CreatedAt = r.CreatedAt,
+            })
+            .ToListAsync();
+
+        return list
+            .OrderBy(r => string.Equals(r.Status, nameof(SalaryAdvanceRequestStatus.Pending), StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenByDescending(r => r.CreatedAt)
+            .ToList();
+    }
+
+    public async Task<SalaryAdvanceRequestDto> CreateSalaryAdvanceRequestAsync(Guid employeeId, CreateSalaryAdvanceRequestDto dto)
+    {
+        if (dto.Amount <= 0)
+            throw new InvalidOperationException("Amount must be greater than zero.");
+
+        var batch = await _db.PayrollBatches.FirstOrDefaultAsync(b => b.Id == dto.PayrollBatchId);
+        if (batch is null)
+            throw new InvalidOperationException("Payroll run not found.");
+
+        var openStatuses = new[]
+        {
+            BatchStatus.Draft,
+            BatchStatus.Calculated,
+            BatchStatus.Reviewed,
+            BatchStatus.Approved,
+        };
+        if (!openStatuses.Contains(batch.Status))
+            throw new InvalidOperationException(
+                "Salary advances can only be requested against an open pay run (Draft, Calculated, Reviewed, or Approved — not yet finalized).");
+
+        var existingPending = await _db.SalaryAdvanceRequests
+            .AnyAsync(r => r.EmployeeId == employeeId
+                && r.PayrollBatchId == dto.PayrollBatchId
+                && r.Status == SalaryAdvanceRequestStatus.Pending);
+        if (existingPending)
+            throw new InvalidOperationException("This employee already has a pending advance request for this pay run.");
+
+        var entity = new SalaryAdvanceRequest
+        {
+            EmployeeId = employeeId,
+            PayrollBatchId = dto.PayrollBatchId,
+            Amount = dto.Amount,
+            Currency = string.IsNullOrWhiteSpace(dto.Currency) ? "LKR" : dto.Currency,
+            Status = SalaryAdvanceRequestStatus.Pending,
+            Remarks = dto.Remarks,
+        };
+        _db.SalaryAdvanceRequests.Add(entity);
+        await _db.SaveChangesAsync();
+
+        await _db.Entry(entity).Reference(e => e.Employee).LoadAsync();
+        await _db.Entry(entity).Reference(e => e.PayrollBatch).LoadAsync();
+        return MapSalaryAdvanceDto(entity);
+    }
+
+    public async Task<SalaryAdvanceRequestDto?> ApproveSalaryAdvanceRequestAsync(Guid id, string reviewedBy)
+    {
+        var entity = await _db.SalaryAdvanceRequests
+            .Include(r => r.Employee)
+            .Include(r => r.PayrollBatch)
+            .FirstOrDefaultAsync(r => r.Id == id);
+        if (entity is null) return null;
+        if (entity.Status != SalaryAdvanceRequestStatus.Pending)
+            throw new InvalidOperationException("Only pending requests can be approved.");
+
+        entity.Status = SalaryAdvanceRequestStatus.Approved;
+        entity.ReviewedBy = reviewedBy;
+        entity.ReviewedAt = DateTime.UtcNow;
+        entity.RejectionReason = null;
+        await _db.SaveChangesAsync();
+
+        await SyncSalaryAdvanceDeductionLineForBatchAsync(entity.EmployeeId, entity.PayrollBatchId);
+
+        return MapSalaryAdvanceDto(entity);
+    }
+
+    public async Task ReconcileSalaryAdvanceDeductionLinesForBatchAsync(Guid payrollBatchId)
+    {
+        var employeeIds = await _db.SalaryAdvanceRequests
+            .AsNoTracking()
+            .Where(r => r.PayrollBatchId == payrollBatchId)
+            .Select(r => r.EmployeeId)
+            .Distinct()
+            .ToListAsync();
+
+        foreach (var employeeId in employeeIds)
+            await SyncSalaryAdvanceDeductionLineForBatchAsync(employeeId, payrollBatchId);
+    }
+
+    public async Task<SalaryAdvanceRequestDto?> RejectSalaryAdvanceRequestAsync(Guid id, string reviewedBy, string? reason)
+    {
+        var entity = await _db.SalaryAdvanceRequests
+            .Include(r => r.Employee)
+            .Include(r => r.PayrollBatch)
+            .FirstOrDefaultAsync(r => r.Id == id);
+        if (entity is null) return null;
+        if (entity.Status != SalaryAdvanceRequestStatus.Pending)
+            throw new InvalidOperationException("Only pending requests can be rejected.");
+
+        entity.Status = SalaryAdvanceRequestStatus.Rejected;
+        entity.ReviewedBy = reviewedBy;
+        entity.ReviewedAt = DateTime.UtcNow;
+        entity.RejectionReason = reason;
+        await _db.SaveChangesAsync();
+        return MapSalaryAdvanceDto(entity);
+    }
+
+    /// <summary>
+    /// Keeps the variable "ADVANCE" deduction line in sync with the sum of approved salary advance
+    /// requests for the same employee and pay run (used by payroll calculation and Employee Salary UI).
+    /// </summary>
+    private async Task SyncSalaryAdvanceDeductionLineForBatchAsync(Guid employeeId, Guid payrollBatchId)
+    {
+        const string advanceCode = "ADVANCE";
+        var advanceComponent = await _db.CompensationComponents
+            .FirstOrDefaultAsync(c => c.Code == advanceCode);
+        if (advanceComponent is null)
+        {
+            throw new InvalidOperationException(
+                $"Salary advance recovery requires a compensation component with code {advanceCode}. " +
+                "Add it under Payroll → Components (or run payroll seed).");
+        }
+
+        var approved = await _db.SalaryAdvanceRequests
+            .Where(r => r.EmployeeId == employeeId
+                && r.PayrollBatchId == payrollBatchId
+                && r.Status == SalaryAdvanceRequestStatus.Approved)
+            .ToListAsync();
+
+        var total = approved.Sum(r => r.Amount);
+        var currency = approved.Count > 0
+            ? (string.IsNullOrWhiteSpace(approved[0].Currency) ? "LKR" : approved[0].Currency.Trim())
+            : "LKR";
+
+        var candidates = await _db.EmployeeCompensations
+            .Where(ec => ec.EmployeeId == employeeId && ec.ComponentId == advanceComponent.Id)
+            .ToListAsync();
+
+        var forThisBatch = candidates.Where(ec => ec.BatchId == payrollBatchId).ToList();
+
+        if (total <= 0)
+        {
+            foreach (var ec in forThisBatch)
+            {
+                ec.Amount = 0;
+                ec.IsActive = false;
+            }
+
+            await _db.SaveChangesAsync();
+            return;
+        }
+
+        var existing = forThisBatch.FirstOrDefault()
+            ?? candidates.FirstOrDefault(ec => ec.BatchId is null);
+
+        if (existing is not null)
+        {
+            existing.Amount = total;
+            existing.Currency = currency;
+            existing.IsActive = true;
+            existing.BatchId = payrollBatchId;
+            existing.EffectiveTo = null;
+        }
+        else
+        {
+            _db.EmployeeCompensations.Add(new EmployeeCompensation
+            {
+                EmployeeId = employeeId,
+                ComponentId = advanceComponent.Id,
+                Amount = total,
+                Currency = currency,
+                EffectiveFrom = DateTime.UtcNow.Date,
+                EffectiveTo = null,
+                IsActive = true,
+                BatchId = payrollBatchId,
+            });
+        }
+
+        await _db.SaveChangesAsync();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
+
+    private static SalaryAdvanceRequestDto MapSalaryAdvanceDto(SalaryAdvanceRequest r) => new()
+    {
+        Id = r.Id,
+        EmployeeId = r.EmployeeId,
+        EmployeeName = r.Employee.FirstName + " " + r.Employee.LastName,
+        EmployeeCode = r.Employee.EmployeeCode,
+        PayrollBatchId = r.PayrollBatchId,
+        BatchCode = r.PayrollBatch.BatchCode,
+        BatchMonth = r.PayrollBatch.Month,
+        BatchYear = r.PayrollBatch.Year,
+        Amount = r.Amount,
+        Currency = r.Currency,
+        Status = r.Status.ToString(),
+        Remarks = r.Remarks,
+        ReviewedBy = r.ReviewedBy,
+        ReviewedAt = r.ReviewedAt,
+        RejectionReason = r.RejectionReason,
+        CreatedAt = r.CreatedAt,
+    };
 
     private static CompensationComponentDto MapComponentDto(CompensationComponent c) => new()
     {
@@ -431,10 +738,20 @@ public class PayrollService : IPayrollService
 
     private static PayrollBatchDto MapBatchDto(PayrollBatch b)
     {
+        var selectedIds = new List<Guid>();
         var selectedCount = 0;
         if (!string.IsNullOrEmpty(b.SelectedEmployeeIds))
         {
-            try { selectedCount = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(b.SelectedEmployeeIds)?.Count ?? 0; } catch { }
+            try
+            {
+                selectedIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(b.SelectedEmployeeIds) ?? new List<Guid>();
+                selectedCount = selectedIds.Count;
+            }
+            catch
+            {
+                selectedIds = new List<Guid>();
+                selectedCount = 0;
+            }
         }
         return new()
         {
@@ -444,6 +761,7 @@ public class PayrollService : IPayrollService
             TotalDeductions = b.TotalDeductions, TotalNet = b.TotalNet,
             TotalEmployerCost = b.TotalEmployerCost, Notes = b.Notes,
             SelectedCount = selectedCount,
+            SelectedEmployeeIds = selectedIds,
             CreatedAt = b.CreatedAt,
         };
     }

@@ -26,7 +26,7 @@ public class PayrollCalculationEngine
             .FirstOrDefaultAsync(b => b.Id == batchId)
             ?? throw new InvalidOperationException("Batch not found.");
 
-        if (batch.Status != BatchStatus.Draft && batch.Status != BatchStatus.Calculated)
+        if (batch.Status != BatchStatus.Draft && batch.Status != BatchStatus.Calculated && batch.Status != BatchStatus.Reviewed)
             throw new InvalidOperationException($"Batch is in '{batch.Status}' status and cannot be recalculated.");
 
         // Parse selected employee IDs stored on the batch

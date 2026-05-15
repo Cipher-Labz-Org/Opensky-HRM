@@ -91,3 +91,15 @@ D:\Opensky-HRM\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\ref\OpenSkyHRM.Domain.
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Domain.deps.json
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Domain.dll
 D:\Opensky-HRM\artifacts\api-build-check\OpenSkyHRM.Domain.pdb
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.deps.json
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.dll
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\bin\Debug\net8.0\OpenSkyHRM.Domain.pdb
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.AssemblyInfoInputs.cache
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.AssemblyInfo.cs
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.csproj.CoreCompileInputs.cache
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.sourcelink.json
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.dll
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\refint\OpenSkyHRM.Domain.dll
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\OpenSkyHRM.Domain.pdb
+C:\D Drive\Cipher Labz\Backend\OpenSkyHRM.Domain\obj\Debug\net8.0\ref\OpenSkyHRM.Domain.dll

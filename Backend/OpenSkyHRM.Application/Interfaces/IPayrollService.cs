@@ -28,6 +28,7 @@ public interface IPayrollService
     Task<PagedResult<PayrollBatchDto>> GetBatchesAsync(int page = 1, int pageSize = 20);
     Task<PayrollBatchDto?> GetBatchByIdAsync(Guid id);
     Task<PayrollBatchDto> CreateBatchAsync(CreatePayrollBatchDto dto);
+    Task<PayrollBatchDto?> UpdateBatchAsync(Guid id, UpdatePayrollBatchDto dto);
     Task<bool> DeleteBatchAsync(Guid id);
 
     // Pay Statements
@@ -38,4 +39,17 @@ public interface IPayrollService
     // Settings
     Task<PayrollSettingsDto> GetPayrollSettingsAsync();
     Task<PayrollSettingsDto> UpdatePayrollSettingsAsync(PayrollSettingsDto dto);
+
+    // Salary advance requests
+    Task<List<PayrollAdvanceBatchOptionDto>> GetActivePayrunBatchOptionsForAdvanceAsync();
+    Task<List<SalaryAdvanceRequestDto>> GetSalaryAdvanceRequestsForEmployeeAsync(Guid employeeId);
+    Task<List<SalaryAdvanceRequestDto>> GetSalaryAdvanceRequestsForHrAsync(string? status, IReadOnlyList<Guid>? allowedEmployeeIds);
+    Task<SalaryAdvanceRequestDto> CreateSalaryAdvanceRequestAsync(Guid employeeId, CreateSalaryAdvanceRequestDto dto);
+    Task<SalaryAdvanceRequestDto?> ApproveSalaryAdvanceRequestAsync(Guid id, string reviewedBy);
+    Task<SalaryAdvanceRequestDto?> RejectSalaryAdvanceRequestAsync(Guid id, string reviewedBy, string? reason);
+    /// <summary>
+    /// Upserts ADVANCE variable deductions from approved salary advance requests for the batch
+    /// (call before payroll calculate; also runs on each approve).
+    /// </summary>
+    Task ReconcileSalaryAdvanceDeductionLinesForBatchAsync(Guid payrollBatchId);
 }

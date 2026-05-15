@@ -9,6 +9,32 @@ public static class AuthSeeder
     {
         await SeedRolesAndPermissions(context);
         await SeedDefaultAdminUser(context);
+        await EnsureEmployeePayrollSelfServicePermissionAsync(context);
+    }
+
+    /// <summary>
+    /// Grants Employees own payslip / salary-advance API access. Safe to run on existing DBs.
+    /// </summary>
+    public static async Task EnsureEmployeePayrollSelfServicePermissionAsync(AppDbContext context)
+    {
+        var employeeRole = await context.SecurityRoles.FirstOrDefaultAsync(r => r.Code == "EMPLOYEE");
+        if (employeeRole == null) return;
+
+        var exists = await context.Permissions.AnyAsync(p =>
+            p.RoleId == employeeRole.Id
+            && p.Module == "Payroll"
+            && p.Action == "Read"
+            && p.Scope == "Own");
+        if (exists) return;
+
+        context.Permissions.Add(new Permission
+        {
+            RoleId = employeeRole.Id,
+            Module = "Payroll",
+            Action = "Read",
+            Scope = "Own",
+        });
+        await context.SaveChangesAsync();
     }
 
     private static async Task SeedRolesAndPermissions(AppDbContext context)
@@ -64,6 +90,7 @@ public static class AuthSeeder
         };
         employee.Permissions.Add(new Permission { Module = "Dashboard", Action = "Read", Scope = "Own" });
         employee.Permissions.Add(new Permission { Module = "People", Action = "Read", Scope = "Own" });
+        employee.Permissions.Add(new Permission { Module = "Payroll", Action = "Read", Scope = "Own" });
         employee.Permissions.Add(new Permission { Module = "Leave", Action = "Create", Scope = "Own" });
         employee.Permissions.Add(new Permission { Module = "Leave", Action = "Read", Scope = "Own" });
 
