@@ -1,4 +1,10 @@
 /** @type {import('next').NextConfig} */
+const apiBackendOrigin = (
+  process.env.API_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:5000"
+).replace(/\/$/, "");
+
 const nextConfig = {
   reactStrictMode: true,
   // Vercel expects the default ".next" output unless project settings override it.
@@ -33,6 +39,18 @@ const nextConfig = {
         permanent: false,
       },
       { source: "/billing", destination: "/app/billing", permanent: false },
+    ];
+  },
+  /**
+   * Local dev: browser calls same-origin `/hrm-backend/...` and Next proxies to Kestrel.
+   * Avoids direct `127.0.0.1:5000` fetches (firewall / binding / WSL quirks). Set NEXT_PUBLIC_API_URL to skip.
+   */
+  async rewrites() {
+    return [
+      {
+        source: "/hrm-backend/:path*",
+        destination: `${apiBackendOrigin}/:path*`,
+      },
     ];
   },
 };

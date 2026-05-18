@@ -95,7 +95,8 @@ function sortNotificationInbox(items: NotificationInboxItem[]): NotificationInbo
   const rank = (n: NotificationInboxItem) => {
     if (n.category === "BirthdayToday") return 0;
     if (n.category === "BirthdayUpcoming") return 1;
-    if (n.category === "BirthdayWish" || n.category === "BirthdayWishReply") return 2;
+    if (n.category === "BirthdayWish" || n.category === "BirthdayWishReply" || n.category === "BirthdayWishSent")
+      return 2;
     return 3;
   };
   return [...items].sort((a, b) => {
@@ -112,6 +113,71 @@ function sortNotificationInbox(items: NotificationInboxItem[]): NotificationInbo
     }
     return a.title.localeCompare(b.title);
   });
+}
+
+/** One inbox row: object (camelCase or PascalCase) or JSON array from positional record serialization. */
+function parseNotificationInboxRow(row: unknown): NotificationInboxItem | null {
+  if (Array.isArray(row)) {
+    const a = row;
+    const idVal = a[0];
+    const id = idVal != null && idVal !== "" ? String(idVal) : "";
+    if (!id) return null;
+    const readRaw = a[5];
+    return {
+      id,
+      title: String(a[1] ?? ""),
+      body: String(a[2] ?? ""),
+      category: String(a[3] ?? ""),
+      createdAt: String(a[4] ?? ""),
+      readAt: readRaw == null || readRaw === "" ? null : String(readRaw),
+      sourceUserId: a[6] == null || a[6] === "" ? undefined : String(a[6]),
+    };
+  }
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const idVal = r.id ?? r.Id;
+  const id = idVal != null && idVal !== "" ? String(idVal) : "";
+  if (!id) return null;
+  const readRaw = r.readAt ?? r.ReadAt;
+  const readAt = readRaw == null || readRaw === "" ? null : String(readRaw);
+  const su = r.sourceUserId ?? r.SourceUserId;
+  return {
+    id,
+    title: String(r.title ?? r.Title ?? ""),
+    body: String(r.body ?? r.Body ?? ""),
+    category: String(r.category ?? r.Category ?? ""),
+    createdAt: String(r.createdAt ?? r.CreatedAt ?? ""),
+    readAt,
+    sourceUserId: su == null ? undefined : String(su),
+  };
+}
+
+/** API may return camelCase or PascalCase; items may be objects or JSON arrays. */
+function normalizeNotificationInbox(data: unknown): NotificationInboxResponse {
+  if (Array.isArray(data) && data.length >= 2 && Array.isArray(data[0])) {
+    const uc = data[1];
+    const items: NotificationInboxItem[] = [];
+    for (const row of data[0] as unknown[]) {
+      const one = parseNotificationInboxRow(row);
+      if (one) items.push(one);
+    }
+    return {
+      items,
+      unreadCount: typeof uc === "number" && Number.isFinite(uc) ? uc : 0,
+    };
+  }
+  const d = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+  const rawItems = d.items ?? d.Items;
+  const items: NotificationInboxItem[] = [];
+  if (Array.isArray(rawItems)) {
+    for (const row of rawItems) {
+      const one = parseNotificationInboxRow(row);
+      if (one) items.push(one);
+    }
+  }
+  const uc = d.unreadCount ?? d.UnreadCount;
+  const unreadCount = typeof uc === "number" && Number.isFinite(uc) ? uc : 0;
+  return { items, unreadCount };
 }
 
 export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
@@ -137,38 +203,54 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
 
   const refreshUnreadCount = React.useCallback(async () => {
     try {
-      const data = await apiFetch<{ unreadCount: number }>("/api/notifications/unread-count");
-      setNotifUnread(typeof data.unreadCount === "number" ? data.unreadCount : 0);
+      const data = await apiFetch<unknown>("/api/notifications/unread-count");
+      const d = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+      const uc = d.unreadCount ?? d.UnreadCount;
+      setNotifUnread(typeof uc === "number" && Number.isFinite(uc) ? uc : 0);
     } catch {
       /* logged out or API down */
     }
   }, []);
 
-  const loadInbox = React.useCallback(async () => {
-    setNotifLoading(true);
-    setNotifError(null);
+  const loadInbox = React.useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setNotifLoading(true);
+      setNotifError(null);
+    }
     try {
-      const data = await apiFetch<NotificationInboxResponse>("/api/notifications?take=100");
-      const raw = Array.isArray(data.items) ? data.items : [];
-      const filtered = raw.filter((n) => n.category !== "BirthdayWishMyReply");
+      const data = await apiFetch<unknown>("/api/notifications?take=100");
+      const inbox = normalizeNotificationInbox(data);
+      const filtered = inbox.items.filter((n) => n.category !== "BirthdayWishMyReply");
       setNotifItems(sortNotificationInbox(filtered));
-      setNotifUnread(typeof data.unreadCount === "number" ? data.unreadCount : 0);
+      setNotifUnread(inbox.unreadCount);
     } catch (e) {
-      setNotifError(e instanceof Error ? e.message : "Could not load notifications.");
+      if (!opts?.silent) {
+        setNotifError(e instanceof Error ? e.message : "Could not load notifications.");
+      }
     } finally {
-      setNotifLoading(false);
+      if (!opts?.silent) setNotifLoading(false);
     }
   }, []);
 
   React.useEffect(() => {
     void refreshUnreadCount();
+    void loadInbox({ silent: true });
     const id = window.setInterval(() => void refreshUnreadCount(), 120_000);
     return () => window.clearInterval(id);
-  }, [refreshUnreadCount]);
+  }, [refreshUnreadCount, loadInbox]);
 
   React.useEffect(() => {
     if (notifOpen) void loadInbox();
   }, [notifOpen, loadInbox]);
+
+  React.useEffect(() => {
+    function onNotificationsChanged() {
+      void refreshUnreadCount();
+      void loadInbox({ silent: true });
+    }
+    window.addEventListener("opensky:notifications-changed", onNotificationsChanged);
+    return () => window.removeEventListener("opensky:notifications-changed", onNotificationsChanged);
+  }, [refreshUnreadCount, loadInbox]);
 
   const helpIconHref = contextualHelpGuideHref(pathname, user.licensedModules);
 
@@ -243,7 +325,8 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                         n.category === "BirthdayToday" ||
                         n.category === "BirthdayUpcoming" ||
                         n.category === "BirthdayWish" ||
-                        n.category === "BirthdayWishReply";
+                        n.category === "BirthdayWishReply" ||
+                        n.category === "BirthdayWishSent";
                       const unreadAccent = unread && goBioBirthdaysWidget;
                       return (
                         <li key={n.id}>
@@ -280,7 +363,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                               <span className="shrink-0 select-none text-base leading-tight" aria-hidden>
                                 🎂
                               </span>
-                            ) : n.category === "BirthdayWish" ? (
+                            ) : n.category === "BirthdayWish" || n.category === "BirthdayWishSent" ? (
                               <span className="shrink-0 select-none text-base leading-tight" aria-hidden>
                                 🎉
                               </span>

@@ -35,7 +35,8 @@ public class EmployeeBirthdayDigestReminderService : IEmployeeBirthdayDigestRemi
         var today = utcToday.Kind == DateTimeKind.Utc
             ? utcToday.Date
             : DateTime.SpecifyKind(utcToday, DateTimeKind.Utc).Date;
-        var windowEnd = today.AddDays(6);
+        // Today + next 7 calendar days (upcoming = days strictly after today through today+7).
+        var windowEnd = today.AddDays(7);
         var runKey = today.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
 
         var employees = await _db.Employees.AsNoTracking()
