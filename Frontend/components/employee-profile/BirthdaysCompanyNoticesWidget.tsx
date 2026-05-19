@@ -56,8 +56,12 @@ type BirthdayWishThreadDto = {
   messages: BirthdayWishThreadMessageDto[];
 };
 
-const digestCategories = new Set(["BirthdayToday", "BirthdayUpcoming", "EmployeeBirthdayDigest"]);
-const inboxHiddenCategories = new Set([...digestCategories, "BirthdayWishMyReply"]);
+const inboxHiddenCategories = new Set([
+  "BirthdayToday",
+  "BirthdayUpcoming",
+  "EmployeeBirthdayDigest",
+  "BirthdayWishMyReply",
+]);
 
 /** One-tap inserts for birthday wish messages (UTF-16 safe slice/length in textarea). */
 const WISH_QUICK_EMOJIS = ["🎉", "🎂", "🎁", "🥳", "❤️", "✨", "🙌", "👏", "💐", "😊", "⭐", "🍰"] as const;
@@ -900,7 +904,7 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
                     const kind = classifyNotice(n.category);
                     const label = noticeLabel(kind);
                     const unread = !n.readAt;
-                    const line = (n.body?.trim() || n.title ?? "").trim();
+                    const line = (n.body?.trim() || (n.title ?? "")).trim();
                     /** All birthday wishes are replyable; API resolves sender from SourceUserId or legacy DedupeKey. */
                     const canReplyToWish = n.category === "BirthdayWish";
                     const replyBusy = replyBusyNoticeId === n.id;
