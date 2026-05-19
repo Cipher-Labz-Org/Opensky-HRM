@@ -178,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const timeoutId = window.setTimeout(() => controller.abort(), LOGIN_FETCH_MS);
     let res: Response;
     try {
-      res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -195,7 +195,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
       }
       throw new Error(
-        `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+        API_BASE_URL
+          ? `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+          : "Cannot reach the HR API. On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend URL and redeploy."
       );
     } finally {
       window.clearTimeout(timeoutId);

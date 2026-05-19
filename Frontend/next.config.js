@@ -1,10 +1,27 @@
 /** @type {import('next').NextConfig} */
+function apiUpstreamBase() {
+  const url =
+    process.env.API_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_URL?.trim() ||
+    "http://127.0.0.1:5000";
+  return url.replace(/\/$/, "");
+}
+
 const nextConfig = {
   reactStrictMode: true,
   // Vercel expects the default ".next" output unless project settings override it.
   // Keep ".dist" for local workflows to avoid churn with existing local caches.
   distDir: process.env.VERCEL ? ".next" : ".dist",
   transpilePackages: ["jspdf", "jspdf-autotable"],
+  async rewrites() {
+    const base = apiUpstreamBase();
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${base}/api/:path*`,
+      },
+    ];
+  },
   async redirects() {
     return [
       { source: "/dashboard", destination: "/app/dashboard", permanent: false },

@@ -182,7 +182,16 @@ else
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
-        policy.WithOrigins(corsOrigins)
+        policy.SetIsOriginAllowed(origin =>
+            {
+                if (string.IsNullOrWhiteSpace(origin)) return false;
+                if (corsOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase)) return true;
+                if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)) return false;
+                var host = uri.Host;
+                return host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
+                    || host.Equals("openskyhrm.com", StringComparison.OrdinalIgnoreCase)
+                    || host.EndsWith(".openskyhrm.com", StringComparison.OrdinalIgnoreCase);
+            })
             .AllowAnyHeader()
             .AllowAnyMethod());
 });
