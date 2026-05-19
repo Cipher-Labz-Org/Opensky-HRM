@@ -6,6 +6,7 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
+import { apiFetch } from "@/lib/api";
 
 const kpiTileClass =
   "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
@@ -49,13 +50,51 @@ interface LeaveBalanceUploadResult {
   results: LeaveBalanceRowResult[];
 }
 
-type ActiveSection = "employees" | "leaveBalances";
+interface PayrollRowError {
+  row: number;
+  employeeCode?: string | null;
+  message: string;
+}
+
+interface PayrollSheetSummary {
+  created: number;
+  skipped: number;
+  errors: PayrollRowError[];
+}
+
+interface PayrollImportSummary {
+  directDeposits: PayrollSheetSummary;
+}
+
+function parsePayrollImportSummary(json: unknown): PayrollImportSummary {
+  const j = json as Record<string, unknown>;
+  const sheet = (raw: unknown): PayrollSheetSummary => {
+    const s = (raw ?? {}) as Record<string, unknown>;
+    const errs = (s.errors ?? s.Errors ?? []) as unknown[];
+    return {
+      created: Number(s.created ?? s.Created ?? 0),
+      skipped: Number(s.skipped ?? s.Skipped ?? 0),
+      errors: errs.map((e) => {
+        const r = (e ?? {}) as Record<string, unknown>;
+        return {
+          row: Number(r.row ?? r.Row ?? 0),
+          employeeCode: (r.employeeCode ?? r.EmployeeCode) as string | null | undefined,
+          message: String(r.message ?? r.Message ?? ""),
+        };
+      }),
+    };
+  };
+  return {
+    directDeposits: sheet(j.directDeposits ?? j.DirectDeposits),
+  };
+}
+
+type ActiveSection = "employees" | "leaveBalances" | "payroll";
 
 // ──── Page ────
 
 const roadmapModules = [
   { icon: "M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342", label: "Qualifications import", desc: "Education, skills, and languages" },
-  { icon: "M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z", label: "Payroll import", desc: "Compensation and bank details" },
   { icon: "M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z", label: "Dependents import", desc: "Emergency contacts and dependents" },
   { icon: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z", label: "Immigration import", desc: "Visa and passport records" },
 ] as const;
@@ -67,7 +106,7 @@ export default function AdministrationPage() {
     <>
       <AppTopbar
         title="Administration"
-        subtitle="Bulk Excel import for people data and leave balances. Download a template before you upload."
+        subtitle="Bulk Excel import for people data, leave balances, and direct deposit (bank accounts). Download a template before you upload."
       />
 
       <div className="space-y-6">
@@ -154,10 +193,22 @@ export default function AdministrationPage() {
           >
             Leave balance import
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveSection("payroll")}
+            className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+              activeSection === "payroll"
+                ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/90"
+                : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
+            }`}
+          >
+            Direct deposit import
+          </button>
         </div>
 
         {activeSection === "employees" && <EmployeeUploadSection />}
         {activeSection === "leaveBalances" && <LeaveBalanceUploadSection />}
+        {activeSection === "payroll" && <PayrollUploadSection />}
 
         <div className={`${panelClass} overflow-hidden`}>
           <div className="border-b border-slate-100 px-6 py-4">
@@ -195,10 +246,17 @@ export default function AdministrationPage() {
 
 async function downloadTemplate(path: string, fallbackFilename: string) {
   const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method: "GET",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch {
+    throw new Error(
+      `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+    );
+  }
   if (!res.ok) throw new Error((await res.text().catch(() => "")) || `Download failed (${res.status})`);
 
   const blob = await res.blob();
@@ -246,9 +304,8 @@ function EmployeeUploadSection() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("createUserLogins", createUserLogins ? "true" : "false");
-      const res = await fetch(`${API_BASE_URL}/api/bulkupload/employees`, { method: "POST", body: formData, headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}` } });
-      if (!res.ok) throw new Error(await res.text().catch(() => "") || `Upload failed (${res.status})`);
-      setResult(await res.json());
+      const json = await apiFetch<UploadResult>("/api/bulkupload/employees", { method: "POST", body: formData });
+      setResult(json);
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
     } catch (err) { setError(err instanceof Error ? err.message : "Upload failed"); }
@@ -437,9 +494,8 @@ function LeaveBalanceUploadSection() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`${API_BASE_URL}/api/bulkupload/leave-balances`, { method: "POST", body: formData, headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}` } });
-      if (!res.ok) throw new Error(await res.text().catch(() => "") || `Upload failed (${res.status})`);
-      setResult(await res.json());
+      const json = await apiFetch<LeaveBalanceUploadResult>("/api/bulkupload/leave-balances", { method: "POST", body: formData });
+      setResult(json);
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
     } catch (err) { setError(err instanceof Error ? err.message : "Upload failed"); }
@@ -585,6 +641,160 @@ function LeaveBalanceUploadSection() {
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ──── Direct deposit (payroll bulk) upload ────
+
+function PayrollUploadSection() {
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<PayrollImportSummary | null>(null);
+  const [error, setError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function handleFileChange(f: File | null) {
+    setFile(f);
+    setResult(null);
+    setError("");
+  }
+
+  async function handleUpload() {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    setResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const json = await apiFetch<unknown>("/api/bulkupload/payroll", { method: "POST", body: formData });
+      setResult(parsePayrollImportSummary(json));
+      setFile(null);
+      if (fileRef.current) fileRef.current.value = "";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function downloadErrorRows() {
+    if (!result) return;
+    const rows = result.directDeposits.errors.map((e) => [String(e.row), e.employeeCode ?? "", e.message]);
+    if (rows.length === 0) return;
+    downloadCsv("direct-deposit-import-errors.csv", ["Row", "Employee Code", "Message"], rows);
+  }
+
+  const totalCreated = result ? result.directDeposits.created : 0;
+  const totalSkipped = result ? result.directDeposits.skipped : 0;
+  const totalErrors = result ? result.directDeposits.errors.length : 0;
+
+  return (
+    <>
+      <div className={`${panelClass} overflow-hidden`}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50 ring-1 ring-teal-100">
+              <svg className="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-800">Direct deposit bulk import</h2>
+              <p className="text-xs text-slate-500">Bank accounts / splits on the employee profile — keyed by employee code (same columns as People → bank accounts)</p>
+            </div>
+          </div>
+          <Button
+            variant="secondary"
+            className="gap-2"
+            onClick={async () => {
+              try {
+                await downloadTemplate("/api/bulkupload/payroll-template", "DirectDepositImportTemplate.xlsx");
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Template download failed");
+              }
+            }}
+          >
+            <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Download template
+          </Button>
+        </div>
+        <div className="p-6">
+          <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+            <h4 className="mb-2 text-sm font-semibold text-slate-800">How to import direct deposits</h4>
+            <ol className="list-inside list-decimal space-y-1 text-xs text-slate-600">
+              <li>
+                The file contains one sheet, <strong>DirectDeposits</strong>, with the same header style as the employee import template (navy row, white text).
+              </li>
+              <li>
+                Each data row needs a valid <strong>Employee Code</strong>, <strong>Amount</strong>, and <strong>Account Number</strong>. Optional: Bank Name, Account Type (e.g. Checking), Bank/Branch codes and location.
+              </li>
+              <li>Blank employee rows are ignored. Only data rows under the header are imported as bank accounts on the employee profile.</li>
+            </ol>
+          </div>
+          <DropZone file={file} fileRef={fileRef} dragOver={dragOver} setDragOver={setDragOver} onFileChange={handleFileChange} />
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button disabled={!file || uploading} onClick={handleUpload}>
+              {uploading && (
+                <span className="mr-2 inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-[#2B7DE9]" aria-hidden />
+              )}
+              {uploading ? "Uploading…" : "Upload & import"}
+            </Button>
+            {error && (
+              <div className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {result && (
+        <div className={`${panelClass} overflow-hidden`}>
+          <div className="border-b border-slate-100 px-6 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">Import results</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Created, skipped, and row-level errors for DirectDeposits</p>
+              </div>
+              {totalErrors > 0 && (
+                <Button variant="secondary" className="gap-2" onClick={downloadErrorRows}>
+                  <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download errors CSV
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="p-6">
+            <div className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div className={kpiTileClass}>
+                <div className="text-xs font-medium uppercase tracking-wider text-emerald-600">Created</div>
+                <p className="mt-2 text-2xl font-semibold text-emerald-700">{totalCreated}</p>
+              </div>
+              <div className={kpiTileClass}>
+                <div className="text-xs font-medium uppercase tracking-wider text-rose-600">Skipped</div>
+                <p className="mt-2 text-2xl font-semibold text-rose-700">{totalSkipped}</p>
+              </div>
+              <div className={kpiTileClass}>
+                <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Row errors</div>
+                <p className="mt-2 text-2xl font-semibold text-slate-800">{totalErrors}</p>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <h3 className="text-sm font-semibold text-slate-800">DirectDeposits sheet</h3>
+              <p className="mt-2 text-xs text-slate-600">
+                Created <strong className="text-emerald-700">{result.directDeposits.created}</strong> · Skipped{" "}
+                <strong className="text-rose-700">{result.directDeposits.skipped}</strong> · Errors{" "}
+                <strong>{result.directDeposits.errors.length}</strong>
+              </p>
+            </div>
           </div>
         </div>
       )}

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } fro
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, DateTimePickerField } from "@/components/ui";
+import { DatePickerField, DateTimePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
@@ -1846,6 +1846,46 @@ function RosterTab() {
       })
     : assignments;
 
+  const rosterEmployeeFilterOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "All employees" },
+      ...employees.map((emp) => ({
+        value: emp.id,
+        label: `${emp.fullName}${emp.employeeCode ? ` (${emp.employeeCode})` : ""}`,
+      })),
+    ],
+    [employees],
+  );
+
+  const rosterDeptFilterOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "All departments" },
+      ...departments.map(([id, name]) => ({ value: id, label: name })),
+    ],
+    [departments],
+  );
+
+  const rosterTemplateOpts = useMemo<FormSelectOption[]>(
+    () => templates.map((t) => ({ value: t.id, label: t.name })),
+    [templates],
+  );
+
+  const bulkDeptFilterOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "All departments" },
+      ...departments.map(([id, name]) => ({ value: id, label: name })),
+    ],
+    [departments],
+  );
+
+  const bulkLocFilterOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "All locations" },
+      ...locations.map(([id, name]) => ({ value: id, label: name })),
+    ],
+    [locations],
+  );
+
   const selectableVisibleCount = bulkVisibleEmployees.filter((e) => !alreadyAssignedIds.has(e.id)).length;
   const allVisibleSelected = selectableVisibleCount > 0 && bulkVisibleEmployees.filter((e) => !alreadyAssignedIds.has(e.id)).every((e) => bulkSelectedIds.has(e.id));
 
@@ -1909,18 +1949,24 @@ function RosterTab() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-600">Employee</label>
-              <select value={filterEmployeeId} onChange={(e) => setFilterEmployeeId(e.target.value)} className={`${inputClass} max-w-xs`}>
-                <option value="">All employees</option>
-                {employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.fullName}{emp.employeeCode ? ` (${emp.employeeCode})` : ""}</option>)}
-              </select>
+              <label className="shrink-0 text-sm text-slate-600">Employee</label>
+              <FormSelect
+                value={filterEmployeeId}
+                onValueChange={setFilterEmployeeId}
+                options={rosterEmployeeFilterOpts}
+                placeholder="All employees"
+                className="max-w-xs"
+              />
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-600">Department</label>
-              <select value={filterDeptId} onChange={(e) => setFilterDeptId(e.target.value)} className={`${inputClass} max-w-xs`}>
-                <option value="">All departments</option>
-                {departments.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-              </select>
+              <label className="shrink-0 text-sm text-slate-600">Department</label>
+              <FormSelect
+                value={filterDeptId}
+                onValueChange={setFilterDeptId}
+                options={rosterDeptFilterOpts}
+                placeholder="All departments"
+                className="max-w-xs"
+              />
             </div>
           </div>
           <Button onClick={() => openBulkModal()}>+ Assign roster</Button>
@@ -2042,10 +2088,13 @@ function RosterTab() {
             <div className="space-y-4">
               <div>
                 <label className={labelClass}>Roster template *</label>
-                <select value={bulkTemplateId} onChange={(e) => setBulkTemplateId(e.target.value)} className={inputClass}>
-                  <option value="" disabled>Select template</option>
-                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
+                <FormSelect
+                  value={bulkTemplateId}
+                  onValueChange={setBulkTemplateId}
+                  options={rosterTemplateOpts}
+                  placeholder="Select template"
+                  required
+                />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div><label className={labelClass}>Effective from *</label><DatePickerField value={bulkFrom} onChange={setBulkFrom} className={inputClass} /></div>
@@ -2063,14 +2112,20 @@ function RosterTab() {
             <div className="space-y-3">
               {/* Filters row */}
               <div className="flex flex-wrap items-center gap-2">
-                <select value={bulkDeptFilter} onChange={(e) => handleBulkDeptChange(e.target.value)} className={`${inputClass} max-w-[180px]`}>
-                  <option value="">All departments</option>
-                  {departments.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-                </select>
-                <select value={bulkLocFilter} onChange={(e) => setBulkLocFilter(e.target.value)} className={`${inputClass} max-w-[180px]`}>
-                  <option value="">All locations</option>
-                  {locations.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-                </select>
+                <FormSelect
+                  value={bulkDeptFilter}
+                  onValueChange={handleBulkDeptChange}
+                  options={bulkDeptFilterOpts}
+                  placeholder="All departments"
+                  className="max-w-[180px]"
+                />
+                <FormSelect
+                  value={bulkLocFilter}
+                  onValueChange={setBulkLocFilter}
+                  options={bulkLocFilterOpts}
+                  placeholder="All locations"
+                  className="max-w-[180px]"
+                />
                 <input type="text" placeholder="Search name or code..." value={bulkSearch} onChange={(e) => setBulkSearch(e.target.value)} className={`${inputClass} max-w-[200px]`} />
               </div>
 
