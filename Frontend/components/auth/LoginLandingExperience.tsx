@@ -86,7 +86,12 @@ export function LoginLandingExperience() {
 
   useEffect(() => {
     let isMounted = true;
-    fetch("/api/auth/branding")
+    // Always same-origin (gamma.openskyhrm.com/api/...), never gammabackend — avoids CORS on deployed hosts.
+    const brandingUrl =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/api/auth/branding`
+        : "/api/auth/branding";
+    fetch(brandingUrl)
       .then(async (res) => {
         if (!res.ok) return null;
         return res.json();
