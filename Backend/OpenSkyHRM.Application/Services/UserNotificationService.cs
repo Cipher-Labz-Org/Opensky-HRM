@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.Notifications;
 using OpenSkyHRM.Application.Interfaces;
@@ -16,6 +18,8 @@ public class UserNotificationService : IUserNotificationService
         CancellationToken cancellationToken = default)
     {
         take = Math.Clamp(take, 1, 100);
+        await PruneStaleBirthdayRemindersAsync(userId, cancellationToken);
+
         var unread = await _db.UserNotifications.AsNoTracking()
             .CountAsync(
                 n => n.UserId == userId && n.ReadAt == null && n.Category != "BirthdayWishMyReply",
@@ -51,11 +55,14 @@ public class UserNotificationService : IUserNotificationService
         return new UserNotificationInboxDto(items, unread);
     }
 
-    public Task<int> GetUnreadCountAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        _db.UserNotifications.AsNoTracking()
+    public async Task<int> GetUnreadCountAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        await PruneStaleBirthdayRemindersAsync(userId, cancellationToken);
+        return await _db.UserNotifications.AsNoTracking()
             .CountAsync(
                 n => n.UserId == userId && n.ReadAt == null && n.Category != "BirthdayWishMyReply",
                 cancellationToken);
+    }
 
     public async Task<bool> MarkReadAsync(Guid userId, Guid notificationId,
         CancellationToken cancellationToken = default)
@@ -196,6 +203,67 @@ public class UserNotificationService : IUserNotificationService
         messages.AddRange(myReplies.Select(r => new BirthdayWishThreadMessageDto(false, r.Body, r.CreatedAt)));
 
         return new BirthdayWishThreadDto(wish.Id, wish.Title, messages);
+    }
+
+    /// <summary>
+    /// Removes birthday digest reminders whose occasion date is no longer "today" / within the 7-day upcoming window (UTC),
+    /// so they disappear after the day passes without waiting for the next Hangfire rebuild.
+    /// </summary>
+    private async Task PruneStaleBirthdayRemindersAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var utcToday = DateTime.UtcNow.Date;
+        var todayD = DateOnly.FromDateTime(utcToday);
+        var tomorrowD = DateOnly.FromDateTime(utcToday.AddDays(1));
+        var lastUpcomingD = DateOnly.FromDateTime(utcToday.AddDays(7));
+
+        var catToday = EmployeeBirthdayDigestReminderService.CategoryBirthdayToday;
+        var catUp = EmployeeBirthdayDigestReminderService.CategoryBirthdayUpcoming;
+
+        var candidates = await _db.UserNotifications
+            .Where(n => n.UserId == userId && (n.Category == catToday || n.Category == catUp))
+            .ToListAsync(cancellationToken);
+
+        if (candidates.Count == 0)
+            return;
+
+        var removed = false;
+        foreach (var n in candidates)
+        {
+            if (!TryParseBirthdayReminderIsoDate(n.Body, out var occasion))
+                continue;
+            var stale =
+                (string.Equals(n.Category, catToday, StringComparison.Ordinal) && occasion != todayD)
+                || (string.Equals(n.Category, catUp, StringComparison.Ordinal)
+                    && (occasion < tomorrowD || occasion > lastUpcomingD));
+            if (!stale)
+                continue;
+            _db.UserNotifications.Remove(n);
+            removed = true;
+        }
+
+        if (removed)
+            await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool TryParseBirthdayReminderIsoDate(string? body, out DateOnly occasion)
+    {
+        occasion = default;
+        if (string.IsNullOrWhiteSpace(body))
+            return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("isoDate", out var el))
+                return false;
+            var s = el.GetString();
+            if (string.IsNullOrEmpty(s))
+                return false;
+            return DateOnly.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out occasion);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string FormatEmployeeDisplayName(Employee emp) =>

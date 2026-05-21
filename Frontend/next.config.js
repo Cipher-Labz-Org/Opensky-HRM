@@ -16,6 +16,12 @@ const nextConfig = {
   async rewrites() {
     const base = apiUpstreamBase();
     return [
+      // Local dev: browser calls same-origin `/hrm-backend/...` → Kestrel
+      {
+        source: "/hrm-backend/:path*",
+        destination: `${base}/:path*`,
+      },
+      // Production / Vercel: `/api/*` and static uploads proxied to backend
       {
         source: "/api/:path*",
         destination: `${base}/api/:path*`,

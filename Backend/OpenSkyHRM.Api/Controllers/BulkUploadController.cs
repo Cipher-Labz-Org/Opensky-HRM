@@ -14,8 +14,9 @@ namespace OpenSkyHRM.Api.Controllers;
 [Authorize]
 [ApiController]
 [RequireLicensedModule("Administration")]
-[Route("api/[controller]")]
-public class BulkUploadController : ControllerBase
+// One route only: `api/[controller]` + `api/bulkupload` both resolve to the same path case-insensitively → AmbiguousMatchException.
+[Route("api/bulkupload")]
+public partial class BulkUploadController : ControllerBase
 {
     /// <summary>Default password for users created via bulk import when <c>Create employee logins</c> is enabled (must match Administration UI).</summary>
     public const string BulkImportDefaultLoginPassword = "123";

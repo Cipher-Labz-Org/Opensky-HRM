@@ -16,20 +16,28 @@ function isLocalApiUrl(url: string | undefined): boolean {
 }
 
 /**
- * Production/custom domains (e.g. gamma.openskyhrm.com): browser calls same-origin `/api/*`;
- * Next rewrites proxy to the real API. Avoids CORS on every preview/custom hostname.
+ * Local dev: same-origin `/hrm-backend` proxy (see next.config.js). Omit NEXT_PUBLIC_API_URL in .env.local.
  */
-const useSameOriginApi =
+const useDevSameOriginProxy =
+  process.env.NODE_ENV === "development" &&
+  process.env.NEXT_PUBLIC_API_DEV_PROXY !== "0" &&
+  !rawApiUrl;
+
+/**
+ * Production / custom domains (e.g. gamma.openskyhrm.com): same-origin `/api/*` rewrites — avoids CORS.
+ */
+const useProductionSameOriginProxy =
   process.env.NEXT_PUBLIC_USE_SAME_ORIGIN_API === "true" ||
   process.env.VERCEL === "1" ||
   Boolean(rawApiUrl && !isLocalApiUrl(rawApiUrl));
 
-/** Empty string = relative `/api/...` (proxied). Local dev defaults to the ASP.NET API on port 5000. */
-export const API_BASE_URL = useSameOriginApi
+export const API_BASE_URL = useProductionSameOriginProxy
   ? ""
   : rawApiUrl && rawApiUrl.length > 0
-    ? rawApiUrl
-    : defaultLocalApi;
+    ? rawApiUrl.replace(/\/$/, "")
+    : useDevSameOriginProxy
+      ? "/hrm-backend"
+      : defaultLocalApi;
 
 /** Backend origin for static assets (profile images, company logo). <img src> does not need CORS. */
 export const API_ASSET_BASE_URL = (

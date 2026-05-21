@@ -104,7 +104,12 @@ builder.Services.AddAuthorization();
 
 // --- Controllers ---
 builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new ApiDateTimeJsonConverter()));
+    .AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        o.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+        o.JsonSerializerOptions.Converters.Add(new ApiDateTimeJsonConverter());
+    });
 
 // --- Swagger ---
 builder.Services.AddEndpointsApiExplorer();

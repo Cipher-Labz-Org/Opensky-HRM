@@ -169,6 +169,17 @@ export default function CandidateDetailPage() {
     [scheduleLookups.interviewers]
   );
 
+  const onboardingTemplateOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "No onboarding template" },
+      ...onboardingTemplates.map((t) => ({
+        value: t.id,
+        label: `${t.name} (${t.itemCount} tasks)`,
+      })),
+    ],
+    [onboardingTemplates]
+  );
+
   useEffect(() => {
     if (!scheduleModal) {
       setScheduleLocationOther("");
@@ -887,10 +898,12 @@ export default function CandidateDetailPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1.5">Onboarding Template (optional)</label>
-                    <select value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} className={INPUT}>
-                      <option value="">No onboarding template</option>
-                      {onboardingTemplates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.itemCount} tasks)</option>)}
-                    </select>
+                    <FormSelect
+                      value={selectedTemplateId}
+                      onValueChange={setSelectedTemplateId}
+                      options={onboardingTemplateOpts}
+                      placeholder="No onboarding template"
+                    />
                     <p className="mt-1 text-xs text-[var(--text-muted)]">Select a template to automatically create onboarding tasks for the new employee.</p>
                   </div>
                 </div>

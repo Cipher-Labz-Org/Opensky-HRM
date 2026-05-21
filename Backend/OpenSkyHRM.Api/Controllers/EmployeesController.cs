@@ -424,7 +424,7 @@ public class EmployeesController : ControllerBase
 
     /// <summary>
     /// Today's birthdays follow People:Read scope. Upcoming lists all active employees company-wide whose
-    /// birthday falls in the next 30 calendar days after today (exclusive of today).
+    /// birthday falls in the next 7 calendar days after today (exclusive of today).
     /// </summary>
     [HttpGet("birthdays/summary")]
     public async Task<IActionResult> GetBirthdaySummary(CancellationToken cancellationToken = default)
@@ -434,7 +434,7 @@ public class EmployeesController : ControllerBase
             return Ok(new BirthdaySummaryResponse([], []));
 
         var today = DateTime.UtcNow.Date;
-        const int upcomingBirthdayHorizonDays = 30;
+        const int upcomingBirthdayHorizonDays = 7;
         var upcomingEnd = today.AddDays(upcomingBirthdayHorizonDays);
 
         var baseQuery = _db.Employees.AsNoTracking()
@@ -546,6 +546,23 @@ public class EmployeesController : ControllerBase
             if (await _notifications.TryCreateDedupedAsync(uid, dedupe, title, body, category, null, fromUserId.Value,
                     cancellationToken))
                 inserted++;
+        }
+
+        if (inserted > 0)
+        {
+            var toEmp = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == dto.ToEmployeeId, cancellationToken);
+            var toName = toEmp != null ? FormatEmployeeDisplayName(toEmp) : "your colleague";
+            var sentDedupe = $"BD-WISH-SENT:{runDate}:{fromUserId.Value:D}:{dto.ToEmployeeId:D}";
+            await _notifications.TryCreateDedupedAsync(
+                fromUserId.Value,
+                sentDedupe,
+                "Birthday wish sent",
+                $"Your birthday wish was delivered to {toName}.",
+                "BirthdayWishSent",
+                null,
+                null,
+                cancellationToken);
         }
 
         return Ok(new { sent = inserted > 0, notificationsCreated = inserted });

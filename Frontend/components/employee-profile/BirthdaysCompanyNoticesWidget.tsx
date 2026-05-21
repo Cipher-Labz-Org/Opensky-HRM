@@ -56,23 +56,13 @@ type BirthdayWishThreadDto = {
   messages: BirthdayWishThreadMessageDto[];
 };
 
-const inboxHiddenCategories = new Set([
-  "BirthdayToday",
-  "BirthdayUpcoming",
-  "EmployeeBirthdayDigest",
-  "BirthdayWishMyReply",
-]);
+const digestCategories = new Set(["BirthdayToday", "BirthdayUpcoming", "EmployeeBirthdayDigest"]);
+const inboxHiddenCategories = new Set([...digestCategories, "BirthdayWishMyReply"]);
 
 /** One-tap inserts for birthday wish messages (UTF-16 safe slice/length in textarea). */
 const WISH_QUICK_EMOJIS = ["🎉", "🎂", "🎁", "🥳", "❤️", "✨", "🙌", "👏", "💐", "😊", "⭐", "🍰"] as const;
 
 type NoticeKind = "important" | "event" | "reminder" | "wish" | "reply" | "notice";
-
-function formatMd(iso: string): string {
-  const d = new Date(`${iso}T12:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
-}
 
 function formatNoticeDate(iso: string): string {
   const d = new Date(iso);
@@ -92,7 +82,7 @@ function formatChatTime(iso: string): string {
 
 function classifyNotice(category: string): NoticeKind {
   const c = category.toLowerCase();
-  if (c === "birthdaywish") return "wish";
+  if (c === "birthdaywish" || c === "birthdaywishsent") return "wish";
   if (c === "birthdaywishreply") return "reply";
   if (c.includes("probation") || c.includes("retire") || c.includes("terminat") || c.includes("critical"))
     return "important";
@@ -278,53 +268,18 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
   const [menuOpen, setMenuOpen] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
   const [wishHighlightId, setWishHighlightId] = React.useState<string | null>(null);
+  const [wishesPanelOpen, setWishesPanelOpen] = React.useState(false);
+  const [noticesExpanded, setNoticesExpanded] = React.useState(false);
 
-  const upcomingScrollerRef = React.useRef<HTMLDivElement>(null);
-  const [upcomingSlideIdx, setUpcomingSlideIdx] = React.useState(0);
+  const upcomingStripRef = React.useRef<HTMLDivElement>(null);
   const upcomingLimited = React.useMemo(() => (summary?.upcoming ?? []).slice(0, 80), [summary]);
-  const upcomingScrollKey = React.useMemo(
-    () => upcomingLimited.map((p) => `${p.employeeId}-${p.occasionDate}`).join("|"),
-    [upcomingLimited],
-  );
 
-  const handleUpcomingCarouselScroll = React.useCallback(() => {
-    const el = upcomingScrollerRef.current;
-    if (!el || upcomingLimited.length <= 1) return;
-    const w = el.clientWidth || 1;
-    const idx = Math.round(el.scrollLeft / w);
-    setUpcomingSlideIdx(Math.min(Math.max(0, idx), upcomingLimited.length - 1));
-  }, [upcomingLimited.length]);
-
-  const scrollToUpcomingSlide = React.useCallback(
-    (idx: number) => {
-      const el = upcomingScrollerRef.current;
-      if (!el || upcomingLimited.length === 0) return;
-      const w = el.clientWidth || 1;
-      const clamped = Math.max(0, Math.min(idx, upcomingLimited.length - 1));
-      el.scrollTo({ left: clamped * w, behavior: "smooth" });
-      setUpcomingSlideIdx(clamped);
-    },
-    [upcomingLimited.length],
-  );
-
-  React.useEffect(() => {
-    setUpcomingSlideIdx(0);
-    const el = upcomingScrollerRef.current;
-    if (el) el.scrollLeft = 0;
-  }, [upcomingScrollKey]);
-
-  React.useEffect(() => {
-    const el = upcomingScrollerRef.current;
-    if (!el || upcomingLimited.length <= 1) return;
-    const ro = new ResizeObserver(() => {
-      const w = el.clientWidth || 1;
-      if (w < 1) return;
-      const idx = Math.min(Math.max(0, Math.round(el.scrollLeft / w)), upcomingLimited.length - 1);
-      el.scrollLeft = idx * w;
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [upcomingLimited.length, upcomingScrollKey]);
+  const scrollUpcomingStrip = React.useCallback((dir: 1 | -1) => {
+    const el = upcomingStripRef.current;
+    if (!el) return;
+    const step = Math.max(120, Math.floor(el.clientWidth * 0.6));
+    el.scrollBy({ left: dir * step, behavior: "smooth" });
+  }, []);
 
   const load = React.useCallback(async () => {
     setErr(null);
@@ -366,6 +321,12 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  React.useEffect(() => {
+    if (!wishFocusParam) return;
+    const t = summary?.today ?? [];
+    if (t.some((p) => p.employeeId === wishFocusParam)) setWishesPanelOpen(true);
+  }, [wishFocusParam, summary?.today]);
 
   React.useEffect(() => {
     if (!menuOpen) return;
@@ -472,7 +433,7 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
     setWishBusyId(employeeId);
     const message = (wishNoteByEmployee[employeeId] ?? "").trim();
     try {
-      const res = await apiFetch<{ sent: boolean; reason?: string; notificationsCreated?: number }>(
+      const res = await apiFetch<{ sent?: boolean; Sent?: boolean; notificationsCreated?: number; reason?: string }>(
         "/api/employees/birthdays/wish",
         {
           method: "POST",
@@ -483,21 +444,25 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
           }),
         }
       );
-      if (res.sent) {
+      const delivered =
+        res.sent === true ||
+        res.Sent === true ||
+        (typeof res.notificationsCreated === "number" && res.notificationsCreated > 0);
+      if (delivered) {
         setWishHint("Wish sent.");
-        setWishNoteByEmployee((prev) => {
-          const next = { ...prev };
-          delete next[employeeId];
-          return next;
-        });
       } else if (res.reason === "noLinkedUser") setWishHint("This person has no linked login yet.");
       else if (res.reason === "noOtherRecipients")
         setWishHint("There is no other login linked to this employee to notify (you cannot wish yourself).");
       else setWishHint("Already sent today, or could not deliver.");
+      // Clear draft whenever the server returns 2xx (including noLinkedUser / dedupe cases).
+      setWishNoteByEmployee((prev) => ({ ...prev, [employeeId]: "" }));
     } catch (e) {
       setWishHint(e instanceof Error ? e.message : "Could not send wish.");
     } finally {
       setWishBusyId(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("opensky:notifications-changed"));
+      }
       window.setTimeout(() => setWishHint(null), 4000);
     }
   }
@@ -529,6 +494,9 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
       setWishHint(e instanceof Error ? e.message : "Could not send reply.");
     } finally {
       setReplyBusyNoticeId(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("opensky:notifications-changed"));
+      }
       window.setTimeout(() => setWishHint(null), 4000);
     }
   }
@@ -558,29 +526,151 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
 
   const hubHref = scrollAnchorHref ?? `${ROUTES.employeeProfile}#birthdays-notices`;
   const hasUnreadNotices = notices.some((n) => !n.readAt);
+  const noticesUnreadCount = notices.filter((n) => !n.readAt).length;
+  const canSendWishesToOthers = today.some((p) => !(myEmployeeId && p.employeeId === myEmployeeId));
+
+  const renderNoticeRow = (n: NoticeItem) => {
+    const kind = classifyNotice(n.category);
+    const label = noticeLabel(kind);
+    const unread = !n.readAt;
+    const line = ((n.body?.trim() || n.title) ?? "").trim();
+    const canReplyToWish = n.category === "BirthdayWish";
+    const replyBusy = replyBusyNoticeId === n.id;
+    const noticeRowRound = canReplyToWish ? "rounded-t-xl" : "rounded-xl";
+    return (
+      <li
+        key={n.id}
+        className="overflow-hidden rounded-xl border border-slate-200/90 bg-white transition hover:border-violet-200 hover:shadow-sm"
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => void markRead(n.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              void markRead(n.id);
+            }
+          }}
+          className={`flex w-full cursor-pointer items-stretch gap-3 p-3 text-left outline-none transition hover:bg-violet-50/40 focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 ${noticeRowRound}`}
+          aria-label={unread ? "Mark notice as read" : "Notice (already read)"}
+        >
+          <NoticeIcon kind={kind} />
+          <span className="min-w-0 flex-1">
+            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ${pillClass(kind)}`}>
+              {label}
+            </span>
+            <span className="mt-2 block text-sm font-medium leading-snug text-slate-800">{line}</span>
+            <span className="mt-2 flex items-center gap-1.5 text-xs text-slate-500" suppressHydrationWarning>
+              <svg className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
+                <rect x="3" y="4" width="18" height="18" rx="2" />
+                <path d="M16 2v4M8 2v4M3 10h18" strokeLinecap="round" />
+              </svg>
+              {formatNoticeDate(n.createdAt)}
+            </span>
+          </span>
+          <span className="flex shrink-0 flex-col items-center justify-center self-center pl-1">
+            {unread ? (
+              <span className="h-2 w-2 rounded-full bg-sky-500" title="Unread" aria-label="Unread" />
+            ) : (
+              <span className="h-2 w-2 rounded-full bg-transparent" aria-hidden />
+            )}
+          </span>
+        </div>
+        {canReplyToWish ? (
+          <div className="relative z-0 rounded-b-xl border-t border-slate-100 bg-slate-50/80 px-3 pb-3 pt-2">
+            {wishThreadsByNoticeId[n.id] ? (
+              <div
+                className="mb-2 max-h-52 overflow-y-auto rounded-lg border border-slate-100 bg-white p-2"
+                role="log"
+                aria-label="Birthday wish conversation"
+              >
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Conversation</p>
+                <div className="flex flex-col gap-2">
+                  {wishThreadsByNoticeId[n.id].messages.map((m, idx) => (
+                    <div
+                      key={`${n.id}-chat-${idx}`}
+                      className={
+                        m.fromWisher
+                          ? "max-w-[94%] self-start rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-left text-xs leading-snug text-slate-800 shadow-sm"
+                          : "max-w-[94%] self-end rounded-xl border border-emerald-200/90 bg-emerald-50 px-2.5 py-2 text-left text-xs leading-snug text-emerald-950 shadow-sm"
+                      }
+                    >
+                      <span className="mb-1 block text-[10px] font-medium text-slate-400" suppressHydrationWarning>
+                        {m.fromWisher ? "Wish" : "You"} · {formatChatTime(m.createdAt)}
+                      </span>
+                      <span className="whitespace-pre-wrap">{m.body}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <label htmlFor={`birthday-reply-draft-${n.id}`} className="sr-only">
+              Reply to this birthday wish (optional)
+            </label>
+            <div className="flex items-start gap-2">
+              <textarea
+                id={`birthday-reply-draft-${n.id}`}
+                rows={2}
+                maxLength={500}
+                value={replyDraftByNotice[n.id] ?? ""}
+                onChange={(e) => setReplyDraftByNotice((prev) => ({ ...prev, [n.id]: e.target.value }))}
+                disabled={replyBusy}
+                placeholder="Add a personal message (optional, max 500 characters). Tap emoji below or use your device emoji keyboard."
+                className="mt-0 min-h-[2.75rem] min-w-0 flex-1 resize-y rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs leading-snug text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 disabled:opacity-60"
+              />
+              <button
+                type="button"
+                disabled={replyBusy}
+                onClick={() => void sendWishReply(n.id)}
+                className="inline-flex shrink-0 items-center self-center rounded-lg border-2 border-violet-500 bg-white px-3 py-2 text-xs font-bold text-violet-700 shadow-sm transition hover:bg-violet-50 disabled:opacity-60"
+                aria-label={replyBusy ? "Sending reply" : "Send reply"}
+              >
+                {replyBusy ? "Sending…" : "Send Reply"}
+              </button>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1" role="toolbar" aria-label="Insert emoji into reply message">
+              <span className="mr-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">Emoji</span>
+              {WISH_QUICK_EMOJIS.map((em) => (
+                <button
+                  key={`${n.id}-reply-${em}`}
+                  type="button"
+                  disabled={replyBusy}
+                  title={`Insert ${em}`}
+                  onClick={() => insertReplyEmoji(n.id, em)}
+                  className="grid h-8 min-w-[2rem] shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-lg leading-none transition hover:border-violet-300 hover:bg-violet-50 disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <span aria-hidden>{em}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </li>
+    );
+  };
 
   return (
     <section
-      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-900/[0.06]"
+      className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-lg shadow-slate-900/[0.07]"
       aria-labelledby="birthdays-notices-heading"
     >
-      {/* Header — gift, title, kebab */}
-      <div className="flex items-start justify-between gap-3 px-5 py-4 sm:px-6">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#1a92d5] text-xl text-white shadow-md shadow-sky-600/25">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-600 to-violet-700 text-xl shadow-md shadow-violet-600/25 ring-1 ring-violet-500/30">
             🎁
           </span>
           <div className="min-w-0">
-            <h2 id="birthdays-notices-heading" className="text-lg font-bold tracking-tight text-[#0d47a1]">
-              Birthdays &amp; Company Notices
+            <h2 id="birthdays-notices-heading" className="text-lg font-bold tracking-tight text-slate-800">
+              Birthdays &amp; Notices
             </h2>
-            <p className="text-sm text-slate-500">Celebrate moments. Stay informed.</p>
+            <p className="text-sm text-slate-500">Celebrate. Connect. Stay informed.</p>
           </div>
         </div>
         <div className="relative shrink-0" ref={menuRef}>
           <button
             type="button"
-            className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            className="rounded-lg p-2 text-slate-400 transition hover:bg-violet-50 hover:text-slate-700"
             aria-expanded={menuOpen}
             aria-haspopup="menu"
             aria-label="Widget options"
@@ -600,7 +690,7 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
               <button
                 type="button"
                 role="menuitem"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-violet-50"
                 onClick={() => {
                   setMenuOpen(false);
                   void load();
@@ -621,55 +711,53 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
       </div>
 
       {wishHint ? (
-        <p className="border-t border-slate-100 bg-emerald-50/90 px-5 py-2.5 text-center text-sm font-medium text-emerald-900 sm:px-6">
+        <p className="border-b border-slate-100 bg-emerald-50/95 px-5 py-2.5 text-center text-sm font-medium text-emerald-900 sm:px-6">
           {wishHint}
         </p>
       ) : null}
 
       {loading ? (
         <div className="flex min-h-[220px] items-center justify-center py-12">
-          <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-[#1a92d5]" />
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-violet-600" />
         </div>
       ) : err ? (
-        <p className="border-t border-slate-100 px-5 py-10 text-center text-sm text-red-600 sm:px-6">{err}</p>
+        <p className="px-5 py-10 text-center text-sm text-red-600 sm:px-6">{err}</p>
       ) : (
         <>
-          {/* Two birthday columns + vertical divider */}
-          <div className="grid border-t border-slate-200 lg:grid-cols-2">
-            {/* Today */}
-            <div className="border-b border-slate-200 p-5 sm:p-6 lg:border-b-0 lg:border-r lg:border-slate-200">
+          <div className="grid lg:grid-cols-2">
+            {/* Today — left */}
+            <div className="border-b border-slate-100 p-5 sm:p-6 lg:border-b-0 lg:border-r lg:border-slate-100">
               <div className="mb-4 flex flex-wrap items-center gap-2">
-                <span className="text-lg text-sky-600" aria-hidden>
+                <span className="text-lg leading-none text-violet-600" aria-hidden>
                   🎂
                 </span>
-                <h3 className="text-[15px] font-bold text-[#1565C9]">Today&apos;s Birthdays</h3>
-                <span aria-hidden>🎉</span>
-                <span className="ml-0.5 inline-flex min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-sky-100 px-2 text-xs font-bold text-sky-800">
+                <h3 className="text-[15px] font-bold text-violet-800">Today&apos;s Birthdays</h3>
+                <span className="inline-flex min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-violet-100 px-2 text-xs font-bold text-violet-900">
                   {today.length}
                 </span>
               </div>
               {today.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/90 px-4 py-8 text-center text-sm text-slate-500">
+                <p className="rounded-xl border border-dashed border-violet-200/70 bg-violet-50/30 px-4 py-8 text-center text-sm text-slate-600">
                   No birthdays today in your People scope.
                 </p>
               ) : (
-                <ul className="flex flex-col gap-3">
+                <ul className="flex flex-col gap-2.5">
                   {today.map((p) => (
                     <li
                       key={`${p.employeeId}-${p.occasionDate}`}
                       id={`birthday-wish-target-${p.employeeId}`}
-                      className={`flex gap-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-shadow ${
-                        wishHighlightId === p.employeeId ? "ring-2 ring-sky-500 ring-offset-2" : ""
+                      className={`flex items-center gap-3 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm ${
+                        wishHighlightId === p.employeeId ? "ring-2 ring-violet-500 ring-offset-2" : ""
                       }`}
                     >
                       {p.profileImageUrl ? (
                         <img
                           src={`${API_BASE_URL}${p.profileImageUrl}`}
                           alt=""
-                          className="h-14 w-14 shrink-0 rounded-full object-cover ring-2 ring-slate-100"
+                          className="h-11 w-11 shrink-0 rounded-full object-cover ring-2 ring-violet-100"
                         />
                       ) : (
-                        <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#2B7DE9] to-indigo-600 text-sm font-bold text-white ring-2 ring-slate-100">
+                        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white ring-2 ring-violet-100">
                           {p.fullName
                             .split(/\s+/)
                             .map((w) => w[0])
@@ -681,380 +769,242 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-bold text-slate-900">{p.fullName}</p>
                         <p className="truncate text-sm text-slate-500">{p.departmentName?.trim() || "—"}</p>
-                        <p className="mt-1.5 flex items-center gap-1.5 text-sm font-semibold text-[#1565C9]">
-                          <span className="text-base leading-none" aria-hidden>
-                            🎂
-                          </span>
-                          {formatMd(p.occasionDate)}
-                        </p>
-                        {myEmployeeId && p.employeeId === myEmployeeId ? (
-                          <p className="mt-3 text-xs font-medium text-slate-500">Others can send you a wish from their account.</p>
-                        ) : (
-                          <>
-                            <label htmlFor={`birthday-wish-note-${p.employeeId}`} className="sr-only">
-                              Personal message for {p.fullName} (optional)
-                            </label>
-                            <textarea
-                              id={`birthday-wish-note-${p.employeeId}`}
-                              rows={2}
-                              maxLength={500}
-                              value={wishNoteByEmployee[p.employeeId] ?? ""}
-                              onChange={(e) =>
-                                setWishNoteByEmployee((prev) => ({ ...prev, [p.employeeId]: e.target.value }))
-                              }
-                              disabled={wishBusyId === p.employeeId}
-                              placeholder="Add a personal message (optional, max 500 characters). Tap emoji below or use your device emoji keyboard."
-                              className="mt-2 min-h-[2.75rem] w-full resize-y rounded-lg border border-slate-200 bg-slate-50/90 px-2.5 py-1.5 text-xs leading-snug text-slate-800 placeholder:text-slate-400 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 disabled:opacity-60"
-                            />
-                            <div
-                              className="mt-1.5 flex flex-wrap items-center gap-1"
-                              role="toolbar"
-                              aria-label="Insert emoji into wish message"
-                            >
-                              <span className="mr-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                                Emoji
-                              </span>
-                              {WISH_QUICK_EMOJIS.map((em) => (
-                                <button
-                                  key={em}
-                                  type="button"
-                                  disabled={wishBusyId === p.employeeId}
-                                  title={`Insert ${em}`}
-                                  onClick={() => insertWishEmoji(p.employeeId, em)}
-                                  className="grid h-8 min-w-[2rem] shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-lg leading-none transition hover:border-emerald-300 hover:bg-emerald-50 disabled:pointer-events-none disabled:opacity-40"
-                                >
-                                  <span aria-hidden>{em}</span>
-                                </button>
-                              ))}
-                            </div>
-                            <button
-                              type="button"
-                              disabled={wishBusyId === p.employeeId}
-                              onClick={() => void sendWish(p.employeeId)}
-                              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border-2 border-emerald-500 bg-white px-3.5 py-2 text-xs font-bold text-emerald-600 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60"
-                            >
-                              Send Wish
-                              <span className="text-sm leading-none" aria-hidden>
-                                🎂
-                              </span>
-                            </button>
-                          </>
-                        )}
                       </div>
+                      <span className="shrink-0 text-lg leading-none text-violet-400" aria-hidden title="Birthday today">
+                        🎂
+                      </span>
                     </li>
                   ))}
                 </ul>
               )}
-              <BirthdaysHubLink
-                href={hubHref}
-                className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#1565C9] hover:underline"
-              >
-                View All Birthdays
-                <ChevronRight />
-              </BirthdaysHubLink>
+              {today.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={!canSendWishesToOthers}
+                  title={!canSendWishesToOthers ? "No other recipients to wish today." : undefined}
+                  onClick={() => setWishesPanelOpen((o) => !o)}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 py-3 text-sm font-bold text-violet-800 shadow-sm transition hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span aria-hidden>🎉</span>
+                  {wishesPanelOpen ? "Hide wishes" : "Send Wishes"}
+                </button>
+              ) : null}
             </div>
 
-            {/* Upcoming */}
-            <div className="p-5 sm:p-6">
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                <span className="flex shrink-0 items-center gap-0.5" aria-hidden>
-                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-violet-100 text-base leading-none text-violet-700 shadow-inner ring-1 ring-violet-200/70">
+            {/* Right: Upcoming + Company notices summary */}
+            <div className="flex flex-col">
+              <div className="flex-1 p-5 sm:p-6">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-100 text-base text-sky-700 ring-1 ring-sky-200/80" aria-hidden>
                     📅
                   </span>
-                  <span className="text-sm leading-none text-violet-500">✨</span>
-                </span>
-                <h3 className="text-[15px] font-bold text-violet-800">Upcoming Birthdays</h3>
-                <span className="ml-0.5 inline-flex min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-violet-100 px-2 text-xs font-bold text-violet-900">
-                  {upcoming.length}
-                </span>
-              </div>
-              {upcoming.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-violet-200/80 bg-violet-50/40 px-4 py-8 text-center text-sm text-slate-600">
-                  No upcoming birthdays in the next 30 days.
-                </p>
-              ) : (
-                <div
-                  role="region"
-                  aria-roledescription="carousel"
-                  aria-label="Upcoming birthdays"
-                >
-                  <div
-                    className={`flex items-center ${upcomingLimited.length > 1 ? "gap-2" : ""}`}
-                  >
+                  <h3 className="text-[15px] font-bold text-sky-800">Upcoming</h3>
+                  <span className="inline-flex min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-sky-100 px-2 text-xs font-bold text-sky-900">
+                    {upcoming.length}
+                  </span>
+                </div>
+                {upcoming.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-sky-200/80 bg-sky-50/40 px-3 py-6 text-center text-xs text-slate-600">
+                    No upcoming birthdays in the next 7 days.
+                  </p>
+                ) : (
+                  <div className="flex items-center gap-2">
                     {upcomingLimited.length > 1 ? (
                       <button
                         type="button"
-                        aria-label="Previous upcoming birthday"
-                        disabled={upcomingSlideIdx <= 0}
-                        onClick={() => scrollToUpcomingSlide(upcomingSlideIdx - 1)}
-                        className="grid h-9 w-9 shrink-0 place-items-center self-center rounded-full border border-violet-200/90 bg-white text-violet-800 shadow-sm transition hover:bg-violet-50 disabled:pointer-events-none disabled:opacity-40"
+                        aria-label="Scroll upcoming earlier"
+                        onClick={() => scrollUpcomingStrip(-1)}
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-sky-200 bg-white text-sky-800 shadow-sm transition hover:bg-sky-50"
                       >
                         <ChevronLeft className="h-4 w-4" />
                       </button>
                     ) : null}
-                    <div className={upcomingLimited.length > 1 ? "min-w-0 flex-1" : "min-w-0 w-full"}>
-                      <div
-                        ref={upcomingScrollerRef}
-                        onScroll={handleUpcomingCarouselScroll}
-                        className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                      >
-                        {upcomingLimited.map((p) => {
-                          const d = new Date(`${p.occasionDate}T12:00:00Z`);
-                          const mon = Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { month: "short" }).toUpperCase();
-                          const day = Number.isNaN(d.getTime()) ? "—" : String(d.getUTCDate()).padStart(2, "0");
-                          return (
-                            <article
-                              key={`${p.employeeId}-${p.occasionDate}`}
-                              id={`birthday-wish-target-${p.employeeId}`}
-                              aria-roledescription="slide"
-                              aria-label={`${p.fullName}, ${mon} ${day}`}
-                              className="min-w-0 w-full shrink-0 grow-0 basis-full snap-start snap-always"
-                            >
-                              <div
-                                className={`flex items-center gap-3 rounded-xl border border-violet-100 bg-violet-50/35 px-3 py-2.5 transition-shadow ${
-                                  wishHighlightId === p.employeeId ? "ring-2 ring-violet-500 ring-offset-2" : ""
-                                }`}
-                              >
-                                <div className="grid h-[3.25rem] w-[3.25rem] shrink-0 place-content-center rounded-xl bg-violet-100 text-center shadow-inner ring-1 ring-violet-200/60">
-                                  <span className="text-[10px] font-extrabold leading-none tracking-wide text-violet-700">{mon}</span>
-                                  <span className="mt-0.5 text-base font-extrabold leading-none text-violet-900">{day}</span>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate font-bold text-slate-900">{p.fullName}</p>
-                                  <p className="truncate text-sm text-slate-500">{p.departmentName?.trim() || "—"}</p>
-                                </div>
-                              </div>
-                            </article>
-                          );
-                        })}
-                      </div>
+                    <div
+                      ref={upcomingStripRef}
+                      className="flex min-w-0 flex-1 gap-2 overflow-x-auto scroll-smooth pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    >
+                      {upcomingLimited.map((p) => {
+                        const d = new Date(`${p.occasionDate}T12:00:00Z`);
+                        const mon = Number.isNaN(d.getTime())
+                          ? "—"
+                          : d.toLocaleDateString(undefined, { month: "short" }).toUpperCase();
+                        const dayNum = Number.isNaN(d.getTime()) ? "—" : String(d.getUTCDate());
+                        return (
+                          <div
+                            key={`${p.employeeId}-${p.occasionDate}`}
+                            className={`flex w-[6.25rem] shrink-0 flex-col rounded-xl border border-sky-200/90 bg-white px-2 py-2.5 text-center shadow-sm ${
+                              wishHighlightId === p.employeeId ? "ring-2 ring-sky-500 ring-offset-1" : ""
+                            }`}
+                          >
+                            <span className="text-[10px] font-extrabold leading-none tracking-wide text-sky-600">{mon}</span>
+                            <span className="mt-0.5 text-lg font-extrabold leading-none text-sky-800">{dayNum}</span>
+                            <span className="mt-2 truncate text-[11px] font-semibold text-slate-800" title={p.fullName}>
+                              {p.fullName}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                     {upcomingLimited.length > 1 ? (
                       <button
                         type="button"
-                        aria-label="Next upcoming birthday"
-                        disabled={upcomingSlideIdx >= upcomingLimited.length - 1}
-                        onClick={() => scrollToUpcomingSlide(upcomingSlideIdx + 1)}
-                        className="grid h-9 w-9 shrink-0 place-items-center self-center rounded-full border border-violet-200/90 bg-white text-violet-800 shadow-sm transition hover:bg-violet-50 disabled:pointer-events-none disabled:opacity-40"
+                        aria-label="Scroll upcoming later"
+                        onClick={() => scrollUpcomingStrip(1)}
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-sky-200 bg-white text-sky-800 shadow-sm transition hover:bg-sky-50"
                       >
                         <ChevronRight className="h-4 w-4" />
                       </button>
                     ) : null}
                   </div>
-                  {upcomingLimited.length > 1 ? (
-                    <div
-                      className="mt-3 flex items-center justify-center gap-2"
-                      role="tablist"
-                      aria-label="Upcoming birthday slides"
-                    >
-                      {upcomingLimited.map((_, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          role="tab"
-                          aria-selected={upcomingSlideIdx === i}
-                          aria-label={`Show birthday ${i + 1} of ${upcomingLimited.length}`}
-                          onClick={() => scrollToUpcomingSlide(i)}
-                          className={`h-2 rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 ${
-                            upcomingSlideIdx === i ? "w-6 bg-violet-600" : "w-2 bg-violet-200 hover:bg-violet-300"
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              )}
-              <BirthdaysHubLink
-                href={hubHref}
-                className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#1565C9] hover:underline"
-              >
-                View All Upcoming
-                <ChevronRight />
-              </BirthdaysHubLink>
+                )}
+              </div>
+
+              <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
+                <button
+                  type="button"
+                  onClick={() => setNoticesExpanded((e) => !e)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 py-3 text-left transition hover:border-sky-200 hover:bg-white"
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-200/80 text-base text-slate-600" aria-hidden>
+                      🔔
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[15px] font-bold text-slate-800">Company Notices</span>
+                      {notices.length === 0 ? (
+                        <span className="text-xs text-slate-500">Nothing new</span>
+                      ) : (
+                        <span className="text-xs text-slate-500">
+                          {noticesUnreadCount > 0 ? `${noticesUnreadCount} unread` : "All caught up"}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {notices.length > 0 ? (
+                      <span className="inline-flex min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-sky-100 px-2 text-xs font-bold text-sky-900">
+                        {notices.length}
+                      </span>
+                    ) : null}
+                    <ChevronRight
+                      className={`h-4 w-4 text-violet-600 transition ${noticesExpanded ? "rotate-90" : ""}`}
+                    />
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Company notices — capped height with internal scroll so many wishes don’t push the whole page */}
-          <div className="flex min-h-0 max-h-[min(52vh,26rem)] flex-col border-t border-slate-200">
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 px-5 pb-2 pt-5 sm:px-6">
-              <h3 className="flex items-center gap-2 text-[15px] font-bold text-[#0d47a1]">
-                <span className="text-lg" aria-hidden>
-                  📣
-                </span>
-                Company Notices
-              </h3>
-              <BirthdaysHubLink href={hubHref} className="inline-flex items-center gap-1 text-sm font-semibold text-[#1565C9] hover:underline">
-                View All Notices
-                <ChevronRight />
-              </BirthdaysHubLink>
-            </div>
-
-            <div
-              className="min-h-0 flex-1 overflow-y-scroll overscroll-y-contain px-5 pb-2 sm:px-6 [scrollbar-gutter:stable]"
-              role="region"
-              aria-label="Company notices list"
-            >
-              {notices.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/90 px-4 py-8 text-center text-sm text-slate-500">
-                  No notices in your inbox yet.
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-2.5 pb-1 pr-1">
-                  {notices.map((n) => {
-                    const kind = classifyNotice(n.category);
-                    const label = noticeLabel(kind);
-                    const unread = !n.readAt;
-                    const line = (n.body?.trim() || (n.title ?? "")).trim();
-                    /** All birthday wishes are replyable; API resolves sender from SourceUserId or legacy DedupeKey. */
-                    const canReplyToWish = n.category === "BirthdayWish";
-                    const replyBusy = replyBusyNoticeId === n.id;
-                    const noticeRowRound = canReplyToWish ? "rounded-t-xl" : "rounded-xl";
-                    return (
-                      <li
-                        key={n.id}
-                        className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50 transition hover:border-sky-200 hover:bg-white"
-                      >
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => void markRead(n.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              void markRead(n.id);
-                            }
-                          }}
-                          className={`flex w-full cursor-pointer items-stretch gap-3 p-3 text-left outline-none transition hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 ${noticeRowRound}`}
-                          aria-label={unread ? "Mark notice as read" : "Notice (already read)"}
-                        >
-                          <NoticeIcon kind={kind} />
-                          <span className="min-w-0 flex-1">
-                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ${pillClass(kind)}`}>
-                              {label}
-                            </span>
-                            <span className="mt-2 block text-sm font-medium leading-snug text-slate-800">{line}</span>
-                            <span
-                              className="mt-2 flex items-center gap-1.5 text-xs text-slate-500"
-                              suppressHydrationWarning
+          {/* Collapsible: compose wishes */}
+          {wishesPanelOpen && today.length > 0 ? (
+            <div className="border-t border-slate-100 bg-violet-50/40 px-5 py-4 sm:px-6">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-violet-800/80">Personal wishes</p>
+              <ul className="flex flex-col gap-4">
+                {today.map((p) => (
+                  <li
+                    key={`wish-panel-${p.employeeId}`}
+                    className="rounded-xl border border-violet-200/80 bg-white p-3 shadow-sm"
+                  >
+                    <p className="text-sm font-bold text-slate-900">{p.fullName}</p>
+                    {myEmployeeId && p.employeeId === myEmployeeId ? (
+                      <p className="mt-2 text-xs text-slate-500">Others can send you a wish from their account.</p>
+                    ) : (
+                      <>
+                        <label htmlFor={`birthday-wish-note-${p.employeeId}`} className="sr-only">
+                          Personal message for {p.fullName} (optional)
+                        </label>
+                        <textarea
+                          id={`birthday-wish-note-${p.employeeId}`}
+                          rows={2}
+                          maxLength={500}
+                          value={wishNoteByEmployee[p.employeeId] ?? ""}
+                          onChange={(e) =>
+                            setWishNoteByEmployee((prev) => ({ ...prev, [p.employeeId]: e.target.value }))
+                          }
+                          disabled={wishBusyId === p.employeeId}
+                          placeholder="Optional message (max 500 characters)…"
+                          className="mt-2 min-h-[2.75rem] w-full resize-y rounded-lg border border-slate-200 bg-slate-50/90 px-2.5 py-1.5 text-xs leading-snug text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 disabled:opacity-60"
+                        />
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1" role="toolbar" aria-label="Insert emoji into wish message">
+                          {WISH_QUICK_EMOJIS.map((em) => (
+                            <button
+                              key={em}
+                              type="button"
+                              disabled={wishBusyId === p.employeeId}
+                              title={`Insert ${em}`}
+                              onClick={() => insertWishEmoji(p.employeeId, em)}
+                              className="grid h-8 min-w-[2rem] shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-lg leading-none transition hover:border-violet-300 hover:bg-violet-50 disabled:pointer-events-none disabled:opacity-40"
                             >
-                              <svg className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
-                                <rect x="3" y="4" width="18" height="18" rx="2" />
-                                <path d="M16 2v4M8 2v4M3 10h18" strokeLinecap="round" />
-                              </svg>
-                              {formatNoticeDate(n.createdAt)}
-                            </span>
-                          </span>
-                          <span className="flex shrink-0 flex-col items-center justify-center self-center pl-1">
-                            {unread ? (
-                              <span className="h-2 w-2 rounded-full bg-[#1a92d5]" title="Unread" aria-label="Unread" />
-                            ) : (
-                              <span className="h-2 w-2 rounded-full bg-transparent" aria-hidden />
-                            )}
-                          </span>
+                              <span aria-hidden>{em}</span>
+                            </button>
+                          ))}
                         </div>
-                        {canReplyToWish ? (
-                          <div className="relative z-0 rounded-b-xl border-t border-slate-200 bg-white px-3 pb-3 pt-2">
-                            {wishThreadsByNoticeId[n.id] ? (
-                              <div
-                                className="mb-2 max-h-52 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/90 p-2"
-                                role="log"
-                                aria-label="Birthday wish conversation"
-                              >
-                                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                                  Conversation
-                                </p>
-                                <div className="flex flex-col gap-2">
-                                  {wishThreadsByNoticeId[n.id].messages.map((m, idx) => (
-                                    <div
-                                      key={`${n.id}-chat-${idx}`}
-                                      className={
-                                        m.fromWisher
-                                          ? "max-w-[94%] self-start rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-left text-xs leading-snug text-slate-800 shadow-sm"
-                                          : "max-w-[94%] self-end rounded-xl border border-emerald-200/90 bg-emerald-50 px-2.5 py-2 text-left text-xs leading-snug text-emerald-950 shadow-sm"
-                                      }
-                                    >
-                                      <span
-                                        className="mb-1 block text-[10px] font-medium text-slate-400"
-                                        suppressHydrationWarning
-                                      >
-                                        {m.fromWisher ? "Wish" : "You"} · {formatChatTime(m.createdAt)}
-                                      </span>
-                                      <span className="whitespace-pre-wrap">{m.body}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
-                            <label htmlFor={`birthday-reply-draft-${n.id}`} className="sr-only">
-                              Reply to this birthday wish (optional)
-                            </label>
-                            <div className="flex items-start gap-2">
-                              <textarea
-                                id={`birthday-reply-draft-${n.id}`}
-                                rows={2}
-                                maxLength={500}
-                                value={replyDraftByNotice[n.id] ?? ""}
-                                onChange={(e) =>
-                                  setReplyDraftByNotice((prev) => ({ ...prev, [n.id]: e.target.value }))
-                                }
-                                disabled={replyBusy}
-                                placeholder="Add a personal message (optional, max 500 characters). Tap emoji below or use your device emoji keyboard."
-                                className="mt-0 min-h-[2.75rem] min-w-0 flex-1 resize-y rounded-lg border border-slate-200 bg-slate-50/90 px-2.5 py-1.5 text-xs leading-snug text-slate-800 placeholder:text-slate-400 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 disabled:opacity-60"
-                              />
-                              <button
-                                type="button"
-                                disabled={replyBusy}
-                                onClick={() => void sendWishReply(n.id)}
-                                className="inline-flex shrink-0 items-center self-center rounded-lg border-2 border-emerald-500 bg-white px-3 py-2 text-xs font-bold text-emerald-600 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60"
-                                aria-label={replyBusy ? "Sending reply" : "Send reply"}
-                              >
-                                {replyBusy ? "Sending…" : "Send Reply"}
-                              </button>
-                            </div>
-                            <div
-                              className="mt-1.5 flex flex-wrap items-center gap-1"
-                              role="toolbar"
-                              aria-label="Insert emoji into reply message"
-                            >
-                              <span className="mr-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                                Emoji
-                              </span>
-                              {WISH_QUICK_EMOJIS.map((em) => (
-                                <button
-                                  key={`${n.id}-reply-${em}`}
-                                  type="button"
-                                  disabled={replyBusy}
-                                  title={`Insert ${em}`}
-                                  onClick={() => insertReplyEmoji(n.id, em)}
-                                  className="grid h-8 min-w-[2rem] shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-lg leading-none transition hover:border-emerald-300 hover:bg-emerald-50 disabled:pointer-events-none disabled:opacity-40"
-                                >
-                                  <span aria-hidden>{em}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+                        <button
+                          type="button"
+                          disabled={wishBusyId === p.employeeId}
+                          onClick={() => void sendWish(p.employeeId)}
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg border-2 border-violet-600 bg-violet-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
+                        >
+                          Send Wish
+                          <span className="text-sm leading-none" aria-hidden>
+                            🎂
+                          </span>
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
+          ) : null}
 
-            <div className="mt-0 shrink-0 border-t border-slate-100 bg-sky-50/80 px-5 py-3 sm:px-6">
-              <button
-                type="button"
-                disabled={markingAll || !hasUnreadNotices}
-                onClick={() => void markAllCompanyRead()}
-                className="flex w-full items-center justify-center gap-2 text-sm font-semibold text-[#1565C9] transition hover:text-[#0d47a1] disabled:cursor-not-allowed disabled:opacity-40"
+          {/* Expanded company notices */}
+          {noticesExpanded ? (
+            <div className="border-t border-slate-100 bg-slate-50/50">
+              <div
+                className="max-h-[min(52vh,22rem)] overflow-y-auto overscroll-y-contain px-5 py-4 sm:px-6 [scrollbar-gutter:stable]"
+                role="region"
+                aria-label="Company notices list"
               >
-                <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
-                  <circle cx="12" cy="12" r="9" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12l2.5 2.5L16 9" />
-                </svg>
-                {markingAll ? "Marking…" : "Mark all as read"}
-              </button>
+                {notices.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                    No notices in your inbox yet.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-2.5">{notices.map((n) => renderNoticeRow(n))}</ul>
+                )}
+              </div>
+              <div className="border-t border-slate-100 bg-sky-50/90 px-5 py-3 sm:px-6">
+                <button
+                  type="button"
+                  disabled={markingAll || !hasUnreadNotices}
+                  onClick={() => void markAllCompanyRead()}
+                  className="flex w-full items-center justify-center gap-2 text-sm font-semibold text-sky-800 transition hover:text-sky-950 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
+                    <circle cx="12" cy="12" r="9" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 12l2.5 2.5L16 9" />
+                  </svg>
+                  {markingAll ? "Marking…" : "Mark all as read"}
+                </button>
+              </div>
             </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-5 py-3.5 sm:px-6">
+            <p className="flex min-w-0 items-center gap-2 text-sm text-slate-600">
+              <span className="text-base text-violet-600" aria-hidden>
+                📅
+              </span>
+              <span>Never miss a moment that matters.</span>
+            </p>
+            <BirthdaysHubLink
+              href={hubHref}
+              className="inline-flex shrink-0 items-center gap-1 text-sm font-bold text-violet-700 hover:text-violet-900 hover:underline"
+            >
+              View All
+              <ChevronRight className="h-4 w-4" />
+            </BirthdaysHubLink>
           </div>
         </>
       )}
@@ -1066,9 +1016,9 @@ export function BirthdaysCompanyNoticesWidget(props: BirthdaysCompanyNoticesWidg
   return (
     <Suspense
       fallback={
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md shadow-slate-900/[0.06]">
+        <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-lg shadow-slate-900/[0.07]">
           <div className="flex min-h-[220px] items-center justify-center py-12">
-            <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-[#1a92d5]" />
+            <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-violet-600" />
           </div>
         </section>
       }
