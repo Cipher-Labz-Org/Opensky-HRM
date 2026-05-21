@@ -32,13 +32,10 @@ public class AuthService : IAuthService
 
         // Allow login by username or email (case-insensitive)
         var loginLower = loginInput.ToLower();
+        // Keep login query minimal — optional assignment tables may be absent if migrations lag behind.
         var user = await _db.Users
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.Permissions)
             .Include(u => u.Employee)
-            .Include(u => u.AssignedLocations)
-            .Include(u => u.AssignedBusinessUnits)
-            .Include(u => u.AssignedGrades)
-            .Include(u => u.AssignedJobTitles)
             .FirstOrDefaultAsync(u => !u.IsDeleted && (
                 u.Username.ToLower() == loginLower ||
                 (u.Email != null && u.Email.ToLower() == loginLower)));
@@ -408,9 +405,12 @@ public class AuthService : IAuthService
         var expiresMinutes = int.TryParse(_config["Jwt:ExpiresInMinutes"], out var m) ? m : 480;
         var expiresAt = DateTime.UtcNow.AddMinutes(expiresMinutes);
 
-        var roles = user.UserRoles.Select(ur => ur.Role).ToList();
+        var roles = user.UserRoles
+            .Select(ur => ur.Role)
+            .Where(r => r != null)
+            .ToList();
         var allPermissions = roles
-            .SelectMany(r => r.Permissions.Where(p => !p.IsDeleted))
+            .SelectMany(r => r!.Permissions.Where(p => !p.IsDeleted))
             .Select(p => $"{p.Module}:{p.Action}:{p.Scope}")
             .Distinct()
             .ToList();
@@ -427,7 +427,7 @@ public class AuthService : IAuthService
             claims.Add(new Claim("employeeId", user.EmployeeId.Value.ToString()));
 
         foreach (var role in roles)
-            claims.Add(new Claim(ClaimTypes.Role, role.Code));
+            claims.Add(new Claim(ClaimTypes.Role, role!.Code));
 
         foreach (var perm in allPermissions)
             claims.Add(new Claim("permission", perm));
@@ -444,9 +444,12 @@ public class AuthService : IAuthService
 
     private static UserProfileDto MapProfile(User user, IReadOnlyList<string> licensedModules)
     {
-        var roles = user.UserRoles.Select(ur => ur.Role).ToList();
+        var roles = user.UserRoles
+            .Select(ur => ur.Role)
+            .Where(r => r != null)
+            .ToList();
         var allPermissions = roles
-            .SelectMany(r => r.Permissions.Where(p => !p.IsDeleted))
+            .SelectMany(r => r!.Permissions.Where(p => !p.IsDeleted))
             .Select(p => new PermissionDto { Module = p.Module, Action = p.Action, Scope = p.Scope })
             .GroupBy(p => $"{p.Module}:{p.Action}:{p.Scope}")
             .Select(g => g.First())
@@ -461,13 +464,21 @@ public class AuthService : IAuthService
             EmployeeId = user.EmployeeId,
             EmployeeName = user.Employee != null ? $"{user.Employee.FirstName} {user.Employee.LastName}" : null,
             ProfileImageUrl = user.Employee?.ProfileImageUrl,
-            Roles = roles.Select(r => r.Code).ToList(),
+            Roles = roles.Select(r => r!.Code).ToList(),
             Permissions = allPermissions,
             LicensedModules = licensedModules.ToList(),
-            AssignedLocationIds = user.AssignedLocations.Select(a => a.LocationId).ToList(),
-            AssignedBusinessUnitIds = user.AssignedBusinessUnits.Select(a => a.BusinessUnitId).ToList(),
-            AssignedGradeIds = user.AssignedGrades.Select(a => a.GradeId).ToList(),
-            AssignedJobTitleIds = user.AssignedJobTitles.Select(a => a.JobTitleId).ToList(),
+            AssignedLocationIds = user.AssignedLocations.Count > 0
+                ? user.AssignedLocations.Select(a => a.LocationId).ToList()
+                : [],
+            AssignedBusinessUnitIds = user.AssignedBusinessUnits.Count > 0
+                ? user.AssignedBusinessUnits.Select(a => a.BusinessUnitId).ToList()
+                : [],
+            AssignedGradeIds = user.AssignedGrades.Count > 0
+                ? user.AssignedGrades.Select(a => a.GradeId).ToList()
+                : [],
+            AssignedJobTitleIds = user.AssignedJobTitles.Count > 0
+                ? user.AssignedJobTitles.Select(a => a.JobTitleId).ToList()
+                : [],
             MustChangePassword = user.MustChangePassword
         };
     }
