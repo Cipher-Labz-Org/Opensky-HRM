@@ -39,6 +39,23 @@ export const API_BASE_URL = useProductionSameOriginProxy
       ? "/hrm-backend"
       : defaultLocalApi;
 
+/** Hostnames that must call the API via same-origin `/api/*` (Vercel rewrites / route handlers). */
+function isProductionAppHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h.endsWith(".openskyhrm.com") || h.endsWith(".vercel.app");
+}
+
+/**
+ * API prefix for browser `fetch` calls. On deployed app hosts, always same-origin even if
+ * a stale build baked in a full backend URL in NEXT_PUBLIC_API_URL.
+ */
+export function getApiBaseUrl(): string {
+  if (typeof window !== "undefined" && isProductionAppHost(window.location.hostname)) {
+    return "";
+  }
+  return API_BASE_URL;
+}
+
 /** Backend origin for static assets (profile images, company logo). <img src> does not need CORS. */
 export const API_ASSET_BASE_URL = (
   rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl : defaultLocalApi
