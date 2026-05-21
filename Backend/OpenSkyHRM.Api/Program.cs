@@ -187,7 +187,16 @@ else
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
-        policy.WithOrigins(corsOrigins)
+        policy.SetIsOriginAllowed(origin =>
+            {
+                if (string.IsNullOrWhiteSpace(origin)) return false;
+                if (corsOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase)) return true;
+                if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)) return false;
+                var host = uri.Host;
+                return host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
+                    || host.Equals("openskyhrm.com", StringComparison.OrdinalIgnoreCase)
+                    || host.EndsWith(".openskyhrm.com", StringComparison.OrdinalIgnoreCase);
+            })
             .AllowAnyHeader()
             .AllowAnyMethod());
 });
@@ -291,13 +300,9 @@ if (dbAvailable)
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchCasualLeaveMonthlyEveryYearAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureShopOfficeSickLeaveRuleAsync(db);
 
-        // Dev safety: ensure there is always at least one usable admin after resets.
-        // This does not overwrite existing users; it only bootstraps if no active ADMIN user exists.
-        if (app.Environment.IsDevelopment())
-        {
-            var bootstrapPassword = builder.Configuration["CustomerReset:BootstrapAdminPassword"] ?? "Admin@123";
-            await AdminBootstrapSeeder.EnsureAsync(db, adminPassword: bootstrapPassword);
-        }
+        // Idempotent: ensure ADMIN role + admin user exist when missing (all environments).
+        var bootstrapPassword = builder.Configuration["CustomerReset:BootstrapAdminPassword"] ?? "Admin@123";
+        await AdminBootstrapSeeder.EnsureAsync(db, adminPassword: bootstrapPassword);
     }
     catch (Exception ex)
     {

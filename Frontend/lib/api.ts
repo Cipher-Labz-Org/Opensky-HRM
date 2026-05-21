@@ -1,5 +1,12 @@
 import { API_BASE_URL } from "@/config/constants";
 
+function apiReachabilityHint(): string {
+  if (!API_BASE_URL) {
+    return "On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend URL and ensure the API is running.";
+  }
+  return `Set NEXT_PUBLIC_API_URL and ensure the backend is running (${API_BASE_URL}).`;
+}
+
 /** Abort hanging requests so pages do not spin forever if the API stalls. */
 const DEFAULT_API_TIMEOUT_MS = 45_000;
 
@@ -48,7 +55,7 @@ export async function apiFetch<T>(
       );
     }
     throw new Error(
-      `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+      `Cannot reach API. ${apiReachabilityHint()}`
     );
   } finally {
     clearTimeout(timeoutId);
@@ -145,7 +152,7 @@ export async function publicApiFetch<T>(endpoint: string, options?: ApiFetchOpti
       );
     }
     throw new Error(
-      `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+      `Cannot reach API. ${apiReachabilityHint()}`
     );
   } finally {
     clearTimeout(timeoutId);
@@ -220,7 +227,7 @@ export async function apiFetchBlob(endpoint: string, options?: ApiFetchOptions):
     if (aborted) {
       throw new Error(`Request timed out after ${timeoutMs}ms (${endpoint}).`);
     }
-    throw new Error(`Cannot reach API at ${API_BASE_URL}.`);
+    throw new Error(`Cannot reach API. ${apiReachabilityHint()}`);
   } finally {
     clearTimeout(timeoutId);
   }

@@ -178,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const timeoutId = window.setTimeout(() => controller.abort(), LOGIN_FETCH_MS);
     let res: Response;
     try {
-      res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -191,11 +191,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           : e instanceof Error && e.name === "AbortError";
       if (aborted) {
         throw new Error(
-          `Login request timed out after ${LOGIN_FETCH_MS / 1000}s. Check that the API is running and NEXT_PUBLIC_API_URL points to it (${API_BASE_URL}).`
+          API_BASE_URL
+            ? `Login request timed out after ${LOGIN_FETCH_MS / 1000}s. Check that the API is running and NEXT_PUBLIC_API_URL points to it (${API_BASE_URL}).`
+            : `Login request timed out after ${LOGIN_FETCH_MS / 1000}s. The frontend could not reach the HR API via /api/auth/login. On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend (e.g. https://gammabackend.openskyhrm.com) and ensure that host responds to /health.`
         );
       }
       throw new Error(
-        `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+        API_BASE_URL
+          ? `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+          : "Cannot reach the HR API. On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend URL and redeploy."
       );
     } finally {
       window.clearTimeout(timeoutId);
@@ -213,12 +217,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           msg = errBody.message || errBody.title || msg;
           const detail = errBody.detail;
           if (
-            msg === "Login failed" &&
             detail &&
-            detail.length < 200 &&
-            !/Npgsql\.| at |\n|Exception \(0x/i.test(detail)
+            detail.length < 280 &&
+            !/Npgsql\.| at |\n|Exception \(0x/i.test(detail) &&
+            (msg === "Login failed" ||
+              /sign-in failed|database|migration|schema/i.test(msg))
           ) {
-            msg = detail;
+            msg = `${msg} ${detail}`.trim();
           }
         } catch {
           if (text.trim()) msg = text.trim().slice(0, 200);
