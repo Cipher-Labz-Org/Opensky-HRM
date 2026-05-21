@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, type FormEvent, type CSSProperties } from 
 import React from "react";
 import Link from "next/link";
 import { useAuth } from "../../contexts/auth-context";
-import { API_BASE_URL } from "../../config/constants";
+import { API_ASSET_BASE_URL } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
 
 type Branding = {
@@ -67,7 +67,7 @@ export function LoginLandingExperience() {
   const companyLogoSrc = rawLogo
     ? /^https?:\/\//i.test(rawLogo)
       ? rawLogo
-      : `${API_BASE_URL}${rawLogo}`
+      : `${API_ASSET_BASE_URL}${rawLogo}`
     : null;
 
   useEffect(() => {
@@ -80,7 +80,7 @@ export function LoginLandingExperience() {
 
   useEffect(() => {
     let isMounted = true;
-    fetch(`${API_BASE_URL}/api/auth/branding`)
+    fetch("/api/auth/branding")
       .then(async (res) => {
         if (!res.ok) return null;
         return res.json();

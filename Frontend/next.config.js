@@ -20,6 +20,10 @@ const nextConfig = {
         source: "/api/:path*",
         destination: `${base}/api/:path*`,
       },
+      {
+        source: "/uploads/:path*",
+        destination: `${base}/uploads/:path*`,
+      },
     ];
   },
   async redirects() {

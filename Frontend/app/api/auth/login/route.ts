@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
 
   const target = `${backendBase()}/api/auth/login`;
 
+  const upstreamTimeoutMs = 25_000;
   try {
     const res = await fetch(target, {
       method: "POST",
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
       },
       body: body || "{}",
       cache: "no-store",
+      signal: AbortSignal.timeout(upstreamTimeoutMs),
     });
 
     const text = await res.text();
@@ -43,10 +45,12 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[api/auth/login] upstream unreachable:", target, err);
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
     return NextResponse.json(
       {
-        message:
-          "Cannot reach the HR API. Start the backend (dotnet run on port 5000) and set API_URL or NEXT_PUBLIC_API_URL if the API uses another URL.",
+        message: timedOut
+          ? `HR API did not respond within ${upstreamTimeoutMs / 1000}s (${target}). Check that the API is running and reachable from the frontend host.`
+          : "Cannot reach the HR API. Set API_URL and NEXT_PUBLIC_API_URL on the frontend host, then ensure the API is running.",
       },
       { status: 503 },
     );
