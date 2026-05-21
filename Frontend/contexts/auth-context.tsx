@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
-import { API_BASE_URL } from "@/config/constants";
+import { API_BASE_URL, getApiBaseUrl } from "@/config/constants";
 
 const PROFILE_FETCH_MS = 10_000;
 const LOGIN_FETCH_MS = 20_000;
@@ -111,7 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), PROFILE_FETCH_MS);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/auth/me`, {
         headers: { Authorization: `Bearer ${authToken}` },
         signal: controller.signal,
       });

@@ -1,10 +1,11 @@
-import { API_BASE_URL } from "@/config/constants";
+import { API_BASE_URL, getApiBaseUrl } from "@/config/constants";
 
 function apiReachabilityHint(): string {
-  if (!API_BASE_URL) {
+  const base = getApiBaseUrl();
+  if (!base) {
     return "On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend URL and ensure the API is running.";
   }
-  return `Set NEXT_PUBLIC_API_URL and ensure the backend is running (${API_BASE_URL}).`;
+  return `Set NEXT_PUBLIC_API_URL and ensure the backend is running (${base || API_BASE_URL}).`;
 }
 
 /** Abort hanging requests so pages do not spin forever if the API stalls. */
@@ -39,7 +40,7 @@ export async function apiFetch<T>(
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}${endpoint}`, {
+    res = await fetch(`${getApiBaseUrl()}${endpoint}`, {
       ...fetchInit,
       headers,
       signal: controller.signal,
@@ -136,7 +137,7 @@ export async function publicApiFetch<T>(endpoint: string, options?: ApiFetchOpti
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}${endpoint}`, {
+    res = await fetch(`${getApiBaseUrl()}${endpoint}`, {
       ...fetchInit,
       headers,
       signal: controller.signal,
@@ -214,7 +215,7 @@ export async function apiFetchBlob(endpoint: string, options?: ApiFetchOptions):
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}${endpoint}`, {
+    res = await fetch(`${getApiBaseUrl()}${endpoint}`, {
       ...fetchInit,
       headers,
       signal: controller.signal,
