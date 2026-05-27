@@ -122,15 +122,17 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Invalid confirmation phrase." });
 
         var password = string.IsNullOrWhiteSpace(body.Password)
-            ? (_config["CustomerReset:BootstrapAdminPassword"] ?? "Admin@123")
+            ? AdminBootstrapSeeder.DefaultAdminPassword
             : body.Password!;
 
         await AdminBootstrapSeeder.EnsureAsync(
             db,
-            adminPassword: password,
+            AdminBootstrapSeeder.DefaultAdminUsername,
+            AdminBootstrapSeeder.DefaultAdminEmail,
+            password,
             forceResetPassword: true,
             cancellationToken: cancellationToken);
-        return Ok(new { message = "Admin bootstrap ensured.", username = "admin" });
+        return Ok(new { message = "Admin bootstrap ensured.", username = AdminBootstrapSeeder.DefaultAdminUsername });
     }
 
     [HttpGet("me")]
