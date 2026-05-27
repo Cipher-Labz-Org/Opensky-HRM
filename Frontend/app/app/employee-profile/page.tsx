@@ -193,7 +193,6 @@ interface WorkExperienceItem {
 
 interface BankAccountItem {
   id: string;
-  amount: number;
   accountNumber: string;
   bankName: string | null;
   accountType: string;
@@ -1092,14 +1091,12 @@ export default function EmployeeProfilePage() {
               { key: "bank", header: "Bank" },
               { key: "type", header: "Type" },
               { key: "acct", header: "Account" },
-              { key: "amt", header: "Amount" },
               { key: "branch", header: "Branch" },
             ]}
             rows={bankAccounts.map((r) => ({
               bank: dash(r.bankName),
               type: r.accountType,
               acct: r.accountNumber,
-              amt: String(r.amount),
               branch: dash(r.branchLocation ?? r.branchCode),
             }))}
           />

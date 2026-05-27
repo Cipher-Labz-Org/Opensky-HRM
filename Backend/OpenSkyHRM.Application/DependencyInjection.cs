@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<IOffboardingService, OffboardingService>();
         services.AddScoped<IEmployeeTaskService, EmployeeTaskService>();
         services.AddScoped<IPayrollService, PayrollService>();
+        services.AddScoped<IPayrollAttendanceImportService, PayrollAttendanceImportService>();
         services.AddScoped<PayrollCalculationEngine>();
         services.AddScoped<IPerformanceService, PerformanceService>();
         services.AddScoped<IAppraisalService, AppraisalService>();

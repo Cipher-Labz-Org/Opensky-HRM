@@ -11,6 +11,9 @@ public interface IAttendanceService
     Task<AttendanceRecordDto?> UpdateAsync(Guid id, UpdateAttendanceRecordDto dto);
     Task<bool> DeleteAsync(Guid id);
     Task<AttendanceRecordDto> PunchAsync(Guid employeeId, PunchRequestDto dto);
-    Task<List<OvertimeNopayResultDto>> CalculateOvertimeNopayAsync(DateTime from, DateTime to, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null);
+    Task<List<OvertimeNopayResultDto>> CalculateOvertimeNopayAsync(
+        DateTime from, DateTime to, Guid? employeeId = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null,
+        IReadOnlyList<Guid>? includeEmployeeIds = null);
     Task<OvertimeNopayResultDto?> SetOvertimeNopayPeriodApprovalAsync(DateTime from, DateTime to, Guid employeeId, Guid approverEmployeeId, bool approve, string? remarks, IReadOnlyList<Guid>? allowedEmployeeIds = null);
 }

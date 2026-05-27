@@ -20,7 +20,7 @@ public partial class BulkUploadController
         ws.Name = "DirectDeposits";
         var ddCols = new[]
         {
-            "Employee Code", "Amount", "Account Number", "Bank Name", "Account Type", "Bank Code", "Branch Code",
+            "Employee Code", "Account Number", "Bank Name", "Account Type", "Bank Code", "Branch Code",
             "Branch Location",
         };
         for (var i = 0; i < ddCols.Length; i++)
@@ -159,15 +159,7 @@ public partial class BulkUploadController
                 continue;
             }
 
-            var amount = PayrollDec(map, row, "Amount");
             var accountNumber = PayrollCell(map, row, "Account Number");
-            if (amount is null)
-            {
-                skipped++;
-                errors.Add(new PayrollRowError(r, code, "Amount is required."));
-                continue;
-            }
-
             if (string.IsNullOrWhiteSpace(accountNumber))
             {
                 skipped++;
@@ -182,7 +174,7 @@ public partial class BulkUploadController
             _db.BankAccounts.Add(new BankAccount
             {
                 EmployeeId = empId,
-                Amount = amount.Value,
+                Amount = 0,
                 AccountNumber = accountNumber.Trim(),
                 BankName = PayrollCell(map, row, "Bank Name"),
                 AccountType = acctType.Trim(),

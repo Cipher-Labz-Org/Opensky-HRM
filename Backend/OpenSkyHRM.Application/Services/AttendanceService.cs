@@ -301,7 +301,8 @@ public class AttendanceService : IAttendanceService
 
     public async Task<List<OvertimeNopayResultDto>> CalculateOvertimeNopayAsync(
         DateTime from, DateTime to, Guid? employeeId = null,
-        IReadOnlyList<Guid>? allowedEmployeeIds = null)
+        IReadOnlyList<Guid>? allowedEmployeeIds = null,
+        IReadOnlyList<Guid>? includeEmployeeIds = null)
     {
         var attendanceQuery = _db.Set<AttendanceRecord>()
             .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
@@ -313,7 +314,26 @@ public class AttendanceService : IAttendanceService
             attendanceQuery = attendanceQuery.Where(a => allowedEmployeeIds.Contains(a.EmployeeId));
 
         var records = await attendanceQuery.ToListAsync();
-        var empIds = records.Select(r => r.EmployeeId).Distinct().ToList();
+        var empIdsFromRecords = records.Select(r => r.EmployeeId).Distinct().ToList();
+
+        var targetEmpIds = new HashSet<Guid>(empIdsFromRecords);
+        if (includeEmployeeIds != null)
+        {
+            foreach (var id in includeEmployeeIds)
+                targetEmpIds.Add(id);
+        }
+        if (employeeId.HasValue)
+            targetEmpIds = [employeeId.Value];
+
+        if (targetEmpIds.Count == 0)
+            return [];
+
+        var employees = await _db.Employees
+            .Include(e => e.ShiftPattern)
+            .Where(e => targetEmpIds.Contains(e.Id) && e.Status != "Terminated")
+            .ToListAsync();
+
+        var empIds = employees.Select(e => e.Id).ToList();
 
         var rosterAssignments = await _db.Set<RosterAssignment>()
             .Include(ra => ra.RosterTemplate).ThenInclude(rt => rt.DefaultShiftPattern)
@@ -321,29 +341,28 @@ public class AttendanceService : IAttendanceService
             .ToListAsync();
 
         var onLeaveSet = await GetApprovedLeaveDatesAsync(empIds, from.Date, to.Date);
+        var recordsByEmployee = records.GroupBy(r => r.EmployeeId).ToDictionary(g => g.Key, g => g.ToList());
 
         var results = new List<OvertimeNopayResultDto>();
-        foreach (var empGroup in records.GroupBy(r => r.EmployeeId))
+        foreach (var emp in employees)
         {
-            var emp = empGroup.First().Employee;
-            var empRosters = rosterAssignments.Where(ra => ra.EmployeeId == empGroup.Key).ToList();
+            var empRosters = rosterAssignments.Where(ra => ra.EmployeeId == emp.Id).ToList();
+            recordsByEmployee.TryGetValue(emp.Id, out var empRecords);
+            empRecords ??= [];
 
             decimal totalWorked = 0;
             decimal expectedHours = 0;
             int lateDays = 0, presentDays = 0, absentDays = 0;
 
-            var recordsByDate = empGroup.GroupBy(r => r.Date.Date).ToDictionary(g => g.Key, g => g.ToList());
+            var recordsByDate = empRecords.GroupBy(r => r.Date.Date).ToDictionary(g => g.Key, g => g.ToList());
 
             for (var d = from.Date; d <= to.Date; d = d.AddDays(1))
             {
-                var isOnLeave = onLeaveSet.Contains((empGroup.Key, d));
+                var isOnLeave = onLeaveSet.Contains((emp.Id, d));
                 if (isOnLeave)
-                {
-                    // Leave day: no expected attendance, don't count as absent
                     continue;
-                }
 
-                var (shiftStart, shiftEnd, hoursPerDay) = GetExpectedShift(emp, empRosters, d);
+                var (_, _, hoursPerDay) = GetExpectedShift(emp, empRosters, d);
                 expectedHours += hoursPerDay;
 
                 if (recordsByDate.TryGetValue(d, out var dayRecords))
@@ -361,17 +380,16 @@ public class AttendanceService : IAttendanceService
 
             var ot = Math.Max(0, totalWorked - expectedHours);
             var nopayHours = Math.Max(0, expectedHours - totalWorked);
-            var nopayDays = absentDays;
 
             results.Add(new OvertimeNopayResultDto
             {
-                EmployeeId = empGroup.Key,
+                EmployeeId = emp.Id,
                 EmployeeName = emp.FirstName + " " + emp.LastName,
                 EmployeeCode = emp.EmployeeCode,
                 TotalWorkedHours = Math.Round(totalWorked, 2),
                 ExpectedHours = Math.Round(expectedHours, 2),
                 OvertimeHours = Math.Round(ot, 2),
-                NopayDays = nopayDays,
+                NopayDays = absentDays,
                 NopayHours = Math.Round(nopayHours, 2),
                 LateDays = lateDays,
                 PresentDays = presentDays,

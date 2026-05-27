@@ -30,7 +30,6 @@ public class BankAccountsController : ControllerBase
             {
                 Id = b.Id,
                 EmployeeId = b.EmployeeId,
-                Amount = b.Amount,
                 AccountNumber = b.AccountNumber,
                 BankName = b.BankName,
                 AccountType = b.AccountType,
@@ -53,7 +52,7 @@ public class BankAccountsController : ControllerBase
         var item = new BankAccount
         {
             EmployeeId = employeeId,
-            Amount = req.Amount,
+            Amount = 0,
             AccountNumber = req.AccountNumber,
             BankName = req.BankName,
             AccountType = req.AccountType,
@@ -74,7 +73,6 @@ public class BankAccountsController : ControllerBase
             .FirstOrDefaultAsync(b => b.Id == id && b.EmployeeId == employeeId);
         if (item is null) return NotFound();
 
-        item.Amount = req.Amount;
         item.AccountNumber = req.AccountNumber;
         item.BankName = req.BankName;
         item.AccountType = req.AccountType;
@@ -104,7 +102,6 @@ public class BankAccountsController : ControllerBase
     {
         Id = b.Id,
         EmployeeId = b.EmployeeId,
-        Amount = b.Amount,
         AccountNumber = b.AccountNumber,
         BankName = b.BankName,
         AccountType = b.AccountType,
@@ -118,7 +115,6 @@ public class BankAccountDto
 {
     public Guid Id { get; set; }
     public Guid EmployeeId { get; set; }
-    public decimal Amount { get; set; }
     public string AccountNumber { get; set; } = string.Empty;
     public string? BankName { get; set; }
     public string AccountType { get; set; } = "Checking";
@@ -129,7 +125,6 @@ public class BankAccountDto
 
 public class BankAccountRequest
 {
-    public decimal Amount { get; set; }
     public string AccountNumber { get; set; } = string.Empty;
     public string? BankName { get; set; }
     public string AccountType { get; set; } = "Checking";

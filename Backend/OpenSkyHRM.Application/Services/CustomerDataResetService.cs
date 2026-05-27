@@ -141,8 +141,7 @@ WHERE lower(""Username"") <> 'admin';", cancellationToken);
             await LicensingSeeder.EnsureAsync(_db, cancellationToken);
 
             // Ensure there is at least one usable admin account after a transactional purge.
-            var bootstrapPassword = _configuration["CustomerReset:BootstrapAdminPassword"] ?? "Admin@123";
-            await AdminBootstrapSeeder.EnsureAsync(_db, adminPassword: bootstrapPassword, cancellationToken: cancellationToken);
+            await AdminBootstrapSeeder.EnsureAsync(_db, cancellationToken: cancellationToken);
 
             await tx.CommitAsync(cancellationToken);
             return new CustomerResetExecuteResult(

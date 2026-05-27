@@ -107,6 +107,9 @@ public class PayrollBatchDto
     public string BatchCode { get; set; } = string.Empty;
     public int Month { get; set; }
     public int Year { get; set; }
+    public DateTime EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public string ProcessType { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public DateTime? ProcessedAt { get; set; }
     public string? ApprovedBy { get; set; }
@@ -124,6 +127,9 @@ public class CreatePayrollBatchDto
 {
     public int Month { get; set; }
     public int Year { get; set; }
+    public DateTime? EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public string ProcessType { get; set; } = "Salary";
     public string? Notes { get; set; }
     public List<Guid> EmployeeIds { get; set; } = new();
 }
@@ -165,6 +171,43 @@ public class PayrollSettingsDto
     public decimal EpfEmployeeRate { get; set; }
     public decimal EpfEmployerRate { get; set; }
     public decimal EtfEmployerRate { get; set; }
+    public decimal OtHourlyDivisor { get; set; } = 208m;
+    public decimal OtMultiplier { get; set; } = 1.5m;
+}
+
+public class PayrollAttendanceImportPreviewDto
+{
+    public Guid BatchId { get; set; }
+    public string BatchCode { get; set; } = string.Empty;
+    public DateTime EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public List<PayrollAttendanceImportLineDto> Lines { get; set; } = new();
+    public int EmployeesWithApprovedOt { get; set; }
+    public int EmployeesMissingOtApproval { get; set; }
+    public int EmployeesWithNopay { get; set; }
+}
+
+public class PayrollAttendanceImportLineDto
+{
+    public Guid EmployeeId { get; set; }
+    public string EmployeeName { get; set; } = string.Empty;
+    public string? EmployeeCode { get; set; }
+    public decimal ApprovedOtHours { get; set; }
+    public decimal OtAmount { get; set; }
+    public bool OtApproved { get; set; }
+    public bool OtOutdated { get; set; }
+    public int AttendanceNopayDays { get; set; }
+    public int LeaveNopayDays { get; set; }
+    public int TotalNopayDays { get; set; }
+    public decimal BasicPay { get; set; }
+    public string? Warning { get; set; }
+}
+
+public class PayrollAttendanceImportResultDto
+{
+    public int ImportedCount { get; set; }
+    public int OtLinesUpdated { get; set; }
+    public PayrollAttendanceImportPreviewDto Preview { get; set; } = new();
 }
 
 public class BulkVariableUpdateRequest

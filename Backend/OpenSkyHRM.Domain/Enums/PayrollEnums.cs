@@ -31,3 +31,10 @@ public enum PayStatementStatus
     Draft,
     Finalized
 }
+
+public enum PayrollProcessType
+{
+    Salary,
+    Bonus,
+    OtherTransactions
+}
