@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddScoped<IShiftService, ShiftService>();
         services.AddScoped<IRosterService, RosterService>();
         services.AddScoped<IBiometricService, BiometricService>();
+        services.AddScoped<BiometricAdmsIngestService>();
         services.AddScoped<IRecruitmentService, RecruitmentService>();
         services.AddScoped<IOnboardingService, OnboardingService>();
         services.AddScoped<IOffboardingService, OffboardingService>();
@@ -45,6 +46,7 @@ public static class DependencyInjection
 
         // Hangfire jobs
         services.AddScoped<AttendanceReconciliationJob>();
+        services.AddScoped<BiometricAdmsProcessorJob>();
         services.AddScoped<LeaveAccrualJob>();
         services.AddScoped<PayrollBatchExportJob>();
         services.AddScoped<ReportGenerationJob>();

@@ -251,7 +251,6 @@ interface WorkExperienceItem {
 interface BankAccountItem {
   id: string;
   employeeId: string;
-  amount: number;
   accountNumber: string;
   bankName: string | null;
   accountType: string;
@@ -980,7 +979,6 @@ export default function EmployeeDetailPage() {
   const [showBaModal, setShowBaModal] = useState(false);
   const [baSaving, setBaSaving] = useState(false);
   const [editingBa, setEditingBa] = useState<BankAccountItem | null>(null);
-  const [baAmount, setBaAmount] = useState("");
   const [baAccountNumber, setBaAccountNumber] = useState("");
   const [baBankName, setBaBankName] = useState("");
   const [baAccountType, setBaAccountType] = useState("Checking");
@@ -1921,7 +1919,6 @@ export default function EmployeeDetailPage() {
   function openBaModal(item?: BankAccountItem) {
     if (item) {
       setEditingBa(item);
-      setBaAmount(String(item.amount));
       setBaAccountNumber(item.accountNumber);
       setBaBankName(item.bankName ?? "");
       setBaAccountType(item.accountType);
@@ -1930,7 +1927,6 @@ export default function EmployeeDetailPage() {
       setBaBranchLocation(item.branchLocation ?? "");
     } else {
       setEditingBa(null);
-      setBaAmount("");
       setBaAccountNumber("");
       setBaBankName("");
       setBaAccountType("Checking");
@@ -1944,7 +1940,6 @@ export default function EmployeeDetailPage() {
   function closeBaModal() {
     setShowBaModal(false);
     setEditingBa(null);
-    setBaAmount("");
     setBaAccountNumber("");
     setBaBankName("");
     setBaAccountType("Checking");
@@ -1954,10 +1949,9 @@ export default function EmployeeDetailPage() {
   }
 
   async function saveBankAccount() {
-    if (!baAmount.trim() || !baAccountNumber.trim()) return;
+    if (!baAccountNumber.trim()) return;
     setBaSaving(true);
     const body = {
-      amount: parseFloat(baAmount),
       accountNumber: baAccountNumber.trim(),
       bankName: baBankName || null,
       accountType: baAccountType,
@@ -4731,11 +4725,7 @@ export default function EmployeeDetailPage() {
           <Modal open={showBaModal} onClose={closeBaModal} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">{editingBa ? "Edit Direct Deposit" : "Add Direct Deposit"}</h3>
-              <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">Amount<span className="text-red-500">*</span></label>
-                  <input type="number" step="0.01" value={baAmount} onChange={(e) => setBaAmount(e.target.value)} className={inputClass} />
-                </div>
+              <div className="mt-3 border-t border-slate-200 pt-4">
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Account Number<span className="text-red-500">*</span></label>
                   <input value={baAccountNumber} onChange={(e) => setBaAccountNumber(e.target.value)} className={inputClass} />
@@ -4769,7 +4759,7 @@ export default function EmployeeDetailPage() {
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={closeBaModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={saveBankAccount} disabled={!baAmount.trim() || !baAccountNumber.trim() || baSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{baSaving ? "Saving..." : "Save"}</button>
+                  <button type="button" onClick={saveBankAccount} disabled={!baAccountNumber.trim() || baSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{baSaving ? "Saving..." : "Save"}</button>
                 </div>
               </div>
             </div>
@@ -4802,7 +4792,6 @@ export default function EmployeeDetailPage() {
                       <th className="px-4 py-3">Bank Code</th>
                       <th className="px-4 py-3">Branch Code</th>
                       <th className="px-4 py-3">Branch</th>
-                      <th className="px-4 py-3 text-right">Amount</th>
                       <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -4815,7 +4804,6 @@ export default function EmployeeDetailPage() {
                         <td className="px-4 py-3 text-slate-600">{ba.bankCode || "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{ba.branchCode || "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{ba.branchLocation || "—"}</td>
-                        <td className="px-4 py-3 text-right text-slate-700 font-medium">{ba.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button type="button" onClick={() => openBaModal(ba)} className="text-slate-500 transition hover:text-amber-600" title="Edit">

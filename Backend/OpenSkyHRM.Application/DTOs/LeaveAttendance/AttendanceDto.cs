@@ -58,6 +58,15 @@ public class AttendanceSummaryDto
     public decimal AverageWorkHours { get; set; }
 }
 
+public class AttendanceDailySummaryDto
+{
+    public DateTime Date { get; set; }
+    public int TotalPresent { get; set; }
+    public int TotalAbsent { get; set; }
+    public int TotalLate { get; set; }
+    public int TotalNoPunch { get; set; }
+}
+
 public class PunchRequestDto
 {
     public string Type { get; set; } = "in";

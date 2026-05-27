@@ -18,9 +18,34 @@ public sealed class BusinessClock : IBusinessClock
         get
         {
             var utc = DateTime.UtcNow;
-            var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), _timeZone);
-            return DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
+            return ToBusinessLocal(utc);
         }
+    }
+
+    public bool TryParseDeviceTimestamp(string? input, out DateTime localWall)
+    {
+        localWall = default;
+        if (string.IsNullOrWhiteSpace(input))
+            return false;
+
+        if (!DateTime.TryParse(input, out var parsed))
+            return false;
+
+        // Fingerprint devices send wall clock in business timezone without an offset.
+        localWall = DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified);
+        return true;
+    }
+
+    public DateTime ToBusinessLocal(DateTime utcInstant)
+    {
+        var utc = utcInstant.Kind switch
+        {
+            DateTimeKind.Utc => utcInstant,
+            DateTimeKind.Local => utcInstant.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(utcInstant, DateTimeKind.Utc),
+        };
+        var local = TimeZoneInfo.ConvertTimeFromUtc(utc, _timeZone);
+        return DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
     }
 
     private static TimeZoneInfo ResolveTimeZone(string id)

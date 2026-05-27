@@ -11,7 +11,6 @@ public class BankAccountConfiguration : IEntityTypeConfiguration<BankAccount>
         builder.ToTable("BankAccounts");
         builder.HasKey(b => b.Id);
 
-        builder.Property(b => b.Amount).HasPrecision(18, 2).IsRequired();
         builder.Property(b => b.AccountNumber).HasMaxLength(50).IsRequired();
         builder.Property(b => b.BankName).HasMaxLength(200);
         builder.Property(b => b.AccountType).HasMaxLength(30).IsRequired();

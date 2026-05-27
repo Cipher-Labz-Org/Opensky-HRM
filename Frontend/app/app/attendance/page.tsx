@@ -7,7 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { DatePickerField, DateTimePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { apiFetch } from "@/lib/api";
-import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatBusinessTime, formatDate, formatDateTime } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 
@@ -30,6 +30,14 @@ interface AttendanceSummary {
   totalLate: number;
   totalNoPunch: number;
   averageWorkHours: number;
+}
+
+interface AttendanceDailySummary {
+  date: string;
+  totalPresent: number;
+  totalAbsent: number;
+  totalLate: number;
+  totalNoPunch: number;
 }
 
 const labelClass = "mb-1 block text-xs font-medium text-slate-500";
@@ -114,9 +122,7 @@ function dateOnlyForInput(iso: string): string {
 }
 
 function fmtTime(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return formatBusinessTime(iso);
 }
 
 function fmtDate(iso: string | null): string {
@@ -210,28 +216,30 @@ function DashboardTab({
     async function load() {
       setLoading(true);
       const today = todayLocalIso();
-      const dayKeys: string[] = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        dayKeys.push(todayLocalIso(d));
-      }
+      const weekFrom = todayLocalIso(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
       try {
-        const [todaySummary, weekSummaries, recentRes] = await Promise.all([
+        const [todaySummary, dailySummaries, recentRes] = await Promise.all([
           apiFetch<AttendanceSummary>(`/api/attendance/summary?from=${today}&to=${today}`).catch(() => null),
-          Promise.all(
-            dayKeys.map((d) => apiFetch<AttendanceSummary>(`/api/attendance/summary?from=${d}&to=${d}`).catch(() => null))
-          ),
+          apiFetch<AttendanceDailySummary[]>(`/api/attendance/summary/daily?from=${weekFrom}&to=${today}`).catch(() => []),
           apiFetch<{ items: AttendanceRecord[] }>(`/api/attendance?pageSize=8&from=${today}&to=${today}`).catch(() => ({
             items: [] as AttendanceRecord[],
           })),
         ]);
         if (cancelled) return;
         setSummary(todaySummary);
+        const byDate = new Map(
+          (dailySummaries ?? []).map((s) => [s.date.split("T")[0], s.totalPresent])
+        );
+        const dayKeys: string[] = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          dayKeys.push(todayLocalIso(d));
+        }
         setWeekActivity(
-          weekSummaries.map((s, i) => ({
-            label: new Date(`${dayKeys[i]}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" }),
-            count: s?.totalPresent ?? 0,
+          dayKeys.map((d) => ({
+            label: new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" }),
+            count: byDate.get(d) ?? 0,
           }))
         );
         const items = recentRes.items ?? [];
@@ -525,13 +533,13 @@ function AttendanceListTab() {
   const pageSize = 20;
   const [filterEmployee, setFilterEmployee] = useState("");
   const [filterEmployeeText, setFilterEmployeeText] = useState("");
-  const [filterFrom, setFilterFrom] = useState(() => {
-    const d = new Date();
-    return todayLocalIso(new Date(d.getFullYear(), d.getMonth(), 1));
-  });
+  const [filterFrom, setFilterFrom] = useState(() => todayLocalIso());
   const [filterTo, setFilterTo] = useState(() => todayLocalIso());
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
+  const [employeesLoaded, setEmployeesLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editModal, setEditModal] = useState(false);
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
@@ -546,26 +554,49 @@ function AttendanceListTab() {
     [employees]
   );
 
-  const load = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-    if (filterEmployee) params.set("employeeId", filterEmployee);
-    if (filterFrom) params.set("from", filterFrom);
-    if (filterTo) params.set("to", filterTo);
-    apiFetch<{ items: AttendanceRecord[]; totalCount: number }>(`/api/attendance?${params}`)
-      .then((r) => { setRecords(r.items ?? []); setTotalCount(r.totalCount ?? 0); })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
-      .finally(() => setLoading(false));
-  }, [page, filterEmployee, filterFrom, filterTo]);
+  const loadEmployees = useCallback(() => {
+    if (employeesLoaded) return;
+    apiFetch<{ items: EmployeeLookup[] }>("/api/employees?pageSize=200")
+      .then((r) => {
+        setEmployees(r.items ?? []);
+        setEmployeesLoaded(true);
+      })
+      .catch(() => {});
+  }, [employeesLoaded]);
 
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(
+    (options?: { silent?: boolean }) => {
+      const silent = options?.silent ?? false;
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+      setError(null);
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      if (filterEmployee) params.set("employeeId", filterEmployee);
+      if (filterFrom) params.set("from", filterFrom);
+      if (filterTo) params.set("to", filterTo);
+      apiFetch<{ items: AttendanceRecord[]; totalCount: number }>(`/api/attendance?${params}`)
+        .then((r) => {
+          setRecords(r.items ?? []);
+          setTotalCount(r.totalCount ?? 0);
+          setLastRefreshedAt(new Date());
+        })
+        .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
+        .finally(() => {
+          if (silent) setRefreshing(false);
+          else setLoading(false);
+        });
+    },
+    [page, filterEmployee, filterFrom, filterTo]
+  );
 
   useEffect(() => {
-    apiFetch<{ items: EmployeeLookup[] }>("/api/employees?pageSize=500")
-      .then((r) => setEmployees(r.items ?? []))
-      .catch(() => {});
-  }, []);
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => load({ silent: true }), 30_000);
+    return () => window.clearInterval(timer);
+  }, [load]);
 
   function openEdit(rec: AttendanceRecord) { setEditingRecord(rec); setEditModal(true); }
 
@@ -610,6 +641,7 @@ function AttendanceListTab() {
           <label className={labelClass}>Employee</label>
           <input
             value={filterEmployeeText}
+            onFocus={loadEmployees}
             onChange={(e) => {
               const text = e.target.value;
               setFilterEmployeeText(text);
@@ -636,8 +668,22 @@ function AttendanceListTab() {
           <DatePickerField value={filterTo} onChange={(v) => { setFilterTo(v); setPage(1); }} className={`${inputClass} w-40`} />
         </div>
         <Button variant="secondary" onClick={() => { setFilterEmployee(""); setFilterEmployeeText(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}>Clear</Button>
-        <div className="ml-auto"><Button onClick={() => setShowCreate(true)}>+ Log Attendance</Button></div>
+        <Button variant="secondary" onClick={() => load()} disabled={loading || refreshing}>
+          Refresh
+        </Button>
+        <div className="ml-auto flex items-center gap-3">
+          {lastRefreshedAt && (
+            <span className="text-xs text-slate-400">
+              Updated {lastRefreshedAt.toLocaleTimeString("en-LK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              {refreshing ? " · syncing…" : " · auto 30s"}
+            </span>
+          )}
+          <Button onClick={() => setShowCreate(true)}>+ Log Attendance</Button>
+        </div>
       </div>
+      <p className="text-xs text-slate-500 -mt-2">
+        Biometric rows show earliest punch as <strong>Punch In</strong> and latest as <strong>Punch Out</strong> for the day. New device punches can take up to a minute to appear.
+      </p>
 
       <CreateAttendanceModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />
 
@@ -660,7 +706,7 @@ function AttendanceListTab() {
                 <th className="px-3 py-2.5 font-semibold text-slate-600">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className={`divide-y divide-slate-100 ${refreshing ? "opacity-80" : ""}`}>
               {loading && <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-400">Loading...</td></tr>}
               {!loading && records.length === 0 && <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-400">No attendance records found.</td></tr>}
               {!loading && records.map((r) => (

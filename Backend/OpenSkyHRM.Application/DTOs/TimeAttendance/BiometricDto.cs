@@ -49,3 +49,10 @@ public class PunchImportRowDto
     public DateTime PunchTime { get; set; }
     public string? Direction { get; set; }
 }
+
+public class AdmsProcessResultDto
+{
+    public int Processed { get; set; }
+    public int SkippedUnmapped { get; set; }
+    public int Failed { get; set; }
+}

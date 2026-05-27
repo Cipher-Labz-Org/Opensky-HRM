@@ -51,6 +51,18 @@ public class AttendanceController : ControllerBase
         return Ok(await _attendanceService.GetSummaryAsync(from, to, employeeId, allowedIds));
     }
 
+    [HttpGet("summary/daily")]
+    public async Task<IActionResult> GetDailySummaries(
+        [FromQuery] DateTime from,
+        [FromQuery] DateTime to,
+        [FromQuery] Guid? employeeId = null)
+    {
+        if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
+            return Forbid();
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        return Ok(await _attendanceService.GetDailySummariesAsync(from, to, employeeId, allowedIds));
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateAttendanceRecordDto dto)
     {

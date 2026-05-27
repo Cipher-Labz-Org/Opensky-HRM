@@ -607,10 +607,6 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
                     b.Property<string>("BankCode")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
@@ -1638,8 +1634,8 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<string>("EmployeeCode")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("EmploymentType")
                         .IsRequired()
@@ -1671,8 +1667,8 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("HomeTelephone")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
@@ -1767,8 +1763,8 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("character varying(20)");
 
                     b.Property<string>("Phone")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("PollingDivision")
                         .HasMaxLength(200)
@@ -1820,8 +1816,8 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("WorkTelephone")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("ZipPostalCode")
                         .HasMaxLength(20)
