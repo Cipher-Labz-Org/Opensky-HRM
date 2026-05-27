@@ -734,7 +734,7 @@ function PayrollUploadSection() {
                 The file contains one sheet, <strong>DirectDeposits</strong>, with the same header style as the employee import template (navy row, white text).
               </li>
               <li>
-                Each data row needs a valid <strong>Employee Code</strong>, <strong>Amount</strong>, and <strong>Account Number</strong>. Optional: Bank Name, Account Type (e.g. Checking), Bank/Branch codes and location.
+                Each data row needs a valid <strong>Employee Code</strong> and <strong>Account Number</strong>. Optional: Bank Name, Account Type (e.g. Checking), Bank/Branch codes and location.
               </li>
               <li>Blank employee rows are ignored. Only data rows under the header are imported as bank accounts on the employee profile.</li>
             </ol>

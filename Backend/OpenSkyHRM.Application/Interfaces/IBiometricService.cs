@@ -11,4 +11,5 @@ public interface IBiometricService
     Task<bool> DeleteDeviceAsync(Guid id);
     Task<PunchImportBatchDto> ImportPunchesAsync(Guid deviceId, string fileName, List<PunchImportRowDto> rows);
     Task<List<PunchImportBatchDto>> GetImportHistoryAsync(Guid? deviceId = null);
+    Task<AdmsProcessResultDto> ProcessAdmsPunchesToAttendanceAsync(CancellationToken cancellationToken = default);
 }

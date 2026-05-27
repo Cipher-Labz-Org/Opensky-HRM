@@ -13,12 +13,12 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.HasIndex(e => e.EmployeeCode).IsUnique();
         builder.HasIndex(e => e.Email).IsUnique();
 
-        builder.Property(e => e.EmployeeCode).HasMaxLength(20).IsRequired();
+        builder.Property(e => e.EmployeeCode).HasMaxLength(50).IsRequired();
         builder.Property(e => e.FirstName).HasMaxLength(100).IsRequired();
         builder.Property(e => e.MiddleName).HasMaxLength(100);
         builder.Property(e => e.LastName).HasMaxLength(100).IsRequired();
         builder.Property(e => e.Email).HasMaxLength(255).IsRequired();
-        builder.Property(e => e.Phone).HasMaxLength(20);
+        builder.Property(e => e.Phone).HasMaxLength(100);
         builder.Property(e => e.AddressStreet1).HasMaxLength(255);
         builder.Property(e => e.AddressStreet2).HasMaxLength(255);
         builder.Property(e => e.City).HasMaxLength(100);
@@ -28,8 +28,8 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(e => e.PollingDivision).HasMaxLength(200);
         builder.Property(e => e.DistanceToOffice).HasMaxLength(50);
         builder.Property(e => e.ModeOfTransport).HasMaxLength(50);
-        builder.Property(e => e.HomeTelephone).HasMaxLength(20);
-        builder.Property(e => e.WorkTelephone).HasMaxLength(20);
+        builder.Property(e => e.HomeTelephone).HasMaxLength(100);
+        builder.Property(e => e.WorkTelephone).HasMaxLength(100);
         builder.Property(e => e.OtherEmail).HasMaxLength(255);
         builder.Property(e => e.PermanentStreet1).HasMaxLength(255);
         builder.Property(e => e.PermanentStreet2).HasMaxLength(255);

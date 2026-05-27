@@ -18,6 +18,7 @@ public class BiometricService : IBiometricService
     public async Task<List<BiometricDeviceDto>> GetAllDevicesAsync()
     {
         return await _db.BiometricDevices
+            .Where(d => !d.IsDeleted)
             .OrderBy(d => d.Name)
             .Select(d => new BiometricDeviceDto
             {
@@ -145,51 +146,8 @@ public class BiometricService : IBiometricService
             {
                 try
                 {
-                    var punchDate = punch.PunchTime.Date;
-                    var existingRecord = await _db.AttendanceRecords
-                        .FirstOrDefaultAsync(a => a.EmployeeId == employee.Id && a.Date == punchDate && a.PunchOut == null);
-
                     var isOut = punch.Direction?.Equals("out", StringComparison.OrdinalIgnoreCase) == true;
-
-                    if (isOut && existingRecord != null)
-                    {
-                        existingRecord.PunchOut = punch.PunchTime;
-                        existingRecord.WorkedHours = Math.Round(
-                            (decimal)(punch.PunchTime - (existingRecord.PunchIn ?? punch.PunchTime)).TotalHours, 2);
-                        existingRecord.Source = "Biometric";
-                    }
-                    else if (!isOut)
-                    {
-                        var alreadyExists = await _db.AttendanceRecords
-                            .AnyAsync(a => a.EmployeeId == employee.Id && a.Date == punchDate && a.PunchIn != null && a.Source == "Biometric");
-                        if (alreadyExists && existingRecord != null)
-                        {
-                            success++;
-                            continue;
-                        }
-
-                        var newRecord = new AttendanceRecord
-                        {
-                            EmployeeId = employee.Id,
-                            Date = punchDate,
-                            PunchIn = punch.PunchTime,
-                            Status = "Present",
-                            Source = "Biometric",
-                        };
-                        _db.AttendanceRecords.Add(newRecord);
-                    }
-                    else
-                    {
-                        var newRecord = new AttendanceRecord
-                        {
-                            EmployeeId = employee.Id,
-                            Date = punchDate,
-                            PunchOut = punch.PunchTime,
-                            Status = "Present",
-                            Source = "Biometric",
-                        };
-                        _db.AttendanceRecords.Add(newRecord);
-                    }
+                    await ApplyPunchToAttendanceAsync(employee.Id, punch.PunchTime, isOut);
                     success++;
                 }
                 catch (Exception ex)
@@ -222,6 +180,146 @@ public class BiometricService : IBiometricService
             DeviceName = device.Name,
         };
     }
+
+    public async Task<AdmsProcessResultDto> ProcessAdmsPunchesToAttendanceAsync(CancellationToken cancellationToken = default)
+    {
+        var pending = await _db.BiometricPunchEvents
+            .Where(x => !x.ProcessedToAttendance)
+            .OrderBy(x => x.PunchAtUtc)
+            .Take(500)
+            .ToListAsync(cancellationToken);
+
+        if (pending.Count == 0)
+            return new AdmsProcessResultDto();
+
+        var userIds = pending.Select(p => p.DeviceUserId).Distinct().ToList();
+        var employees = await _db.Employees
+            .Where(e => userIds.Contains(e.EmployeeCode))
+            .ToDictionaryAsync(e => e.EmployeeCode, e => e, cancellationToken);
+
+        var processed = 0;
+        var skipped = 0;
+        var failed = 0;
+
+        var dayKeys = pending
+            .Select(p => new { p.DeviceUserId, Day = p.PunchAtUtc.Date })
+            .Distinct()
+            .ToList();
+
+        foreach (var key in dayKeys)
+        {
+            if (!employees.TryGetValue(key.DeviceUserId, out var employee))
+            {
+                skipped += pending.Count(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day);
+                continue;
+            }
+
+            try
+            {
+                await RebuildAttendanceForEmployeeDayAsync(employee.Id, employee.EmployeeCode, key.Day, cancellationToken);
+
+                var dayPunches = pending.Where(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day).ToList();
+                foreach (var punch in dayPunches)
+                {
+                    punch.ProcessedToAttendance = true;
+                    processed++;
+                }
+            }
+            catch
+            {
+                failed += pending.Count(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day);
+            }
+        }
+
+        if (processed > 0)
+            await _db.SaveChangesAsync(cancellationToken);
+
+        return new AdmsProcessResultDto
+        {
+            Processed = processed,
+            SkippedUnmapped = skipped,
+            Failed = failed,
+        };
+    }
+
+    /// <summary>
+    /// SenseFace / ADMS often sends CheckingStatus 255 for every punch. Use first punch = in, last punch = out.
+    /// </summary>
+    private async Task RebuildAttendanceForEmployeeDayAsync(
+        Guid employeeId,
+        string employeeCode,
+        DateTime date,
+        CancellationToken cancellationToken = default)
+    {
+        var dayStart = date.Date;
+        var dayEnd = dayStart.AddDays(1);
+
+        var punches = await _db.BiometricPunchEvents
+            .Where(p => p.DeviceUserId == employeeCode && p.PunchAtUtc >= dayStart && p.PunchAtUtc < dayEnd)
+            .OrderBy(p => p.PunchAtUtc)
+            .ToListAsync(cancellationToken);
+
+        if (punches.Count == 0)
+            return;
+
+        var punchIn = punches[0].PunchAtUtc;
+        var punchOut = punches.Count > 1 ? punches[^1].PunchAtUtc : (DateTime?)null;
+
+        var checkOuts = punches.Where(p => IsCheckOut(p.PunchState)).Select(p => p.PunchAtUtc).ToList();
+        if (checkOuts.Count > 0)
+            punchOut = checkOuts.Max();
+
+        var record = await _db.AttendanceRecords
+            .Where(a => a.EmployeeId == employeeId && a.Date == dayStart)
+            .OrderBy(a => a.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (record is null)
+        {
+            record = new AttendanceRecord
+            {
+                EmployeeId = employeeId,
+                Date = dayStart,
+                Status = "Present",
+                Source = "Biometric",
+            };
+            _db.AttendanceRecords.Add(record);
+        }
+        else
+        {
+            record.Source = "Biometric";
+        }
+
+        record.PunchIn = punchIn;
+        record.PunchOut = punchOut;
+
+        if (record.PunchIn.HasValue && record.PunchOut.HasValue && record.PunchOut > record.PunchIn)
+        {
+            record.WorkedHours = Math.Round(
+                (decimal)(record.PunchOut.Value - record.PunchIn.Value).TotalHours, 2);
+        }
+        else
+        {
+            record.WorkedHours = null;
+        }
+    }
+
+    private async Task ApplyPunchToAttendanceAsync(Guid employeeId, DateTime punchTime, bool isOut)
+    {
+        var employee = await _db.Employees.FindAsync(employeeId);
+        if (employee is null) return;
+        await RebuildAttendanceForEmployeeDayAsync(employee.Id, employee.EmployeeCode, punchTime.Date);
+    }
+
+    private static bool IsCheckOut(string? punchState)
+    {
+        if (string.IsNullOrWhiteSpace(punchState))
+            return false;
+
+        var s = punchState.Trim().ToLowerInvariant();
+        return s is "1" or "out" or "checkout" or "check-out" or "check out";
+    }
+
 
     public async Task<List<PunchImportBatchDto>> GetImportHistoryAsync(Guid? deviceId = null)
     {

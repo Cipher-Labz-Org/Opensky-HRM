@@ -4,6 +4,7 @@ using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Api.Filters;
@@ -20,6 +21,10 @@ public partial class BulkUploadController : ControllerBase
 {
     /// <summary>Default password for users created via bulk import when <c>Create employee logins</c> is enabled (must match Administration UI).</summary>
     public const string BulkImportDefaultLoginPassword = "123";
+
+    private const int MaxEmployeeCodeLength = 50;
+    private const int MaxEmployeePhoneLength = 100;
+    private const int MaxEmployeeZipLength = 20;
 
     private readonly AppDbContext _db;
 
@@ -254,6 +259,8 @@ public partial class BulkUploadController : ControllerBase
             }
 
             var empCode = Cell(row, "Employee Code");
+            if (!string.IsNullOrEmpty(empCode) && empCode.Length > MaxEmployeeCodeLength)
+                errors.Add($"Employee Code must be at most {MaxEmployeeCodeLength} characters (this row has {empCode.Length}).");
             if (!string.IsNullOrEmpty(empCode) && existingCodes.Contains(empCode))
                 errors.Add($"Employee Code '{empCode}' already exists");
 
@@ -368,6 +375,22 @@ public partial class BulkUploadController : ControllerBase
 
             emailsSeenInFile.Add(resolvedEmail);
 
+            ValidateEmployeeImportFieldLengths(
+                errors,
+                empCode,
+                Cell(row, "Phone"),
+                Cell(row, "Home Telephone"),
+                Cell(row, "Work Telephone"),
+                Cell(row, "Zip/Postal Code"),
+                Cell(row, "Permanent Zip/Postal Code"));
+
+            if (errors.Count > 0)
+            {
+                skipped++;
+                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false, errors));
+                continue;
+            }
+
             var employee = new Employee
             {
                 EmployeeCode = empCode!,
@@ -444,7 +467,18 @@ public partial class BulkUploadController : ControllerBase
                 loginJobs.Add((r, employee, usernameFromSheet));
         }
 
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "22001" })
+        {
+            return StatusCode(500, new
+            {
+                message = "Import failed: one or more values exceed the maximum allowed length. " +
+                          "Check Employee Code (max 50), Phone / Home / Work Telephone (max 100), and Zip/Postal Code (max 20), then re-upload.",
+            });
+        }
 
         var loginsCreated = 0;
         if (wantLogins && loginJobs.Count > 0)
@@ -711,8 +745,19 @@ public partial class BulkUploadController : ControllerBase
         var length = 6;
         var settingPrefix = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "EmployeeCodePrefix");
         var settingLength = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "EmployeeCodeLength");
-        if (settingPrefix != null) prefix = settingPrefix.Value;
+        if (settingPrefix != null) prefix = settingPrefix.Value.Trim();
         if (settingLength != null && int.TryParse(settingLength.Value, out var l)) length = l;
+
+        prefix = prefix.Trim();
+        var usesSeparator = prefix.Length > 0;
+        var separator = usesSeparator ? "-" : "";
+        var maxPrefixLen = Math.Max(0, MaxEmployeeCodeLength - separator.Length - 1);
+        if (prefix.Length > maxPrefixLen)
+            prefix = prefix[..maxPrefixLen];
+
+        var maxNumericDigits = Math.Max(1, MaxEmployeeCodeLength - prefix.Length - separator.Length);
+        if (length > maxNumericDigits)
+            length = maxNumericDigits;
 
         int max = 0;
         foreach (var code in existingCodes)
@@ -721,8 +766,41 @@ public partial class BulkUploadController : ControllerBase
             if (int.TryParse(numPart, out var n) && n > max) max = n;
         }
 
-        var next = (max + 1).ToString().PadLeft(length, '0');
-        return $"{prefix}-{next}";
+        var nextNum = max + 1;
+        string candidate;
+        do
+        {
+            var next = nextNum.ToString().PadLeft(length, '0');
+            candidate = $"{prefix}{separator}{next}";
+            if (candidate.Length <= MaxEmployeeCodeLength)
+                return candidate;
+            length--;
+        } while (length >= 1);
+
+        return nextNum.ToString()[..Math.Min(MaxEmployeeCodeLength, nextNum.ToString().Length)];
+    }
+
+    private static void ValidateEmployeeImportFieldLengths(
+        List<string> errors,
+        string? employeeCode,
+        string? phone,
+        string? homeTelephone,
+        string? workTelephone,
+        string? zipPostalCode,
+        string? permanentZipPostalCode)
+    {
+        AddMaxLengthError(errors, employeeCode, MaxEmployeeCodeLength, "Employee Code");
+        AddMaxLengthError(errors, phone, MaxEmployeePhoneLength, "Phone");
+        AddMaxLengthError(errors, homeTelephone, MaxEmployeePhoneLength, "Home Telephone");
+        AddMaxLengthError(errors, workTelephone, MaxEmployeePhoneLength, "Work Telephone");
+        AddMaxLengthError(errors, zipPostalCode, MaxEmployeeZipLength, "Zip/Postal Code");
+        AddMaxLengthError(errors, permanentZipPostalCode, MaxEmployeeZipLength, "Permanent Zip/Postal Code");
+    }
+
+    private static void AddMaxLengthError(List<string> errors, string? value, int maxLength, string fieldLabel)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength) return;
+        errors.Add($"{fieldLabel} must be at most {maxLength} characters (this row has {value.Length}).");
     }
 
     private static bool ParseYesNo(string? v)

@@ -17,6 +17,18 @@ public class LicensingServiceTests
     private sealed class TestClock : IBusinessClock
     {
         public DateTime Now => DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
+
+        public bool TryParseDeviceTimestamp(string? input, out DateTime localWall)
+        {
+            localWall = default;
+            if (string.IsNullOrWhiteSpace(input) || !DateTime.TryParse(input, out var parsed))
+                return false;
+            localWall = DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified);
+            return true;
+        }
+
+        public DateTime ToBusinessLocal(DateTime utcInstant) =>
+            DateTime.SpecifyKind(utcInstant, DateTimeKind.Unspecified);
     }
 
     private static async Task<(AppDbContext Db, LicensingService Svc)> CreateSutAsync()
