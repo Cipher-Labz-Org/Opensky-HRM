@@ -8,6 +8,7 @@ using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using OpenSkyHRM.Api.Infrastructure;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application;
 using OpenSkyHRM.Application.Common;
@@ -144,6 +145,7 @@ catch (Exception ex)
 if (dbAvailable)
 {
     var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? connStr;
+    await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, builder.Configuration);
     try
     {
         builder.Services.AddHangfire(config =>
@@ -229,46 +231,24 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync();
-
-        // Repair corrupted Hangfire schema from partial installs so the auto-installer can start fresh.
-        try
-        {
-            await using var hfConn = new Npgsql.NpgsqlConnection(hangfireConn);
-            await hfConn.OpenAsync();
-            await using var cmd = hfConn.CreateCommand();
-            cmd.CommandText = @"
-                DO $$ BEGIN
-                    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'hangfire')
-                       AND NOT EXISTS (
-                           SELECT 1 FROM information_schema.tables
-                           WHERE table_schema = 'hangfire' AND table_name = 'schema'
-                       )
-                    THEN
-                        DROP SCHEMA hangfire CASCADE;
-                    END IF;
-                END $$;";
-            await cmd.ExecuteNonQueryAsync();
-        }
-        catch { }
-
-        // Hangfire.PostgreSql can retry forever on a half-migrated schema (42701: column "updatecount"
-        // on hangfire.lock already exists), which prevents the host from finishing startup — no HTTP listener.
-        if (app.Configuration.GetValue<bool>("Hangfire:ResetSchemaOnStartup"))
-        {
-            try
-            {
-                await using var hfResetConn = new Npgsql.NpgsqlConnection(hangfireConn);
-                await hfResetConn.OpenAsync();
-                await using var resetCmd = hfResetConn.CreateCommand();
-                resetCmd.CommandText = "DROP SCHEMA IF EXISTS hangfire CASCADE;";
-                await resetCmd.ExecuteNonQueryAsync();
-            }
-            catch { /* non-fatal */ }
-        }
+        await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, app.Configuration);
     }
     catch (Exception ex)
     {
         Console.WriteLine($"WARNING: Database migration failed: {ex.Message}");
+    }
+
+    // Seed default Admin user into Users (credentials in AdminBootstrapSeeder — not appsettings).
+    try
+    {
+        using var adminScope = app.Services.CreateScope();
+        var adminDb = adminScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await AdminBootstrapSeeder.EnsureAsync(adminDb);
+        Console.WriteLine($"INFO: Bootstrap user seeded (username: {AdminBootstrapSeeder.DefaultAdminUsername}).");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"ERROR: Bootstrap admin user could not be seeded: {ex}");
     }
 }
 
@@ -299,10 +279,6 @@ if (dbAvailable)
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchCasualLeaveMonthlyEveryYearAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureShopOfficeSickLeaveRuleAsync(db);
-
-        // Idempotent: ensure ADMIN role + admin user exist when missing (all environments).
-        var bootstrapPassword = builder.Configuration["CustomerReset:BootstrapAdminPassword"] ?? "Admin@123";
-        await AdminBootstrapSeeder.EnsureAsync(db, adminPassword: bootstrapPassword);
     }
     catch (Exception ex)
     {

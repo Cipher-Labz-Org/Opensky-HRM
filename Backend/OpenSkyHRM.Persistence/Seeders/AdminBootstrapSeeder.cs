@@ -4,20 +4,37 @@ using OpenSkyHRM.Domain.Entities;
 namespace OpenSkyHRM.Persistence.Seeders;
 
 /// <summary>
-/// Ensures there is at least one usable ADMIN account after a transactional purge.
-/// This is intentionally minimal (no demo org/employees).
+/// Seeds the default system administrator into <c>Users</c> (all environments).
+/// Credentials are fixed here — not read from appsettings.
 /// </summary>
 public static class AdminBootstrapSeeder
 {
+    public const string DefaultAdminUsername = "Admin";
+    public const string DefaultAdminEmail = "admin@openskyhrm.com";
+    public const string DefaultAdminPassword = "Admin@123";
+
     public static async Task EnsureAsync(
         AppDbContext context,
-        string adminUsername = "admin",
-        string adminEmail = "admin@openskyhrm.com",
-        string adminPassword = "Admin@123",
         bool forceResetPassword = false,
         CancellationToken cancellationToken = default)
     {
-        // Ensure ADMIN role exists (and has full permissions).
+        await EnsureAsync(
+            context,
+            DefaultAdminUsername,
+            DefaultAdminEmail,
+            DefaultAdminPassword,
+            forceResetPassword,
+            cancellationToken);
+    }
+
+    public static async Task EnsureAsync(
+        AppDbContext context,
+        string adminUsername,
+        string adminEmail,
+        string adminPassword,
+        bool forceResetPassword = false,
+        CancellationToken cancellationToken = default)
+    {
         var adminRole = await context.SecurityRoles
             .Include(r => r.Permissions)
             .FirstOrDefaultAsync(r => r.Code == "ADMIN", cancellationToken);
@@ -35,7 +52,6 @@ public static class AdminBootstrapSeeder
             await context.SaveChangesAsync(cancellationToken);
         }
 
-        // If permissions were purged, restore the common full-access matrix.
         if (adminRole.Permissions.Count == 0)
         {
             var allModules = new[]
@@ -52,17 +68,11 @@ public static class AdminBootstrapSeeder
             await context.SaveChangesAsync(cancellationToken);
         }
 
-        // Ensure at least one active admin user exists.
-        var anyAdminUser = await context.UserRoles
-            .Include(ur => ur.User)
-            .AnyAsync(ur => ur.RoleId == adminRole.Id && !ur.User.IsDeleted, cancellationToken);
-
-        if (anyAdminUser && !forceResetPassword)
-            return;
-
+        var usernameLower = adminUsername.Trim().ToLowerInvariant();
         var user = await context.Users
+            .IgnoreQueryFilters()
             .Include(u => u.UserRoles)
-            .FirstOrDefaultAsync(u => u.Username == adminUsername, cancellationToken);
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == usernameLower, cancellationToken);
 
         if (user == null)
         {
@@ -71,22 +81,31 @@ public static class AdminBootstrapSeeder
                 Username = adminUsername,
                 Email = adminEmail,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword),
-                IsActive = true
+                IsActive = true,
+                MustChangePassword = false
             };
             user.UserRoles.Add(new UserRole { RoleId = adminRole.Id });
             context.Users.Add(user);
         }
         else
         {
+            user.Username = adminUsername;
+            user.IsDeleted = false;
             user.IsActive = true;
-            // When forced (dev recovery), reset password to the provided bootstrap password.
-            if (forceResetPassword)
+            if (string.IsNullOrWhiteSpace(user.Email))
+                user.Email = adminEmail;
+
+            var needsPassword =
+                forceResetPassword ||
+                string.IsNullOrWhiteSpace(user.PasswordHash);
+            if (needsPassword)
                 user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword);
-            if (!user.UserRoles.Any(ur => ur.RoleId == adminRole.Id))
+
+            if (!user.UserRoles.Any(ur => ur.RoleId == adminRole.Id && !ur.IsDeleted))
                 user.UserRoles.Add(new UserRole { RoleId = adminRole.Id });
         }
 
         await context.SaveChangesAsync(cancellationToken);
+        Console.WriteLine($"AdminBootstrapSeeder: ensured user '{adminUsername}' (Id: {user.Id}).");
     }
 }
-
