@@ -2369,7 +2369,7 @@ export default function EmployeeDetailPage() {
     );
   }
 
-  function renderEmployeeLifecycleMain(employee: EmployeeDetail) {
+  function renderEmployeeLifecycleMain() {
     return (
       <>
         <div className="flex flex-col gap-4 md:flex-row md:items-start">

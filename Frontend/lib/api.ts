@@ -96,6 +96,10 @@ export async function apiFetch<T>(
     if (res.status === 404 && !text?.trim()) {
       errorMessage = `API 404: no route for ${endpoint}. Restart the API after pulling changes, or set NEXT_PUBLIC_API_URL to your API (using ${API_BASE_URL}).`;
     }
+    if (res.status >= 500 && !text?.trim()) {
+      errorMessage =
+        "Import failed on the server (error 500). The backend on this site is not running the latest version yet — redeploy the HR API (e.g. gammabackend.openskyhrm.com), then try again.";
+    }
     throw new Error(errorMessage);
   }
 
@@ -180,6 +184,10 @@ export async function publicApiFetch<T>(endpoint: string, options?: ApiFetchOpti
     }
     if (res.status === 404 && !text?.trim()) {
       errorMessage = `API 404: no route for ${endpoint}. Restart the API after pulling changes, or set NEXT_PUBLIC_API_URL to your API (using ${API_BASE_URL}).`;
+    }
+    if (res.status >= 500 && !text?.trim()) {
+      errorMessage =
+        "Import failed on the server (error 500). The backend on this site is not running the latest version yet — redeploy the HR API (e.g. gammabackend.openskyhrm.com), then try again.";
     }
     throw new Error(errorMessage);
   }
