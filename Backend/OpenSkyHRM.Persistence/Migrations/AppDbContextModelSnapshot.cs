@@ -1759,8 +1759,8 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("character varying(255)");
 
                     b.Property<string>("PermanentZipPostalCode")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(100)
@@ -1820,8 +1820,8 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<string>("ZipPostalCode")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
                     b.HasKey("Id");
 

@@ -24,7 +24,7 @@ public partial class BulkUploadController : ControllerBase
 
     private const int MaxEmployeeCodeLength = 50;
     private const int MaxEmployeePhoneLength = 100;
-    private const int MaxEmployeeZipLength = 20;
+    private const int MaxEmployeeZipLength = 40;
 
     private readonly AppDbContext _db;
 
@@ -476,7 +476,7 @@ public partial class BulkUploadController : ControllerBase
             return StatusCode(500, new
             {
                 message = "Import failed: one or more values exceed the maximum allowed length. " +
-                          "Check Employee Code (max 50), Phone / Home / Work Telephone (max 100), and Zip/Postal Code (max 20), then re-upload.",
+                          "Check Employee Code (max 50), Phone / Home / Work Telephone (max 100), and Zip/Postal Code (max 40), then re-upload.",
             });
         }
 

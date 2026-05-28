@@ -24,7 +24,7 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(e => e.City).HasMaxLength(100);
         builder.Property(e => e.Country).HasMaxLength(100);
         builder.Property(e => e.StateProvince).HasMaxLength(100);
-        builder.Property(e => e.ZipPostalCode).HasMaxLength(20);
+        builder.Property(e => e.ZipPostalCode).HasMaxLength(40);
         builder.Property(e => e.PollingDivision).HasMaxLength(200);
         builder.Property(e => e.DistanceToOffice).HasMaxLength(50);
         builder.Property(e => e.ModeOfTransport).HasMaxLength(50);
@@ -36,7 +36,7 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(e => e.PermanentCity).HasMaxLength(100);
         builder.Property(e => e.PermanentCountry).HasMaxLength(100);
         builder.Property(e => e.PermanentStateProvince).HasMaxLength(100);
-        builder.Property(e => e.PermanentZipPostalCode).HasMaxLength(20);
+        builder.Property(e => e.PermanentZipPostalCode).HasMaxLength(40);
         builder.Property(e => e.PermanentPollingDivision).HasMaxLength(200);
         builder.Property(e => e.PermanentDistanceToOffice).HasMaxLength(50);
         builder.Property(e => e.ProfileImageUrl).HasMaxLength(500);
