@@ -335,6 +335,11 @@ if (dbAvailable)
     {
         app.UseHangfireDashboard("/hangfire");
 
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.BiometricAdmsProcessorJob>(
+            "biometric-adms-processor",
+            job => job.ExecuteAsync(CancellationToken.None),
+            "*/2 * * * *");
+
         RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.AttendanceReconciliationJob>(
             "attendance-reconciliation",
             job => job.ExecuteAsync(),

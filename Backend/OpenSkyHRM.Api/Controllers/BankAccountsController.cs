@@ -52,7 +52,6 @@ public class BankAccountsController : ControllerBase
         var item = new BankAccount
         {
             EmployeeId = employeeId,
-            Amount = 0,
             AccountNumber = req.AccountNumber,
             BankName = req.BankName,
             AccountType = req.AccountType,

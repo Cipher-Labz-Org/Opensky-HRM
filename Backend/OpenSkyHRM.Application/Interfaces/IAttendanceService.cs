@@ -7,6 +7,7 @@ public interface IAttendanceService
 {
     Task<PagedResult<AttendanceRecordDto>> GetAttendanceAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, DateTime? fromDate = null, DateTime? toDate = null, IReadOnlyList<Guid>? allowedEmployeeIds = null);
     Task<AttendanceSummaryDto> GetSummaryAsync(DateTime from, DateTime to, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null);
+    Task<IReadOnlyList<AttendanceDailySummaryDto>> GetDailySummariesAsync(DateTime from, DateTime to, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null);
     Task<AttendanceRecordDto> CreateAsync(CreateAttendanceRecordDto dto);
     Task<AttendanceRecordDto?> UpdateAsync(Guid id, UpdateAttendanceRecordDto dto);
     Task<bool> DeleteAsync(Guid id);

@@ -4726,8 +4726,10 @@ export default function EmployeeDetailPage() {
             <div>
               <h3 className="text-lg font-semibold text-slate-700">{editingBa ? "Edit Direct Deposit" : "Add Direct Deposit"}</h3>
               <div className="mt-3 border-t border-slate-200 pt-4">
-                <label className="mb-1 block text-sm font-semibold text-slate-600">Account Number<span className="text-red-500">*</span></label>
-                <input value={baAccountNumber} onChange={(e) => setBaAccountNumber(e.target.value)} className={inputClass} />
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Account Number<span className="text-red-500">*</span></label>
+                  <input value={baAccountNumber} onChange={(e) => setBaAccountNumber(e.target.value)} className={inputClass} />
+                </div>
               </div>
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>

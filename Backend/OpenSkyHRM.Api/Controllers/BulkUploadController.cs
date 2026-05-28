@@ -4,6 +4,7 @@ using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Api.Filters;
@@ -20,6 +21,10 @@ public partial class BulkUploadController : ControllerBase
 {
     /// <summary>Default password for users created via bulk import when <c>Create employee logins</c> is enabled (must match Administration UI).</summary>
     public const string BulkImportDefaultLoginPassword = "123";
+
+    private const int MaxEmployeeCodeLength = 50;
+    private const int MaxEmployeePhoneLength = 100;
+    private const int MaxEmployeeZipLength = 40;
 
     private readonly AppDbContext _db;
 
@@ -112,12 +117,34 @@ public partial class BulkUploadController : ControllerBase
     [RequestSizeLimit(20_000_000)]
     public async Task<IActionResult> UploadEmployees(IFormFile file, [FromForm] string? createUserLogins = null)
     {
+        try
+        {
+            return await UploadEmployeesCoreAsync(file, createUserLogins);
+        }
+        catch (DbUpdateException ex)
+        {
+            return MapEmployeeImportDbUpdateException(ex);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new
+            {
+                message = "Employee import failed unexpectedly. Try the downloaded template, a smaller batch, or contact support.",
+                detail = ex.Message,
+            });
+        }
+    }
+
+    private async Task<IActionResult> UploadEmployeesCoreAsync(IFormFile file, string? createUserLogins)
+    {
         if (file is null || file.Length == 0)
             return BadRequest("No file uploaded.");
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (ext != ".xlsx" && ext != ".xls")
             return BadRequest("Only .xlsx or .xls files are supported.");
+        if (ext == ".xls")
+            return BadRequest("Legacy .xls files are not supported. Save the workbook as .xlsx and upload again.");
 
         var wantLogins = string.Equals(createUserLogins, "true", StringComparison.OrdinalIgnoreCase);
         var loginJobs = new List<(int Row, Employee Emp, string? UsernameFromSheet)>();
@@ -147,8 +174,14 @@ public partial class BulkUploadController : ControllerBase
             .Select(t => t.Code)
             .FirstOrDefaultAsync() ?? nameof(EmployeeStatus.Active);
 
-        var existingEmployees = await _db.Employees.Where(e => !e.IsDeleted).Select(e => new { e.Id, e.EmployeeCode }).ToListAsync();
-        var existingCodes = existingEmployees.Select(e => e.EmployeeCode).ToList();
+        var existingEmployees = await _db.Employees.AsNoTracking().Where(e => !e.IsDeleted)
+            .Select(e => new { e.Id, e.EmployeeCode }).ToListAsync();
+        // Unique indexes apply to all rows (including soft-deleted); match that when validating codes and emails.
+        var allEmployeeCodes = await _db.Employees.AsNoTracking().IgnoreQueryFilters()
+            .Select(e => e.EmployeeCode).ToListAsync();
+        var reservedEmployeeCodes = new HashSet<string>(allEmployeeCodes, StringComparer.OrdinalIgnoreCase);
+        var existingCodesForGeneration = new List<string>(allEmployeeCodes);
+        var (employeeCodePrefix, employeeCodeNumericLength) = await ReadEmployeeCodeGenerationSettingsAsync();
         // Unique index IX_Employees_Email applies to all rows (including soft-deleted); match that when validating.
         var existingEmails = await _db.Employees.AsNoTracking().IgnoreQueryFilters()
             .Where(e => e.Email != null && e.Email != "")
@@ -168,7 +201,22 @@ public partial class BulkUploadController : ControllerBase
         int skipped = 0;
 
         using var stream = file.OpenReadStream();
-        using var wb = new XLWorkbook(stream);
+        XLWorkbook wb;
+        try
+        {
+            wb = new XLWorkbook(stream);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new
+            {
+                message = "Could not read the Excel file. Download the employee template from this page, fill it in, and save as .xlsx.",
+                detail = ex.Message,
+            });
+        }
+
+        using (wb)
+        {
         var ws = GetEmployeeImportWorksheet(wb);
 
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -203,6 +251,19 @@ public partial class BulkUploadController : ControllerBase
             if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
             var cell = row.Cell(c);
             if (cell.DataType == XLDataType.DateTime) return cell.GetDateTime();
+            if (cell.DataType == XLDataType.Number && cell.TryGetValue<double>(out var oaDate))
+            {
+                try
+                {
+                    if (oaDate >= 1 && oaDate < 2958466)
+                        return DateTime.FromOADate(oaDate);
+                }
+                catch (ArgumentException)
+                {
+                    /* fall through to text parse */
+                }
+            }
+
             var s = GetCellTrimmedDisplayText(cell);
             if (string.IsNullOrEmpty(s)) return null;
             if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt)) return dt;
@@ -254,8 +315,10 @@ public partial class BulkUploadController : ControllerBase
             }
 
             var empCode = Cell(row, "Employee Code");
-            if (!string.IsNullOrEmpty(empCode) && existingCodes.Contains(empCode))
-                errors.Add($"Employee Code '{empCode}' already exists");
+            if (!string.IsNullOrEmpty(empCode) && empCode.Length > MaxEmployeeCodeLength)
+                errors.Add($"Employee Code must be at most {MaxEmployeeCodeLength} characters (this row has {empCode.Length}).");
+            if (!string.IsNullOrEmpty(empCode) && reservedEmployeeCodes.Contains(empCode))
+                errors.Add($"Employee Code '{empCode}' already exists (including terminated or removed employees). Use a different code.");
 
             var posCodeRaw = Cell(row, "Position Code");
             Position? position = null;
@@ -295,7 +358,11 @@ public partial class BulkUploadController : ControllerBase
             }
 
             if (string.IsNullOrEmpty(empCode))
-                empCode = await GenerateNextCode(existingCodes);
+                empCode = GenerateNextEmployeeCode(
+                    existingCodesForGeneration,
+                    reservedEmployeeCodes,
+                    employeeCodePrefix,
+                    employeeCodeNumericLength);
 
             var willCreateLoginForRow = ShouldCreateImportUserForRow(usernameFromSheet, wantLogins);
             if (willCreateLoginForRow)
@@ -368,6 +435,22 @@ public partial class BulkUploadController : ControllerBase
 
             emailsSeenInFile.Add(resolvedEmail);
 
+            ValidateEmployeeImportFieldLengths(
+                errors,
+                empCode,
+                Cell(row, "Phone"),
+                Cell(row, "Home Telephone"),
+                Cell(row, "Work Telephone"),
+                Cell(row, "Zip/Postal Code"),
+                Cell(row, "Permanent Zip/Postal Code"));
+
+            if (errors.Count > 0)
+            {
+                skipped++;
+                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false, errors));
+                continue;
+            }
+
             var employee = new Employee
             {
                 EmployeeCode = empCode!,
@@ -434,7 +517,20 @@ public partial class BulkUploadController : ControllerBase
             };
 
             _db.Employees.Add(employee);
-            existingCodes.Add(empCode!);
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                DetachTrackedEmployee(employee);
+                skipped++;
+                results.Add(new RowResult(r, firstName!, lastName!, false, DescribeEmployeeImportSaveFailure(ex)));
+                continue;
+            }
+
+            existingCodesForGeneration.Add(empCode!);
+            reservedEmployeeCodes.Add(empCode!);
             existingEmailSet.Add(resolvedEmail);
             if (!managerLookup.ContainsKey(empCode!))
                 managerLookup[empCode!] = employee.Id;
@@ -443,8 +539,6 @@ public partial class BulkUploadController : ControllerBase
             if (wantLogins)
                 loginJobs.Add((r, employee, usernameFromSheet));
         }
-
-        await _db.SaveChangesAsync();
 
         var loginsCreated = 0;
         if (wantLogins && loginJobs.Count > 0)
@@ -482,15 +576,23 @@ public partial class BulkUploadController : ControllerBase
                     };
                     user.UserRoles.Add(new UserRole { RoleId = employeeRoleId });
                     _db.Users.Add(user);
-                    loginsCreated++;
-                    ReplaceRowNotes(results, job.Row, new List<string> { $"User login created (username: {username})." });
+                    try
+                    {
+                        await _db.SaveChangesAsync();
+                        loginsCreated++;
+                        ReplaceRowNotes(results, job.Row, new List<string> { $"User login created (username: {username})." });
+                    }
+                    catch (DbUpdateException)
+                    {
+                        DetachTrackedUser(user);
+                        ReplaceRowNotes(results, job.Row, new List<string> { "Login not created: could not save user (duplicate username or email)." });
+                    }
                 }
-
-                await _db.SaveChangesAsync();
             }
         }
 
         return Ok(new UploadResult(created, skipped, lastRow - 1, loginsCreated, results));
+        } // using (wb)
     }
 
     private static void ReplaceRowNotes(List<RowResult> results, int row, List<string> notes)
@@ -610,11 +712,81 @@ public partial class BulkUploadController : ControllerBase
 
     private static string ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
     {
-        if (!string.IsNullOrWhiteSpace(workEmail)) return workEmail.Trim();
-        if (!string.IsNullOrWhiteSpace(personalEmail)) return personalEmail.Trim();
+        var work = NormalizeImportEmail(workEmail);
+        if (work != null) return work;
+        var personal = NormalizeImportEmail(personalEmail);
+        if (personal != null) return personal;
         var local = SanitizeUsernameSegment(employeeCode);
         if (string.IsNullOrEmpty(local)) local = "employee";
         return $"{local}@import.openskyhrm.local";
+    }
+
+    /// <summary>Treat Excel placeholders and non-email text as empty so import does not store "-" or "#N/A" as work email.</summary>
+    private static string? NormalizeImportEmail(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var s = value.Trim();
+        if (s.Equals("-", StringComparison.Ordinal)
+            || s.Equals("0", StringComparison.Ordinal)
+            || s.Equals("#N/A", StringComparison.OrdinalIgnoreCase)
+            || s.Equals("N/A", StringComparison.OrdinalIgnoreCase)
+            || s.Equals("NA", StringComparison.OrdinalIgnoreCase)
+            || s.Equals("n/a", StringComparison.Ordinal))
+            return null;
+        if (s.IndexOf('@') < 1 || s.IndexOf('.') <= s.IndexOf('@'))
+            return null;
+        return s;
+    }
+
+    private void DetachTrackedEmployee(Employee employee)
+    {
+        var entry = _db.Entry(employee);
+        if (entry.State != EntityState.Detached)
+            entry.State = EntityState.Detached;
+    }
+
+    private void DetachTrackedUser(User user)
+    {
+        var entry = _db.Entry(user);
+        if (entry.State != EntityState.Detached)
+            entry.State = EntityState.Detached;
+    }
+
+    private static List<string> DescribeEmployeeImportSaveFailure(DbUpdateException ex)
+    {
+        for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+        {
+            if (inner is not PostgresException pg) continue;
+
+            if (pg.SqlState == "22001")
+            {
+                return
+                [
+                    "One or more values exceed the maximum allowed length (Employee Code max 50, Phone max 100, Zip max 40).",
+                ];
+            }
+
+            if (pg.SqlState == "23505")
+            {
+                var detail = pg.MessageText ?? pg.Message ?? "";
+                if (detail.Contains("IX_Employees_EmployeeCode", StringComparison.OrdinalIgnoreCase)
+                    || (detail.Contains("EmployeeCode", StringComparison.OrdinalIgnoreCase)
+                        && detail.Contains("unique", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return ["Employee Code already exists (including terminated or removed employees)."];
+                }
+
+                if (detail.Contains("IX_Employees_Email", StringComparison.OrdinalIgnoreCase)
+                    || detail.Contains("email", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["Email is already used by another employee (including archived records)."];
+                }
+
+                return ["Duplicate value conflicts with existing data."];
+            }
+        }
+
+        return ["Could not save employee. Check data and try again."];
     }
 
     private static string NormalizeUsernameCandidate(string? raw)
@@ -705,14 +877,36 @@ public partial class BulkUploadController : ControllerBase
         return map;
     }
 
-    private async Task<string> GenerateNextCode(List<string> existingCodes)
+    private async Task<(string Prefix, int NumericLength)> ReadEmployeeCodeGenerationSettingsAsync()
     {
         var prefix = "EMP";
         var length = 6;
-        var settingPrefix = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "EmployeeCodePrefix");
-        var settingLength = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "EmployeeCodeLength");
-        if (settingPrefix != null) prefix = settingPrefix.Value;
+        var settingPrefix = await _db.SystemSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Key == "EmployeeCodePrefix");
+        var settingLength = await _db.SystemSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Key == "EmployeeCodeLength");
+        if (settingPrefix != null) prefix = settingPrefix.Value.Trim();
         if (settingLength != null && int.TryParse(settingLength.Value, out var l)) length = l;
+        return (prefix, length);
+    }
+
+    /// <summary>Allocates the next unused employee code; checks all DB rows (including soft-deleted) via <paramref name="reservedCodes"/>.</summary>
+    private static string GenerateNextEmployeeCode(
+        List<string> existingCodes,
+        HashSet<string> reservedCodes,
+        string prefix,
+        int length)
+    {
+        prefix = prefix.Trim();
+        var usesSeparator = prefix.Length > 0;
+        var separator = usesSeparator ? "-" : "";
+        var maxPrefixLen = Math.Max(0, MaxEmployeeCodeLength - separator.Length - 1);
+        if (prefix.Length > maxPrefixLen)
+            prefix = prefix[..maxPrefixLen];
+
+        var maxNumericDigits = Math.Max(1, MaxEmployeeCodeLength - prefix.Length - separator.Length);
+        if (length > maxNumericDigits)
+            length = maxNumericDigits;
 
         int max = 0;
         foreach (var code in existingCodes)
@@ -721,8 +915,64 @@ public partial class BulkUploadController : ControllerBase
             if (int.TryParse(numPart, out var n) && n > max) max = n;
         }
 
-        var next = (max + 1).ToString().PadLeft(length, '0');
-        return $"{prefix}-{next}";
+        var nextNum = max + 1;
+        while (true)
+        {
+            var padLength = length;
+            while (padLength >= 1)
+            {
+                var next = nextNum.ToString().PadLeft(padLength, '0');
+                var candidate = $"{prefix}{separator}{next}";
+                if (candidate.Length <= MaxEmployeeCodeLength && !reservedCodes.Contains(candidate))
+                    return candidate;
+                padLength--;
+            }
+
+            var fallback = nextNum.ToString();
+            var trimmed = fallback.Length <= MaxEmployeeCodeLength
+                ? fallback
+                : fallback[..MaxEmployeeCodeLength];
+            if (!reservedCodes.Contains(trimmed))
+                return trimmed;
+
+            nextNum++;
+        }
+    }
+
+    private IActionResult MapEmployeeImportDbUpdateException(DbUpdateException ex)
+    {
+        var rowErrors = DescribeEmployeeImportSaveFailure(ex);
+        var message = rowErrors.Count > 0
+            ? $"Import failed: {rowErrors[0]}"
+            : "Import failed while saving employees. Check your data and try again.";
+        return StatusCode(500, new
+        {
+            message,
+            detail = ex.InnerException?.Message ?? ex.Message,
+        });
+    }
+
+    private static void ValidateEmployeeImportFieldLengths(
+        List<string> errors,
+        string? employeeCode,
+        string? phone,
+        string? homeTelephone,
+        string? workTelephone,
+        string? zipPostalCode,
+        string? permanentZipPostalCode)
+    {
+        AddMaxLengthError(errors, employeeCode, MaxEmployeeCodeLength, "Employee Code");
+        AddMaxLengthError(errors, phone, MaxEmployeePhoneLength, "Phone");
+        AddMaxLengthError(errors, homeTelephone, MaxEmployeePhoneLength, "Home Telephone");
+        AddMaxLengthError(errors, workTelephone, MaxEmployeePhoneLength, "Work Telephone");
+        AddMaxLengthError(errors, zipPostalCode, MaxEmployeeZipLength, "Zip/Postal Code");
+        AddMaxLengthError(errors, permanentZipPostalCode, MaxEmployeeZipLength, "Permanent Zip/Postal Code");
+    }
+
+    private static void AddMaxLengthError(List<string> errors, string? value, int maxLength, string fieldLabel)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength) return;
+        errors.Add($"{fieldLabel} must be at most {maxLength} characters (this row has {value.Length}).");
     }
 
     private static bool ParseYesNo(string? v)

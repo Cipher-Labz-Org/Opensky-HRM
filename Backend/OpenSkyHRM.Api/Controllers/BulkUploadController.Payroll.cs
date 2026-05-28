@@ -174,7 +174,6 @@ public partial class BulkUploadController
             _db.BankAccounts.Add(new BankAccount
             {
                 EmployeeId = empId,
-                Amount = 0,
                 AccountNumber = accountNumber.Trim(),
                 BankName = PayrollCell(map, row, "Bank Name"),
                 AccountType = acctType.Trim(),

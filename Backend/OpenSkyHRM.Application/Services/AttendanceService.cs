@@ -23,11 +23,18 @@ public class AttendanceService : IAttendanceService
         IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
         var today = DateTime.Now.Date;
-        var from = fromDate?.Date ?? new DateTime(today.Year, today.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var from = fromDate?.Date ?? today;
         var to = toDate?.Date ?? today;
         if (to < from) to = from;
 
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var spanDays = (to - from).TotalDays + 1;
+        var includeOnLeave = spanDays <= 7;
+
         var query = _db.Set<AttendanceRecord>()
+            .AsNoTracking()
             .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
             .Where(a => a.Date >= from && a.Date <= to);
 
@@ -36,37 +43,72 @@ public class AttendanceService : IAttendanceService
         if (allowedEmployeeIds != null)
             query = query.Where(a => allowedEmployeeIds.Contains(a.EmployeeId));
 
-        var rawItems = await query
-            .OrderByDescending(a => a.Date).ThenBy(a => a.Employee.FirstName)
-            .ToListAsync();
+        if (includeOnLeave)
+        {
+            var rawItems = await query
+                .OrderByDescending(a => a.Date).ThenBy(a => a.Employee!.FirstName)
+                .ToListAsync();
 
-        var recordsSet = rawItems.Select(a => (a.EmployeeId, a.Date)).ToHashSet();
-        var employeeIdsFromRecords = rawItems.Select(r => r.EmployeeId).Distinct().ToList();
+            var recordsSet = rawItems.Select(a => (a.EmployeeId, a.Date)).ToHashSet();
+            var employeeIdsFromRecords = rawItems.Select(r => r.EmployeeId).Distinct().ToList();
+            var rosterAssignments = await LoadRosterAssignmentsAsync(employeeIdsFromRecords);
+            var onLeaveSet = await GetApprovedLeaveDatesAsync(employeeIdsFromRecords, from, to);
+            var realDtos = rawItems.Select(a => MapToDto(a, rosterAssignments, onLeaveSet.Contains((a.EmployeeId, a.Date)))).ToList();
 
-        var rosterAssignments = await _db.Set<RosterAssignment>()
-            .Include(ra => ra.RosterTemplate).ThenInclude(rt => rt.DefaultShiftPattern)
-            .Where(ra => employeeIdsFromRecords.Contains(ra.EmployeeId))
-            .ToListAsync();
+            var leaveOnlySet = await GetLeaveOnlyDatesAsync(from, to, employeeId, allowedEmployeeIds, recordsSet);
+            var syntheticDtos = await BuildLeaveOnlyDtosAsync(leaveOnlySet);
 
-        var onLeaveSet = await GetApprovedLeaveDatesAsync(employeeIdsFromRecords, from, to);
+            var combined = realDtos.Concat(syntheticDtos)
+                .OrderByDescending(x => x.Date)
+                .ThenBy(x => x.EmployeeName)
+                .ToList();
 
-        var realDtos = rawItems.Select(a => MapToDto(a, rosterAssignments, onLeaveSet.Contains((a.EmployeeId, a.Date)))).ToList();
+            var items = combined
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
 
-        var leaveOnlySet = await GetLeaveOnlyDatesAsync(from, to, employeeId, allowedEmployeeIds, recordsSet);
-        var syntheticDtos = await BuildLeaveOnlyDtosAsync(leaveOnlySet);
+            return new PagedResult<AttendanceRecordDto>
+            {
+                Items = items,
+                TotalCount = combined.Count,
+                Page = page,
+                PageSize = pageSize,
+            };
+        }
 
-        var combined = realDtos.Concat(syntheticDtos)
-            .OrderByDescending(x => x.Date)
-            .ThenBy(x => x.EmployeeName)
-            .ToList();
-
-        var total = combined.Count;
-        var items = combined
+        var attendanceTotal = await query.CountAsync();
+        var pageItems = await query
+            .OrderByDescending(a => a.Date).ThenBy(a => a.Employee!.FirstName)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .ToListAsync();
+
+        var pageEmployeeIds = pageItems.Select(r => r.EmployeeId).Distinct().ToList();
+        var pageRosters = await LoadRosterAssignmentsAsync(pageEmployeeIds);
+        var pageOnLeave = await GetApprovedLeaveDatesAsync(pageEmployeeIds, from, to);
+        var dtos = pageItems
+            .Select(a => MapToDto(a, pageRosters, pageOnLeave.Contains((a.EmployeeId, a.Date))))
             .ToList();
 
-        return new PagedResult<AttendanceRecordDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
+        return new PagedResult<AttendanceRecordDto>
+        {
+            Items = dtos,
+            TotalCount = attendanceTotal,
+            Page = page,
+            PageSize = pageSize,
+        };
+    }
+
+    private async Task<List<RosterAssignment>> LoadRosterAssignmentsAsync(List<Guid> employeeIds)
+    {
+        if (employeeIds.Count == 0) return new List<RosterAssignment>();
+
+        return await _db.Set<RosterAssignment>()
+            .AsNoTracking()
+            .Include(ra => ra.RosterTemplate).ThenInclude(rt => rt!.DefaultShiftPattern)
+            .Where(ra => employeeIds.Contains(ra.EmployeeId))
+            .ToListAsync();
     }
 
     /// <summary>
@@ -151,24 +193,57 @@ public class AttendanceService : IAttendanceService
 
     public async Task<AttendanceSummaryDto> GetSummaryAsync(DateTime from, DateTime to, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
-        var query = _db.Set<AttendanceRecord>()
-            .Where(a => a.Date >= from && a.Date <= to);
+        var query = BuildAttendanceQuery(from.Date, to.Date, employeeId, allowedEmployeeIds);
+
+        var agg = await query
+            .GroupBy(_ => 1)
+            .Select(g => new AttendanceSummaryDto
+            {
+                TotalPresent = g.Count(r => r.Status == "Present" || r.Status == "Late"),
+                TotalAbsent = g.Count(r => r.Status == "Absent"),
+                TotalLate = g.Count(r => r.Status == "Late"),
+                TotalNoPunch = g.Count(r => r.PunchIn == null),
+                AverageWorkHours = g.Where(r => r.WorkedHours.HasValue).Select(r => r.WorkedHours!.Value).DefaultIfEmpty(0).Average(),
+            })
+            .FirstOrDefaultAsync();
+
+        return agg ?? new AttendanceSummaryDto();
+    }
+
+    public async Task<IReadOnlyList<AttendanceDailySummaryDto>> GetDailySummariesAsync(
+        DateTime from, DateTime to, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null)
+    {
+        var fromDate = from.Date;
+        var toDate = to.Date;
+        var query = BuildAttendanceQuery(fromDate, toDate, employeeId, allowedEmployeeIds);
+
+        var rows = await query
+            .GroupBy(a => a.Date)
+            .Select(g => new AttendanceDailySummaryDto
+            {
+                Date = g.Key,
+                TotalPresent = g.Count(r => r.Status == "Present" || r.Status == "Late"),
+                TotalAbsent = g.Count(r => r.Status == "Absent"),
+                TotalLate = g.Count(r => r.Status == "Late"),
+                TotalNoPunch = g.Count(r => r.PunchIn == null),
+            })
+            .OrderBy(x => x.Date)
+            .ToListAsync();
+
+        return rows;
+    }
+
+    private IQueryable<AttendanceRecord> BuildAttendanceQuery(
+        DateTime from, DateTime to, Guid? employeeId, IReadOnlyList<Guid>? allowedEmployeeIds)
+    {
+        var query = _db.Set<AttendanceRecord>().AsNoTracking().Where(a => a.Date >= from && a.Date <= to);
 
         if (employeeId.HasValue)
             query = query.Where(a => a.EmployeeId == employeeId.Value);
         if (allowedEmployeeIds != null)
             query = query.Where(a => allowedEmployeeIds.Contains(a.EmployeeId));
 
-        var records = await query.ToListAsync();
-
-        return new AttendanceSummaryDto
-        {
-            TotalPresent = records.Count(r => r.Status == "Present" || r.Status == "Late"),
-            TotalAbsent = records.Count(r => r.Status == "Absent"),
-            TotalLate = records.Count(r => r.Status == "Late"),
-            TotalNoPunch = records.Count(r => r.PunchIn == null),
-            AverageWorkHours = records.Where(r => r.WorkedHours.HasValue).Select(r => r.WorkedHours!.Value).DefaultIfEmpty(0).Average(),
-        };
+        return query;
     }
 
     public async Task<AttendanceRecordDto> CreateAsync(CreateAttendanceRecordDto dto)
