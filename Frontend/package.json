@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "rebuild": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true})}catch(e){}\" && next build",
+    "clean": "node -e \"const fs=require('fs');for(const d of ['.dist','.next']){try{fs.rmSync(d,{recursive:true,force:true})}catch(e){}}\"",
+    "rebuild": "npm run clean && next build",
     "start": "next start",
     "lint": "next lint"
   },

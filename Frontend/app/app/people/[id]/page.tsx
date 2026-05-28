@@ -2369,7 +2369,12 @@ export default function EmployeeDetailPage() {
     );
   }
 
+<<<<<<< HEAD
+  function renderEmployeeLifecycleMain() {
+    if (!emp) return null;
+=======
   function renderEmployeeLifecycleMain(employee: EmployeeDetail) {
+>>>>>>> master
     return (
       <>
         <div className="flex flex-col gap-4 md:flex-row md:items-start">
