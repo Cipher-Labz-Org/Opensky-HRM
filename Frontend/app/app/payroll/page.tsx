@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
-import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatDateTime } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import { API_BASE_URL } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
@@ -56,7 +56,7 @@ interface EligibleEmployee { id: string; firstName: string; lastName: string; em
 interface Settings { epfEmployeeRate: number; epfEmployerRate: number; etfEmployerRate: number; }
 interface PagedResult<T> { items: T[]; totalCount: number; page: number; pageSize: number; }
 
-const TABS = ["Dashboard", "Components", "Employee Salary", "Variable Entry", "Payroll Run", "Pay Statements", "Settings"] as const;
+const TABS = ["Dashboard", "Components", "Employee Salary", "Variable Entry", "Payroll Run", "Pay Slips", "Settings"] as const;
 type Tab = typeof TABS[number];
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -108,7 +108,7 @@ export default function PayrollPage() {
     <>
       <AppTopbar
         title="Payroll & Compensation"
-        subtitle="Manage compensation components, run monthly payroll, and view pay statements."
+        subtitle="Manage compensation components, run monthly payroll, and view pay slips."
       />
 
       <div className="mt-6 mb-6 flex flex-wrap gap-2 overflow-x-auto pb-1">
@@ -133,7 +133,7 @@ export default function PayrollPage() {
       {tab === "Employee Salary" && <EmployeeSalaryTab />}
       {tab === "Variable Entry" && <VariableEntryTab />}
       {tab === "Payroll Run" && <PayrollRunTab />}
-      {tab === "Pay Statements" && <PayStatementsTab />}
+      {tab === "Pay Slips" && <PayStatementsTab />}
       {tab === "Settings" && <SettingsTab />}
     </>
   );
@@ -255,7 +255,7 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
     { tab: "Employee Salary", title: "Employee salary", sub: "Fixed pay and assignments" },
     { tab: "Variable Entry", title: "Variable entry", sub: "One-off adjustments" },
     { tab: "Payroll Run", title: "Payroll run", sub: "Calculate and approve cycles" },
-    { tab: "Pay Statements", title: "Pay statements", sub: "Payslips and lines" },
+    { tab: "Pay Slips", title: "Pay slips", sub: "Employee payslips and line items" },
     { tab: "Settings", title: "Settings", sub: "EPF, ETF, and payroll rules" },
   ];
 
@@ -563,8 +563,6 @@ function EmployeeSalaryTab() {
   const [selectedEmp, setSelectedEmp] = useState<SalaryEmployee | null>(null);
   const [empComp, setEmpComp] = useState<EmpComp[]>([]);
   const [components, setComponents] = useState<Component[]>([]);
-  const [showAssign, setShowAssign] = useState(false);
-  const [editingComp, setEditingComp] = useState<EmpComp | null>(null);
   const [compLoading, setCompLoading] = useState(false);
   const [compTab, setCompTab] = useState<"Fixed" | "Variable">("Fixed");
   const [showImport, setShowImport] = useState(false);
@@ -625,30 +623,29 @@ function EmployeeSalaryTab() {
       .then(setEmpComp).catch(() => {}).finally(() => setCompLoading(false));
   }
 
-  async function handleRemove(id: string) {
-    if (!confirm("Remove this compensation line?")) return;
-    await apiFetch(`/api/payroll/compensation/line/${id}`, { method: "DELETE" });
-    if (selectedEmp) selectEmployee(selectedEmp);
-  }
-
-  const totalEarnings = empComp.filter(c => c.componentType === "Earning").reduce((s, c) => s + c.amount, 0);
-  const totalDeductions = empComp.filter(c => c.componentType !== "Earning").reduce((s, c) => s + c.amount, 0);
-
   if (listLoading) return <Loading />;
 
   return (
-    <div className="flex gap-4" style={{ minHeight: 500 }}>
+    <div className="flex flex-col gap-6 lg:flex-row lg:gap-8" style={{ minHeight: 500 }}>
       {/* Employee list */}
-      <div className="w-[340px] shrink-0 space-y-2">
-        <input className={inputCls + " !mb-0"} placeholder="Search name or code..." value={search} onChange={e => setSearch(e.target.value)} />
-        <div className="flex min-w-0 gap-1.5">
+      <div className="w-full shrink-0 space-y-3 rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/95 to-white p-4 shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] lg:w-[340px]">
+        <input
+          className={
+            inputCls +
+            " !mb-0 rounded-lg border-slate-200/90 bg-white shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400"
+          }
+          placeholder="Search name or code..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="flex min-w-0 gap-2">
           <div className="min-w-0 flex-1">
             <FormSelect
               value={filterDept}
               onValueChange={setFilterDept}
               options={salaryDeptFilterOpts}
               placeholder="All Depts"
-              className="!h-9 !min-h-0 !py-0 text-xs"
+              className="!h-9 !min-h-0 !rounded-lg !border-slate-200/90 !bg-white !py-0 text-xs"
             />
           </div>
           <div className="min-w-0 flex-1">
@@ -657,7 +654,7 @@ function EmployeeSalaryTab() {
               onValueChange={setFilterGrade}
               options={salaryGradeFilterOpts}
               placeholder="All Grades"
-              className="!h-9 !min-h-0 !py-0 text-xs"
+              className="!h-9 !min-h-0 !rounded-lg !border-slate-200/90 !bg-white !py-0 text-xs"
             />
           </div>
           <div className="min-w-0 flex-1">
@@ -666,89 +663,109 @@ function EmployeeSalaryTab() {
               onValueChange={setFilterLocation}
               options={salaryLocationFilterOpts}
               placeholder="All Locations"
-              className="!h-9 !min-h-0 !py-0 text-xs"
+              className="!h-9 !min-h-0 !rounded-lg !border-slate-200/90 !bg-white !py-0 text-xs"
             />
           </div>
         </div>
-        <div className="text-xs text-slate-400">{filtered.length} employee{filtered.length !== 1 ? "s" : ""}</div>
-        <div className="max-h-[420px] overflow-y-auto rounded-lg border border-slate-200">
+        <div className="text-xs font-medium text-slate-500">
+          {filtered.length} employee{filtered.length !== 1 ? "s" : ""}
+        </div>
+        <div className="max-h-[min(70vh,28rem)] overflow-y-auto rounded-xl border border-slate-200/80 bg-white shadow-inner">
           {filtered.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-slate-400">No employees match filters</div>
-          ) : filtered.map(emp => (
-            <button key={emp.id} onClick={() => selectEmployee(emp)}
-              className={`flex w-full items-center gap-2 border-b border-slate-50 px-3 py-2.5 text-left text-sm transition-colors hover:bg-slate-50 ${selectedEmp?.id === emp.id ? "bg-blue-50 border-l-2 border-l-blue-500" : ""}`}>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-slate-700">{emp.firstName} {emp.lastName}</div>
-                <div className="truncate text-xs text-slate-400">{emp.employeeCode} · {emp.department}</div>
-              </div>
-            </button>
-          ))}
+            <div className="px-4 py-10 text-center text-sm text-slate-400">No employees match filters</div>
+          ) : (
+            filtered.map((emp) => (
+              <button
+                key={emp.id}
+                type="button"
+                onClick={() => selectEmployee(emp)}
+                className={`flex w-full items-center gap-2 border-b border-slate-100 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-slate-50/90 ${
+                  selectedEmp?.id === emp.id
+                    ? "border-l-[3px] border-l-[#2E7BBF] bg-sky-50/90 pl-[13px]"
+                    : ""
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold text-slate-900">
+                    {emp.firstName} {emp.lastName}
+                  </div>
+                  <div className="truncate text-xs text-slate-500">
+                    {emp.employeeCode} · {emp.department || "—"}
+                  </div>
+                </div>
+              </button>
+            ))
+          )}
         </div>
       </div>
 
       {/* Compensation details */}
-      <div className="flex-1 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex gap-1 rounded-lg bg-slate-100 p-0.5">
-            {(["Fixed", "Variable"] as const).map(t => (
-              <button key={t} onClick={() => setCompTab(t)}
-                className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${compTab === t ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+      <div className="min-w-0 flex-1 space-y-5">
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-0">
+          <div className="flex gap-10">
+            {(["Fixed", "Variable"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setCompTab(t)}
+                className={`relative pb-3 text-sm font-semibold transition-colors ${
+                  compTab === t ? "text-[#2E7BBF]" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
                 {t}
+                {compTab === t ? (
+                  <span
+                    className="absolute bottom-0 left-0 right-0 h-[3px] rounded-t-full bg-[#2E7BBF]"
+                    aria-hidden
+                  />
+                ) : null}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 pb-3">
             {compTab === "Variable" && (
-              <div className="w-auto min-w-[180px] max-w-[240px] shrink-0">
+              <div className="w-auto min-w-[180px] max-w-[260px] shrink-0">
                 <FormSelect
                   value={selectedBatchId}
                   onValueChange={setSelectedBatchId}
                   options={empSalaryBatchOpts}
                   placeholder="Select Batch…"
-                  className="!h-9 !min-h-0 !py-0 text-xs"
+                  className="!h-10 !min-h-0 !rounded-lg !border-slate-200/90 !bg-white !py-0 text-xs"
                 />
               </div>
             )}
-            <Button variant="secondary" onClick={() => setShowImport(true)}
-              disabled={compTab === "Variable" && !selectedBatchId}>Import</Button>
+            <Button
+              variant="secondary"
+              className="min-h-10 rounded-lg border-[#2E7BBF]/35 bg-white px-4 py-2 text-[#256aa3] hover:border-[#2E7BBF]/55 hover:bg-[#2E7BBF]/[0.06]"
+              onClick={() => setShowImport(true)}
+              disabled={compTab === "Variable" && !selectedBatchId}
+            >
+              Import
+            </Button>
           </div>
         </div>
 
         {compTab === "Variable" && !selectedBatchId ? (
-          <div className="flex items-center justify-center rounded-xl border border-dashed border-slate-200 py-20 text-sm text-slate-400">
+          <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/40 py-24 text-sm text-slate-500">
             Select a payroll batch above to view variable components
           </div>
         ) : !selectedEmp ? (
-          <div className="flex items-center justify-center rounded-xl border border-dashed border-slate-200 py-20 text-sm text-slate-400">
+          <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/40 py-24 text-sm text-slate-500">
             Select an employee to view their compensation
           </div>
         ) : (
-          <CompensationTable
+          <SalaryComponentsEditor
+            employeeId={selectedEmp.id}
             title={`${selectedEmp.firstName} ${selectedEmp.lastName} — ${selectedEmp.employeeCode}`}
-            items={empComp.filter(c => compTab === "Fixed"
-              ? c.componentCategory === "Fixed" || c.componentCategory === "Statutory" || c.componentCategory === "OneTime"
-              : c.componentCategory === "Variable" && (selectedBatchId ? c.batchId === selectedBatchId : true)
-            )}
-            allItems={empComp.filter(c => c.componentCategory !== "Variable" || (selectedBatchId ? c.batchId === selectedBatchId : true))}
+            mode={compTab}
+            batchId={compTab === "Variable" ? selectedBatchId : undefined}
+            componentsLibrary={components}
+            assignmentsAll={empComp}
             loading={compLoading}
-            onAssign={() => setShowAssign(true)}
-            onEdit={setEditingComp}
-            onRemove={handleRemove}
+            onReload={() => selectEmployee(selectedEmp)}
           />
         )}
       </div>
-
-      {showAssign && selectedEmp && (
-        <AssignComponentModal empId={selectedEmp.id} components={components.filter(c => c.category === compTab)}
-          batchId={compTab === "Variable" ? selectedBatchId : undefined}
-          onClose={() => setShowAssign(false)}
-          onSaved={() => selectEmployee(selectedEmp)} />
-      )}
-
-      {editingComp && selectedEmp && (
-        <EditCompensationModal comp={editingComp} onClose={() => setEditingComp(null)}
-          onSaved={() => selectEmployee(selectedEmp)} />
-      )}
 
       {showImport && (
         <ImportCompensationModal category={compTab}
@@ -760,50 +777,281 @@ function EmployeeSalaryTab() {
   );
 }
 
-function CompensationTable({ title, items, allItems, loading, onAssign, onEdit, onRemove }: {
-  title: string; items: EmpComp[]; allItems: EmpComp[]; loading: boolean;
-  onAssign: () => void; onEdit: (c: EmpComp) => void; onRemove: (id: string) => void;
+/** Lists every active payroll component for Fixed (incl. statutory & one-time) or Variable + batch; blur saves like the classic salary grid. */
+function SalaryComponentsEditor({
+  employeeId,
+  title,
+  mode,
+  batchId,
+  componentsLibrary,
+  assignmentsAll,
+  loading,
+  onReload,
+}: {
+  employeeId: string;
+  title: string;
+  mode: "Fixed" | "Variable";
+  batchId?: string;
+  componentsLibrary: Component[];
+  assignmentsAll: EmpComp[];
+  loading: boolean;
+  onReload: () => void;
 }) {
-  const totalEarnings = allItems.filter(c => c.componentType === "Earning").reduce((s, c) => s + c.amount, 0);
-  const totalDeductions = allItems.filter(c => c.componentType !== "Earning").reduce((s, c) => s + c.amount, 0);
+  const definitions = useMemo(() => {
+    const list =
+      mode === "Fixed"
+        ? componentsLibrary.filter(
+            (c) =>
+              c.isActive &&
+              (c.category === "Fixed" || c.category === "Statutory" || c.category === "OneTime")
+          )
+        : componentsLibrary.filter((c) => c.isActive && c.category === "Variable");
+    return [...list].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  }, [componentsLibrary, mode]);
+
+  const relevantLines = useMemo(() => {
+    return assignmentsAll.filter((a) => {
+      if (a.isActive === false) return false;
+      if (mode === "Fixed") {
+        return (
+          (a.componentCategory === "Fixed" ||
+            a.componentCategory === "Statutory" ||
+            a.componentCategory === "OneTime") &&
+          !a.batchId
+        );
+      }
+      return Boolean(batchId && a.componentCategory === "Variable" && a.batchId === batchId);
+    });
+  }, [assignmentsAll, mode, batchId]);
+
+  const [draftByComp, setDraftByComp] = useState<Record<string, string>>({});
+  const [savingCompId, setSavingCompId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftByComp({});
+    setSaveError(null);
+  }, [employeeId, mode, batchId]);
+
+  function lineForComponent(componentId: string): EmpComp | undefined {
+    return relevantLines.find((a) => a.componentId === componentId);
+  }
+
+  function closeEnough(a: number, b: number) {
+    return Math.abs(a - b) < 0.005;
+  }
+
+  async function commitComponent(def: Component) {
+    const line = lineForComponent(def.id);
+    const draft = draftByComp[def.id];
+    if (draft === undefined) return;
+
+    const trimmed = draft.trim();
+    const parsed =
+      trimmed === "" || trimmed === "-" || trimmed === "\u2014"
+        ? null
+        : Number.parseFloat(trimmed.replace(/,/g, ""));
+    const isEmpty =
+      trimmed === "" || parsed === null || Number.isNaN(parsed) || parsed === 0;
+
+    if (!line && isEmpty) {
+      setDraftByComp((d) => {
+        const n = { ...d };
+        delete n[def.id];
+        return n;
+      });
+      return;
+    }
+
+    const target = isEmpty ? 0 : Math.round(parsed * 100) / 100;
+
+    if (line && !isEmpty && closeEnough(Number(line.amount), target)) {
+      setDraftByComp((d) => {
+        const n = { ...d };
+        delete n[def.id];
+        return n;
+      });
+      return;
+    }
+
+    setSaveError(null);
+    setSavingCompId(def.id);
+    try {
+      if (isEmpty && line) {
+        await apiFetch(`/api/payroll/compensation/line/${line.id}`, { method: "DELETE" });
+      } else if (!isEmpty && line) {
+        await apiFetch(`/api/payroll/compensation/line/${line.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            amount: target,
+            currency: line.currency || "LKR",
+            effectiveFrom: line.effectiveFrom,
+            effectiveTo: line.effectiveTo ?? null,
+            isActive: true,
+          }),
+        });
+      } else if (!isEmpty && !line) {
+        const payload: Record<string, unknown> = {
+          componentId: def.id,
+          amount: target,
+          currency: "LKR",
+          effectiveFrom: new Date().toISOString(),
+        };
+        if (mode === "Variable" && batchId) payload.batchId = batchId;
+        await apiFetch(`/api/payroll/compensation/${employeeId}`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      setDraftByComp((d) => {
+        const n = { ...d };
+        delete n[def.id];
+        return n;
+      });
+      await onReload();
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Could not save");
+    } finally {
+      setSavingCompId(null);
+    }
+  }
+
+  const earningsDefs = definitions.filter((d) => d.type === "Earning");
+  const deductionDefs = definitions.filter((d) => d.type !== "Earning");
+
+  function numericAmount(componentId: string): number {
+    const draft = draftByComp[componentId];
+    const line = lineForComponent(componentId);
+    if (draft !== undefined) {
+      const t = draft.trim();
+      if (t === "" || t === "—" || t === "-") return 0;
+      const n = Number.parseFloat(t.replace(/,/g, ""));
+      return Number.isNaN(n) ? 0 : n;
+    }
+    return line?.amount ?? 0;
+  }
+
+  const totalEarnings = earningsDefs.reduce((s, d) => s + numericAmount(d.id), 0);
+  const totalDeductions = deductionDefs.reduce((s, d) => s + numericAmount(d.id), 0);
+
+  function inputDisplay(defId: string): string {
+    if (draftByComp[defId] !== undefined) return draftByComp[defId];
+    const line = lineForComponent(defId);
+    if (!line || Number(line.amount) === 0) return "";
+    return String(line.amount);
+  }
+
+  const salaryAmtInputCls =
+    "h-10 w-full min-w-[7rem] rounded-lg border border-slate-200/90 bg-white px-3 text-right font-mono text-sm tabular-nums text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] outline-none transition placeholder:text-slate-400 focus:border-[#2E7BBF] focus:ring-2 focus:ring-[#2E7BBF]/18 disabled:opacity-60 md:min-w-[8.75rem]";
+
+  function renderSalaryColumnTable(defs: Component[], variant: "earning" | "deduction") {
+    if (defs.length === 0) {
+      return (
+        <div className="py-14 text-center text-sm text-slate-400">No active components in this group.</div>
+      );
+    }
+    return (
+      <table className="w-full border-collapse text-left text-sm">
+        <thead>
+          <tr className="border-b border-slate-200/90 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <th className="py-2.5 pl-4 pr-2 font-medium">Component</th>
+            <th className="w-[140px] shrink-0 py-2.5 pl-2 pr-4 text-right font-medium md:w-[172px]">Amount (LKR)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {defs.map((def) => (
+            <tr
+              key={def.id}
+              className="border-b border-slate-100 transition-colors last:border-b-0 hover:bg-slate-50/60"
+            >
+              <td className="py-3 pl-4 pr-2 align-top">
+                <div className="font-medium leading-snug text-slate-900">
+                  {def.name}{" "}
+                  <span className="font-normal text-slate-400">({def.code})</span>
+                </div>
+                {variant === "deduction" ? (
+                  <span className="mt-1.5 inline-block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    {def.type.toUpperCase()}
+                  </span>
+                ) : null}
+              </td>
+              <td className="py-3 pl-2 pr-4 align-top">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  disabled={loading || savingCompId === def.id}
+                  className={salaryAmtInputCls}
+                  value={inputDisplay(def.id)}
+                  onChange={(e) =>
+                    setDraftByComp((prev) => ({ ...prev, [def.id]: e.target.value }))
+                  }
+                  onBlur={() => void commitComponent(def)}
+                  placeholder="—"
+                  aria-label={`${def.name} amount`}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
 
   return (
-    <Card title={title}>
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex gap-4 text-sm">
-          <span className="text-green-700">Earnings: LKR {fmt(totalEarnings)}</span>
-          <span className="text-red-600">Deductions: LKR {fmt(totalDeductions)}</span>
-          <span className="font-semibold text-slate-800">Net: LKR {fmt(totalEarnings - totalDeductions)}</span>
+    <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)]">
+      <div className="border-b border-slate-100 bg-white px-6 pb-5 pt-6">
+        <h2 className="text-xl font-semibold tracking-tight text-slate-900">{title}</h2>
+        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
+          Enter amounts in LKR and leave the field to save. Clear the amount and leave the field to remove an assignment.
+        </p>
+        <div className="mt-5 flex flex-wrap gap-x-10 gap-y-2 border-t border-slate-100 pt-5 text-sm">
+          <span className="font-medium text-emerald-700">Earnings: LKR {fmt(totalEarnings)}</span>
+          <span className="font-medium text-red-600">Deductions: LKR {fmt(totalDeductions)}</span>
+          <span className="font-semibold text-slate-900">Net: LKR {fmt(totalEarnings - totalDeductions)}</span>
         </div>
-        <Button onClick={onAssign}>+ Assign</Button>
+        {saveError ? (
+          <div className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{saveError}</div>
+        ) : null}
       </div>
 
-      {loading ? <Loading /> : items.length === 0 ? <EmptyState text="No components in this category." /> : (
-        <table className="w-full text-left text-sm">
-          <thead><tr className="border-b text-xs text-slate-400">
-            <th className="pb-2 font-medium">Component</th><th className="pb-2 font-medium">Type</th>
-            <th className="pb-2 font-medium text-right">Amount</th><th className="pb-2 font-medium">Effective</th>
-            <th className="pb-2 font-medium">Actions</th>
-          </tr></thead>
-          <tbody>
-            {items.map(c => (
-              <tr key={c.id} className="border-b border-slate-50">
-                <td className="py-2.5 font-medium text-slate-700">{c.componentName} <span className="text-xs text-slate-400">({c.componentCode})</span></td>
-                <td className="py-2.5 text-slate-600">{c.componentType}</td>
-                <td className="py-2.5 text-right font-mono text-slate-700">LKR {fmt(c.amount)}</td>
-                <td className="py-2.5 text-xs text-slate-500">{formatDate(c.effectiveFrom)}</td>
-                <td className="py-2.5">
-                  <div className="flex gap-1">
-                    <button onClick={() => onEdit(c)} className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50">Edit</button>
-                    <button onClick={() => onRemove(c.id)} className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50">Remove</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {loading ? (
+        <div className="py-16">
+          <Loading />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 divide-y divide-slate-200/90 md:grid-cols-2 md:divide-x md:divide-y-0">
+          <section className="flex min-h-0 min-w-0 flex-col bg-white">
+            <div className="border-b border-emerald-200/50 bg-emerald-50 px-4 py-3">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-sm font-semibold text-emerald-950">Earnings (income)</span>
+                <span className="text-xs font-medium text-emerald-900/85">
+                  {earningsDefs.length} component{earningsDefs.length !== 1 ? "s" : ""} • Subtotal LKR{" "}
+                  {fmt(totalEarnings)}
+                </span>
+              </div>
+            </div>
+            <div className="max-h-[min(62vh,26rem)] min-h-[14rem] overflow-y-auto overscroll-contain">
+              {renderSalaryColumnTable(earningsDefs, "earning")}
+            </div>
+          </section>
+
+          <section className="flex min-h-0 min-w-0 flex-col bg-white">
+            <div className="border-b border-rose-200/55 bg-rose-50 px-4 py-3">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-sm font-semibold text-rose-950">Deductions</span>
+                <span className="text-xs font-medium text-rose-900/85">
+                  {deductionDefs.length} component{deductionDefs.length !== 1 ? "s" : ""} • Subtotal LKR{" "}
+                  {fmt(totalDeductions)}
+                </span>
+              </div>
+            </div>
+            <div className="max-h-[min(62vh,26rem)] min-h-[14rem] overflow-y-auto overscroll-contain">
+              {renderSalaryColumnTable(deductionDefs, "deduction")}
+            </div>
+          </section>
+        </div>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -897,93 +1145,6 @@ function ImportCompensationModal({ category, batchId, onClose, onImported }: { c
           )}
         </div>
       </div>
-    </Modal>
-  );
-}
-
-function EditCompensationModal({ comp, onClose, onSaved }: { comp: EmpComp; onClose: () => void; onSaved: () => void }) {
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitting(true); setError("");
-    const fd = new FormData(e.currentTarget as HTMLFormElement);
-    const payload = {
-      amount: Number(fd.get("amount")),
-      currency: fd.get("currency") || "LKR",
-      effectiveFrom: fd.get("effectiveFrom"),
-      effectiveTo: fd.get("effectiveTo") || null,
-    };
-    try {
-      await apiFetch(`/api/payroll/compensation/line/${comp.id}`, { method: "PUT", body: JSON.stringify(payload) });
-      onSaved(); onClose();
-    } catch (err: unknown) { setError(err instanceof Error ? err.message : "Failed"); }
-    finally { setSubmitting(false); }
-  }
-
-  return (
-    <Modal open onClose={onClose} title={`Edit — ${comp.componentName}`}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
-        <div><label className={labelCls}>Amount *</label><input name="amount" type="number" step="0.01" required className={inputCls} defaultValue={comp.amount} /></div>
-        <div><label className={labelCls}>Currency</label><input name="currency" className={inputCls} defaultValue={comp.currency || "LKR"} /></div>
-        <div><label className={labelCls}>Effective From *</label><DatePickerField key={comp.id} name="effectiveFrom" required className={inputCls} defaultValue={comp.effectiveFrom?.slice(0, 10) ?? ""} /></div>
-        <div><label className={labelCls}>Effective To</label><DatePickerField key={`${comp.id}-to`} name="effectiveTo" className={inputCls} defaultValue={comp.effectiveTo?.slice(0, 10) ?? ""} /></div>
-        <div className="flex justify-end gap-3 pt-2">
-          <Button variant="secondary" onClick={onClose} type="button">Cancel</Button>
-          <Button type="submit" disabled={submitting}>{submitting ? "Saving..." : "Update"}</Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function AssignComponentModal({ empId, components, batchId, onClose, onSaved }: { empId: string; components: Component[]; batchId?: string; onClose: () => void; onSaved: () => void }) {
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-
-  const assignComponentOpts = useMemo<FormSelectOption[]>(
-    () => [
-      { value: "", label: "Select component…" },
-      ...components.filter((c) => c.isActive).map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })),
-    ],
-    [components]
-  );
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); setError(""); setSubmitting(true);
-    const fd = new FormData(e.currentTarget);
-    const payload: Record<string, unknown> = {
-      componentId: fd.get("componentId"), amount: Number(fd.get("amount")),
-      currency: "LKR", effectiveFrom: fd.get("effectiveFrom"),
-    };
-    if (batchId) payload.batchId = batchId;
-    try {
-      await apiFetch(`/api/payroll/compensation/${empId}`, { method: "POST", body: JSON.stringify(payload) });
-      onSaved(); onClose();
-    } catch (err: unknown) { setError(err instanceof Error ? err.message : "Failed"); }
-    finally { setSubmitting(false); }
-  }
-
-  return (
-    <Modal open onClose={onClose} title="Assign Component">
-      <form key={`${empId}-${batchId ?? "fixed"}`} onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
-        <div><label className={labelCls}>Component *</label>
-          <FormSelect name="componentId" required defaultValue="" options={assignComponentOpts} placeholder="Select component…" />
-        </div>
-        <div><label className={labelCls}>Amount (LKR) *</label>
-          <input name="amount" type="number" step="0.01" required className={inputCls} />
-        </div>
-        <div><label className={labelCls}>Effective From *</label>
-          <DatePickerField name="effectiveFrom" required className={inputCls} defaultValue={new Date().toISOString().split("T")[0]} />
-        </div>
-        <div className="flex justify-end gap-3 pt-2">
-          <Button variant="secondary" onClick={onClose} type="button">Cancel</Button>
-          <Button type="submit" disabled={submitting}>{submitting ? "Saving..." : "Assign"}</Button>
-        </div>
-      </form>
     </Modal>
   );
 }
@@ -1503,7 +1664,7 @@ function BatchDetailModal({ batch, statements, onClose }: { batch: Batch; statem
         <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-400">Employer Cost</div><div className="font-semibold">LKR {fmt(batch.totalEmployerCost)}</div></div>
       </div>
 
-      {statements.length === 0 ? <EmptyState text="No pay statements in this batch." /> : (
+      {statements.length === 0 ? <EmptyState text="No pay slips in this batch." /> : (
         <div className="max-h-[400px] overflow-y-auto">
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b text-xs text-slate-400">
@@ -1627,9 +1788,9 @@ function PayStatementsTab() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-slate-800">Pay Statements</h2>
+      <h2 className="text-lg font-semibold text-slate-800">Pay Slips</h2>
 
-      {statements.length === 0 ? <EmptyState text="No pay statements generated yet." /> : (
+      {statements.length === 0 ? <EmptyState text="No pay slips generated yet." /> : (
         <>
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full text-left text-sm">

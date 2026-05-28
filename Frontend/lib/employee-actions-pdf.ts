@@ -82,7 +82,7 @@ export async function buildEmployeeActionsPdfBlob(records: ReadonlyArray<Employe
       r.actionType,
       r.title,
       (r.details || "").replace(/\s+/g, " ").slice(0, 240),
-      `${(r.createdAt || "").split("T")[0] ?? ""}${r.createdByUsername ? ` @${r.createdByUsername}` : ""}`,
+      `${(r.createdAt || "").split("T")[0]}${r.createdByUsername ? ` @${r.createdByUsername}` : ""}`,
     ]),
     styles: { fontSize: 7, cellPadding: 1.2, overflow: "linebreak" },
     headStyles: { fillColor: [43, 125, 233], textColor: 255 },

@@ -76,34 +76,6 @@ public static class AuthSeeder
         var adminRole = await context.SecurityRoles.FirstOrDefaultAsync(r => r.Code == "ADMIN");
         if (adminRole == null) return;
 
-        const string defaultAdminPassword = "Admin@123";
-        var adminUser = await context.Users
-            .Include(u => u.UserRoles)
-            .FirstOrDefaultAsync(u => u.Username == "admin");
-
-        if (adminUser != null)
-        {
-            // Ensure existing admin has the known default password (for dev/demo)
-            adminUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(defaultAdminPassword);
-            adminUser.IsActive = true;
-            await context.SaveChangesAsync();
-            return;
-        }
-
-        if (await context.Users.AnyAsync())
-            return;
-
-        var newAdminUser = new User
-        {
-            Username = "admin",
-            Email = "admin@openskyhrm.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(defaultAdminPassword),
-            IsActive = true
-        };
-
-        newAdminUser.UserRoles.Add(new UserRole { RoleId = adminRole.Id });
-
-        context.Users.Add(newAdminUser);
-        await context.SaveChangesAsync();
+        await AdminBootstrapSeeder.EnsureAsync(context, forceResetPassword: true);
     }
 }

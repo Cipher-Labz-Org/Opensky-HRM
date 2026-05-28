@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, type FormEvent, type CSSProperties } from 
 import React from "react";
 import Link from "next/link";
 import { useAuth } from "../../contexts/auth-context";
-import { API_BASE_URL } from "../../config/constants";
+import { API_ASSET_BASE_URL } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
 
 type Branding = {
@@ -23,19 +23,25 @@ const LOGIN_MOTIVATION_SLIDES: readonly { headline: string; sub: string }[] = [
   { headline: "When people feel seen, they bring their best work.", sub: "Recognition matters." },
 ];
 
-/** Local files under `public/login-bg/` so the backdrop works offline and is not blocked as a third‑party URL. */
-const LOGIN_BACKGROUND_IMAGES: readonly string[] = [
-  "/login-bg/01.jpg",
-  "/login-bg/02.jpg",
-  "/login-bg/03.jpg",
-  "/login-bg/04.jpg",
-  "/login-bg/05.jpg",
-  "/login-bg/06.jpg",
-  "/login-bg/07.jpg",
-  "/login-bg/08.jpg",
-  "/login-bg/09.jpg",
-  "/login-bg/10.jpg",
-];
+/**
+ * Optional carousel under `public/login-bg/`. Files are not in git by default — set
+ * NEXT_PUBLIC_LOGIN_BG_IMAGES=1 after adding 01.jpg–10.jpg to enable.
+ */
+const LOGIN_BACKGROUND_IMAGES: readonly string[] =
+  process.env.NEXT_PUBLIC_LOGIN_BG_IMAGES === "1"
+    ? [
+        "/login-bg/01.jpg",
+        "/login-bg/02.jpg",
+        "/login-bg/03.jpg",
+        "/login-bg/04.jpg",
+        "/login-bg/05.jpg",
+        "/login-bg/06.jpg",
+        "/login-bg/07.jpg",
+        "/login-bg/08.jpg",
+        "/login-bg/09.jpg",
+        "/login-bg/10.jpg",
+      ]
+    : [];
 
 const LOGIN_QUOTE_SESSION_KEY = "opensky.loginQuoteIndex";
 
@@ -58,7 +64,7 @@ export function LoginLandingExperience() {
   const [submitting, setSubmitting] = useState(false);
   const [motivationSlide, setMotivationSlide] = useState(-1);
   const loginQuotePickCommittedRef = useRef(false);
-  const [loginBgFailed, setLoginBgFailed] = useState(false);
+  const [loginBgFailed, setLoginBgFailed] = useState(LOGIN_BACKGROUND_IMAGES.length === 0);
   const [branding, setBranding] = useState<Branding>({
     companyName: "",
     companyLogoUrl: null,
@@ -67,7 +73,7 @@ export function LoginLandingExperience() {
   const companyLogoSrc = rawLogo
     ? /^https?:\/\//i.test(rawLogo)
       ? rawLogo
-      : `${API_BASE_URL}${rawLogo}`
+      : `${API_ASSET_BASE_URL}${rawLogo}`
     : null;
 
   useEffect(() => {
@@ -75,12 +81,17 @@ export function LoginLandingExperience() {
   }, []);
 
   useEffect(() => {
-    setLoginBgFailed(false);
+    if (LOGIN_BACKGROUND_IMAGES.length > 0) setLoginBgFailed(false);
   }, [motivationSlide]);
 
   useEffect(() => {
     let isMounted = true;
-    fetch(`${API_BASE_URL}/api/auth/branding`)
+    // Always same-origin (gamma.openskyhrm.com/api/...), never gammabackend — avoids CORS on deployed hosts.
+    const brandingUrl =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/api/auth/branding`
+        : "/api/auth/branding";
+    fetch(brandingUrl)
       .then(async (res) => {
         if (!res.ok) return null;
         return res.json();

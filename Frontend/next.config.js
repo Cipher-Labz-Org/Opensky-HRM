@@ -1,9 +1,11 @@
 /** @type {import('next').NextConfig} */
-const apiBackendOrigin = (
-  process.env.API_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  "http://localhost:5000"
-).replace(/\/$/, "");
+function apiUpstreamBase() {
+  const url =
+    process.env.API_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_URL?.trim() ||
+    "http://127.0.0.1:5000";
+  return url.replace(/\/$/, "");
+}
 
 const nextConfig = {
   reactStrictMode: true,
@@ -11,6 +13,25 @@ const nextConfig = {
   // Keep ".dist" for local workflows to avoid churn with existing local caches.
   distDir: process.env.VERCEL ? ".next" : ".dist",
   transpilePackages: ["jspdf", "jspdf-autotable"],
+  async rewrites() {
+    const base = apiUpstreamBase();
+    return [
+      // Local dev: browser calls same-origin `/hrm-backend/...` → Kestrel
+      {
+        source: "/hrm-backend/:path*",
+        destination: `${base}/:path*`,
+      },
+      // Production / Vercel: `/api/*` and static uploads proxied to backend
+      {
+        source: "/api/:path*",
+        destination: `${base}/api/:path*`,
+      },
+      {
+        source: "/uploads/:path*",
+        destination: `${base}/uploads/:path*`,
+      },
+    ];
+  },
   async redirects() {
     return [
       { source: "/dashboard", destination: "/app/dashboard", permanent: false },
@@ -39,18 +60,6 @@ const nextConfig = {
         permanent: false,
       },
       { source: "/billing", destination: "/app/billing", permanent: false },
-    ];
-  },
-  /**
-   * Local dev: browser calls same-origin `/hrm-backend/...` and Next proxies to Kestrel.
-   * Avoids direct `127.0.0.1:5000` fetches (firewall / binding / WSL quirks). Set NEXT_PUBLIC_API_URL to skip.
-   */
-  async rewrites() {
-    return [
-      {
-        source: "/hrm-backend/:path*",
-        destination: `${apiBackendOrigin}/:path*`,
-      },
     ];
   },
 };

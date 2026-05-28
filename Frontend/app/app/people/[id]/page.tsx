@@ -2369,8 +2369,12 @@ export default function EmployeeDetailPage() {
     );
   }
 
+<<<<<<< HEAD
   function renderEmployeeLifecycleMain() {
     if (!emp) return null;
+=======
+  function renderEmployeeLifecycleMain(employee: EmployeeDetail) {
+>>>>>>> master
     return (
       <>
         <div className="flex flex-col gap-4 md:flex-row md:items-start">
@@ -2378,20 +2382,20 @@ export default function EmployeeDetailPage() {
             <div className="grid h-[88px] w-[88px] place-items-center rounded-full border-4 border-sky-100 bg-gradient-to-br from-sky-400 to-blue-600 text-2xl font-extrabold text-white shadow-md shadow-sky-500/20">
               {initials}
             </div>
-            <h3 className="mt-3 text-sm font-bold text-slate-800">{emp.fullName}</h3>
+            <h3 className="mt-3 text-sm font-bold text-slate-800">{employee.fullName}</h3>
             <span className="mt-1 line-clamp-2 text-[11px] font-semibold leading-snug text-sky-900">
-              {emp.jobTitleName ?? emp.positionTitle ?? "—"}
+              {employee.jobTitleName ?? employee.positionTitle ?? "—"}
             </span>
             <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-700">
-              <span className={`h-2 w-2 shrink-0 rounded-full ${lifecycleColors[emp.status] ?? "bg-gray-400"}`} />
-              {lifecycleLabels[emp.status] ?? emp.status}
+              <span className={`h-2 w-2 shrink-0 rounded-full ${lifecycleColors[employee.status] ?? "bg-gray-400"}`} />
+              {lifecycleLabels[employee.status] ?? employee.status}
             </span>
             <p className="mt-2 text-[11px] text-slate-500">
               Tenure:{" "}
               <span className="font-semibold text-slate-700">
-                {emp.terminationDate
-                  ? formatTenureSpan(emp.joinDate, emp.terminationDate)
-                  : formatTenureSpan(emp.joinDate)}
+                {employee.terminationDate
+                  ? formatTenureSpan(employee.joinDate, employee.terminationDate)
+                  : formatTenureSpan(employee.joinDate)}
               </span>
             </p>
           </div>
@@ -2408,18 +2412,18 @@ export default function EmployeeDetailPage() {
                 {(() => {
                   const milestones = (
                     [
-                      { label: "Joined organization", date: emp.joinDate },
-                      emp.probationEndDate ? { label: "Probation ends", date: emp.probationEndDate } : null,
-                      emp.dateOfPermanency ? { label: "Permanent / confirmed", date: emp.dateOfPermanency } : null,
-                      emp.terminationDate
+                      { label: "Joined organization", date: employee.joinDate },
+                      employee.probationEndDate ? { label: "Probation ends", date: employee.probationEndDate } : null,
+                      employee.dateOfPermanency ? { label: "Permanent / confirmed", date: employee.dateOfPermanency } : null,
+                      employee.terminationDate
                         ? {
                             label: "Separation",
-                            date: emp.terminationDate,
+                            date: employee.terminationDate,
                             sub:
-                              emp.terminationReason && emp.terminationReason.trim().length > 0
-                                ? emp.terminationReason.trim().length > 72
-                                  ? `${emp.terminationReason.trim().slice(0, 70)}…`
-                                  : emp.terminationReason.trim()
+                              employee.terminationReason && employee.terminationReason.trim().length > 0
+                                ? employee.terminationReason.trim().length > 72
+                                  ? `${employee.terminationReason.trim().slice(0, 70)}…`
+                                  : employee.terminationReason.trim()
                                 : undefined,
                           }
                         : null,
@@ -2500,16 +2504,16 @@ export default function EmployeeDetailPage() {
                   Role &amp; responsibilities
                 </h4>
                 <div className="rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2.5">
-                  <InfoRow label="Job title" value={emp.jobTitleName ?? emp.positionTitle ?? "—"} />
-                  <InfoRow label="Department" value={emp.departmentName ?? "—"} />
-                  <InfoRow label="Reports to" value={emp.managerName ?? "—"} />
+                  <InfoRow label="Job title" value={employee.jobTitleName ?? employee.positionTitle ?? "—"} />
+                  <InfoRow label="Department" value={employee.departmentName ?? "—"} />
+                  <InfoRow label="Reports to" value={employee.managerName ?? "—"} />
                   <div className="mt-2 border-t border-slate-200/80 pt-2">
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                       Responsibilities
                     </div>
-                    {emp.jobTitleDescription && emp.jobTitleDescription.trim().length > 0 ? (
+                    {employee.jobTitleDescription && employee.jobTitleDescription.trim().length > 0 ? (
                       <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
-                        {emp.jobTitleDescription.trim()}
+                        {employee.jobTitleDescription.trim()}
                       </p>
                     ) : (
                       <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
@@ -2819,7 +2823,7 @@ export default function EmployeeDetailPage() {
                   <div className="mt-5 border-t border-slate-100 pt-4">
                     {renderEmployeeLifecycleHeader()}
                     <div className="pt-2">
-                      {renderEmployeeLifecycleMain()}
+                      {renderEmployeeLifecycleMain(emp)}
                     </div>
                   </div>
                 )}
@@ -2832,7 +2836,7 @@ export default function EmployeeDetailPage() {
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               {renderEmployeeLifecycleHeader()}
               <div className="p-4">
-                {renderEmployeeLifecycleMain()}
+                {renderEmployeeLifecycleMain(emp)}
               </div>
             </div>
           )}

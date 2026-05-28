@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Npgsql;
 using OpenSkyHRM.Persistence;
 using OpenSkyHRM.Persistence.Seeders;
 using OpenSkyHRM.Application.DTOs.Auth;
@@ -14,6 +15,7 @@ public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly ILicensingService _licensing;
+    private readonly ISystemSettingService _systemSettings;
     private readonly ILogger<AuthController> _logger;
     private readonly IWebHostEnvironment _env;
     private readonly IConfiguration _config;
@@ -21,15 +23,39 @@ public class AuthController : ControllerBase
     public AuthController(
         IAuthService authService,
         ILicensingService licensing,
+        ISystemSettingService systemSettings,
         ILogger<AuthController> logger,
         IWebHostEnvironment env,
         IConfiguration config)
     {
         _authService = authService;
         _licensing = licensing;
+        _systemSettings = systemSettings;
         _logger = logger;
         _env = env;
         _config = config;
+    }
+
+    /// <summary>Public branding for the sign-in page (company name + logo path).</summary>
+    [HttpGet("branding")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetBranding()
+    {
+        try
+        {
+            var companyName = (await _systemSettings.GetAsync("CompanyName") ?? "").Trim();
+            var logo = (await _systemSettings.GetAsync("CompanyLogoUrl") ?? "").Trim();
+            return Ok(new
+            {
+                companyName = string.IsNullOrEmpty(companyName) ? "OpenSky HRM" : companyName,
+                companyLogoUrl = string.IsNullOrEmpty(logo) ? null : logo
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load login branding; returning defaults.");
+            return Ok(new { companyName = "OpenSky HRM", companyLogoUrl = (string?)null });
+        }
     }
 
     [HttpPost("login")]
@@ -45,10 +71,26 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new { message = ex.Message });
         }
+        catch (PostgresException pg) when (pg.SqlState is "42P01" or "42703")
+        {
+            _logger.LogError(pg, "Login failed: database schema out of date.");
+            return StatusCode(500, new
+            {
+                message =
+                    "Database schema is out of date. On the API server run: dotnet ef database update --project OpenSkyHRM.Persistence --startup-project OpenSkyHRM.Api, then restart the API."
+            });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Login failed unexpectedly.");
-            return StatusCode(500, new { message = "Sign-in failed. Check API logs or database connectivity." });
+            var hint = _env.IsDevelopment()
+                ? ex.GetBaseException().Message
+                : null;
+            return StatusCode(500, new
+            {
+                message = "Sign-in failed. Check API logs or database connectivity.",
+                detail = hint
+            });
         }
     }
 
@@ -80,15 +122,17 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Invalid confirmation phrase." });
 
         var password = string.IsNullOrWhiteSpace(body.Password)
-            ? (_config["CustomerReset:BootstrapAdminPassword"] ?? "Admin@123")
+            ? AdminBootstrapSeeder.DefaultAdminPassword
             : body.Password!;
 
         await AdminBootstrapSeeder.EnsureAsync(
             db,
-            adminPassword: password,
+            AdminBootstrapSeeder.DefaultAdminUsername,
+            AdminBootstrapSeeder.DefaultAdminEmail,
+            password,
             forceResetPassword: true,
             cancellationToken: cancellationToken);
-        return Ok(new { message = "Admin bootstrap ensured.", username = "admin" });
+        return Ok(new { message = "Admin bootstrap ensured.", username = AdminBootstrapSeeder.DefaultAdminUsername });
     }
 
     [HttpGet("me")]
