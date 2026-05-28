@@ -57,7 +57,10 @@ type BirthdayWishThreadDto = {
 };
 
 const digestCategories = new Set(["BirthdayToday", "BirthdayUpcoming", "EmployeeBirthdayDigest"]);
-const inboxHiddenCategories = new Set([...digestCategories, "BirthdayWishMyReply"]);
+const inboxHiddenCategories = new Set<string>([
+  ...Array.from(digestCategories),
+  "BirthdayWishMyReply",
+]);
 
 /** One-tap inserts for birthday wish messages (UTF-16 safe slice/length in textarea). */
 const WISH_QUICK_EMOJIS = ["🎉", "🎂", "🎁", "🥳", "❤️", "✨", "🙌", "👏", "💐", "😊", "⭐", "🍰"] as const;
