@@ -251,6 +251,19 @@ public partial class BulkUploadController : ControllerBase
             if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
             var cell = row.Cell(c);
             if (cell.DataType == XLDataType.DateTime) return cell.GetDateTime();
+            if (cell.DataType == XLDataType.Number && cell.TryGetValue<double>(out var oaDate))
+            {
+                try
+                {
+                    if (oaDate >= 1 && oaDate < 2958466)
+                        return DateTime.FromOADate(oaDate);
+                }
+                catch (ArgumentException)
+                {
+                    /* fall through to text parse */
+                }
+            }
+
             var s = GetCellTrimmedDisplayText(cell);
             if (string.IsNullOrEmpty(s)) return null;
             if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt)) return dt;
@@ -504,6 +517,18 @@ public partial class BulkUploadController : ControllerBase
             };
 
             _db.Employees.Add(employee);
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                DetachTrackedEmployee(employee);
+                skipped++;
+                results.Add(new RowResult(r, firstName!, lastName!, false, DescribeEmployeeImportSaveFailure(ex)));
+                continue;
+            }
+
             existingCodesForGeneration.Add(empCode!);
             reservedEmployeeCodes.Add(empCode!);
             existingEmailSet.Add(resolvedEmail);
@@ -514,8 +539,6 @@ public partial class BulkUploadController : ControllerBase
             if (wantLogins)
                 loginJobs.Add((r, employee, usernameFromSheet));
         }
-
-        await _db.SaveChangesAsync();
 
         var loginsCreated = 0;
         if (wantLogins && loginJobs.Count > 0)
@@ -553,11 +576,18 @@ public partial class BulkUploadController : ControllerBase
                     };
                     user.UserRoles.Add(new UserRole { RoleId = employeeRoleId });
                     _db.Users.Add(user);
-                    loginsCreated++;
-                    ReplaceRowNotes(results, job.Row, new List<string> { $"User login created (username: {username})." });
+                    try
+                    {
+                        await _db.SaveChangesAsync();
+                        loginsCreated++;
+                        ReplaceRowNotes(results, job.Row, new List<string> { $"User login created (username: {username})." });
+                    }
+                    catch (DbUpdateException)
+                    {
+                        DetachTrackedUser(user);
+                        ReplaceRowNotes(results, job.Row, new List<string> { "Login not created: could not save user (duplicate username or email)." });
+                    }
                 }
-
-                await _db.SaveChangesAsync();
             }
         }
 
@@ -682,11 +712,81 @@ public partial class BulkUploadController : ControllerBase
 
     private static string ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
     {
-        if (!string.IsNullOrWhiteSpace(workEmail)) return workEmail.Trim();
-        if (!string.IsNullOrWhiteSpace(personalEmail)) return personalEmail.Trim();
+        var work = NormalizeImportEmail(workEmail);
+        if (work != null) return work;
+        var personal = NormalizeImportEmail(personalEmail);
+        if (personal != null) return personal;
         var local = SanitizeUsernameSegment(employeeCode);
         if (string.IsNullOrEmpty(local)) local = "employee";
         return $"{local}@import.openskyhrm.local";
+    }
+
+    /// <summary>Treat Excel placeholders and non-email text as empty so import does not store "-" or "#N/A" as work email.</summary>
+    private static string? NormalizeImportEmail(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var s = value.Trim();
+        if (s.Equals("-", StringComparison.Ordinal)
+            || s.Equals("0", StringComparison.Ordinal)
+            || s.Equals("#N/A", StringComparison.OrdinalIgnoreCase)
+            || s.Equals("N/A", StringComparison.OrdinalIgnoreCase)
+            || s.Equals("NA", StringComparison.OrdinalIgnoreCase)
+            || s.Equals("n/a", StringComparison.Ordinal))
+            return null;
+        if (s.IndexOf('@') < 1 || s.IndexOf('.') <= s.IndexOf('@'))
+            return null;
+        return s;
+    }
+
+    private void DetachTrackedEmployee(Employee employee)
+    {
+        var entry = _db.Entry(employee);
+        if (entry.State != EntityState.Detached)
+            entry.State = EntityState.Detached;
+    }
+
+    private void DetachTrackedUser(User user)
+    {
+        var entry = _db.Entry(user);
+        if (entry.State != EntityState.Detached)
+            entry.State = EntityState.Detached;
+    }
+
+    private static List<string> DescribeEmployeeImportSaveFailure(DbUpdateException ex)
+    {
+        for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+        {
+            if (inner is not PostgresException pg) continue;
+
+            if (pg.SqlState == "22001")
+            {
+                return
+                [
+                    "One or more values exceed the maximum allowed length (Employee Code max 50, Phone max 100, Zip max 40).",
+                ];
+            }
+
+            if (pg.SqlState == "23505")
+            {
+                var detail = pg.MessageText ?? pg.Message ?? "";
+                if (detail.Contains("IX_Employees_EmployeeCode", StringComparison.OrdinalIgnoreCase)
+                    || (detail.Contains("EmployeeCode", StringComparison.OrdinalIgnoreCase)
+                        && detail.Contains("unique", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return ["Employee Code already exists (including terminated or removed employees)."];
+                }
+
+                if (detail.Contains("IX_Employees_Email", StringComparison.OrdinalIgnoreCase)
+                    || detail.Contains("email", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["Email is already used by another employee (including archived records)."];
+                }
+
+                return ["Duplicate value conflicts with existing data."];
+            }
+        }
+
+        return ["Could not save employee. Check data and try again."];
     }
 
     private static string NormalizeUsernameCandidate(string? raw)
@@ -841,55 +941,13 @@ public partial class BulkUploadController : ControllerBase
 
     private IActionResult MapEmployeeImportDbUpdateException(DbUpdateException ex)
     {
-        for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
-        {
-            if (inner is not PostgresException pg) continue;
-
-            if (pg.SqlState == "22001")
-            {
-                return StatusCode(500, new
-                {
-                    message = "Import failed: one or more values exceed the maximum allowed length. " +
-                              "Check Employee Code (max 50), Phone / Home / Work Telephone (max 100), and Zip/Postal Code (max 40), then re-upload.",
-                });
-            }
-
-            if (pg.SqlState == "23505")
-            {
-                var detail = pg.MessageText ?? pg.Message ?? "";
-                if (detail.Contains("IX_Employees_EmployeeCode", StringComparison.OrdinalIgnoreCase)
-                    || (detail.Contains("EmployeeCode", StringComparison.OrdinalIgnoreCase)
-                        && detail.Contains("unique", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return StatusCode(500, new
-                    {
-                        message = "Import failed: duplicate Employee Code. Codes must be unique even for terminated or removed employees. " +
-                                  "Change the code in your file or ask an administrator to resolve the conflict.",
-                        detail,
-                    });
-                }
-
-                if (detail.Contains("IX_Employees_Email", StringComparison.OrdinalIgnoreCase)
-                    || detail.Contains("email", StringComparison.OrdinalIgnoreCase))
-                {
-                    return StatusCode(500, new
-                    {
-                        message = "Import failed: duplicate Email. Each employee must have a unique work email (including archived records).",
-                        detail,
-                    });
-                }
-
-                return StatusCode(500, new
-                {
-                    message = "Import failed: duplicate value conflicts with existing data.",
-                    detail,
-                });
-            }
-        }
-
+        var rowErrors = DescribeEmployeeImportSaveFailure(ex);
+        var message = rowErrors.Count > 0
+            ? $"Import failed: {rowErrors[0]}"
+            : "Import failed while saving employees. Check your data and try again.";
         return StatusCode(500, new
         {
-            message = "Import failed while saving employees. Check your data and try again.",
+            message,
             detail = ex.InnerException?.Message ?? ex.Message,
         });
     }
