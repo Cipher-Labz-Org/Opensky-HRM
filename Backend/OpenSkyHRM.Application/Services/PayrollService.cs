@@ -297,12 +297,30 @@ public class PayrollService : IPayrollService
 
     public async Task<PayrollBatchDto> CreateBatchAsync(CreatePayrollBatchDto dto)
     {
-        var count = await _db.PayrollBatches.CountAsync(b => b.Year == dto.Year && b.Month == dto.Month) + 1;
+        if (!Enum.TryParse<PayrollProcessType>(dto.ProcessType, ignoreCase: true, out var processType))
+            throw new InvalidOperationException($"Invalid process type '{dto.ProcessType}'.");
+
+        var (effectiveFrom, effectiveTo) = ResolveBatchEffectiveDates(dto);
+
+        var prefix = processType switch
+        {
+            PayrollProcessType.Salary => "SAL",
+            PayrollProcessType.Bonus => "BON",
+            PayrollProcessType.OtherTransactions => "OTH",
+            _ => "PR",
+        };
+
+        var count = await _db.PayrollBatches.CountAsync(b =>
+            b.Year == dto.Year && b.Month == dto.Month && b.ProcessType == processType) + 1;
+
         var entity = new PayrollBatch
         {
-            BatchCode = $"PR-{dto.Year}-{dto.Month:D2}-{count:D3}",
+            BatchCode = $"{prefix}-{dto.Year}-{dto.Month:D2}-{count:D3}",
             Month = dto.Month,
             Year = dto.Year,
+            EffectiveFrom = effectiveFrom,
+            EffectiveTo = effectiveTo,
+            ProcessType = processType,
             Notes = dto.Notes,
             SelectedEmployeeIds = dto.EmployeeIds.Count > 0
                 ? System.Text.Json.JsonSerializer.Serialize(dto.EmployeeIds)
@@ -406,6 +424,8 @@ public class PayrollService : IPayrollService
             EpfEmployeeRate = decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployeeRate"), out var ee) ? ee : 0.08m,
             EpfEmployerRate = decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployerRate"), out var er) ? er : 0.12m,
             EtfEmployerRate = decimal.TryParse(await _settings.GetAsync("Payroll_ETF_EmployerRate"), out var etf) ? etf : 0.03m,
+            OtHourlyDivisor = decimal.TryParse(await _settings.GetAsync("Payroll_OT_HourlyDivisor"), out var div) ? div : 208m,
+            OtMultiplier = decimal.TryParse(await _settings.GetAsync("Payroll_OT_Multiplier"), out var mul) ? mul : 1.5m,
         };
     }
 
@@ -414,6 +434,8 @@ public class PayrollService : IPayrollService
         await _settings.SetAsync("Payroll_EPF_EmployeeRate", dto.EpfEmployeeRate.ToString());
         await _settings.SetAsync("Payroll_EPF_EmployerRate", dto.EpfEmployerRate.ToString());
         await _settings.SetAsync("Payroll_ETF_EmployerRate", dto.EtfEmployerRate.ToString());
+        await _settings.SetAsync("Payroll_OT_HourlyDivisor", dto.OtHourlyDivisor.ToString());
+        await _settings.SetAsync("Payroll_OT_Multiplier", dto.OtMultiplier.ToString());
         return dto;
     }
 
@@ -429,6 +451,19 @@ public class PayrollService : IPayrollService
         SortOrder = c.SortOrder, IsEmployerContribution = c.IsEmployerContribution,
     };
 
+    private static (DateTime EffectiveFrom, DateTime? EffectiveTo) ResolveBatchEffectiveDates(CreatePayrollBatchDto dto)
+    {
+        var effectiveFrom = dto.EffectiveFrom?.Date
+            ?? new DateTime(dto.Year, dto.Month, 1);
+        var effectiveTo = dto.EffectiveTo?.Date
+            ?? new DateTime(dto.Year, dto.Month, DateTime.DaysInMonth(dto.Year, dto.Month));
+
+        if (effectiveTo < effectiveFrom)
+            throw new InvalidOperationException("Effective end date must be on or after the start date.");
+
+        return (effectiveFrom, effectiveTo);
+    }
+
     private static PayrollBatchDto MapBatchDto(PayrollBatch b)
     {
         var selectedCount = 0;
@@ -439,7 +474,8 @@ public class PayrollService : IPayrollService
         return new()
         {
             Id = b.Id, BatchCode = b.BatchCode, Month = b.Month, Year = b.Year,
-            Status = b.Status.ToString(), ProcessedAt = b.ProcessedAt, ApprovedBy = b.ApprovedBy,
+            EffectiveFrom = b.EffectiveFrom, EffectiveTo = b.EffectiveTo,
+            ProcessType = b.ProcessType.ToString(), Status = b.Status.ToString(), ProcessedAt = b.ProcessedAt, ApprovedBy = b.ApprovedBy,
             EmployeeCount = b.EmployeeCount, TotalGross = b.TotalGross,
             TotalDeductions = b.TotalDeductions, TotalNet = b.TotalNet,
             TotalEmployerCost = b.TotalEmployerCost, Notes = b.Notes,

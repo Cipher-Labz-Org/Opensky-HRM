@@ -180,5 +180,11 @@ public static class PayrollSeeder
         var etfErKey = await context.SystemSettings.FindAsync("Payroll_ETF_EmployerRate");
         if (etfErKey is null)
             context.SystemSettings.Add(new SystemSetting { Key = "Payroll_ETF_EmployerRate", Value = "0.03", Description = "ETF employer contribution rate" });
+
+        if (await context.SystemSettings.FindAsync("Payroll_OT_HourlyDivisor") is null)
+            context.SystemSettings.Add(new SystemSetting { Key = "Payroll_OT_HourlyDivisor", Value = "208", Description = "Hourly rate divisor for OT (BASIC / divisor × multiplier × hours)" });
+
+        if (await context.SystemSettings.FindAsync("Payroll_OT_Multiplier") is null)
+            context.SystemSettings.Add(new SystemSetting { Key = "Payroll_OT_Multiplier", Value = "1.5", Description = "OT pay multiplier (e.g. 1.5 for time-and-a-half)" });
     }
 }

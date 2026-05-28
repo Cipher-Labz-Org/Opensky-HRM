@@ -20,12 +20,18 @@ namespace OpenSkyHRM.Api.Controllers;
 public class PayrollController : ControllerBase
 {
     private readonly IPayrollService _payrollService;
+    private readonly IPayrollAttendanceImportService _attendanceImport;
     private readonly PayrollCalculationEngine _engine;
     private readonly AppDbContext _db;
 
-    public PayrollController(IPayrollService payrollService, PayrollCalculationEngine engine, AppDbContext db)
+    public PayrollController(
+        IPayrollService payrollService,
+        IPayrollAttendanceImportService attendanceImport,
+        PayrollCalculationEngine engine,
+        AppDbContext db)
     {
         _payrollService = payrollService;
+        _attendanceImport = attendanceImport;
         _engine = engine;
         _db = db;
     }
@@ -69,10 +75,20 @@ public class PayrollController : ControllerBase
     [HttpGet("compensation/variable")]
     public async Task<IActionResult> GetVariableCompensation([FromQuery] Guid batchId, [FromQuery] Guid? componentId = null)
     {
+        var batch = await _db.PayrollBatches.FindAsync(batchId);
+        if (batch is null) return NotFound(new { message = "Batch not found." });
+
+        var categoryFilter = batch.ProcessType switch
+        {
+            PayrollProcessType.Bonus => ComponentCategory.OneTime,
+            PayrollProcessType.OtherTransactions => ComponentCategory.Variable,
+            _ => ComponentCategory.Variable,
+        };
+
         var query = _db.EmployeeCompensations
             .Include(ec => ec.Employee)
             .Include(ec => ec.Component)
-            .Where(ec => ec.BatchId == batchId && ec.IsActive);
+            .Where(ec => ec.BatchId == batchId && ec.IsActive && ec.Component.Category == categoryFilter);
 
         if (componentId.HasValue)
             query = query.Where(ec => ec.ComponentId == componentId.Value);
@@ -265,6 +281,32 @@ public class PayrollController : ControllerBase
             var batch = await _engine.CalculateBatchAsync(id);
             var result = await _payrollService.GetBatchByIdAsync(id);
             return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("batches/{id:guid}/import-attendance-leave/preview")]
+    public async Task<IActionResult> PreviewAttendanceLeaveImport(Guid id)
+    {
+        try
+        {
+            return Ok(await _attendanceImport.PreviewImportAsync(id));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("batches/{id:guid}/import-attendance-leave")]
+    public async Task<IActionResult> ImportAttendanceLeave(Guid id)
+    {
+        try
+        {
+            return Ok(await _attendanceImport.ImportAsync(id));
         }
         catch (InvalidOperationException ex)
         {

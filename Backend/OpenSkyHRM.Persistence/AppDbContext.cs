@@ -75,6 +75,7 @@ public class AppDbContext : DbContext
     public DbSet<EmployeeCompensation> EmployeeCompensations => Set<EmployeeCompensation>();
     public DbSet<SalaryRevision> SalaryRevisions => Set<SalaryRevision>();
     public DbSet<PayrollBatch> PayrollBatches => Set<PayrollBatch>();
+    public DbSet<PayrollBatchAttendanceSnapshot> PayrollBatchAttendanceSnapshots => Set<PayrollBatchAttendanceSnapshot>();
     public DbSet<PayStatement> PayStatements => Set<PayStatement>();
     public DbSet<PayStatementLine> PayStatementLines => Set<PayStatementLine>();
     public DbSet<PayrollFormula> PayrollFormulas => Set<PayrollFormula>();
