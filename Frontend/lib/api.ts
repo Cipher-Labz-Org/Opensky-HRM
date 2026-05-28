@@ -98,7 +98,7 @@ export async function apiFetch<T>(
     }
     if (res.status >= 500 && !text?.trim()) {
       errorMessage =
-        "Import failed on the server (error 500). The backend on this site is not running the latest version yet — redeploy the HR API (e.g. gammabackend.openskyhrm.com), then try again.";
+        "The server failed while processing this request. Deploy the latest API build or check server logs, then try again.";
     }
     throw new Error(errorMessage);
   }
@@ -187,7 +187,7 @@ export async function publicApiFetch<T>(endpoint: string, options?: ApiFetchOpti
     }
     if (res.status >= 500 && !text?.trim()) {
       errorMessage =
-        "Import failed on the server (error 500). The backend on this site is not running the latest version yet — redeploy the HR API (e.g. gammabackend.openskyhrm.com), then try again.";
+        "The server failed while processing this request. Deploy the latest API build or check server logs, then try again.";
     }
     throw new Error(errorMessage);
   }
