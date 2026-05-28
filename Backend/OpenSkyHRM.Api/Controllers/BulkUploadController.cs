@@ -117,12 +117,34 @@ public partial class BulkUploadController : ControllerBase
     [RequestSizeLimit(20_000_000)]
     public async Task<IActionResult> UploadEmployees(IFormFile file, [FromForm] string? createUserLogins = null)
     {
+        try
+        {
+            return await UploadEmployeesCoreAsync(file, createUserLogins);
+        }
+        catch (DbUpdateException ex)
+        {
+            return MapEmployeeImportDbUpdateException(ex);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new
+            {
+                message = "Employee import failed unexpectedly. Try the downloaded template, a smaller batch, or contact support.",
+                detail = ex.Message,
+            });
+        }
+    }
+
+    private async Task<IActionResult> UploadEmployeesCoreAsync(IFormFile file, string? createUserLogins)
+    {
         if (file is null || file.Length == 0)
             return BadRequest("No file uploaded.");
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (ext != ".xlsx" && ext != ".xls")
             return BadRequest("Only .xlsx or .xls files are supported.");
+        if (ext == ".xls")
+            return BadRequest("Legacy .xls files are not supported. Save the workbook as .xlsx and upload again.");
 
         var wantLogins = string.Equals(createUserLogins, "true", StringComparison.OrdinalIgnoreCase);
         var loginJobs = new List<(int Row, Employee Emp, string? UsernameFromSheet)>();
@@ -152,8 +174,14 @@ public partial class BulkUploadController : ControllerBase
             .Select(t => t.Code)
             .FirstOrDefaultAsync() ?? nameof(EmployeeStatus.Active);
 
-        var existingEmployees = await _db.Employees.Where(e => !e.IsDeleted).Select(e => new { e.Id, e.EmployeeCode }).ToListAsync();
-        var existingCodes = existingEmployees.Select(e => e.EmployeeCode).ToList();
+        var existingEmployees = await _db.Employees.AsNoTracking().Where(e => !e.IsDeleted)
+            .Select(e => new { e.Id, e.EmployeeCode }).ToListAsync();
+        // Unique indexes apply to all rows (including soft-deleted); match that when validating codes and emails.
+        var allEmployeeCodes = await _db.Employees.AsNoTracking().IgnoreQueryFilters()
+            .Select(e => e.EmployeeCode).ToListAsync();
+        var reservedEmployeeCodes = new HashSet<string>(allEmployeeCodes, StringComparer.OrdinalIgnoreCase);
+        var existingCodesForGeneration = new List<string>(allEmployeeCodes);
+        var (employeeCodePrefix, employeeCodeNumericLength) = await ReadEmployeeCodeGenerationSettingsAsync();
         // Unique index IX_Employees_Email applies to all rows (including soft-deleted); match that when validating.
         var existingEmails = await _db.Employees.AsNoTracking().IgnoreQueryFilters()
             .Where(e => e.Email != null && e.Email != "")
@@ -173,7 +201,22 @@ public partial class BulkUploadController : ControllerBase
         int skipped = 0;
 
         using var stream = file.OpenReadStream();
-        using var wb = new XLWorkbook(stream);
+        XLWorkbook wb;
+        try
+        {
+            wb = new XLWorkbook(stream);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new
+            {
+                message = "Could not read the Excel file. Download the employee template from this page, fill it in, and save as .xlsx.",
+                detail = ex.Message,
+            });
+        }
+
+        using (wb)
+        {
         var ws = GetEmployeeImportWorksheet(wb);
 
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -261,8 +304,8 @@ public partial class BulkUploadController : ControllerBase
             var empCode = Cell(row, "Employee Code");
             if (!string.IsNullOrEmpty(empCode) && empCode.Length > MaxEmployeeCodeLength)
                 errors.Add($"Employee Code must be at most {MaxEmployeeCodeLength} characters (this row has {empCode.Length}).");
-            if (!string.IsNullOrEmpty(empCode) && existingCodes.Contains(empCode))
-                errors.Add($"Employee Code '{empCode}' already exists");
+            if (!string.IsNullOrEmpty(empCode) && reservedEmployeeCodes.Contains(empCode))
+                errors.Add($"Employee Code '{empCode}' already exists (including terminated or removed employees). Use a different code.");
 
             var posCodeRaw = Cell(row, "Position Code");
             Position? position = null;
@@ -302,7 +345,11 @@ public partial class BulkUploadController : ControllerBase
             }
 
             if (string.IsNullOrEmpty(empCode))
-                empCode = await GenerateNextCode(existingCodes);
+                empCode = GenerateNextEmployeeCode(
+                    existingCodesForGeneration,
+                    reservedEmployeeCodes,
+                    employeeCodePrefix,
+                    employeeCodeNumericLength);
 
             var willCreateLoginForRow = ShouldCreateImportUserForRow(usernameFromSheet, wantLogins);
             if (willCreateLoginForRow)
@@ -457,7 +504,8 @@ public partial class BulkUploadController : ControllerBase
             };
 
             _db.Employees.Add(employee);
-            existingCodes.Add(empCode!);
+            existingCodesForGeneration.Add(empCode!);
+            reservedEmployeeCodes.Add(empCode!);
             existingEmailSet.Add(resolvedEmail);
             if (!managerLookup.ContainsKey(empCode!))
                 managerLookup[empCode!] = employee.Id;
@@ -467,18 +515,7 @@ public partial class BulkUploadController : ControllerBase
                 loginJobs.Add((r, employee, usernameFromSheet));
         }
 
-        try
-        {
-            await _db.SaveChangesAsync();
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "22001" })
-        {
-            return StatusCode(500, new
-            {
-                message = "Import failed: one or more values exceed the maximum allowed length. " +
-                          "Check Employee Code (max 50), Phone / Home / Work Telephone (max 100), and Zip/Postal Code (max 40), then re-upload.",
-            });
-        }
+        await _db.SaveChangesAsync();
 
         var loginsCreated = 0;
         if (wantLogins && loginJobs.Count > 0)
@@ -525,6 +562,7 @@ public partial class BulkUploadController : ControllerBase
         }
 
         return Ok(new UploadResult(created, skipped, lastRow - 1, loginsCreated, results));
+        } // using (wb)
     }
 
     private static void ReplaceRowNotes(List<RowResult> results, int row, List<string> notes)
@@ -739,15 +777,26 @@ public partial class BulkUploadController : ControllerBase
         return map;
     }
 
-    private async Task<string> GenerateNextCode(List<string> existingCodes)
+    private async Task<(string Prefix, int NumericLength)> ReadEmployeeCodeGenerationSettingsAsync()
     {
         var prefix = "EMP";
         var length = 6;
-        var settingPrefix = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "EmployeeCodePrefix");
-        var settingLength = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "EmployeeCodeLength");
+        var settingPrefix = await _db.SystemSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Key == "EmployeeCodePrefix");
+        var settingLength = await _db.SystemSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Key == "EmployeeCodeLength");
         if (settingPrefix != null) prefix = settingPrefix.Value.Trim();
         if (settingLength != null && int.TryParse(settingLength.Value, out var l)) length = l;
+        return (prefix, length);
+    }
 
+    /// <summary>Allocates the next unused employee code; checks all DB rows (including soft-deleted) via <paramref name="reservedCodes"/>.</summary>
+    private static string GenerateNextEmployeeCode(
+        List<string> existingCodes,
+        HashSet<string> reservedCodes,
+        string prefix,
+        int length)
+    {
         prefix = prefix.Trim();
         var usesSeparator = prefix.Length > 0;
         var separator = usesSeparator ? "-" : "";
@@ -767,17 +816,82 @@ public partial class BulkUploadController : ControllerBase
         }
 
         var nextNum = max + 1;
-        string candidate;
-        do
+        while (true)
         {
-            var next = nextNum.ToString().PadLeft(length, '0');
-            candidate = $"{prefix}{separator}{next}";
-            if (candidate.Length <= MaxEmployeeCodeLength)
-                return candidate;
-            length--;
-        } while (length >= 1);
+            var padLength = length;
+            while (padLength >= 1)
+            {
+                var next = nextNum.ToString().PadLeft(padLength, '0');
+                var candidate = $"{prefix}{separator}{next}";
+                if (candidate.Length <= MaxEmployeeCodeLength && !reservedCodes.Contains(candidate))
+                    return candidate;
+                padLength--;
+            }
 
-        return nextNum.ToString()[..Math.Min(MaxEmployeeCodeLength, nextNum.ToString().Length)];
+            var fallback = nextNum.ToString();
+            var trimmed = fallback.Length <= MaxEmployeeCodeLength
+                ? fallback
+                : fallback[..MaxEmployeeCodeLength];
+            if (!reservedCodes.Contains(trimmed))
+                return trimmed;
+
+            nextNum++;
+        }
+    }
+
+    private IActionResult MapEmployeeImportDbUpdateException(DbUpdateException ex)
+    {
+        for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+        {
+            if (inner is not PostgresException pg) continue;
+
+            if (pg.SqlState == "22001")
+            {
+                return StatusCode(500, new
+                {
+                    message = "Import failed: one or more values exceed the maximum allowed length. " +
+                              "Check Employee Code (max 50), Phone / Home / Work Telephone (max 100), and Zip/Postal Code (max 40), then re-upload.",
+                });
+            }
+
+            if (pg.SqlState == "23505")
+            {
+                var detail = pg.MessageText ?? pg.Message ?? "";
+                if (detail.Contains("IX_Employees_EmployeeCode", StringComparison.OrdinalIgnoreCase)
+                    || (detail.Contains("EmployeeCode", StringComparison.OrdinalIgnoreCase)
+                        && detail.Contains("unique", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return StatusCode(500, new
+                    {
+                        message = "Import failed: duplicate Employee Code. Codes must be unique even for terminated or removed employees. " +
+                                  "Change the code in your file or ask an administrator to resolve the conflict.",
+                        detail,
+                    });
+                }
+
+                if (detail.Contains("IX_Employees_Email", StringComparison.OrdinalIgnoreCase)
+                    || detail.Contains("email", StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(500, new
+                    {
+                        message = "Import failed: duplicate Email. Each employee must have a unique work email (including archived records).",
+                        detail,
+                    });
+                }
+
+                return StatusCode(500, new
+                {
+                    message = "Import failed: duplicate value conflicts with existing data.",
+                    detail,
+                });
+            }
+        }
+
+        return StatusCode(500, new
+        {
+            message = "Import failed while saving employees. Check your data and try again.",
+            detail = ex.InnerException?.Message ?? ex.Message,
+        });
     }
 
     private static void ValidateEmployeeImportFieldLengths(
