@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useRef } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { API_BASE_URL } from "@/config/constants";
+import { API_BASE_URL, API_ASSET_BASE_URL, getApiBaseUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { apiFetch } from "@/lib/api";
 
@@ -304,7 +304,17 @@ function EmployeeUploadSection() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("createUserLogins", createUserLogins ? "true" : "false");
-      const json = await apiFetch<UploadResult>("/api/bulkupload/employees", { method: "POST", body: formData });
+      const bulkUploadBase =
+        typeof window !== "undefined" &&
+        getApiBaseUrl() === "/hrm-backend"
+          ? API_ASSET_BASE_URL
+          : undefined;
+      const json = await apiFetch<UploadResult>("/api/bulkupload/employees", {
+        method: "POST",
+        body: formData,
+        timeoutMs: 300_000,
+        baseUrl: bulkUploadBase,
+      });
       setResult(json);
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
@@ -360,17 +370,15 @@ function EmployeeUploadSection() {
               <li>Click <strong>Download template</strong> to get the Excel file with all columns pre-formatted.</li>
               <li>
                 Fill in employee data. <strong>First Name, Last Name, Department, Gender, Date of Birth, Joined Date</strong> are required.{" "}
-                <strong>Email</strong> is optional if <strong>Personal Email</strong> is set; otherwise a placeholder work email is generated from the employee code. The template includes a{" "}
-                <strong>Username</strong> column (after <strong>Last Name</strong>). If you enable <strong>Create employee logins</strong> for the upload, <strong>every row must have a Username</strong> (letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, or <code className="text-[11px]">-</code>; unique). Rows with an empty Username are skipped. Turn the option off to import employees without creating any logins.
+                <strong>Email</strong> is optional if <strong>Personal Email</strong> is set; otherwise a placeholder work email is generated from the employee code. Leave <strong>Employee Code</strong> blank to auto-generate a code for the employee record only. If you enable <strong>Create employee logins</strong>, a login is created only for rows with <strong>Employee Code</strong> filled in — that code becomes the username (letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, or <code className="text-[11px]">-</code>; unique). Rows with a blank Employee Code are imported without a login.
               </li>
               <li>Use values from the lookup sheets (Departments, Grades, etc.) for dropdown fields.</li>
               <li><strong>Employment Type</strong> and <strong>Employee Status</strong> must match the codes on the <strong>Reference</strong> sheet (same codes as Organization / People Hub).</li>
-              <li>Leave <strong>Employee Code</strong> blank to auto-generate, or provide unique codes.</li>
               <li>Upload the completed file below.</li>
             </ol>
             <p className="mt-3 text-xs text-slate-600">
-              When <strong>Create employee logins</strong> is checked, <strong>every row must have Username</strong> filled or that row is skipped. Default password{" "}
-              <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong> and mandatory password change on first sign-in. Allowed characters: letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, <code className="text-[11px]">-</code> (unique; a numeric suffix may be added to avoid collisions). With the option off, Username is ignored and no logins are created.
+              When <strong>Create employee logins</strong> is checked, a login is created only for rows with <strong>Employee Code</strong> filled in (used as username). Blank Employee Code rows are imported as employees only. Default password{" "}
+              <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong> and mandatory password change on first sign-in. Allowed username characters: letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, <code className="text-[11px]">-</code> (unique; a numeric suffix may be added to avoid collisions). With the option off, no logins are created.
             </p>
           </div>
           <DropZone file={file} fileRef={fileRef} dragOver={dragOver} setDragOver={setDragOver} onFileChange={handleFileChange} />
@@ -382,7 +390,7 @@ function EmployeeUploadSection() {
               onChange={(e) => setCreateUserLogins(e.target.checked)}
             />
             <span>
-              <span className="font-semibold text-slate-900">Create employee logins</span> — requires <strong>Username</strong> on every row (skipped if empty); default password{" "}
+              <span className="font-semibold text-slate-900">Create employee logins</span> — uses <strong>Employee Code</strong> as username when filled in (blank code = employee only); default password{" "}
               <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong>, mandatory password change on first login.
             </span>
           </label>
