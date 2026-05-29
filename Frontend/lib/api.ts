@@ -16,13 +16,13 @@ function getAuthToken(): string | null {
   return localStorage.getItem("auth_token");
 }
 
-export type ApiFetchOptions = RequestInit & { timeoutMs?: number };
+export type ApiFetchOptions = RequestInit & { timeoutMs?: number; baseUrl?: string };
 
 export async function apiFetch<T>(
   endpoint: string,
   options?: ApiFetchOptions
 ): Promise<T> {
-  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, ...fetchInit } = options ?? {};
+  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, baseUrl, ...fetchInit } = options ?? {};
   const token = getAuthToken();
   const isFormData =
     typeof FormData !== "undefined" && fetchInit.body instanceof FormData;
@@ -37,10 +37,11 @@ export async function apiFetch<T>(
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const requestBase = (baseUrl ?? getApiBaseUrl()).replace(/\/$/, "");
 
   let res: Response;
   try {
-    res = await fetch(`${getApiBaseUrl()}${endpoint}`, {
+    res = await fetch(`${requestBase}${endpoint}`, {
       ...fetchInit,
       headers,
       signal: controller.signal,
