@@ -1,4 +1,18 @@
-import { API_BASE_URL, getApiBaseUrl } from "@/config/constants";
+import { API_BASE_URL, getApiBaseUrl, API_ASSET_BASE_URL } from "@/config/constants";
+import { getTenantByHostname } from "@/config/tenants";
+
+/**
+ * Returns the backend origin used for static asset URLs (profile images, company logos).
+ * On production tenant domains the tenant's own IIS backend is used.
+ * Falls back to the configured API_ASSET_BASE_URL for dev / single-instance.
+ */
+export function getAssetBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    const tenant = getTenantByHostname(window.location.hostname);
+    if (tenant) return tenant.apiUrl;
+  }
+  return API_ASSET_BASE_URL;
+}
 
 function apiReachabilityHint(): string {
   const base = getApiBaseUrl();

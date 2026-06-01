@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-
-/** Server-side only; not exposed to the browser */
-function backendBase(): string {
-  return (
-    process.env.API_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    "http://localhost:5000"
-  ).replace(/\/$/, "");
-}
+import { backendBaseForRequest } from "@/lib/tenant-server";
 
 /**
- * Proxies POST /api/auth/login → ASP.NET API.
- * Avoids next.config rewrites (they surface as opaque 500s when the API is down).
+ * Proxies POST /api/auth/login → the tenant's IIS backend.
+ * The backend is resolved from the request hostname via the tenant registry
+ * (Frontend/config/tenants.ts), with a fallback to API_URL / localhost for dev.
  */
 export async function POST(req: NextRequest) {
   let body: string;
@@ -21,7 +14,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Invalid request body" }, { status: 400 });
   }
 
-  const target = `${backendBase()}/api/auth/login`;
+  const target = `${backendBaseForRequest(req)}/api/auth/login`;
 
   const upstreamTimeoutMs = 25_000;
   try {
@@ -50,7 +43,7 @@ export async function POST(req: NextRequest) {
       {
         message: timedOut
           ? `HR API did not respond within ${upstreamTimeoutMs / 1000}s (${target}). Check that the API is running and reachable from the frontend host.`
-          : "Cannot reach the HR API. Set API_URL and NEXT_PUBLIC_API_URL on the frontend host, then ensure the API is running.",
+          : "Cannot reach the HR API. Ensure the backend is running and the tenant is configured in Frontend/config/tenants.ts.",
       },
       { status: 503 },
     );
