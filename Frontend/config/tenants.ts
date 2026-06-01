@@ -25,6 +25,11 @@ export const TENANTS: Record<string, TenantConfig> = {
     companyName: "MBKH",
     apiUrl: "http://mbkhbackend.openskyhrm.com",
   },
+  "gamma.openskyhrm.com": {
+    companyId: "gamma",
+    companyName: "Gamma",
+    apiUrl: "https://gammabackend.openskyhrm.com",
+  },
 
   // --- Placeholder examples (replace with real companies when provisioned) ---
   "company1.openskyhrm.com": {
