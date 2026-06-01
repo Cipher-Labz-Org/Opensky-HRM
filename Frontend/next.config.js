@@ -7,6 +7,46 @@ function apiUpstreamBase() {
   return url.replace(/\/$/, "");
 }
 
+/**
+ * Tenant backend URLs for Vercel rewrite rules.
+ * Must stay in sync with Frontend/config/tenants.ts (TENANTS map).
+ *
+ * When adding a new company:
+ *   1. Add "subdomain.openskyhrm.com": "https://api-subdomain.openskyhrm.com" here.
+ *   2. Add the same entry in Frontend/config/tenants.ts.
+ */
+const TENANT_BACKENDS = {
+  // --- Live tenants ---
+  // NEXT_PUBLIC_MBKH_API_URL lets you override this for local testing:
+  //   set NEXT_PUBLIC_MBKH_API_URL=http://localhost:5000 in .env.local
+  "mbkh.openskyhrm.com":
+    process.env.NEXT_PUBLIC_MBKH_API_URL || "http://mbkhbackend.openskyhrm.com",
+
+  // --- Placeholder examples (replace when provisioning new companies) ---
+  "company1.openskyhrm.com": "https://api-company1.openskyhrm.com",
+  "company2.openskyhrm.com": "https://api-company2.openskyhrm.com",
+  "company3.openskyhrm.com": "https://api-company3.openskyhrm.com",
+};
+
+/**
+ * Generate host-specific rewrite rules for each tenant.
+ * These run before the catch-all rules so the right IIS backend is reached.
+ */
+function tenantRewrites() {
+  return Object.entries(TENANT_BACKENDS).flatMap(([hostname, apiUrl]) => [
+    {
+      source: "/api/:path*",
+      has: [{ type: "host", value: hostname }],
+      destination: `${apiUrl}/api/:path*`,
+    },
+    {
+      source: "/uploads/:path*",
+      has: [{ type: "host", value: hostname }],
+      destination: `${apiUrl}/uploads/:path*`,
+    },
+  ]);
+}
+
 const nextConfig = {
   reactStrictMode: true,
   // Vercel expects the default ".next" output unless project settings override it.
@@ -16,12 +56,15 @@ const nextConfig = {
   async rewrites() {
     const base = apiUpstreamBase();
     return [
-      // Local dev: browser calls same-origin `/hrm-backend/...` → Kestrel
+      // --- Tenant-specific rules (checked first, one per company) ---
+      ...tenantRewrites(),
+
+      // --- Local dev: browser calls same-origin `/hrm-backend/...` → Kestrel ---
       {
         source: "/hrm-backend/:path*",
         destination: `${base}/:path*`,
       },
-      // Production / Vercel: `/api/*` and static uploads proxied to backend
+      // --- Fallback: single-backend / local dev ---
       {
         source: "/api/:path*",
         destination: `${base}/api/:path*`,

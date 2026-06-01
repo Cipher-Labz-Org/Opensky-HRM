@@ -1,20 +1,13 @@
-import { NextResponse } from "next/server";
-
-/** Server-side only; not exposed to the browser */
-function backendBase(): string {
-  return (
-    process.env.API_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    "http://localhost:5000"
-  ).replace(/\/$/, "");
-}
+import { NextRequest, NextResponse } from "next/server";
+import { backendBaseForRequest } from "@/lib/tenant-server";
 
 /**
- * Proxies GET /api/auth/branding → ASP.NET API.
- * Same-origin on Vercel/custom domains (avoids CORS when the API omits ACAO on errors).
+ * Proxies GET /api/auth/branding → the tenant's IIS backend.
+ * The backend is resolved from the request hostname via the tenant registry
+ * (Frontend/config/tenants.ts), with a fallback to API_URL / localhost for dev.
  */
-export async function GET() {
-  const target = `${backendBase()}/api/auth/branding`;
+export async function GET(req: NextRequest) {
+  const target = `${backendBaseForRequest(req)}/api/auth/branding`;
   const upstreamTimeoutMs = 15_000;
 
   try {
@@ -49,7 +42,7 @@ export async function GET() {
         companyLogoUrl: null,
         message: timedOut
           ? `HR API did not respond within ${upstreamTimeoutMs / 1000}s (${target}).`
-          : "Cannot reach the HR API for branding.",
+          : "Cannot reach the HR API for branding. Ensure the tenant is configured in Frontend/config/tenants.ts.",
       },
       { status: 503 },
     );
