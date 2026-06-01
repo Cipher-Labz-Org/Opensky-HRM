@@ -21,6 +21,8 @@ const TENANT_BACKENDS = {
   //   set NEXT_PUBLIC_MBKH_API_URL=http://localhost:5000 in .env.local
   "mbkh.openskyhrm.com":
     process.env.NEXT_PUBLIC_MBKH_API_URL || "http://mbkhbackend.openskyhrm.com",
+  "gamma.openskyhrm.com":
+    process.env.NEXT_PUBLIC_GAMMA_API_URL || "https://gammabackend.openskyhrm.com",
 
   // --- Placeholder examples (replace when provisioning new companies) ---
   "company1.openskyhrm.com": "https://api-company1.openskyhrm.com",
