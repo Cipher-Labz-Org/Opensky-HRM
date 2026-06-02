@@ -108,7 +108,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(o =>
     {
         o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-        o.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+        // Do not camelCase dictionary keys — report row keys and analytics group labels must match display names.
         o.JsonSerializerOptions.Converters.Add(new ApiDateTimeJsonConverter());
     });
 

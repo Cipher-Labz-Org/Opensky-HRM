@@ -21,6 +21,19 @@ interface ReportCategory { key: string; name: string; icon: string; reports: Rep
 interface DepartmentOption { id: string; name: string; }
 interface ReportResult { reportName: string; generatedAt: string; columns: string[]; rows: Record<string, unknown>[]; totalRows: number; }
 
+/**
+ * Read a report cell when row keys may be camelCased by the API (DictionaryKeyPolicy).
+ * Matches exact column header, camelCase variant, or case-insensitive key.
+ */
+function getReportCell(row: Record<string, unknown>, column: string): unknown {
+  if (Object.prototype.hasOwnProperty.call(row, column)) return row[column];
+  const camelKey = column.length > 0 ? column.charAt(0).toLowerCase() + column.slice(1) : column;
+  if (Object.prototype.hasOwnProperty.call(row, camelKey)) return row[camelKey];
+  const lower = column.toLowerCase();
+  const found = Object.keys(row).find((k) => k.toLowerCase() === lower);
+  return found !== undefined ? row[found] : undefined;
+}
+
 /** Query keys mirrored in the address bar for shareable report links. */
 const REPORT_URL_FILTER_KEYS = ["departmentId", "from", "to", "year", "month", "date"] as const;
 
@@ -149,7 +162,7 @@ function exportToExcel(result: ReportResult) {
   const header = result.columns.join("\t");
   const body = result.rows.map(row =>
     result.columns.map(c => {
-      const v = row[c];
+      const v = getReportCell(row, c);
       if (v === null || v === undefined) return "";
       return String(v).replace(/\t/g, " ").replace(/\n/g, " ");
     }).join("\t")
@@ -173,7 +186,7 @@ function printReport(result: ReportResult, sortedRows: Record<string, unknown>[]
     `<tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"}">` +
     `<td style="border:1px solid #e2e8f0;padding:3px 6px;font-size:11px;color:#94a3b8;text-align:center">${i + 1}</td>` +
     result.columns.map(c => {
-      const v = row[c];
+      const v = getReportCell(row, c);
       return `<td style="border:1px solid #e2e8f0;padding:3px 8px;font-size:11px;white-space:nowrap">${v ?? ""}</td>`;
     }).join("") + "</tr>"
   ).join("");
@@ -338,13 +351,15 @@ export default function ReportsPage() {
   const filteredRows = result?.rows?.filter(row => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
-    return result.columns.some(col => String(row[col] ?? "").toLowerCase().includes(term));
+    return result.columns.some(col =>
+      String(getReportCell(row, col) ?? "").toLowerCase().includes(term)
+    );
   }) ?? [];
 
   const sortedRows = sortCol
     ? [...filteredRows].sort((a, b) => {
-        const va = a[sortCol] ?? "";
-        const vb = b[sortCol] ?? "";
+        const va = getReportCell(a, sortCol) ?? "";
+        const vb = getReportCell(b, sortCol) ?? "";
         const na = Number(va), nb = Number(vb);
         if (!isNaN(na) && !isNaN(nb)) return sortAsc ? na - nb : nb - na;
         return sortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
@@ -360,9 +375,15 @@ export default function ReportsPage() {
     if (!result || !showLeaveInsightsTemplate) return null;
     const totalRecords = sortedRows.length;
     if (selectedReport === "absence-frequency") {
-      const totalInstances = sortedRows.reduce((sum, row) => sum + Number(row["Leave Instances"] ?? 0), 0);
-      const totalDays = sortedRows.reduce((sum, row) => sum + Number(row["Total Days"] ?? 0), 0);
-      const topEmployee = sortedRows[0]?.["Employee Name"] ?? "N/A";
+      const totalInstances = sortedRows.reduce(
+        (sum, row) => sum + Number(getReportCell(row, "Leave Instances") ?? 0),
+        0,
+      );
+      const totalDays = sortedRows.reduce(
+        (sum, row) => sum + Number(getReportCell(row, "Total Days") ?? 0),
+        0,
+      );
+      const topEmployee = String(getReportCell(sortedRows[0] ?? {}, "Employee Name") ?? "N/A");
       return {
         cards: [
           { label: "Employees listed", value: formatInt(totalRecords) },
@@ -373,9 +394,15 @@ export default function ReportsPage() {
       };
     }
 
-    const totalRequests = sortedRows.reduce((sum, row) => sum + Number(row["Total Requests"] ?? 0), 0);
-    const totalDays = sortedRows.reduce((sum, row) => sum + Number(row["Total Days"] ?? 0), 0);
-    const topType = sortedRows[0]?.["Leave Type"] ?? "N/A";
+    const totalRequests = sortedRows.reduce(
+      (sum, row) => sum + Number(getReportCell(row, "Total Requests") ?? 0),
+      0,
+    );
+    const totalDays = sortedRows.reduce(
+      (sum, row) => sum + Number(getReportCell(row, "Total Days") ?? 0),
+      0,
+    );
+    const topType = String(getReportCell(sortedRows[0] ?? {}, "Leave Type") ?? "N/A");
     return {
       cards: [
         { label: "Leave types listed", value: formatInt(totalRecords) },
@@ -724,7 +751,7 @@ export default function ReportsPage() {
                           <td className="py-2 px-3 text-[10px] font-medium text-slate-400">{i + 1}</td>
                           {result.columns.map(col => (
                             <td key={col} className="py-2 px-3 text-slate-700 whitespace-nowrap">
-                              {formatCell(col, row[col])}
+                              {formatCell(col, getReportCell(row, col))}
                             </td>
                           ))}
                         </tr>
