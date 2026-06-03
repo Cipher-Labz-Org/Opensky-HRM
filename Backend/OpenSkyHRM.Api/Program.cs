@@ -144,10 +144,10 @@ catch (Exception ex)
 
 if (dbAvailable)
 {
-    var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? connStr;
-    await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, builder.Configuration);
     try
     {
+        var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? connStr;
+        await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, builder.Configuration);
         builder.Services.AddHangfire(config =>
             config.UsePostgreSqlStorage(hangfireConn, new PostgreSqlStorageOptions
             {
@@ -204,6 +204,24 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var ex = feature?.Error;
+        if (ex != null)
+            Console.WriteLine($"ERROR: Unhandled exception: {ex}");
+
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+        var message = app.Environment.IsDevelopment() && ex != null
+            ? ex.Message
+            : "An internal server error occurred.";
+        await context.Response.WriteAsJsonAsync(new { message, database = dbAvailable });
+    });
+});
 
 // Helpful when interview/offer/recruitment application emails show SkippedNotConfigured in Email delivery log.
 {

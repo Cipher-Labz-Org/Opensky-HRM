@@ -1,5 +1,4 @@
 /** @type {import('next').NextConfig} */
-const tenantBackends = require("./config/tenant-backends.json");
 
 function apiUpstreamBase() {
   const url =
@@ -9,52 +8,18 @@ function apiUpstreamBase() {
   return url.replace(/\/$/, "");
 }
 
-/** Env overrides for local dev (see .env.local). */
-function resolveTenantBackends() {
-  return {
-    "mbkh.openskyhrm.com":
-      process.env.NEXT_PUBLIC_MBKH_API_URL || tenantBackends["mbkh.openskyhrm.com"],
-    "gamma.openskyhrm.com":
-      process.env.NEXT_PUBLIC_GAMMA_API_URL || tenantBackends["gamma.openskyhrm.com"],
-  };
-}
-
-function tenantRewrites(backends) {
-  const rules = [];
-  for (const [hostname, apiUrl] of Object.entries(backends)) {
-    if (!apiUrl) continue;
-    const base = String(apiUrl).replace(/\/$/, "");
-    const hosts = [hostname, `www.${hostname}`];
-    for (const host of hosts) {
-      rules.push(
-        {
-          source: "/api/:path*",
-          has: [{ type: "host", value: host }],
-          destination: `${base}/api/:path*`,
-        },
-        {
-          source: "/uploads/:path*",
-          has: [{ type: "host", value: host }],
-          destination: `${base}/uploads/:path*`,
-        },
-      );
-    }
-  }
-  return rules;
-}
-
 const nextConfig = {
   reactStrictMode: true,
   distDir: process.env.VERCEL ? ".next" : ".dist",
   transpilePackages: ["jspdf", "jspdf-autotable"],
   async rewrites() {
     const base = apiUpstreamBase();
-    const tenants = resolveTenantBackends();
-    const tenantRules = tenantRewrites(tenants);
 
     return {
-      // Proxy to IIS *before* App Router (avoids 405 on /api/auth/login route handlers).
-      beforeFiles: tenantRules,
+      // Tenant domains (mbkh.openskyhrm.com, gamma.openskyhrm.com) call their IIS
+      // backends DIRECTLY from the browser via getApiBaseUrl() — no Vercel proxy needed.
+      // beforeFiles tenant rewrites were removed: Vercel cannot proxy to private IPs
+      // (DNS_HOSTNAME_RESOLVED_PRIVATE) and the direct-call approach bypasses that entirely.
       afterFiles: [
         {
           source: "/hrm-backend/:path*",
