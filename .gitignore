@@ -17,6 +17,7 @@
 Backend/_buildtmp*/
 Backend/_apicheck*/
 Backend/_persistencecheck*/
+Backend/_publish-test/
 **/TestResults/
 **/coverage/
 

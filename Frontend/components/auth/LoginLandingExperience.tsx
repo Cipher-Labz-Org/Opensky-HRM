@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, type FormEvent, type CSSProperties } from 
 import React from "react";
 import Link from "next/link";
 import { useAuth } from "../../contexts/auth-context";
-import { API_ASSET_BASE_URL } from "../../config/constants";
+import { getApiBaseUrl, getAssetBaseUrl } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
 
 type Branding = {
@@ -73,7 +73,7 @@ export function LoginLandingExperience() {
   const companyLogoSrc = rawLogo
     ? /^https?:\/\//i.test(rawLogo)
       ? rawLogo
-      : `${API_ASSET_BASE_URL}${rawLogo}`
+      : `${getAssetBaseUrl()}${rawLogo}`
     : null;
 
   useEffect(() => {
@@ -86,11 +86,9 @@ export function LoginLandingExperience() {
 
   useEffect(() => {
     let isMounted = true;
-    // Always same-origin (gamma.openskyhrm.com/api/...), never gammabackend — avoids CORS on deployed hosts.
-    const brandingUrl =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/api/auth/branding`
-        : "/api/auth/branding";
+    const apiBase =
+      typeof window !== "undefined" ? getApiBaseUrl().replace(/\/$/, "") : "";
+    const brandingUrl = apiBase ? `${apiBase}/api/auth/branding` : "/api/auth/branding";
     fetch(brandingUrl)
       .then(async (res) => {
         if (!res.ok) return null;

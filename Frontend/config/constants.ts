@@ -3,6 +3,8 @@
  * Used for branding, support, and default behavior.
  */
 
+import { getTenantByHostname } from "./tenants";
+
 export const APP_NAME = "OpenSky HRM";
 export const SUPPORT_EMAIL = "support@openskyhrm.com";
 export const DEFAULT_THEME = "light";
@@ -46,17 +48,29 @@ function isProductionAppHost(hostname: string): boolean {
 }
 
 /**
- * API prefix for browser `fetch` calls. On deployed app hosts, always same-origin even if
- * a stale build baked in a full backend URL in NEXT_PUBLIC_API_URL.
+ * API base URL for browser `fetch` calls.
+ * Registered tenants (mbkh, gamma, …) call their IIS backend directly — avoids Vercel
+ * proxying to private/local IPs (DNS_HOSTNAME_RESOLVED_PRIVATE).
  */
 export function getApiBaseUrl(): string {
-  if (typeof window !== "undefined" && isProductionAppHost(window.location.hostname)) {
-    return "";
+  if (typeof window !== "undefined") {
+    const tenant = getTenantByHostname(window.location.hostname);
+    if (tenant) return tenant.apiUrl.replace(/\/$/, "");
+    if (isProductionAppHost(window.location.hostname)) return "";
   }
   return API_BASE_URL;
 }
 
 /** Backend origin for static assets (profile images, company logo). <img src> does not need CORS. */
+export function getAssetBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    const tenant = getTenantByHostname(window.location.hostname);
+    if (tenant) return tenant.apiUrl.replace(/\/$/, "");
+  }
+  return (rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl : defaultLocalApi).replace(/\/$/, "");
+}
+
+/** @deprecated Use getAssetBaseUrl() — kept for existing imports. */
 export const API_ASSET_BASE_URL = (
   rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl : defaultLocalApi
 ).replace(/\/$/, "");

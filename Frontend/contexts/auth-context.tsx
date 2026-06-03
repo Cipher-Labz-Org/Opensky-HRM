@@ -178,7 +178,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const timeoutId = window.setTimeout(() => controller.abort(), LOGIN_FETCH_MS);
     let res: Response;
     try {
-      res = await fetch("/api/auth/login", {
+      const apiBase = getApiBaseUrl().replace(/\/$/, "");
+      const loginUrl = apiBase ? `${apiBase}/api/auth/login` : "/api/auth/login";
+      res = await fetch(loginUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
