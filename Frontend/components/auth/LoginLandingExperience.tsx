@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, type FormEvent, type CSSProperties } from 
 import React from "react";
 import Link from "next/link";
 import { useAuth } from "../../contexts/auth-context";
-import { getApiBaseUrl, getAssetBaseUrl } from "../../config/constants";
+import { getAssetBaseUrl, resolveAuthApiPath } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
 
 type Branding = {
@@ -86,9 +86,7 @@ export function LoginLandingExperience() {
 
   useEffect(() => {
     let isMounted = true;
-    const apiBase =
-      typeof window !== "undefined" ? getApiBaseUrl().replace(/\/$/, "") : "";
-    const brandingUrl = apiBase ? `${apiBase}/api/auth/branding` : "/api/auth/branding";
+    const brandingUrl = resolveAuthApiPath("/api/auth/branding");
     fetch(brandingUrl)
       .then(async (res) => {
         if (!res.ok) return null;

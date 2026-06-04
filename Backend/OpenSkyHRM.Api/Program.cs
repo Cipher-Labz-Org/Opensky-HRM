@@ -6,6 +6,7 @@ using System.Threading;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using OpenSkyHRM.Api.Infrastructure;
@@ -76,6 +77,18 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddApplication();
+
+// --- Data Protection ---
+// Persist the key ring to a folder that travels with the app instead of the
+// per-user DPAPI store. Under IIS the app-pool identity often has no loaded
+// user profile, so the default DPAPI-protected keys cannot be read/created and
+// the app fails to start (CryptographicException). A stable file location keeps
+// keys working regardless of the hosting identity.
+var dataProtectionKeysPath = Path.Combine(builder.Environment.ContentRootPath, "keys");
+Directory.CreateDirectory(dataProtectionKeysPath);
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
+    .SetApplicationName("OpenSkyHRM");
 
 // --- JWT Authentication ---
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "OpenSkyHRM-Default-Key-256bit-ChangeMe!!";

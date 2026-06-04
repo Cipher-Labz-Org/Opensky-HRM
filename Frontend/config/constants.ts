@@ -61,6 +61,30 @@ export function getApiBaseUrl(): string {
   return API_BASE_URL;
 }
 
+/** Registered tenant hostname in the browser (mbkh.openskyhrm.com, gamma.openskyhrm.com, …). */
+export function isTenantBrowserHost(): boolean {
+  if (typeof window === "undefined") return false;
+  return getTenantByHostname(window.location.hostname) != null;
+}
+
+/** IIS backend URL for the current tenant (for error messages). */
+export function tenantBackendUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const tenant = getTenantByHostname(window.location.hostname);
+  return tenant ? tenant.apiUrl.replace(/\/$/, "") : null;
+}
+
+/**
+ * Auth endpoints on tenant hosts use same-origin `/api/auth/*` so Vercel proxies to IIS.
+ * Avoids browser CORS blocks when the backend returns 500 without CORS headers.
+ */
+export function resolveAuthApiPath(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (isTenantBrowserHost()) return normalized;
+  const base = getApiBaseUrl().replace(/\/$/, "");
+  return base ? `${base}${normalized}` : normalized;
+}
+
 /** Backend origin for static assets (profile images, company logo). <img src> does not need CORS. */
 export function getAssetBaseUrl(): string {
   if (typeof window !== "undefined") {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { proxyToTenantBackend } from "@/lib/tenant-server";
+import { backendBaseForRequest, proxyToTenantBackend } from "@/lib/tenant-server";
 
 /**
  * Fallback proxy when beforeFiles rewrites do not apply (e.g. local dev).
@@ -46,6 +46,21 @@ export async function POST(req: NextRequest) {
     const text = await res.text();
     const ct = res.headers.get("content-type") || "application/json";
 
+    if (res.status >= 500) {
+      const base = backendBaseForRequest(req);
+      let message = `HR API error (${res.status}) from ${base}.`;
+      try {
+        const body = JSON.parse(text) as { message?: string };
+        if (body.message) message = body.message;
+      } catch {
+        /* use default */
+      }
+      if (res.status === 500) {
+        message += ` Open ${base}/health — fix IIS (pool MBKH: Load User Profile = True), recycle, then try again.`;
+      }
+      return NextResponse.json({ message }, { status: res.status });
+    }
+
     return new NextResponse(text, {
       status: res.status,
       headers: { "Content-Type": ct },
@@ -53,11 +68,12 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[api/auth/login] upstream unreachable:", err);
     const timedOut = err instanceof Error && err.name === "TimeoutError";
+    const base = backendBaseForRequest(req);
     return NextResponse.json(
       {
         message: timedOut
-          ? `HR API did not respond within ${upstreamTimeoutMs / 1000}s. Check tenant config in Frontend/config/tenant-backends.json.`
-          : "Cannot reach the HR API. Ensure the backend is running and the tenant is registered.",
+          ? `HR API at ${base} did not respond within ${upstreamTimeoutMs / 1000}s.`
+          : `Cannot reach the HR API at ${base}. Check ${base}/health — on the server set IIS pool MBKH → Load User Profile = True, then recycle.`,
       },
       { status: 503 },
     );
