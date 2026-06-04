@@ -1,7 +1,12 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
-import { API_BASE_URL, getApiBaseUrl } from "@/config/constants";
+import {
+  API_BASE_URL,
+  getApiBaseUrl,
+  resolveAuthApiPath,
+  tenantBackendUrl,
+} from "@/config/constants";
 
 const PROFILE_FETCH_MS = 10_000;
 const LOGIN_FETCH_MS = 20_000;
@@ -178,8 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const timeoutId = window.setTimeout(() => controller.abort(), LOGIN_FETCH_MS);
     let res: Response;
     try {
-      const apiBase = getApiBaseUrl().replace(/\/$/, "");
-      const loginUrl = apiBase ? `${apiBase}/api/auth/login` : "/api/auth/login";
+      const loginUrl = resolveAuthApiPath("/api/auth/login");
       res = await fetch(loginUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -198,9 +202,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             : `Login request timed out after ${LOGIN_FETCH_MS / 1000}s. The frontend could not reach the HR API via /api/auth/login. On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend (e.g. https://gammabackend.openskyhrm.com) and ensure that host responds to /health.`
         );
       }
+      const backend = tenantBackendUrl() || API_BASE_URL || getApiBaseUrl();
       throw new Error(
-        API_BASE_URL
-          ? `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
+        backend
+          ? `Cannot reach the HR API at ${backend}. Open ${backend}/health in a browser — if that fails, fix IIS (Load User Profile = True on pool MBKH) and recycle the app pool.`
           : "Cannot reach the HR API. On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend URL and redeploy."
       );
     } finally {
