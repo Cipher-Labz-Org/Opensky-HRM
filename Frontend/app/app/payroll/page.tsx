@@ -4,7 +4,7 @@ import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
-import { formatDateTime } from "@/lib/date-utils";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import { API_BASE_URL } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
@@ -26,7 +26,9 @@ interface EmpComp {
 }
 
 interface Batch {
-  id: string; batchCode: string; month: number; year: number; status: string;
+  id: string; batchCode: string; month: number; year: number;
+  effectiveFrom: string; effectiveTo?: string;
+  processType: string; status: string;
   processedAt?: string; approvedBy?: string; employeeCount: number;
   totalGross: number; totalDeductions: number; totalNet: number; totalEmployerCost: number;
   notes?: string; selectedCount: number; createdAt: string;
@@ -54,7 +56,20 @@ interface Revision {
 
 interface Employee { id: string; firstName: string; lastName: string; employeeCode: string; }
 interface EligibleEmployee { id: string; firstName: string; lastName: string; employeeCode: string; department: string; grade: string; location: string; }
-interface Settings { epfEmployeeRate: number; epfEmployerRate: number; etfEmployerRate: number; }
+interface Settings { epfEmployeeRate: number; epfEmployerRate: number; etfEmployerRate: number; otHourlyDivisor: number; otMultiplier: number; }
+
+interface AttendanceImportLine {
+  employeeId: string; employeeName: string; employeeCode?: string;
+  approvedOtHours: number; otAmount: number; otApproved: boolean; otOutdated: boolean;
+  attendanceNopayDays: number; leaveNopayDays: number; totalNopayDays: number;
+  basicPay: number; warning?: string;
+}
+
+interface AttendanceImportPreview {
+  batchId: string; batchCode: string; effectiveFrom: string; effectiveTo?: string;
+  lines: AttendanceImportLine[];
+  employeesWithApprovedOt: number; employeesMissingOtApproval: number; employeesWithNopay: number;
+}
 interface PagedResult<T> { items: T[]; totalCount: number; page: number; pageSize: number; }
 
 const TABS = ["Dashboard", "Components", "Employee Salary", "Variable Entry", "Payroll Run", "Pay Slips", "Settings"] as const;
@@ -62,6 +77,37 @@ type Tab = typeof TABS[number];
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 const MONTH_NUMBER_OPTS: FormSelectOption[] = MONTHS.map((m, i) => ({ value: String(i + 1), label: m }));
+
+const PROCESS_TYPE_OPTS: FormSelectOption[] = [
+  { value: "Salary", label: "Salary" },
+  { value: "Bonus", label: "Bonus" },
+  { value: "OtherTransactions", label: "Other Transactions" },
+];
+
+function formatProcessType(value?: string): string {
+  if (!value || value === "Salary") return "Salary";
+  if (value === "OtherTransactions") return "Other Transactions";
+  if (value === "Bonus") return "Bonus";
+  return value;
+}
+
+function monthDateRange(month: number, year: number): { from: string; to: string } {
+  const lastDay = new Date(year, month, 0).getDate();
+  const mm = String(month).padStart(2, "0");
+  return {
+    from: `${year}-${mm}-01`,
+    to: `${year}-${mm}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
+
+function formatBatchPeriod(b: Batch): string {
+  const to = b.effectiveTo ? formatDate(b.effectiveTo) : "—";
+  return `${formatDate(b.effectiveFrom)} – ${to}`;
+}
+
+function formatBatchLabel(b: Batch): string {
+  return `${b.batchCode} — ${formatProcessType(b.processType)} — ${MONTHS[b.month - 1]} ${b.year}`;
+}
 
 const PAYROLL_COMPONENT_TYPE_OPTS: FormSelectOption[] = [
   { value: "Earning", label: "Earning" },
@@ -623,9 +669,13 @@ function EmployeeSalaryTab() {
     [locations]
   );
   const empSalaryBatchOpts = useMemo<FormSelectOption[]>(
-    () => [{ value: "", label: "Select Batch…" }, ...batches.map((b) => ({ value: b.id, label: `${b.batchCode} — ${MONTHS[b.month - 1]} ${b.year}` }))],
+    () => [{ value: "", label: "Select Batch…" }, ...batches.map((b) => ({ value: b.id, label: formatBatchLabel(b) }))],
     [batches]
   );
+
+  const selectedBatch = batches.find((b) => b.id === selectedBatchId);
+  const batchEntryCategory =
+    selectedBatch?.processType === "Bonus" ? "OneTime" : "Variable";
 
   const filtered = useMemo(
     () =>
@@ -813,6 +863,7 @@ function EmployeeSalaryTab() {
               title={`${selectedEmp.firstName} ${selectedEmp.lastName} — ${selectedEmp.employeeCode}`}
               mode={compTab}
               batchId={compTab === "Variable" ? selectedBatchId : undefined}
+              processType={compTab === "Variable" ? selectedBatch?.processType : undefined}
               componentsLibrary={components}
               assignmentsAll={empComp}
               payrollSettings={payrollSettings}
@@ -824,7 +875,7 @@ function EmployeeSalaryTab() {
       </div>
 
       {showImport && (
-        <ImportCompensationModal category={compTab}
+        <ImportCompensationModal category={compTab === "Variable" ? batchEntryCategory : compTab}
           batchId={compTab === "Variable" ? selectedBatchId : undefined}
           onClose={() => setShowImport(false)}
           onImported={() => { setShowImport(false); if (selectedEmp) selectEmployee(selectedEmp); }} />
@@ -833,13 +884,14 @@ function EmployeeSalaryTab() {
   );
 }
 
-/** Lists every active payroll component for Fixed (incl. statutory & one-time) or Variable + batch; blur saves like the classic salary grid. */
+/** Lists payroll components for Fixed or batch-scoped Variable / OneTime entry; blur saves like the classic salary grid. */
 function SalaryComponentsEditor({
   employeeId,
   employeeName,
   title,
   mode,
   batchId,
+  processType,
   componentsLibrary,
   assignmentsAll,
   payrollSettings,
@@ -851,23 +903,28 @@ function SalaryComponentsEditor({
   title: string;
   mode: "Fixed" | "Variable";
   batchId?: string;
+  processType?: string;
   componentsLibrary: Component[];
   assignmentsAll: EmpComp[];
   payrollSettings: Settings | null;
   loading: boolean;
   onReload: () => void;
 }) {
+  const batchUsesOneTime = mode === "Variable" && processType === "Bonus";
+
   const definitions = useMemo(() => {
     const list =
       mode === "Fixed"
         ? componentsLibrary.filter(
             (c) =>
               c.isActive &&
-              (c.category === "Fixed" || c.category === "Statutory" || c.category === "OneTime")
+              (c.category === "Fixed" || c.category === "Statutory")
           )
-        : componentsLibrary.filter((c) => c.isActive && c.category === "Variable");
+        : batchUsesOneTime
+          ? componentsLibrary.filter((c) => c.isActive && c.category === "OneTime")
+          : componentsLibrary.filter((c) => c.isActive && c.category === "Variable");
     return [...list].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
-  }, [componentsLibrary, mode]);
+  }, [componentsLibrary, mode, batchUsesOneTime]);
 
   const isStatutory = (def: Component) => def.category === "Statutory" || def.isStatutory;
 
@@ -881,15 +938,16 @@ function SalaryComponentsEditor({
       if (a.isActive === false) return false;
       if (mode === "Fixed") {
         return (
-          (a.componentCategory === "Fixed" ||
-            a.componentCategory === "Statutory" ||
-            a.componentCategory === "OneTime") &&
+          (a.componentCategory === "Fixed" || a.componentCategory === "Statutory") &&
           !a.batchId
         );
       }
+      if (batchUsesOneTime) {
+        return Boolean(batchId && a.componentCategory === "OneTime" && a.batchId === batchId);
+      }
       return Boolean(batchId && a.componentCategory === "Variable" && a.batchId === batchId);
     });
-  }, [assignmentsAll, mode, batchId]);
+  }, [assignmentsAll, mode, batchId, batchUsesOneTime]);
 
   const [draftByComp, setDraftByComp] = useState<Record<string, string>>({});
   const [savingCompId, setSavingCompId] = useState<string | null>(null);
@@ -898,7 +956,7 @@ function SalaryComponentsEditor({
   useEffect(() => {
     setDraftByComp({});
     setSaveError(null);
-  }, [employeeId, mode, batchId]);
+  }, [employeeId, mode, batchId, processType]);
 
   function lineForComponent(componentId: string): EmpComp | undefined {
     return relevantLines.find((a) => a.componentId === componentId);
@@ -1315,10 +1373,22 @@ function VariableEntryTab() {
       if (list.length > 0) setSelectedBatchId(list[0].id);
     }).catch(() => {});
     apiFetch<Component[]>("/api/payroll/components").then(c => {
-      const varComps = c.filter(x => x.category === "Variable" && x.isActive);
-      setComponents(varComps);
+      setComponents(c.filter(x => x.isActive));
     }).catch(() => {});
   }, []);
+
+  const selectedBatch = batches.find(b => b.id === selectedBatchId);
+  const entryComponents = useMemo(() => {
+    if (!selectedBatch) return components.filter(x => x.category === "Variable");
+    if (selectedBatch.processType === "Bonus") {
+      return components.filter(x => x.category === "OneTime");
+    }
+    return components.filter(x => x.category === "Variable");
+  }, [components, selectedBatch]);
+
+  useEffect(() => {
+    setSelectedCompId("");
+  }, [selectedBatchId, selectedBatch?.processType]);
 
   const loadEntries = useCallback(async () => {
     if (!selectedBatchId) return;
@@ -1339,16 +1409,16 @@ function VariableEntryTab() {
   const variableBatchOpts = useMemo<FormSelectOption[]>(
     () => [
       { value: "", label: "-- Select Batch --" },
-      ...batches.map((b) => ({ value: b.id, label: `${b.batchCode} — ${MONTHS[b.month - 1]} ${b.year}` })),
+      ...batches.map((b) => ({ value: b.id, label: formatBatchLabel(b) })),
     ],
     [batches]
   );
   const variableCompOpts = useMemo<FormSelectOption[]>(
     () => [
-      { value: "", label: "All Variable Components" },
-      ...components.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })),
+      { value: "", label: selectedBatch?.processType === "Bonus" ? "All Bonus Components" : "All Variable Components" },
+      ...entryComponents.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })),
     ],
-    [components]
+    [entryComponents, selectedBatch?.processType]
   );
 
   function handleAmountChange(id: string, value: string) {
@@ -1383,7 +1453,7 @@ function VariableEntryTab() {
 
   const total = filtered.reduce((s, e) => s + (editedAmounts[e.id] !== undefined ? (parseFloat(editedAmounts[e.id]) || 0) : e.amount), 0);
 
-  const selectedBatch = batches.find(b => b.id === selectedBatchId);
+  const entryLabel = selectedBatch?.processType === "Bonus" ? "bonus" : "variable";
 
   return (
     <div className="space-y-4">
@@ -1403,7 +1473,7 @@ function VariableEntryTab() {
             value={selectedCompId}
             onValueChange={setSelectedCompId}
             options={variableCompOpts}
-            placeholder="All Variable Components"
+            placeholder={selectedBatch?.processType === "Bonus" ? "All Bonus Components" : "All Variable Components"}
           />
         </div>
         <div className="min-w-[200px]">
@@ -1423,6 +1493,7 @@ function VariableEntryTab() {
       {selectedBatch && (
         <div className="flex items-center gap-4 text-xs text-slate-500">
           <span>Batch: <strong className="text-slate-700">{selectedBatch.batchCode}</strong></span>
+          <span>Type: <strong className="text-slate-700">{formatProcessType(selectedBatch.processType)}</strong></span>
           <span>Status: <Badge status={selectedBatch.status} /></span>
           <span>Period: <strong className="text-slate-700">{MONTHS[selectedBatch.month - 1]} {selectedBatch.year}</strong></span>
         </div>
@@ -1433,11 +1504,11 @@ function VariableEntryTab() {
       )}
 
       {!selectedBatchId ? (
-        <EmptyState text="Select a payroll batch to view variable components" />
+        <EmptyState text="Select a payroll batch to view batch entries" />
       ) : loading ? (
         <Loading />
       ) : filtered.length === 0 ? (
-        <EmptyState text={entries.length === 0 ? "No variable components assigned for this batch" : "No matching records found"} />
+        <EmptyState text={entries.length === 0 ? `No ${entryLabel} components assigned for this batch` : "No matching records found"} />
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
           <div className="overflow-x-auto">
@@ -1498,6 +1569,7 @@ function PayrollRunTab() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
   const [batchStatements, setBatchStatements] = useState<Statement[]>([]);
+  const [importBatch, setImportBatch] = useState<Batch | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1556,7 +1628,7 @@ function PayrollRunTab() {
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500">
-              <th className="px-4 py-3 font-medium">Batch</th><th className="px-4 py-3 font-medium">Period</th>
+              <th className="px-4 py-3 font-medium">Batch</th><th className="px-4 py-3 font-medium">Type</th><th className="px-4 py-3 font-medium">Period</th>
               <th className="px-4 py-3 font-medium">Employees</th><th className="px-4 py-3 font-medium text-right">Gross</th>
               <th className="px-4 py-3 font-medium text-right">Net</th><th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Actions</th>
@@ -1567,13 +1639,21 @@ function PayrollRunTab() {
                   <td className="px-4 py-3">
                     <button onClick={() => viewBatchDetails(b)} className="font-medium text-blue-600 hover:underline">{b.batchCode}</button>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{MONTHS[b.month - 1]} {b.year}</td>
+                  <td className="px-4 py-3 text-slate-600">{formatProcessType(b.processType)}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    <div>{MONTHS[b.month - 1]} {b.year}</div>
+                    <div className="text-xs text-slate-400">{formatBatchPeriod(b)}</div>
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{b.status === "Draft" ? `${b.selectedCount} selected` : b.employeeCount}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{b.totalGross ? `LKR ${fmt(b.totalGross)}` : "—"}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{b.totalNet ? `LKR ${fmt(b.totalNet)}` : "—"}</td>
                   <td className="px-4 py-3"><Badge status={b.status} /></td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-1">
+                    <div className="flex flex-wrap gap-1">
+                      {(b.status === "Draft" || b.status === "Calculated")
+                        && (b.processType === "Salary" || b.processType === "OtherTransactions") && (
+                        <ActionBtn label="Import OT/No-pay" onClick={() => setImportBatch(b)} loading={false} />
+                      )}
                       {b.status === "Draft" && <ActionBtn label="Calculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />}
                       {b.status === "Calculated" && <ActionBtn label="Recalculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />}
                       {b.status === "Calculated" && <ActionBtn label="Approve" onClick={() => handleAction(b.id, "approve")} loading={actionLoading === b.id} />}
@@ -1593,14 +1673,131 @@ function PayrollRunTab() {
       {selectedBatch && (
         <BatchDetailModal batch={selectedBatch} statements={batchStatements} onClose={() => setSelectedBatch(null)} />
       )}
+
+      {importBatch && (
+        <ImportAttendanceLeaveModal
+          batch={importBatch}
+          onClose={() => setImportBatch(null)}
+          onImported={() => { setImportBatch(null); load(); }}
+        />
+      )}
     </div>
   );
 }
 
+function ImportAttendanceLeaveModal({
+  batch,
+  onClose,
+  onImported,
+}: {
+  batch: Batch;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [preview, setPreview] = useState<AttendanceImportPreview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    apiFetch<AttendanceImportPreview>(`/api/payroll/batches/${batch.id}/import-attendance-leave/preview`)
+      .then(setPreview)
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load preview"))
+      .finally(() => setLoading(false));
+  }, [batch.id]);
+
+  async function handleImport() {
+    setImporting(true);
+    setError("");
+    try {
+      await apiFetch(`/api/payroll/batches/${batch.id}/import-attendance-leave`, { method: "POST" });
+      onImported();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Import Attendance & Leave — ${batch.batchCode}`} wide>
+      <div className="mb-4 space-y-1 text-sm text-slate-600">
+        <div>Type: <strong className="text-slate-800">{formatProcessType(batch.processType)}</strong></div>
+        <div>Period: <strong className="text-slate-800">{formatBatchPeriod(batch)}</strong></div>
+        <p className="text-xs text-slate-500">
+          Uses approved OT hours and combined attendance absences + approved no-pay leave for this exact period.
+        </p>
+      </div>
+
+      {error && <div className="mb-3 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
+
+      {loading ? <Loading /> : preview ? (
+        <>
+          <div className="mb-4 grid gap-3 sm:grid-cols-3 text-sm">
+            <div className="rounded-lg bg-green-50 p-3"><div className="text-xs text-green-700">Approved OT</div><div className="font-semibold text-green-900">{preview.employeesWithApprovedOt}</div></div>
+            <div className="rounded-lg bg-amber-50 p-3"><div className="text-xs text-amber-700">Missing OT approval</div><div className="font-semibold text-amber-900">{preview.employeesMissingOtApproval}</div></div>
+            <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-500">With no-pay days</div><div className="font-semibold text-slate-800">{preview.employeesWithNopay}</div></div>
+          </div>
+
+          <div className="max-h-[360px] overflow-y-auto rounded-lg border border-slate-200">
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Employee</th>
+                  <th className="px-3 py-2 font-medium text-right">OT Hrs</th>
+                  <th className="px-3 py-2 font-medium text-right">OT Amount</th>
+                  <th className="px-3 py-2 font-medium text-right">Att. NP</th>
+                  <th className="px-3 py-2 font-medium text-right">Leave NP</th>
+                  <th className="px-3 py-2 font-medium text-right">Total NP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.lines.map((line) => (
+                  <tr key={line.employeeId} className="border-b border-slate-50">
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-slate-700">{line.employeeName}</div>
+                      <div className="text-xs text-slate-400">{line.employeeCode}</div>
+                      {line.warning && <div className="text-xs text-amber-600">{line.warning}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">{line.approvedOtHours || "—"}</td>
+                    <td className="px-3 py-2 text-right font-mono">{line.otAmount ? `LKR ${fmt(line.otAmount)}` : "—"}</td>
+                    <td className="px-3 py-2 text-right">{line.attendanceNopayDays || "—"}</td>
+                    <td className="px-3 py-2 text-right">{line.leaveNopayDays || "—"}</td>
+                    <td className="px-3 py-2 text-right font-medium">{line.totalNopayDays || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-4 flex justify-end gap-3">
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleImport} disabled={importing}>
+              {importing ? "Importing..." : "Import into Batch"}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <EmptyState text="No preview data available." />
+      )}
+    </Modal>
+  );
+}
+
 function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const now = new Date();
+  const initialMonth = now.getMonth() + 1;
+  const initialYear = now.getFullYear();
+  const initialRange = monthDateRange(initialMonth, initialYear);
+
   const [step, setStep] = useState<1 | 2>(1);
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
-  const [year, setYear] = useState(new Date().getFullYear());
+  const [processType, setProcessType] = useState("Salary");
+  const [month, setMonth] = useState(initialMonth);
+  const [year, setYear] = useState(initialYear);
+  const [effectiveFrom, setEffectiveFrom] = useState(initialRange.from);
+  const [effectiveTo, setEffectiveTo] = useState(initialRange.to);
   const [notes, setNotes] = useState("");
 
   const [employees, setEmployees] = useState<EligibleEmployee[]>([]);
@@ -1612,6 +1809,12 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [empLoading, setEmpLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const range = monthDateRange(month, year);
+    setEffectiveFrom(range.from);
+    setEffectiveTo(range.to);
+  }, [month, year]);
 
   useEffect(() => {
     if (step !== 2) return;
@@ -1668,13 +1871,33 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
     setSelected(next);
   }
 
+  function goToEmployeeStep() {
+    if (!effectiveFrom || !effectiveTo) {
+      setError("Effective date range is required");
+      return;
+    }
+    if (effectiveFrom > effectiveTo) {
+      setError("Effective end date must be on or after the start date");
+      return;
+    }
+    setError("");
+    setStep(2);
+  }
+
   async function handleCreate() {
     if (selected.size === 0) { setError("Select at least one employee"); return; }
+    if (!effectiveFrom || !effectiveTo) { setError("Effective date range is required"); return; }
+    if (effectiveFrom > effectiveTo) { setError("Effective end date must be on or after the start date"); return; }
     setSubmitting(true); setError("");
     try {
       await apiFetch("/api/payroll/batches", {
         method: "POST",
-        body: JSON.stringify({ month, year, notes: notes || null, employeeIds: Array.from(selected) }),
+        body: JSON.stringify({
+          processType, month, year,
+          effectiveFrom, effectiveTo,
+          notes: notes || null,
+          employeeIds: Array.from(selected),
+        }),
       });
       onCreated(); onClose();
     } catch (err: unknown) { setError(err instanceof Error ? err.message : "Failed"); }
@@ -1682,11 +1905,19 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
   }
 
   return (
-    <Modal open onClose={onClose} title={step === 1 ? "New Payroll Batch" : `Select Employees — ${MONTHS[month - 1]} ${year}`} wide={step === 2}>
+    <Modal open onClose={onClose} title={step === 1 ? "New Payroll Batch" : `Select Employees — ${formatProcessType(processType)} — ${MONTHS[month - 1]} ${year}`} wide={step === 2}>
       {error && <div className="mb-3 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
 
       {step === 1 && (
         <div className="space-y-4">
+          <div><label className={labelCls}>Process Type *</label>
+            <FormSelect
+              value={processType}
+              onValueChange={setProcessType}
+              options={PROCESS_TYPE_OPTS}
+              placeholder="Process Type"
+            />
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div><label className={labelCls}>Month *</label>
               <FormSelect
@@ -1698,10 +1929,23 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
             </div>
             <div><label className={labelCls}>Year *</label><input type="number" className={inputCls} value={year} onChange={e => setYear(Number(e.target.value))} /></div>
           </div>
+          <div>
+            <label className={labelCls}>Effective Date Range *</label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <span className="mb-1 block text-[11px] text-slate-400">From</span>
+                <DatePickerField className={inputCls} value={effectiveFrom} onChange={setEffectiveFrom} />
+              </div>
+              <div>
+                <span className="mb-1 block text-[11px] text-slate-400">To</span>
+                <DatePickerField className={inputCls} value={effectiveTo} onChange={setEffectiveTo} />
+              </div>
+            </div>
+          </div>
           <div><label className={labelCls}>Notes</label><textarea className={inputCls} rows={2} value={notes} onChange={e => setNotes(e.target.value)} /></div>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button onClick={() => setStep(2)}>Next — Select Employees</Button>
+            <Button onClick={goToEmployeeStep}>Next — Select Employees</Button>
           </div>
         </div>
       )}
@@ -1796,6 +2040,12 @@ function BatchDetailModal({ batch, statements, onClose }: { batch: Batch; statem
 
   return (
     <Modal open onClose={onClose} title={`Batch: ${batch.batchCode}`} wide>
+      <div className="mb-4 flex flex-wrap gap-3 text-sm text-slate-600">
+        <span>Type: <strong className="text-slate-800">{formatProcessType(batch.processType)}</strong></span>
+        <span>Period: <strong className="text-slate-800">{MONTHS[batch.month - 1]} {batch.year}</strong></span>
+        <span>Effective: <strong className="text-slate-800">{formatBatchPeriod(batch)}</strong></span>
+        <span>Status: <Badge status={batch.status} /></span>
+      </div>
       <div className="mb-4 grid gap-3 sm:grid-cols-4 text-sm">
         <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-400">Gross</div><div className="font-semibold">LKR {fmt(batch.totalGross)}</div></div>
         <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-400">Deductions</div><div className="font-semibold">LKR {fmt(batch.totalDeductions)}</div></div>
@@ -1988,6 +2238,8 @@ function SettingsTab() {
       epfEmployeeRate: Number(fd.get("epfEmployeeRate")) / 100,
       epfEmployerRate: Number(fd.get("epfEmployerRate")) / 100,
       etfEmployerRate: Number(fd.get("etfEmployerRate")) / 100,
+      otHourlyDivisor: Number(fd.get("otHourlyDivisor")) || 208,
+      otMultiplier: Number(fd.get("otMultiplier")) || 1.5,
     };
     try {
       const result = await apiFetch<Settings>("/api/payroll/settings", { method: "PUT", body: JSON.stringify(payload) });
@@ -2017,6 +2269,17 @@ function SettingsTab() {
             <label className={labelCls}>ETF Employer Rate (%)</label>
             <input name="etfEmployerRate" type="number" step="0.01" className={inputCls}
               defaultValue={settings ? (settings.etfEmployerRate * 100).toFixed(2) : "3"} />
+          </div>
+          <div>
+            <label className={labelCls}>OT Hourly Divisor</label>
+            <input name="otHourlyDivisor" type="number" step="1" className={inputCls}
+              defaultValue={settings?.otHourlyDivisor ?? 208} />
+            <p className="mt-1 text-xs text-slate-400">OT rate = BASIC ÷ divisor × multiplier × approved hours</p>
+          </div>
+          <div>
+            <label className={labelCls}>OT Multiplier</label>
+            <input name="otMultiplier" type="number" step="0.01" className={inputCls}
+              defaultValue={settings?.otMultiplier ?? 1.5} />
           </div>
           {msg && <div className={`rounded-lg px-4 py-2 text-sm ${msg.includes("success") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{msg}</div>}
           <div className="flex justify-end pt-2">

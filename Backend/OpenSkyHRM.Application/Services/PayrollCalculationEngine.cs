@@ -71,29 +71,82 @@ public class PayrollCalculationEngine
             .ToListAsync();
 
         var employeeIdSet = activeEmployees.Select(e => e.Id).ToHashSet();
+        var periodStart = batch.EffectiveFrom.Date;
+        var periodEnd = (batch.EffectiveTo ?? batch.EffectiveFrom).Date;
 
-        // Fixed/Statutory/OneTime: no batch (BatchId is null)
-        var fixedCompensations = await _db.EmployeeCompensations
-            .Include(ec => ec.Component)
-            .Where(ec => ec.IsActive && ec.BatchId == null && employeeIdSet.Contains(ec.EmployeeId)
-                && (ec.EffectiveTo == null || ec.EffectiveTo >= DateTime.UtcNow))
-            .ToListAsync();
+        List<EmployeeCompensation> allCompensations;
+        List<CompensationComponent> relevantComponents;
+        var includeStatutory = batch.ProcessType == PayrollProcessType.Salary;
 
-        // Variable: tied to this specific batch
-        var variableCompensations = await _db.EmployeeCompensations
-            .Include(ec => ec.Component)
-            .Where(ec => ec.IsActive && ec.BatchId == batchId && employeeIdSet.Contains(ec.EmployeeId))
-            .ToListAsync();
+        switch (batch.ProcessType)
+        {
+            case PayrollProcessType.Salary:
+            {
+                var fixedCompensations = await _db.EmployeeCompensations
+                    .Include(ec => ec.Component)
+                    .Where(ec => ec.IsActive && ec.BatchId == null && employeeIdSet.Contains(ec.EmployeeId)
+                        && ec.EffectiveFrom.Date <= periodEnd
+                        && (ec.EffectiveTo == null || ec.EffectiveTo.Value.Date >= periodStart)
+                        && (ec.Component.Category == ComponentCategory.Fixed || ec.Component.Category == ComponentCategory.Statutory))
+                    .ToListAsync();
 
-        var allCompensations = fixedCompensations.Concat(variableCompensations).ToList();
+                var variableCompensations = await _db.EmployeeCompensations
+                    .Include(ec => ec.Component)
+                    .Where(ec => ec.IsActive && ec.BatchId == batchId && employeeIdSet.Contains(ec.EmployeeId)
+                        && ec.Component.Category == ComponentCategory.Variable)
+                    .ToListAsync();
+
+                allCompensations = fixedCompensations.Concat(variableCompensations).ToList();
+                relevantComponents = components
+                    .Where(c => c.Category is ComponentCategory.Fixed or ComponentCategory.Variable or ComponentCategory.Statutory)
+                    .ToList();
+                break;
+            }
+            case PayrollProcessType.Bonus:
+            {
+                allCompensations = await _db.EmployeeCompensations
+                    .Include(ec => ec.Component)
+                    .Where(ec => ec.IsActive && ec.BatchId == batchId && employeeIdSet.Contains(ec.EmployeeId)
+                        && ec.Component.Category == ComponentCategory.OneTime)
+                    .ToListAsync();
+
+                relevantComponents = components
+                    .Where(c => c.Category == ComponentCategory.OneTime)
+                    .ToList();
+                break;
+            }
+            case PayrollProcessType.OtherTransactions:
+            {
+                allCompensations = await _db.EmployeeCompensations
+                    .Include(ec => ec.Component)
+                    .Where(ec => ec.IsActive && ec.BatchId == batchId && employeeIdSet.Contains(ec.EmployeeId)
+                        && ec.Component.Category == ComponentCategory.Variable)
+                    .ToListAsync();
+
+                relevantComponents = components
+                    .Where(c => c.Category == ComponentCategory.Variable)
+                    .ToList();
+                break;
+            }
+            default:
+                throw new InvalidOperationException($"Unsupported process type '{batch.ProcessType}'.");
+        }
 
         var newStatements = new List<PayStatement>();
+        var attendanceSnapshots = await _db.PayrollBatchAttendanceSnapshots
+            .Where(s => s.BatchId == batchId)
+            .ToDictionaryAsync(s => s.EmployeeId);
+
         foreach (var employee in activeEmployees)
         {
             var empComp = allCompensations.Where(c => c.EmployeeId == employee.Id).ToList();
-            if (empComp.Count == 0) continue;
+            attendanceSnapshots.TryGetValue(employee.Id, out var snapshot);
 
-            var statement = CalculateEmployeePayStatement(batch, employee, empComp, components, rates);
+            // Allow employees with attendance snapshot (NOPAY) even if no other compensation yet
+            if (empComp.Count == 0 && snapshot == null) continue;
+
+            var statement = CalculateEmployeePayStatement(
+                batch, employee, empComp, relevantComponents, rates, includeStatutory, snapshot);
             newStatements.Add(statement);
         }
 
@@ -115,9 +168,18 @@ public class PayrollCalculationEngine
         PayrollBatch batch, Employee employee,
         List<EmployeeCompensation> empComp,
         List<CompensationComponent> allComponents,
-        PayrollRates rates)
+        PayrollRates rates,
+        bool includeStatutory,
+        PayrollBatchAttendanceSnapshot? attendanceSnapshot = null)
     {
         var resolvedValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        if (attendanceSnapshot != null)
+        {
+            resolvedValues["NOPAY_DAYS"] = attendanceSnapshot.TotalNopayDays;
+            resolvedValues["OT_HOURS"] = attendanceSnapshot.ApprovedOtHours;
+        }
+
         var lines = new List<PayStatementLine>();
         decimal taxableEarnings = 0;
 
@@ -166,52 +228,55 @@ public class PayrollCalculationEngine
         decimal basicPay = resolvedValues.GetValueOrDefault("BASIC", totalEarnings);
         resolvedValues["BASIC"] = basicPay;
 
-        // Phase 2: Statutory — EPF/ETF base is taxable earnings (falls back to basic)
-        var epfBase = taxableEarnings > 0 ? taxableEarnings : basicPay;
-        decimal epfEmployee = Math.Round(epfBase * rates.EpfEmployeeRate, 2);
-        decimal epfEmployer = Math.Round(epfBase * rates.EpfEmployerRate, 2);
-        decimal etfEmployer = Math.Round(epfBase * rates.EtfEmployerRate, 2);
-
-        // Statutory components from master list (formula-based)
-        foreach (var comp in allComponents.Where(c => c.Category == ComponentCategory.Statutory))
+        if (includeStatutory)
         {
-            decimal amount;
-            if (!string.IsNullOrEmpty(comp.FormulaExpression))
+            // Phase 2: Statutory — EPF/ETF base is taxable earnings (falls back to basic)
+            var epfBase = taxableEarnings > 0 ? taxableEarnings : basicPay;
+            decimal epfEmployee = Math.Round(epfBase * rates.EpfEmployeeRate, 2);
+            decimal epfEmployer = Math.Round(epfBase * rates.EpfEmployerRate, 2);
+            decimal etfEmployer = Math.Round(epfBase * rates.EtfEmployerRate, 2);
+
+            // Statutory components from master list (formula-based)
+            foreach (var comp in allComponents.Where(c => c.Category == ComponentCategory.Statutory))
             {
-                amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates);
-            }
-            else
-            {
-                amount = comp.Code.ToUpperInvariant() switch
+                decimal amount;
+                if (!string.IsNullOrEmpty(comp.FormulaExpression))
                 {
-                    "EPF_EE" => epfEmployee,
-                    "EPF_ER" => epfEmployer,
-                    "ETF_ER" => etfEmployer,
-                    _ => 0
-                };
+                    amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates);
+                }
+                else
+                {
+                    amount = comp.Code.ToUpperInvariant() switch
+                    {
+                        "EPF_EE" => epfEmployee,
+                        "EPF_ER" => epfEmployer,
+                        "ETF_ER" => etfEmployer,
+                        _ => 0
+                    };
+                }
+
+                resolvedValues[comp.Code] = amount;
+
+                lines.Add(new PayStatementLine
+                {
+                    ComponentId = comp.Id,
+                    ComponentName = comp.Name,
+                    ComponentCode = comp.Code,
+                    Type = comp.Type.ToString(),
+                    Amount = amount,
+                    IsEmployerContribution = comp.IsEmployerContribution,
+                    SortOrder = comp.SortOrder,
+                });
             }
 
-            resolvedValues[comp.Code] = amount;
-
-            lines.Add(new PayStatementLine
+            // If no statutory components are defined in master, add EPF/ETF as standalone lines
+            if (!allComponents.Any(c => c.Category == ComponentCategory.Statutory))
             {
-                ComponentId = comp.Id,
-                ComponentName = comp.Name,
-                ComponentCode = comp.Code,
-                Type = comp.Type.ToString(),
-                Amount = amount,
-                IsEmployerContribution = comp.IsEmployerContribution,
-                SortOrder = comp.SortOrder,
-            });
-        }
-
-        // If no statutory components are defined in master, add EPF/ETF as standalone lines
-        if (!allComponents.Any(c => c.Category == ComponentCategory.Statutory))
-        {
-            var dummyId = Guid.Empty;
-            lines.Add(new PayStatementLine { ComponentId = dummyId, ComponentName = "EPF (Employee 8%)", ComponentCode = "EPF_EE", Type = "StatutoryDeduction", Amount = epfEmployee, SortOrder = 900 });
-            lines.Add(new PayStatementLine { ComponentId = dummyId, ComponentName = "EPF (Employer 12%)", ComponentCode = "EPF_ER", Type = "StatutoryContribution", Amount = epfEmployer, IsEmployerContribution = true, SortOrder = 901 });
-            lines.Add(new PayStatementLine { ComponentId = dummyId, ComponentName = "ETF (Employer 3%)", ComponentCode = "ETF_ER", Type = "StatutoryContribution", Amount = etfEmployer, IsEmployerContribution = true, SortOrder = 902 });
+                var dummyId = Guid.Empty;
+                lines.Add(new PayStatementLine { ComponentId = dummyId, ComponentName = "EPF (Employee 8%)", ComponentCode = "EPF_EE", Type = "StatutoryDeduction", Amount = epfEmployee, SortOrder = 900 });
+                lines.Add(new PayStatementLine { ComponentId = dummyId, ComponentName = "EPF (Employer 12%)", ComponentCode = "EPF_ER", Type = "StatutoryContribution", Amount = epfEmployer, IsEmployerContribution = true, SortOrder = 901 });
+                lines.Add(new PayStatementLine { ComponentId = dummyId, ComponentName = "ETF (Employer 3%)", ComponentCode = "ETF_ER", Type = "StatutoryContribution", Amount = etfEmployer, IsEmployerContribution = true, SortOrder = 902 });
+            }
         }
 
         decimal statutoryEmployeeDeductions = lines

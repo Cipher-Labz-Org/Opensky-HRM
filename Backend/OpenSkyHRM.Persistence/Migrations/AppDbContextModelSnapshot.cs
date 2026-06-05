@@ -4053,6 +4053,12 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<string>("CreatedBy")
                         .HasColumnType("text");
 
+                    b.Property<DateTime>("EffectiveFrom")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime?>("EffectiveTo")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<int>("EmployeeCount")
                         .HasColumnType("integer");
 
@@ -4065,6 +4071,11 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ProcessType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
 
                     b.Property<DateTime?>("ProcessedAt")
                         .HasColumnType("timestamp without time zone");
@@ -4103,6 +4114,61 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.HasIndex("Year", "Month");
 
                     b.ToTable("PayrollBatches", (string)null);
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.PayrollBatchAttendanceSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ApprovedOtHours")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("AttendanceNopayDays")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ImportedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("LeaveNopayDays")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("OtAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<bool>("OtApproved")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("OtOutdated")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("TotalNopayDays")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("BatchId", "EmployeeId")
+                        .IsUnique();
+
+                    b.ToTable("PayrollBatchAttendanceSnapshots", (string)null);
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.PayrollFormula", b =>
@@ -6381,6 +6447,25 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Navigation("Component");
 
                     b.Navigation("PayStatement");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.PayrollBatchAttendanceSnapshot", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.PayrollBatch", "Batch")
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Batch");
+
+                    b.Navigation("Employee");
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.PayrollFormula", b =>
