@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
@@ -49,6 +50,24 @@ public class EmergencyContactsController : ControllerBase
         var employee = await _db.Employees.FindAsync(employeeId);
         if (employee is null) return NotFound();
 
+        try
+        {
+            InputValidators.ValidatePersonName(req.Name, "Name");
+            InputValidators.ValidatePhone(req.HomeTelephone, "Home telephone", required: false);
+            InputValidators.ValidatePhone(req.MobileTelephone, "Mobile telephone", required: false);
+            InputValidators.ValidatePhone(req.WorkTelephone, "Work telephone", required: false);
+            if (string.IsNullOrWhiteSpace(req.HomeTelephone)
+                && string.IsNullOrWhiteSpace(req.MobileTelephone)
+                && string.IsNullOrWhiteSpace(req.WorkTelephone))
+            {
+                throw new InvalidOperationException("At least one valid telephone number is required.");
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
         var contact = new EmergencyContact
         {
             EmployeeId = employeeId,
@@ -83,6 +102,24 @@ public class EmergencyContactsController : ControllerBase
             .FirstOrDefaultAsync(e => e.Id == contactId && e.EmployeeId == employeeId);
 
         if (contact is null) return NotFound();
+
+        try
+        {
+            InputValidators.ValidatePersonName(req.Name, "Name");
+            InputValidators.ValidatePhone(req.HomeTelephone, "Home telephone", required: false);
+            InputValidators.ValidatePhone(req.MobileTelephone, "Mobile telephone", required: false);
+            InputValidators.ValidatePhone(req.WorkTelephone, "Work telephone", required: false);
+            if (string.IsNullOrWhiteSpace(req.HomeTelephone)
+                && string.IsNullOrWhiteSpace(req.MobileTelephone)
+                && string.IsNullOrWhiteSpace(req.WorkTelephone))
+            {
+                throw new InvalidOperationException("At least one valid telephone number is required.");
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         contact.Name = req.Name;
         contact.Relationship = req.Relationship;

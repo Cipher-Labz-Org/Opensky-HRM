@@ -1,11 +1,13 @@
 "use client";
 
+import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { DateTimePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DateTimePickerField, FormSelect, PersonNameInput, PhoneInput, type FormSelectOption } from "@/components/ui";
+import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { CreateRequisitionModal } from "@/components/forms/CreateRequisitionModal";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
@@ -270,18 +272,18 @@ export default function RecruitmentPage() {
   }, [tab, loadDashboard, loadRequisitions, loadCandidates, loadInterviews]);
 
   const handleApproveReq = async (id: string) => {
-    if (!confirm("Approve this requisition? Approved roles can proceed in the hiring pipeline.")) return;
+    if (!(await appConfirm("Approve this requisition? Approved roles can proceed in the hiring pipeline."))) return;
     try {
       await apiFetch(`/api/recruitment/requisitions/${id}/approve`, { method: "POST" });
       loadRequisitions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Approve failed");
+      await appAlert(err instanceof Error ? err.message : "Approve failed");
     }
   };
 
   const handleRejectReq = async (id: string) => {
-    if (!confirm("Reject this requisition? It will be marked rejected and should not be used for new hiring.")) return;
-    const remarks = window.prompt("Optional internal remarks:");
+    if (!(await appConfirm("Reject this requisition? It will be marked rejected and should not be used for new hiring."))) return;
+    const remarks = await appPrompt("Add optional internal remarks for this rejection.", { title: "Rejection Remarks", confirmLabel: "Continue", placeholder: "Optional remarks..." });
     if (remarks === null) return;
     try {
       await apiFetch(`/api/recruitment/requisitions/${id}/reject`, {
@@ -290,22 +292,22 @@ export default function RecruitmentPage() {
       });
       loadRequisitions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Reject failed");
+      await appAlert(err instanceof Error ? err.message : "Reject failed");
     }
   };
 
   const handleCloseReq = async (id: string) => {
-    if (!confirm("Close this requisition? Use this when the role is filled or the search is stopped.")) return;
+    if (!(await appConfirm("Close this requisition? Use this when the role is filled or the search is stopped."))) return;
     try {
       await apiFetch(`/api/recruitment/requisitions/${id}/close`, { method: "POST" });
       loadRequisitions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Close failed");
+      await appAlert(err instanceof Error ? err.message : "Close failed");
     }
   };
 
   const handleDeleteReq = async (id: string) => {
-    if (!confirm("Delete this requisition?")) return;
+    if (!(await appConfirm("Delete this requisition?"))) return;
     await apiFetch(`/api/recruitment/requisitions/${id}`, { method: "DELETE" });
     loadRequisitions();
   };
@@ -346,6 +348,10 @@ export default function RecruitmentPage() {
 
   const handleAddCandidate = async () => {
     if (!candidateForm.firstName || !candidateForm.lastName || !candidateForm.email || !candidateForm.requisitionId) return;
+    if (candidateForm.phone.trim() && !isValidPhone(candidateForm.phone)) {
+      await appAlert(PHONE_VALIDATION_MESSAGE);
+      return;
+    }
     await apiFetch("/api/recruitment/candidates", {
       method: "POST",
       body: JSON.stringify({
@@ -958,12 +964,12 @@ export default function RecruitmentPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">First Name *</label>
-                  <input className={inputClass} value={candidateForm.firstName}
+                  <PersonNameInput className={inputClass} value={candidateForm.firstName}
                     onChange={(e) => setCandidateForm({ ...candidateForm, firstName: e.target.value })} />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">Last Name *</label>
-                  <input className={inputClass} value={candidateForm.lastName}
+                  <PersonNameInput className={inputClass} value={candidateForm.lastName} autoComplete="family-name"
                     onChange={(e) => setCandidateForm({ ...candidateForm, lastName: e.target.value })} />
                 </div>
               </div>
@@ -975,7 +981,7 @@ export default function RecruitmentPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">Phone</label>
-                  <input className={inputClass} value={candidateForm.phone}
+                  <PhoneInput className={inputClass} value={candidateForm.phone}
                     onChange={(e) => setCandidateForm({ ...candidateForm, phone: e.target.value })} />
                 </div>
               </div>

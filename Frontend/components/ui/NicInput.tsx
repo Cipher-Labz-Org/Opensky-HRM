@@ -1,0 +1,121 @@
+"use client";
+
+import {
+  forwardRef,
+  useState,
+  type ChangeEvent,
+  type FocusEvent,
+  type FormEvent,
+  type InputHTMLAttributes,
+  type KeyboardEvent,
+} from "react";
+import {
+  isValidNic,
+  NIC_VALIDATION_MESSAGE,
+  sanitizeNicInput,
+} from "@/lib/input-validation";
+
+const INVALID_CLASS =
+  "border-red-300 focus:border-red-400 focus:ring-red-200/20";
+
+export type NicInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "inputMode"> & {
+  forceShowError?: boolean;
+};
+
+export const NicInput = forwardRef<HTMLInputElement, NicInputProps>(function NicInput(
+  {
+    className = "",
+    onChange,
+    onBlur,
+    onInput,
+    onKeyDown,
+    value,
+    defaultValue,
+    forceShowError,
+    placeholder,
+    ...props
+  },
+  ref,
+) {
+  const [touched, setTouched] = useState(false);
+  const [internalValue, setInternalValue] = useState(() => String(defaultValue ?? ""));
+
+  const effectiveValue = value !== undefined ? String(value) : internalValue;
+  const invalid = effectiveValue.trim() !== "" && !isValidNic(effectiveValue);
+  const showError = (touched || forceShowError) && invalid;
+
+  function syncValue(el: HTMLInputElement) {
+    const sanitized = sanitizeNicInput(el.value);
+    if (sanitized !== el.value) el.value = sanitized;
+    if (value === undefined) setInternalValue(sanitized);
+    return sanitized;
+  }
+
+  function handleInput(e: FormEvent<HTMLInputElement>) {
+    syncValue(e.currentTarget);
+    onInput?.(e);
+  }
+
+  function handleChange(e: ChangeEvent<HTMLInputElement>) {
+    syncValue(e.currentTarget);
+    onChange?.(e);
+  }
+
+  function handleBlur(e: FocusEvent<HTMLInputElement>) {
+    setTouched(true);
+    syncValue(e.currentTarget);
+    onBlur?.(e);
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      onKeyDown?.(e);
+      return;
+    }
+    const allowed = [
+      "Backspace",
+      "Delete",
+      "Tab",
+      "Enter",
+      "ArrowLeft",
+      "ArrowRight",
+      "ArrowUp",
+      "ArrowDown",
+      "Home",
+      "End",
+    ];
+    if (allowed.includes(e.key)) {
+      onKeyDown?.(e);
+      return;
+    }
+    if (/^[0-9VvXx]$/.test(e.key)) {
+      onKeyDown?.(e);
+      return;
+    }
+    e.preventDefault();
+  }
+
+  return (
+    <div>
+      <input
+        ref={ref}
+        type="text"
+        inputMode="text"
+        autoComplete={props.autoComplete ?? "off"}
+        value={value}
+        defaultValue={value === undefined ? defaultValue : undefined}
+        placeholder={placeholder ?? "e.g. 123456789V or 200012345678"}
+        className={`${className}${showError ? ` ${INVALID_CLASS}` : ""}`}
+        onInput={handleInput}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        aria-invalid={showError || undefined}
+        {...props}
+      />
+      {showError ? (
+        <p className="mt-1 text-xs font-medium text-red-600">{NIC_VALIDATION_MESSAGE}</p>
+      ) : null}
+    </div>
+  );
+});

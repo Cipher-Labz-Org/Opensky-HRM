@@ -5,6 +5,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { DatePickerField } from "@/components/ui";
 import { FormSelect } from "@/components/ui/FormSelect";
+import { PersonNameInput, PhoneInput } from "@/components/ui";
+import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { apiFetch } from "@/lib/api";
 
 interface Lookup {
@@ -158,6 +160,13 @@ export function CreateEmployeeModal({
     setSubmitting(true);
 
     const fd = new FormData(e.currentTarget);
+    const phoneRaw = ((fd.get("phone") as string) ?? "").trim();
+    if (phoneRaw && !isValidPhone(phoneRaw)) {
+      setError(PHONE_VALIDATION_MESSAGE);
+      setSubmitting(false);
+      return;
+    }
+
     const roleIds: string[] = [];
     if (essRoleId) roleIds.push(essRoleId);
     if (supervisorRoleId) roleIds.push(supervisorRoleId);
@@ -268,15 +277,15 @@ export function CreateEmployeeModal({
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <label className={labelClass}>First Name *</label>
-            <input name="firstName" required className={inputClass} placeholder="John" />
+            <PersonNameInput name="firstName" required className={inputClass} placeholder="John" />
           </div>
           <div>
             <label className={labelClass}>Middle Name</label>
-            <input name="middleName" className={inputClass} placeholder="William" />
+            <PersonNameInput name="middleName" autoComplete="additional-name" className={inputClass} placeholder="William" />
           </div>
           <div>
             <label className={labelClass}>Last Name *</label>
-            <input name="lastName" required className={inputClass} placeholder="Doe" />
+            <PersonNameInput name="lastName" required autoComplete="family-name" className={inputClass} placeholder="Doe" />
           </div>
         </div>
 
@@ -315,7 +324,7 @@ export function CreateEmployeeModal({
 
         <div>
           <label className={labelClass}>Phone</label>
-          <input name="phone" className={inputClass} placeholder="+94771234567" />
+          <PhoneInput name="phone" className={inputClass} />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

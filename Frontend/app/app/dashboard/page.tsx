@@ -1,5 +1,6 @@
 "use client";
 
+import { appAlert } from "@/components/ui/appDialogs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
@@ -156,7 +157,7 @@ export default function DashboardPage() {
       await apiFetch(`/api/offboarding/tasks/${taskId}/complete`, { method: "POST" });
       setMyTasks((prev) => prev.filter((t) => t.id !== taskId));
     } catch {
-      alert("Failed to complete task");
+      await appAlert("Failed to complete task");
     }
     setCompleting(null);
   }
@@ -314,7 +315,7 @@ export default function DashboardPage() {
       <AppTopbar title="Command Center" />
 
       <div id="dashboard-birthdays" className="mb-6 scroll-mt-28">
-        <BirthdaysCompanyNoticesWidget scrollAnchorHref={`${ROUTES.dashboard}#dashboard-birthdays`} />
+        <BirthdaysCompanyNoticesWidget />
       </div>
 
       {myTasks.length > 0 && (

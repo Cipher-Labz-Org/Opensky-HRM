@@ -3,3 +3,7 @@ export { Button } from "./Button";
 export { DatePickerField } from "./DatePickerField";
 export { DateTimePickerField } from "./DateTimePickerField";
 export { FormSelect, type FormSelectOption, type FormSelectTone } from "./FormSelect";
+export { PersonNameInput } from "./PersonNameInput";
+export { PhoneInput } from "./PhoneInput";
+export { NicInput } from "./NicInput";
+export { DrivingLicenseInput } from "./DrivingLicenseInput";

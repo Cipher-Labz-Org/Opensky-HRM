@@ -1,5 +1,6 @@
 "use client";
 
+import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
@@ -209,27 +210,27 @@ export default function UserManagementPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Are you sure you want to delete this user?")) return;
+    if (!(await appConfirm("Are you sure you want to delete this user?"))) return;
     try {
       await apiFetch(`/api/user/${id}`, { method: "DELETE" });
       await loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete user");
+      await appAlert(err instanceof Error ? err.message : "Failed to delete user");
     }
   }
 
   async function handleResetPassword(id: string) {
-    if (!confirm("Reset this user’s password? You will be asked to enter the new password next.")) return;
-    const newPw = prompt("Enter new password:");
+    if (!(await appConfirm("Reset this user’s password? You will be asked to enter the new password next."))) return;
+    const newPw = await appPrompt("Enter the new password for this user account.", { title: "New Password", confirmLabel: "Save Password" });
     if (!newPw) return;
     try {
       await apiFetch(`/api/user/${id}/reset-password`, {
         method: "POST",
         body: JSON.stringify({ newPassword: newPw }),
       });
-      alert("Password reset successfully.");
+      await appAlert("Password reset successfully.");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to reset password");
+      await appAlert(err instanceof Error ? err.message : "Failed to reset password");
     }
   }
 
@@ -806,6 +807,11 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   const [permissions, setPermissions] = useState<Record<string, Record<string, { enabled: boolean; scope: string }>>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [showCreateRole, setShowCreateRole] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [newRoleCode, setNewRoleCode] = useState("");
+  const [newRoleDescription, setNewRoleDescription] = useState("");
+  const [creatingRole, setCreatingRole] = useState(false);
 
   useEffect(() => {
     apiFetch<{ module: string; label: string }[]>("/api/auth/roles/available-modules")
@@ -854,6 +860,35 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
     }));
   }
 
+  async function handleCreateRole() {
+    const name = newRoleName.trim();
+    if (!name) {
+      setError("Role name is required.");
+      return;
+    }
+    setError("");
+    setCreatingRole(true);
+    try {
+      const created = await apiFetch<RoleItem>("/api/auth/roles", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          code: newRoleCode.trim() || undefined,
+          description: newRoleDescription.trim() || undefined,
+        }),
+      });
+      setShowCreateRole(false);
+      setNewRoleName("");
+      setNewRoleCode("");
+      setNewRoleDescription("");
+      await onSaved();
+      setSelectedRoleId(created.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create role");
+    }
+    setCreatingRole(false);
+  }
+
   async function handleSave() {
     if (!selectedRoleId) return;
     setError("");
@@ -884,7 +919,20 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
       </div>
       <div className="flex flex-col lg:flex-row min-h-[400px]">
         <div className="w-full lg:w-56 border-b lg:border-b-0 lg:border-r border-slate-100 p-4">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Select Role</p>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Select Role</p>
+            <Button
+              type="button"
+              variant="secondary"
+              className="!h-8 !min-h-8 px-2.5 text-xs"
+              onClick={() => {
+                setError("");
+                setShowCreateRole(true);
+              }}
+            >
+              + New role
+            </Button>
+          </div>
           <div className="space-y-1">
             {roles.map((r) => (
               <button
@@ -961,6 +1009,62 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
           )}
         </div>
       </div>
+
+      {showCreateRole && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <h3 className="text-base font-semibold text-slate-800">Create new role</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Code is auto-generated from the name if left blank (e.g. Payroll Clerk → PAYROLL_CLERK).
+            </p>
+            {error && (
+              <div className="mt-3 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800">
+                {error}
+              </div>
+            )}
+            <div className="mt-4 space-y-3">
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">Role name *</span>
+                <input
+                  type="text"
+                  value={newRoleName}
+                  onChange={(e) => setNewRoleName(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="e.g. Payroll Clerk"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">Code (optional)</span>
+                <input
+                  type="text"
+                  value={newRoleCode}
+                  onChange={(e) => setNewRoleCode(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="e.g. PAYROLL_CLERK"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">Description</span>
+                <input
+                  type="text"
+                  value={newRoleDescription}
+                  onChange={(e) => setNewRoleDescription(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Optional"
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setShowCreateRole(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleCreateRole} disabled={creatingRole}>
+                {creatingRole ? "Creating…" : "Create role"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

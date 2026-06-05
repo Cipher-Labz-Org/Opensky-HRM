@@ -1,16 +1,19 @@
 "use client";
 
+import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useRef, useMemo, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, type FormSelectOption } from "@/components/ui";
+import { isValidPhone, isValidNic, isValidDrivingLicense, PHONE_VALIDATION_MESSAGE, NIC_VALIDATION_MESSAGE, DRIVING_LICENSE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { COUNTRY_NAMES, NATIONALITY_NAMES } from "@/lib/people-form-lists";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
+import { useAuth } from "@/contexts/auth-context";
 import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
 import {
   type EmploymentTypeCatalogItem,
@@ -770,9 +773,12 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+const DELETABLE_EMPLOYEE_STATUSES = new Set(["Terminated", "Retired"]);
+
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { hasPermission, isAdmin } = useAuth();
 
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -785,6 +791,7 @@ export default function EmployeeDetailPage() {
   const topSearchRef = useRef<HTMLDivElement>(null);
   const topSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showIdValidationErrors, setShowIdValidationErrors] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const [pdFirstName, setPdFirstName] = useState("");
@@ -813,6 +820,8 @@ export default function EmployeeDetailPage() {
   const [reactTimezone, setReactTimezone] = useState("(GMT+05:30) GMT+05:30");
   const [reactWithOnboarding, setReactWithOnboarding] = useState(false);
   const [reactSaving, setReactSaving] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
 
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [businessUnits, setBusinessUnits] = useState<Lookup[]>([]);
@@ -1257,14 +1266,14 @@ export default function EmployeeDetailPage() {
       setAttachTypeId("");
       setAttachExpiry("");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Upload failed");
+      await appAlert(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setAttachUploading(false);
     }
   }
 
   async function deleteAttachment(attId: string) {
-    if (!confirm("Delete this attachment?")) return;
+    if (!(await appConfirm("Delete this attachment?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/attachments/${attId}`, { method: "DELETE" });
       setAttachments((prev) => prev.filter((a) => a.id !== attId));
@@ -1273,7 +1282,7 @@ export default function EmployeeDetailPage() {
 
   async function updateAttachmentRow(attId: string) {
     if (!editAttachTypeId) {
-      alert("Please select an attachment type.");
+      await appAlert("Please select an attachment type.");
       return;
     }
     try {
@@ -1303,7 +1312,7 @@ export default function EmployeeDetailPage() {
       setAddReportPersonId("");
       setAddReportMethod("");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add supervisor");
+      await appAlert(err instanceof Error ? err.message : "Failed to add supervisor");
     } finally {
       setAddReportSaving(false);
     }
@@ -1322,14 +1331,14 @@ export default function EmployeeDetailPage() {
       setAddReportPersonId("");
       setAddReportMethod("");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add subordinate");
+      await appAlert(err instanceof Error ? err.message : "Failed to add subordinate");
     } finally {
       setAddReportSaving(false);
     }
   }
 
   async function removeSupervisor(entryId: string) {
-    if (!confirm("Remove this supervisor?")) return;
+    if (!(await appConfirm("Remove this supervisor?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/supervisors/${entryId}`, { method: "DELETE" });
       setSupervisors((prev) => prev.filter((s) => s.id !== entryId));
@@ -1337,7 +1346,7 @@ export default function EmployeeDetailPage() {
   }
 
   async function removeSubordinate(entryId: string) {
-    if (!confirm("Remove this subordinate?")) return;
+    if (!(await appConfirm("Remove this subordinate?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/subordinates/${entryId}`, { method: "DELETE" });
       setSubordinates((prev) => prev.filter((s) => s.id !== entryId));
@@ -1375,6 +1384,22 @@ export default function EmployeeDetailPage() {
 
   async function saveEmergencyContact() {
     if (!ecName.trim() || !ecRelationship.trim()) return;
+    const phones = [
+      { label: "Home telephone", value: ecHome.trim() },
+      { label: "Mobile telephone", value: ecMobile.trim() },
+      { label: "Work telephone", value: ecWork.trim() },
+    ];
+    const filled = phones.filter((p) => p.value);
+    if (filled.length === 0) {
+      await appAlert("Enter at least one telephone number.");
+      return;
+    }
+    for (const p of filled) {
+      if (!isValidPhone(p.value, true)) {
+        await appAlert(`${p.label}: ${PHONE_VALIDATION_MESSAGE}`);
+        return;
+      }
+    }
     setEcSaving(true);
     const body = {
       name: ecName.trim(),
@@ -1393,14 +1418,14 @@ export default function EmployeeDetailPage() {
       }
       closeEcModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save emergency contact");
+      await appAlert(err instanceof Error ? err.message : "Failed to save emergency contact");
     } finally {
       setEcSaving(false);
     }
   }
 
   async function deleteEmergencyContact(contactId: string) {
-    if (!confirm("Delete this emergency contact?")) return;
+    if (!(await appConfirm("Delete this emergency contact?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/emergency-contacts/${contactId}`, { method: "DELETE" });
       setEmergencyContacts((prev) => prev.filter((c) => c.id !== contactId));
@@ -1464,14 +1489,14 @@ export default function EmployeeDetailPage() {
       }
       closeDepModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save dependent");
+      await appAlert(err instanceof Error ? err.message : "Failed to save dependent");
     } finally {
       setDepSaving(false);
     }
   }
 
   async function deleteDependent(depId: string) {
-    if (!confirm("Delete this dependent?")) return;
+    if (!(await appConfirm("Delete this dependent?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/dependents/${depId}`, { method: "DELETE" });
       setDependents((prev) => prev.filter((d) => d.id !== depId));
@@ -1538,14 +1563,14 @@ export default function EmployeeDetailPage() {
       }
       closeEduModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save education");
+      await appAlert(err instanceof Error ? err.message : "Failed to save education");
     } finally {
       setEduSaving(false);
     }
   }
 
   async function deleteEducation(eduId: string) {
-    if (!confirm("Delete this education record?")) return;
+    if (!(await appConfirm("Delete this education record?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/educations/${eduId}`, { method: "DELETE" });
       setEducations((prev) => prev.filter((e) => e.id !== eduId));
@@ -1590,14 +1615,14 @@ export default function EmployeeDetailPage() {
       }
       closeSkillModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save skill");
+      await appAlert(err instanceof Error ? err.message : "Failed to save skill");
     } finally {
       setSkillSaving(false);
     }
   }
 
   async function deleteSkill(skillId: string) {
-    if (!confirm("Delete this skill?")) return;
+    if (!(await appConfirm("Delete this skill?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/skills/${skillId}`, { method: "DELETE" });
       setSkills((prev) => prev.filter((s) => s.id !== skillId));
@@ -1609,7 +1634,7 @@ export default function EmployeeDetailPage() {
       const cs = await apiFetch<CourseOption[]>("/api/learning/courses");
       const active = cs.filter((c) => c.isActive);
       if (active.length === 0) {
-        alert("No active courses in the catalog. Add a course from Learning first.");
+        await appAlert("No active courses in the catalog. Add a course from Learning first.");
         return;
       }
       setCoursesCatalog(active);
@@ -1617,7 +1642,7 @@ export default function EmployeeDetailPage() {
       setTrainDue("");
       setShowTrainAssignModal(true);
     } catch {
-      alert("Could not load courses. Ensure the Learning module is licensed and you have access.");
+      await appAlert("Could not load courses. Ensure the Learning module is licensed and you have access.");
     }
   }
 
@@ -1643,7 +1668,7 @@ export default function EmployeeDetailPage() {
       setTrainingRows(rows);
       closeTrainAssignModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to assign training");
+      await appAlert(err instanceof Error ? err.message : "Failed to assign training");
     } finally {
       setTrainSaving(false);
     }
@@ -1697,14 +1722,14 @@ export default function EmployeeDetailPage() {
       }
       closeLangModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save language");
+      await appAlert(err instanceof Error ? err.message : "Failed to save language");
     } finally {
       setLangSaving(false);
     }
   }
 
   async function deleteLanguage(langId: string) {
-    if (!confirm("Delete this language?")) return;
+    if (!(await appConfirm("Delete this language?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/languages/${langId}`, { method: "DELETE" });
       setLanguages((prev) => prev.filter((l) => l.id !== langId));
@@ -1726,7 +1751,7 @@ export default function EmployeeDetailPage() {
         }),
       });
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save benefits");
+      await appAlert(err instanceof Error ? err.message : "Failed to save benefits");
     } finally {
       setBenefitSaving(false);
     }
@@ -1785,14 +1810,14 @@ export default function EmployeeDetailPage() {
       }
       closeImmModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save immigration record");
+      await appAlert(err instanceof Error ? err.message : "Failed to save immigration record");
     } finally {
       setImmSaving(false);
     }
   }
 
   async function deleteImmigration(immId: string) {
-    if (!confirm("Delete this immigration record?")) return;
+    if (!(await appConfirm("Delete this immigration record?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/immigrations/${immId}`, { method: "DELETE" });
       setImmigrations((prev) => prev.filter((i) => i.id !== immId));
@@ -1818,14 +1843,14 @@ export default function EmployeeDetailPage() {
       setImmDocs((prev) => [created, ...prev]);
       setShowImmDocModal(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to upload document");
+      await appAlert(err instanceof Error ? err.message : "Failed to upload document");
     } finally {
       setImmDocUploading(false);
     }
   }
 
   async function deleteImmDoc(docId: string) {
-    if (!confirm("Delete this document?")) return;
+    if (!(await appConfirm("Delete this document?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/immigration-documents/${docId}`, { method: "DELETE" });
       setImmDocs((prev) => prev.filter((d) => d.id !== docId));
@@ -1902,14 +1927,14 @@ export default function EmployeeDetailPage() {
       }
       closeWeModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save work experience");
+      await appAlert(err instanceof Error ? err.message : "Failed to save work experience");
     } finally {
       setWeSaving(false);
     }
   }
 
   async function deleteWorkExperience(weId: string) {
-    if (!confirm("Delete this work experience?")) return;
+    if (!(await appConfirm("Delete this work experience?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/work-experiences/${weId}`, { method: "DELETE" });
       setWorkExperiences((prev) => prev.filter((w) => w.id !== weId));
@@ -1969,14 +1994,14 @@ export default function EmployeeDetailPage() {
       }
       closeBaModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save bank account");
+      await appAlert(err instanceof Error ? err.message : "Failed to save bank account");
     } finally {
       setBaSaving(false);
     }
   }
 
   async function deleteBankAccount(baId: string) {
-    if (!confirm("Delete this bank account?")) return;
+    if (!(await appConfirm("Delete this bank account?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/bank-accounts/${baId}`, { method: "DELETE" });
       setBankAccounts((prev) => prev.filter((b) => b.id !== baId));
@@ -1984,14 +2009,14 @@ export default function EmployeeDetailPage() {
   }
 
   async function handleTerminate() {
-    if (!emp || !termReason || !termDate) return;
+    if (!emp || !termReason.trim() || !termDate) return;
     setTermSaving(true);
     try {
       await apiFetch(`/api/employees/${id}/terminate`, {
         method: "POST",
         body: JSON.stringify({
           terminationDate: termDate,
-          terminationReason: termReason,
+          terminationReason: termReason.trim(),
           terminationNote: termNote || null,
           withOffboarding,
           templateId: withOffboarding && selectedTemplateId ? selectedTemplateId : null,
@@ -2000,9 +2025,23 @@ export default function EmployeeDetailPage() {
       setShowTerminateModal(false);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to terminate");
+      await appAlert(err instanceof Error ? err.message : "Failed to terminate");
     } finally {
       setTermSaving(false);
+    }
+  }
+
+  async function handleDeleteEmployee() {
+    if (!emp) return;
+    setDeleteSaving(true);
+    try {
+      await apiFetch(`/api/employees/${id}`, { method: "DELETE" });
+      setShowDeleteModal(false);
+      router.push(ROUTES.people);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Failed to delete employee");
+    } finally {
+      setDeleteSaving(false);
     }
   }
 
@@ -2077,7 +2116,7 @@ export default function EmployeeDetailPage() {
       setShowReactivateModal(false);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to reactivate");
+      await appAlert(err instanceof Error ? err.message : "Failed to reactivate");
     } finally {
       setReactSaving(false);
     }
@@ -2088,7 +2127,7 @@ export default function EmployeeDetailPage() {
       const res = await apiFetch<{ html: string }>(`/api/documenttemplates/render/${templateKey}/${id}`);
       const filename = `${docName.replace(/\s+/g, "_")}_${emp?.employeeCode ?? "EMP"}.pdf`;
       const printWin = window.open("", "_blank");
-      if (!printWin) { alert("Please allow pop-ups to download PDF"); return; }
+      if (!printWin) { await appAlert("Please allow pop-ups to download PDF"); return; }
       printWin.document.write(`
         <html><head><title>${filename}</title></head>
         <body>${res.html}</body></html>
@@ -2096,7 +2135,7 @@ export default function EmployeeDetailPage() {
       printWin.document.close();
       printWin.onload = () => { printWin.print(); };
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to generate document");
+      await appAlert(err instanceof Error ? err.message : "Failed to generate document");
     }
   }
 
@@ -2117,7 +2156,7 @@ export default function EmployeeDetailPage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to generate document");
+      await appAlert(err instanceof Error ? err.message : "Failed to generate document");
     }
   }
 
@@ -2250,6 +2289,19 @@ export default function EmployeeDetailPage() {
       setMsg({ type: "err", text: "Personal Email is not a valid email address (e.g. name@example.com)." });
       return;
     }
+
+    const nic = ((payload.nationalId as string) ?? "").trim();
+    const dl = ((payload.driversLicenseNumber as string) ?? "").trim();
+    if ((nic && !isValidNic(nic)) || (dl && !isValidDrivingLicense(dl))) {
+      setSaving(false);
+      setShowIdValidationErrors(true);
+      setMsg({
+        type: "err",
+        text: nic && !isValidNic(nic) ? NIC_VALIDATION_MESSAGE : DRIVING_LICENSE_VALIDATION_MESSAGE,
+      });
+      return;
+    }
+    setShowIdValidationErrors(false);
 
     const jd = payload.joinDate ? (payload.joinDate as string).split("T")[0] : "";
     const pe = payload.probationEndDate ? (payload.probationEndDate as string).split("T")[0] : "";
@@ -2948,9 +3000,7 @@ export default function EmployeeDetailPage() {
 
               {wOn("birthdaysNotices") && (
                 <div id="birthdays-notices" className="min-w-0 scroll-mt-28">
-                  <BirthdaysCompanyNoticesWidget
-                    scrollAnchorHref={`${ROUTES.people}/${id}#birthdays-notices`}
-                  />
+                  <BirthdaysCompanyNoticesWidget />
                 </div>
               )}
             </div>
@@ -3005,11 +3055,11 @@ export default function EmployeeDetailPage() {
               <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
                 <div><label className={labelClass}>Employee Id</label><input className={inputReadonlyClass} value={emp.employeeCode} readOnly /></div>
                 <div><label className={labelClass}>Other Id</label><input name="otherId" className={inputClass} defaultValue={emp.otherId ?? ""} /></div>
-                <div><label className={labelClass}>SSN/AADHAAR/ID NO/QID</label><input name="nationalId" className={inputClass} defaultValue={emp.nationalId ?? ""} /></div>
+                <div><label className={labelClass}>NIC Number</label><NicInput name="nationalId" className={inputClass} defaultValue={emp.nationalId ?? ""} forceShowError={showIdValidationErrors} /></div>
                 <div><label className={labelClass}>TIN Number</label><input name="tinNumber" className={inputClass} defaultValue={emp.tinNumber ?? ""} /></div>
-                <div><label className={labelClass}>First Name *</label><input name="firstName" required className={inputClass} value={pdFirstName} onChange={(e) => setPdFirstName(e.target.value)} /></div>
-                <div><label className={labelClass}>Middle Name</label><input name="middleName" className={inputClass} value={pdMiddleName} onChange={(e) => setPdMiddleName(e.target.value)} /></div>
-                <div><label className={labelClass}>Last Name *</label><input name="lastName" required className={inputClass} value={pdLastName} onChange={(e) => setPdLastName(e.target.value)} /></div>
+                <div><label className={labelClass}>First Name *</label><PersonNameInput name="firstName" required className={inputClass} value={pdFirstName} onChange={(e) => setPdFirstName(e.target.value)} /></div>
+                <div><label className={labelClass}>Middle Name</label><PersonNameInput name="middleName" autoComplete="additional-name" className={inputClass} value={pdMiddleName} onChange={(e) => setPdMiddleName(e.target.value)} /></div>
+                <div><label className={labelClass}>Last Name *</label><PersonNameInput name="lastName" required autoComplete="family-name" className={inputClass} value={pdLastName} onChange={(e) => setPdLastName(e.target.value)} /></div>
                 <div><label className={labelClass}>Full Name</label><input className={inputClass} value={pdFullName} onChange={(e) => setPdFullName(e.target.value)} /></div>
                 <div><label className={labelClass}>Name with Initials</label><input className={inputClass} value={pdNameWithInitials} onChange={(e) => setPdNameWithInitials(e.target.value)} /></div>
                 <div>
@@ -3114,11 +3164,11 @@ export default function EmployeeDetailPage() {
                   ref={attachFileRef}
                   type="file"
                   className="hidden"
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const f = e.target.files?.[0];
                     if (f) {
                       if (f.size > 10 * 1024 * 1024) {
-                        alert("File size must be less than 10 MB.");
+                        await appAlert("File size must be less than 10 MB.", "File Too Large");
                         return;
                       }
                       setAttachFile(f);
@@ -3520,21 +3570,55 @@ export default function EmployeeDetailPage() {
           </div>
         </form>
 
-        {emp.status === "Terminated" ? (
-          <>
-          {/* Activate Employment Link */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm px-6 py-4">
+        {(() => {
+          const isTerminated = emp.status === "Terminated";
+          const isRetired = emp.status === "Retired";
+          const canTerminate = !isTerminated && !isRetired;
+          const canReactivate = isTerminated;
+          const canDelete = DELETABLE_EMPLOYEE_STATUSES.has(emp.status) && (isAdmin || hasPermission("People", "Delete"));
+          if (!canTerminate && !canReactivate && !canDelete) return null;
+
+          return (
+          <div className="flex flex-wrap items-center gap-3">
+          {canReactivate ? (
+          <div className="w-fit rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <button
               type="button"
               onClick={() => { setReactActivateNow(false); setReactUpdateJoinDate(true); setReactDate(new Date().toISOString().split("T")[0]); setReactHour("00"); setReactMinute("00"); setReactWithOnboarding(false); setShowReactivateModal(true); }}
-              className="flex items-center gap-2 text-green-600 transition hover:text-green-700"
+              className="inline-flex items-center gap-2 rounded-full bg-green-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600"
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
-              <span className="text-sm font-medium">Activate Employment</span>
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
+              <span>Activate Employment</span>
             </button>
           </div>
+          ) : null}
 
-          {/* Reactivate Employment Modal */}
+          {canTerminate ? (
+          <div className="w-fit rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <button
+              type="button"
+              onClick={() => { setTermReason(""); setTermDate(new Date().toISOString().split("T")[0]); setTermNote(""); setWithOffboarding(true); setSelectedTemplateId(""); setShowTerminateModal(true); }}
+              className="inline-flex items-center gap-2 rounded-full bg-red-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
+              <span>Terminate Employment</span>
+            </button>
+          </div>
+          ) : null}
+
+          {canDelete ? (
+          <div className="w-fit rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-red-300 bg-red-50 px-5 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+              <span>Delete Employee</span>
+            </button>
+          </div>
+          ) : null}
+
           <Modal open={showReactivateModal} onClose={() => setShowReactivateModal(false)} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">Reactivate Employment</h3>
@@ -3569,35 +3653,19 @@ export default function EmployeeDetailPage() {
               </div>
             </div>
           </Modal>
-          </>
-        ) : (
-          <>
-          {/* Terminate Employment Link */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm px-6 py-4">
-            <button
-              type="button"
-              onClick={() => { setTermReason(""); setTermDate(new Date().toISOString().split("T")[0]); setTermNote(""); setWithOffboarding(true); setSelectedTemplateId(""); setShowTerminateModal(true); }}
-              className="flex items-center gap-2 text-slate-500 transition hover:text-red-600"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
-              <span className="text-sm font-medium">Terminate Employment</span>
-            </button>
-          </div>
 
-          {/* Terminate Employment Modal */}
           <Modal open={showTerminateModal} onClose={() => setShowTerminateModal(false)} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">Terminate Employment</h3>
               <div className="mt-3 border-t border-slate-200 pt-4">
                 <label className="mb-1 block text-sm font-semibold text-slate-600">Reason<span className="text-red-500">*</span></label>
-                <FormSelect
+                <input
+                  type="text"
                   value={termReason}
-                  onValueChange={setTermReason}
-                  placeholder="-- Select --"
-                  options={[
-                    { value: "", label: "-- Select --" },
-                    ...employeeStatuses.filter((s) => s.code !== "Active").map((s) => ({ value: s.name, label: s.name })),
-                  ]}
+                  onChange={(e) => setTermReason(e.target.value)}
+                  placeholder="Enter termination reason"
+                  maxLength={100}
+                  className={inputClass}
                 />
               </div>
               <div className="mt-4">
@@ -3649,13 +3717,28 @@ export default function EmployeeDetailPage() {
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={() => setShowTerminateModal(false)} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={handleTerminate} disabled={!termReason || !termDate || termSaving} className="rounded-full bg-red-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">{termSaving ? "Processing..." : "Terminate"}</button>
+                  <button type="button" onClick={handleTerminate} disabled={!termReason.trim() || !termDate || termSaving} className="rounded-full bg-red-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">{termSaving ? "Processing..." : "Terminate"}</button>
                 </div>
               </div>
             </div>
           </Modal>
-          </>
-        )}
+
+          <Modal open={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-700">Delete Employee</h3>
+              <p className="mt-3 text-sm text-slate-600">
+                Permanently remove <span className="font-semibold text-slate-800">{emp.fullName}</span> from the employee directory?
+                This action cannot be undone.
+              </p>
+              <div className="mt-5 border-t border-slate-100 pt-4 flex items-center justify-end gap-3">
+                <button type="button" onClick={() => setShowDeleteModal(false)} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
+                <button type="button" onClick={handleDeleteEmployee} disabled={deleteSaving} className="rounded-full bg-red-600 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50">{deleteSaving ? "Deleting..." : "Delete Employee"}</button>
+              </div>
+            </div>
+          </Modal>
+          </div>
+          );
+        })()}
         </div>
       )}
 
@@ -3671,9 +3754,9 @@ export default function EmployeeDetailPage() {
             </div>
             <div className="p-6">
               <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-                <div><label className={labelClass}>Home Telephone</label><input name="homeTelephone" className={inputClass} defaultValue={emp.homeTelephone ?? ""} /></div>
-                <div><label className={labelClass}>Mobile</label><input name="phone" className={inputClass} defaultValue={emp.phone ?? ""} /></div>
-                <div><label className={labelClass}>Work Telephone</label><input name="workTelephone" className={inputClass} defaultValue={emp.workTelephone ?? ""} /></div>
+                <div><label className={labelClass}>Home Telephone</label><PhoneInput name="homeTelephone" className={inputClass} defaultValue={emp.homeTelephone ?? ""} autoComplete="tel-national" /></div>
+                <div><label className={labelClass}>Mobile</label><PhoneInput name="phone" className={inputClass} defaultValue={emp.phone ?? ""} autoComplete="tel" /></div>
+                <div><label className={labelClass}>Work Telephone</label><PhoneInput name="workTelephone" className={inputClass} defaultValue={emp.workTelephone ?? ""} autoComplete="tel" /></div>
                 <div><label className={labelClass}>Work Email</label><input name="email" type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@company.com)" className={inputClass} defaultValue={emp.email} /></div>
                 <div><label className={labelClass}>Personal Email</label><input name="otherEmail" type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@example.com)" className={inputClass} defaultValue={emp.otherEmail ?? ""} /></div>
               </div>
@@ -3757,7 +3840,7 @@ export default function EmployeeDetailPage() {
                 <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-sm font-semibold text-slate-600">Name<span className="text-red-500">*</span></label>
-                    <input value={ecName} onChange={(e) => setEcName(e.target.value)} className={inputClass} />
+                    <PersonNameInput value={ecName} onChange={(e) => setEcName(e.target.value)} autoComplete="name" className={inputClass} />
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-semibold text-slate-600">Relationship<span className="text-red-500">*</span></label>
@@ -3770,15 +3853,15 @@ export default function EmployeeDetailPage() {
                 <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-500">Home</label>
-                    <input value={ecHome} onChange={(e) => setEcHome(e.target.value)} className={inputClass} />
+                    <PhoneInput value={ecHome} onChange={(e) => setEcHome(e.target.value)} autoComplete="tel-national" className={inputClass} />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-500">Mobile</label>
-                    <input value={ecMobile} onChange={(e) => setEcMobile(e.target.value)} className={inputClass} />
+                    <PhoneInput value={ecMobile} onChange={(e) => setEcMobile(e.target.value)} autoComplete="tel" className={inputClass} />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-500">Work</label>
-                    <input value={ecWork} onChange={(e) => setEcWork(e.target.value)} className={inputClass} />
+                    <PhoneInput value={ecWork} onChange={(e) => setEcWork(e.target.value)} autoComplete="tel" className={inputClass} />
                   </div>
                 </div>
               </div>
@@ -3861,8 +3944,8 @@ export default function EmployeeDetailPage() {
               <div className="mt-3 border-t border-slate-200 pt-4">
                 <label className="mb-1 block text-sm font-semibold text-slate-600">Name<span className="text-red-500">*</span></label>
                 <div className="grid gap-x-4 sm:grid-cols-2">
-                  <input placeholder="First Name" value={depFirstName} onChange={(e) => setDepFirstName(e.target.value)} className={inputClass} />
-                  <input placeholder="Last Name" value={depLastName} onChange={(e) => setDepLastName(e.target.value)} className={inputClass + " mt-2 sm:mt-0"} />
+                  <PersonNameInput placeholder="First Name" value={depFirstName} onChange={(e) => setDepFirstName(e.target.value)} className={inputClass} />
+                  <PersonNameInput placeholder="Last Name" value={depLastName} onChange={(e) => setDepLastName(e.target.value)} autoComplete="family-name" className={inputClass + " mt-2 sm:mt-0"} />
                 </div>
               </div>
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
@@ -4641,7 +4724,7 @@ export default function EmployeeDetailPage() {
             </div>
             <div className="p-6">
               <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-                <div><label className={labelClass}>Driver&apos;s License Number</label><input name="driversLicenseNumber" className={inputClass} defaultValue={emp.driversLicenseNumber ?? ""} /></div>
+                <div><label className={labelClass}>Driver&apos;s License Number</label><DrivingLicenseInput name="driversLicenseNumber" className={inputClass} defaultValue={emp.driversLicenseNumber ?? ""} forceShowError={showIdValidationErrors} /></div>
                 <div>
                   <label className={labelClass}>License type</label>
                   <FormSelect

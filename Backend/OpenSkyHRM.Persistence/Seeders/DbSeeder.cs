@@ -23,6 +23,7 @@ public static class DbSeeder
             await DocumentTemplateSeeder.EnsureLetterPackAsync(context);
             await TransactionalEmailTemplateSeeder.EnsureAsync(context);
             await PayrollSeeder.SeedAsync(context);
+            await PayrollSeeder.SeedDemoDataAsync(context);
             await EmployeeLifecycleTemplateSeeder.EnsureAsync(context);
 
             await context.SaveChangesAsync();

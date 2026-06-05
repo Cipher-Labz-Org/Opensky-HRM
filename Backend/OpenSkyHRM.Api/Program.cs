@@ -269,6 +269,18 @@ if (dbAvailable)
         Console.WriteLine($"WARNING: Database migration failed: {ex.Message}");
     }
 
+    // Default roles (Admin, HR Manager, Supervisor, Employee) — every tenant DB.
+    try
+    {
+        using var rolesScope = app.Services.CreateScope();
+        var rolesDb = rolesScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await SecurityRolesSeeder.EnsureAsync(rolesDb);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Default security roles could not be ensured: {ex.Message}");
+    }
+
     // Seed default Admin user into Users (credentials in AdminBootstrapSeeder — not appsettings).
     try
     {
@@ -304,6 +316,9 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await LicensingSeeder.EnsureAsync(db);
+        await PayrollSeeder.EnsureStatutoryFormulasAsync(db);
+        if (app.Environment.IsDevelopment())
+            await PayrollSeeder.EnsureDemoSalary100kAsync(db);
         await OpenSkyHRM.Persistence.Seeders.EmployeeLifecycleTemplateSeeder.EnsureAsync(db);
         await db.SaveChangesAsync();
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureCatalogLeaveTypesAsync(db);

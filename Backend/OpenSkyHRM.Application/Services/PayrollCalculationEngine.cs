@@ -181,6 +181,7 @@ public class PayrollCalculationEngine
         }
 
         var lines = new List<PayStatementLine>();
+        decimal taxableEarnings = 0;
 
         // Phase 1: Resolve fixed/variable earnings from employee compensation assignments
         foreach (var comp in allComponents.Where(c => c.Category != ComponentCategory.Statutory))
@@ -199,6 +200,8 @@ public class PayrollCalculationEngine
             }
 
             resolvedValues[comp.Code] = amount;
+            if (comp.Type == ComponentType.Earning && comp.IsTaxable)
+                taxableEarnings += amount;
 
             lines.Add(new PayStatementLine
             {
@@ -221,15 +224,17 @@ public class PayrollCalculationEngine
 
         resolvedValues["TOTAL_EARNINGS"] = totalEarnings;
         resolvedValues["GROSS"] = totalEarnings;
+        resolvedValues["TAXABLE_EARNINGS"] = taxableEarnings;
         decimal basicPay = resolvedValues.GetValueOrDefault("BASIC", totalEarnings);
         resolvedValues["BASIC"] = basicPay;
 
         if (includeStatutory)
         {
-            // Phase 2: Statutory deductions
-            decimal epfEmployee = Math.Round(basicPay * rates.EpfEmployeeRate, 2);
-            decimal epfEmployer = Math.Round(basicPay * rates.EpfEmployerRate, 2);
-            decimal etfEmployer = Math.Round(basicPay * rates.EtfEmployerRate, 2);
+            // Phase 2: Statutory — EPF/ETF base is taxable earnings (falls back to basic)
+            var epfBase = taxableEarnings > 0 ? taxableEarnings : basicPay;
+            decimal epfEmployee = Math.Round(epfBase * rates.EpfEmployeeRate, 2);
+            decimal epfEmployer = Math.Round(epfBase * rates.EpfEmployerRate, 2);
+            decimal etfEmployer = Math.Round(epfBase * rates.EtfEmployerRate, 2);
 
             // Statutory components from master list (formula-based)
             foreach (var comp in allComponents.Where(c => c.Category == ComponentCategory.Statutory))

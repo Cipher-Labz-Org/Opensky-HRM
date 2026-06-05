@@ -22,6 +22,8 @@ export type FormSelectProps = {
   disabled?: boolean;
   className?: string;
   tone?: FormSelectTone;
+  /** When false, avoids Radix modal pointer-event traps that can block nearby click targets after close. */
+  modal?: boolean;
 };
 
 const triggerBlue =
@@ -80,6 +82,7 @@ export function FormSelect({
   disabled,
   className = "",
   tone = "blue",
+  modal = false,
 }: FormSelectProps) {
   const isControlled = valueProp !== undefined;
   const [internal, setInternal] = React.useState(defaultValue);
@@ -115,7 +118,7 @@ export function FormSelect({
   const sideOffset = tone === "slate" ? 4 : 6;
 
   return (
-    <SelectPrimitive.Root value={radixValue} onValueChange={onRadixChange} disabled={disabled}>
+    <SelectPrimitive.Root value={radixValue} onValueChange={onRadixChange} disabled={disabled} modal={modal}>
       {name != null ? <input type="hidden" name={name} value={formValue} required={required} /> : null}
       <SelectPrimitive.Trigger id={id} className={`${triggerClass} ${className}`.trim()}>
         <span className="min-w-0 flex-1 truncate text-left">

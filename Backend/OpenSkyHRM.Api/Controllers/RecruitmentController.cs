@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Recruitment;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Persistence;
@@ -117,7 +118,10 @@ public class RecruitmentController : ControllerBase
 
     [HttpPost("candidates")]
     public async Task<IActionResult> CreateCandidate([FromBody] CreateCandidateDto dto)
-        => Ok(await _svc.CreateCandidateAsync(dto));
+    {
+        try { return Ok(await _svc.CreateCandidateAsync(dto)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     /// <summary>Public-style apply with PDF resume: saves candidate then stores file at wwwroot/uploads/candidates/{id}/resume.pdf.</summary>
     [AllowAnonymous]
@@ -155,6 +159,17 @@ public class RecruitmentController : ControllerBase
             ? "Public careers link"
             : (string.IsNullOrWhiteSpace(source) ? "Direct" : source.Trim());
 
+        try
+        {
+            InputValidators.ValidatePersonName(firstName, "First name");
+            InputValidators.ValidatePersonName(lastName, "Last name");
+            InputValidators.ValidatePhone(phone, "Phone", required: true);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
         var dto = new CreateCandidateDto
         {
             FirstName = firstName?.Trim() ?? "",
@@ -167,7 +182,15 @@ public class RecruitmentController : ControllerBase
             Notes = notes,
         };
 
-        var created = await _svc.CreateCandidateAsync(dto);
+        CandidateDto created;
+        try
+        {
+            created = await _svc.CreateCandidateAsync(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         var dir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", created.Id.ToString());
         Directory.CreateDirectory(dir);
