@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
@@ -49,6 +50,16 @@ public class DependentsController : ControllerBase
         var employee = await _db.Employees.FindAsync(employeeId);
         if (employee is null) return NotFound();
 
+        try
+        {
+            InputValidators.ValidatePersonName(req.FirstName, "First name");
+            InputValidators.ValidatePersonName(req.LastName, "Last name");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
         var dependent = new Dependent
         {
             EmployeeId = employeeId,
@@ -76,6 +87,16 @@ public class DependentsController : ControllerBase
             .FirstOrDefaultAsync(d => d.Id == dependentId && d.EmployeeId == employeeId);
 
         if (dependent is null) return NotFound();
+
+        try
+        {
+            InputValidators.ValidatePersonName(req.FirstName, "First name");
+            InputValidators.ValidatePersonName(req.LastName, "Last name");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         dependent.FirstName = req.FirstName;
         dependent.LastName = req.LastName;

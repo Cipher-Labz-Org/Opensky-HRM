@@ -1,5 +1,6 @@
 "use client";
 
+import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
@@ -210,12 +211,12 @@ export default function EmployeeTasksPage() {
       }
       setShowTemplateModal(false);
       loadTemplates();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to save"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to save"); }
     setTplSaving(false);
   }
 
   async function handleDeleteTemplate(id: string) {
-    if (!confirm("Delete this template and all its tasks?")) return;
+    if (!(await appConfirm("Delete this template and all its tasks?"))) return;
     await apiFetch(`/api/employee-tasks/templates/${id}`, { method: "DELETE" }).catch(() => {});
     loadTemplates();
   }
@@ -255,12 +256,12 @@ export default function EmployeeTasksPage() {
       }
       setShowItemModal(false);
       loadTemplates();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to save"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to save"); }
     setItemSaving(false);
   }
 
   async function handleDeleteItem(itemId: string) {
-    if (!confirm("Remove this task from the template?")) return;
+    if (!(await appConfirm("Remove this task from the template?"))) return;
     await apiFetch(`/api/employee-tasks/items/${itemId}`, { method: "DELETE" }).catch(() => {});
     loadTemplates();
   }
@@ -276,7 +277,7 @@ export default function EmployeeTasksPage() {
         completedTasks: a.completedTasks + 1,
         tasks: a.tasks.map((t) => t.id !== taskId ? t : { ...t, isCompleted: true, completedAt: new Date().toISOString() }),
       }));
-    } catch { alert("Failed"); }
+    } catch { await appAlert("Failed"); }
     setCompleting(null);
   }
 
@@ -289,7 +290,7 @@ export default function EmployeeTasksPage() {
         completedTasks: a.completedTasks + 1,
         tasks: a.tasks.map((t) => t.id !== taskId ? t : { ...t, isCompleted: true, completedAt: new Date().toISOString() }),
       }));
-    } catch { alert("Failed"); }
+    } catch { await appAlert("Failed"); }
     setCompleting(null);
   }
 
@@ -524,7 +525,7 @@ export default function EmployeeTasksPage() {
                                   setActiveOnboardings((prev) => prev.map((ao) => ao.employeeId !== a.employeeId ? ao : {
                                     ...ao, tasks: ao.tasks.map((t) => t.id !== task.id ? t : { ...t, assignedToUserId: userId, assignedToUserName: matchedUser?.username ?? null }),
                                   }));
-                                } catch { alert("Failed to assign"); }
+                                } catch { await appAlert("Failed to assign"); }
                               }}
                               className={`shrink-0 w-36 rounded-lg border py-0.5 pl-1.5 pr-1 text-[11px] transition ${task.isCompleted ? "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400" : "cursor-pointer border-slate-200 bg-white text-slate-600 hover:border-indigo-300"}`}
                             >
@@ -616,7 +617,7 @@ export default function EmployeeTasksPage() {
                                   setActives((prev) => prev.map((ao) => ao.employeeId !== a.employeeId ? ao : {
                                     ...ao, tasks: ao.tasks.map((t) => t.id !== task.id ? t : { ...t, assignedToUserId: userId, assignedToUserName: matchedUser?.username ?? null }),
                                   }));
-                                } catch { alert("Failed to assign"); }
+                                } catch { await appAlert("Failed to assign"); }
                               }}
                               className={`shrink-0 w-36 rounded-lg border py-0.5 pl-1.5 pr-1 text-[11px] transition ${task.isCompleted ? "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400" : "cursor-pointer border-slate-200 bg-white text-slate-600 hover:border-indigo-300"}`}
                             >

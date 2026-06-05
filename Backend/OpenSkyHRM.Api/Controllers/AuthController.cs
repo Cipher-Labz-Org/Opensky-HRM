@@ -183,6 +183,21 @@ public class AuthController : ControllerBase
         return Ok(roles);
     }
 
+    [HttpPost("roles")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> CreateRole([FromBody] CreateRoleDto dto)
+    {
+        try
+        {
+            var role = await _authService.CreateRoleAsync(dto);
+            return Ok(role);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("roles/available-modules")]
     [Authorize(Roles = "ADMIN")]
     public async Task<IActionResult> GetAvailableModules(CancellationToken cancellationToken)

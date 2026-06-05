@@ -1,5 +1,6 @@
 "use client";
 
+import { appAlert } from "@/components/ui/appDialogs";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
@@ -290,7 +291,7 @@ export function ExecutiveAnalyticsDashboard() {
                     const id = `${d.reportCategory}/${d.reportKey}`;
                     setCsvBusy(id);
                     downloadReportCsv(d.reportCategory, d.reportKey)
-                      .catch(() => alert("CSV download failed"))
+                      .catch(() => { void appAlert("CSV download failed", "Download Failed"); })
                       .finally(() => setCsvBusy(null));
                   }}
                   className="text-xs font-medium text-slate-600 hover:text-indigo-600 hover:underline disabled:opacity-50"

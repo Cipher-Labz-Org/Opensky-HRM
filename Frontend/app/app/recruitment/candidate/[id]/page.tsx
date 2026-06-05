@@ -1,5 +1,6 @@
 "use client";
 
+import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -120,7 +121,7 @@ export default function CandidateDetailPage() {
       window.open(url, "_blank", "noopener,noreferrer");
       window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Could not open the resume PDF.");
+      await appAlert(e instanceof Error ? e.message : "Could not open the resume PDF.");
     } finally {
       setResumeOpening(false);
     }
@@ -248,14 +249,14 @@ export default function CandidateDetailPage() {
 
   async function handleHire() {
     if (hireLoading) return;
-    if (!confirm("Create an employee from this candidate? Confirm offer and compliance steps are complete.")) return;
+    if (!(await appConfirm("Create an employee from this candidate? Confirm offer and compliance steps are complete."))) return;
     setHireLoading(true);
     try {
       const body: Record<string, unknown> = {};
       if (selectedTemplateId) body.onboardingTemplateId = selectedTemplateId;
       const result = await apiFetch<HireResult>(`/api/recruitment/candidates/${id}/hire`, { method: "POST", body: JSON.stringify(body) });
       setHireResult(result); await load();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to convert candidate"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to convert candidate"); }
     finally { setHireLoading(false); }
   }
 
@@ -299,7 +300,7 @@ export default function CandidateDetailPage() {
 
   async function handleCreateOffer() {
     if (!offerForm.salaryOffered) return;
-    if (!confirm("Create this offer? You can approve it internally, then email the candidate and record acceptance.")) return;
+    if (!(await appConfirm("Create this offer? You can approve it internally, then email the candidate and record acceptance."))) return;
     try {
       await apiFetch("/api/recruitment/offers", {
         method: "POST",
@@ -310,29 +311,29 @@ export default function CandidateDetailPage() {
         }),
       });
       setShowOfferForm(false); await load(); setTab("offer");
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to create offer"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to create offer"); }
   }
 
   async function handleSendOfferEmail() {
     if (!candidate?.offer) return;
-    if (!confirm("Send the offer details by email to the candidate?")) return;
+    if (!(await appConfirm("Send the offer details by email to the candidate?"))) return;
     setSendingEmail(true); setEmailSent(false);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/send-email`, { method: "POST" });
       setEmailSent(true); await load();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to send email"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to send email"); }
     finally { setSendingEmail(false); }
   }
 
   async function handleApproveOffer() {
     if (!candidate?.offer) return;
-    if (!confirm("Approve this offer internally? Only approved offers can be emailed; acceptance is recorded only after approval.")) return;
+    if (!(await appConfirm("Approve this offer internally? Only approved offers can be emailed; acceptance is recorded only after approval."))) return;
     setActionLoading(true);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/approve`, { method: "POST" });
       await load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to approve offer");
+      await appAlert(err instanceof Error ? err.message : "Failed to approve offer");
     } finally {
       setActionLoading(false);
     }
@@ -341,28 +342,28 @@ export default function CandidateDetailPage() {
   async function handleAcceptOffer() {
     if (!candidate?.offer) return;
     if (candidate.offer.status !== "Approved") {
-      alert("Approve the offer first, then record the candidate’s acceptance.");
+      await appAlert("Approve the offer first, then record the candidate’s acceptance.");
       return;
     }
-    if (!confirm("Mark this offer as accepted? The candidate will be moved to Hired.")) return;
+    if (!(await appConfirm("Mark this offer as accepted? The candidate will be moved to Hired."))) return;
     setActionLoading(true);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/accept`, { method: "POST" });
       await load();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to accept offer"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to accept offer"); }
     finally { setActionLoading(false); }
   }
 
   async function handleRejectOffer() {
     if (!candidate?.offer) return;
-    if (!confirm("Reject or withdraw this offer? Use this when the candidate declines or the offer is pulled.")) return;
-    const reason = prompt("Reason for rejecting the offer:");
+    if (!(await appConfirm("Reject or withdraw this offer? Use this when the candidate declines or the offer is pulled."))) return;
+    const reason = await appPrompt("Please provide the reason for rejecting this offer.", { title: "Reject Offer", confirmLabel: "Reject Offer", variant: "danger", placeholder: "Reason..." });
     if (reason === null) return;
     setActionLoading(true);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
       await load();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to reject offer"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to reject offer"); }
     finally { setActionLoading(false); }
   }
 

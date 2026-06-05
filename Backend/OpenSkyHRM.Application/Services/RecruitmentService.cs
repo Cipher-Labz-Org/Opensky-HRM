@@ -279,6 +279,10 @@ public class RecruitmentService : IRecruitmentService
 
     public async Task<CandidateDto> CreateCandidateAsync(CreateCandidateDto dto)
     {
+        InputValidators.ValidatePersonName(dto.FirstName, "First name");
+        InputValidators.ValidatePersonName(dto.LastName, "Last name");
+        InputValidators.ValidatePhone(dto.Phone, "Phone", required: false);
+
         var candidate = new Candidate
         {
             FirstName = dto.FirstName, LastName = dto.LastName, Email = dto.Email,
@@ -376,6 +380,11 @@ public class RecruitmentService : IRecruitmentService
     {
         var c = await _db.Candidates.FindAsync(dto.Id)
             ?? throw new InvalidOperationException("Candidate not found");
+
+        InputValidators.ValidatePersonName(dto.FirstName, "First name");
+        InputValidators.ValidatePersonName(dto.LastName, "Last name");
+        InputValidators.ValidatePhone(dto.Phone, "Phone", required: false);
+
         c.FirstName = dto.FirstName; c.LastName = dto.LastName; c.Email = dto.Email;
         c.Phone = dto.Phone; c.ResumeUrl = dto.ResumeUrl; c.Source = dto.Source;
         c.RequisitionId = dto.RequisitionId; c.CurrentTitle = dto.CurrentTitle;

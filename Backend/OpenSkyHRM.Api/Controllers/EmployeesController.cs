@@ -85,7 +85,19 @@ public class EmployeesController : ControllerBase
         var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
         if (licenseErr != null) return licenseErr;
 
-        var created = await _employeeService.CreateAsync(dto);
+        EmployeeDto created;
+        try
+        {
+            created = await _employeeService.CreateAsync(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = EmployeeSaveExceptionMapper.Map(ex) });
+        }
 
         if (dto.CreateLogin != null)
         {
@@ -129,8 +141,15 @@ public class EmployeesController : ControllerBase
             return Forbid();
         var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
         if (licenseErr != null) return licenseErr;
-        var updated = await _employeeService.UpdateAsync(id, dto);
-        return updated is null ? NotFound() : Ok(updated);
+        try
+        {
+            var updated = await _employeeService.UpdateAsync(id, dto);
+            return updated is null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id:guid}/terminate")]
@@ -213,8 +232,15 @@ public class EmployeesController : ControllerBase
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Delete");
         if (allowedIds != null && (allowedIds.Count == 0 || !allowedIds.Contains(id)))
             return Forbid();
-        var deleted = await _employeeService.DeleteAsync(id);
-        return deleted ? NoContent() : NotFound();
+        try
+        {
+            var deleted = await _employeeService.DeleteAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id:guid}/photo")]

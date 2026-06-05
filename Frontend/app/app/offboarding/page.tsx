@@ -1,5 +1,6 @@
 "use client";
 
+import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
@@ -142,19 +143,19 @@ export default function OffboardingPage() {
       }
       setShowModal(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save");
+      await appAlert(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this template?")) return;
+    if (!(await appConfirm("Delete this template?"))) return;
     try {
       await apiFetch(`/api/offboarding/templates/${id}`, { method: "DELETE" });
       setTemplates((prev) => prev.filter((t) => t.id !== id));
     } catch {
-      alert("Failed to delete");
+      await appAlert("Failed to delete");
     }
   }
 
@@ -170,7 +171,7 @@ export default function OffboardingPage() {
         })
       );
     } catch {
-      alert("Failed to complete task");
+      await appAlert("Failed to complete task");
     } finally {
       setCompleting(null);
     }
@@ -368,7 +369,7 @@ export default function OffboardingPage() {
                                   ...ao,
                                   tasks: ao.tasks.map((t) => t.id !== task.id ? t : { ...t, assignedToUserId: userId, assignedToUserName: matchedUser?.username ?? null }),
                                 }));
-                              } catch { alert("Failed to assign"); }
+                              } catch { await appAlert("Failed to assign"); }
                             }}
                             className={`shrink-0 w-36 rounded-lg border text-[11px] py-0.5 px-1.5 transition ${
                               task.isCompleted ? "border-slate-100 bg-slate-50 text-slate-400 cursor-default" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 cursor-pointer"

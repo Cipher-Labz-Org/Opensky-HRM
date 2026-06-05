@@ -1,5 +1,6 @@
 "use client";
 
+import { appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
@@ -152,7 +153,7 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
       kids.length > 0
         ? `Delete "${dept.name}"? Sub-departments must be reassigned or removed first. This action cannot be undone.`
         : `Delete department "${dept.name}"? This cannot be undone.`;
-    if (!window.confirm(msg)) return;
+    if (!(await appConfirm(msg))) return;
     setDeletingId(dept.id);
     setNotice(null);
     try {

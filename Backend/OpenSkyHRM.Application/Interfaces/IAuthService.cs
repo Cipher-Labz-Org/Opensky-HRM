@@ -15,5 +15,6 @@ public interface IAuthService
     Task<List<UserListDto>> GetUsersAsync();
     Task<UserListDto?> GetUserByIdAsync(Guid id);
     Task<List<SecurityRoleDto>> GetRolesAsync();
+    Task<SecurityRoleDto> CreateRoleAsync(CreateRoleDto dto);
     Task<SecurityRoleDto?> UpdateRolePermissionsAsync(Guid roleId, UpdateRolePermissionsDto dto);
 }

@@ -179,13 +179,27 @@ public class EmployeeService : IEmployeeService
 
     public async Task<EmployeeDto> CreateAsync(CreateEmployeeDto dto)
     {
+        InputValidators.ValidatePersonName(dto.FirstName, "First name");
+        InputValidators.ValidatePersonName(dto.MiddleName, "Middle name", required: false);
+        InputValidators.ValidatePersonName(dto.LastName, "Last name");
+        InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
+        InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
+        InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
+        InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
+        InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
+
+        if (dto.DepartmentId == Guid.Empty)
+            throw new InvalidOperationException("Department is required.");
+
         var code = string.IsNullOrWhiteSpace(dto.EmployeeCode)
             ? await _settings.GenerateNextEmployeeCodeAsync()
-            : dto.EmployeeCode;
+            : dto.EmployeeCode.Trim();
 
         var resolvedEmail = string.IsNullOrWhiteSpace(dto.Email)
             ? $"{SanitizeForNoEmailLocalPart(code)}@employee.noemail.opensky.hrm"
             : dto.Email.Trim();
+
+        await EmployeeUniqueness.ValidateForCreateAsync(_db, code, resolvedEmail);
 
         var employee = new Employee
         {
@@ -250,10 +264,17 @@ public class EmployeeService : IEmployeeService
         _db.Employees.Add(employee);
         await _db.SaveChangesAsync();
 
-        var calendarYear = DateTime.UtcNow.Year;
-        await _entitlementService.CalculateAndApplyAsync(employee.Id, calendarYear);
-        if (employee.JoinDate.Year != calendarYear)
-            await _entitlementService.CalculateAndApplyAsync(employee.Id, employee.JoinDate.Year);
+        try
+        {
+            var calendarYear = DateTime.UtcNow.Year;
+            await _entitlementService.CalculateAndApplyAsync(employee.Id, calendarYear);
+            if (employee.JoinDate.Year != calendarYear)
+                await _entitlementService.CalculateAndApplyAsync(employee.Id, employee.JoinDate.Year);
+        }
+        catch
+        {
+            // Leave balances can be recalculated from Leave admin; do not roll back the hire.
+        }
 
         return (await GetByIdAsync(employee.Id))!;
     }
@@ -263,15 +284,26 @@ public class EmployeeService : IEmployeeService
         var employee = await _db.Employees.FindAsync(id);
         if (employee is null) return null;
 
+        InputValidators.ValidatePersonName(dto.FirstName, "First name");
+        InputValidators.ValidatePersonName(dto.MiddleName, "Middle name", required: false);
+        InputValidators.ValidatePersonName(dto.LastName, "Last name");
+        InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
+        InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
+        InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
+        InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
+        InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
+
         var snapJoin = employee.JoinDate;
         var snapEmploymentType = employee.EmploymentType;
         var snapProbationEnd = employee.ProbationEndDate;
         var snapPermanency = employee.DateOfPermanency;
 
+        await EmployeeUniqueness.ValidateEmailForUpdateAsync(_db, id, dto.Email);
+
         employee.FirstName = dto.FirstName;
         employee.MiddleName = dto.MiddleName;
         employee.LastName = dto.LastName;
-        employee.Email = dto.Email;
+        employee.Email = dto.Email.Trim();
         employee.Phone = dto.Phone;
         employee.DateOfBirth = dto.DateOfBirth;
         employee.Gender = Enum.Parse<Gender>(dto.Gender, true);
@@ -348,9 +380,23 @@ public class EmployeeService : IEmployeeService
     public async Task<bool> DeleteAsync(Guid id)
     {
         var employee = await _db.Employees.FindAsync(id);
-        if (employee is null) return false;
+        if (employee is null || employee.IsDeleted) return false;
+
+        var status = employee.Status?.Trim() ?? "";
+        if (!string.Equals(status, "Terminated", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(status, "Retired", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Only terminated or retired employees can be deleted.");
+        }
 
         employee.IsDeleted = true;
+        employee.Email = EmployeeUniqueness.ArchiveEmail(employee.Id, employee.Email);
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.EmployeeId == id && !u.IsDeleted);
+        if (user is not null)
+            user.IsActive = false;
+
         await _db.SaveChangesAsync();
         return true;
     }

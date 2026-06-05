@@ -367,6 +367,30 @@ public class AuthService : IAuthService
             .ToListAsync();
     }
 
+    public async Task<SecurityRoleDto> CreateRoleAsync(CreateRoleDto dto)
+    {
+        var name = (dto.Name ?? "").Trim();
+        if (string.IsNullOrEmpty(name))
+            throw new InvalidOperationException("Role name is required.");
+
+        var code = NormalizeRoleCode(string.IsNullOrWhiteSpace(dto.Code) ? name : dto.Code!);
+        if (await _db.SecurityRoles.AnyAsync(r => !r.IsDeleted && r.Code == code))
+            throw new InvalidOperationException($"A role with code '{code}' already exists.");
+
+        var role = new SecurityRole
+        {
+            Name = name,
+            Code = code,
+            Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim(),
+            IsSystemRole = false
+        };
+        _db.SecurityRoles.Add(role);
+        await _db.SaveChangesAsync();
+
+        var roles = await GetRolesAsync();
+        return roles.First(r => r.Id == role.Id);
+    }
+
     public async Task<SecurityRoleDto?> UpdateRolePermissionsAsync(Guid roleId, UpdateRolePermissionsDto dto)
     {
         var role = await _db.SecurityRoles
@@ -395,6 +419,14 @@ public class AuthService : IAuthService
 
         var roles = await GetRolesAsync();
         return roles.FirstOrDefault(r => r.Id == roleId);
+    }
+
+    private static string NormalizeRoleCode(string raw)
+    {
+        var code = raw.Trim().ToUpperInvariant();
+        code = System.Text.RegularExpressions.Regex.Replace(code, @"[^A-Z0-9]+", "_");
+        code = code.Trim('_');
+        return string.IsNullOrEmpty(code) ? "ROLE" : code;
     }
 
     private (string token, DateTime expiresAt) GenerateJwt(User user)

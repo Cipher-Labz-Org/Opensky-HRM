@@ -113,6 +113,13 @@ public class UpdateRolePermissionsDto
     public List<PermissionDto> Permissions { get; set; } = new();
 }
 
+public class CreateRoleDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Code { get; set; }
+    public string? Description { get; set; }
+}
+
 public class AvailableModuleDto
 {
     public string Module { get; set; } = string.Empty;

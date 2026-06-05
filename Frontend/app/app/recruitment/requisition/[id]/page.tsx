@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { PersonNameInput, PhoneInput } from "@/components/ui";
+import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/date-utils";
 import { ROUTES } from "@/config/routes";
@@ -146,7 +148,7 @@ export default function RequisitionDetailPage() {
   const [applyFirst, setApplyFirst] = useState("");
   const [applyLast, setApplyLast] = useState("");
   const [applyEmail, setApplyEmail] = useState("");
-  const [applyPhoneLocal, setApplyPhoneLocal] = useState("");
+  const [applyPhone, setApplyPhone] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeDrag, setResumeDrag] = useState(false);
   const [applySubmitting, setApplySubmitting] = useState(false);
@@ -205,16 +207,15 @@ export default function RequisitionDetailPage() {
       setApplyMessage({ ok: false, text: "Please upload your resume as a PDF." });
       return;
     }
-    if (!applyFirst.trim() || !applyLast.trim() || !applyEmail.trim() || !applyPhoneLocal.trim()) {
+    if (!applyFirst.trim() || !applyLast.trim() || !applyEmail.trim() || !applyPhone.trim()) {
       setApplyMessage({ ok: false, text: "Please fill in all required fields." });
       return;
     }
-    const digits = applyPhoneLocal.replace(/\D/g, "");
-    if (digits.length < 8) {
-      setApplyMessage({ ok: false, text: "Enter a valid phone number (digits after +94)." });
+    if (!isValidPhone(applyPhone, true)) {
+      setApplyMessage({ ok: false, text: PHONE_VALIDATION_MESSAGE });
       return;
     }
-    const fullPhone = `+94${digits}`;
+    const fullPhone = applyPhone.trim();
     setApplySubmitting(true);
     try {
       const fd = new FormData();
@@ -251,7 +252,7 @@ export default function RequisitionDetailPage() {
       setApplyFirst("");
       setApplyLast("");
       setApplyEmail("");
-      setApplyPhoneLocal("");
+      setApplyPhone("");
       setResumeFile(null);
       await load();
     } catch (err) {
@@ -486,7 +487,7 @@ export default function RequisitionDetailPage() {
                     <span className="mb-1.5 block text-sm font-medium text-slate-800">
                       First name <span className="text-red-500">*</span>
                     </span>
-                    <input
+                    <PersonNameInput
                       value={applyFirst}
                       onChange={(e) => setApplyFirst(e.target.value)}
                       className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -498,7 +499,7 @@ export default function RequisitionDetailPage() {
                     <span className="mb-1.5 block text-sm font-medium text-slate-800">
                       Last name <span className="text-red-500">*</span>
                     </span>
-                    <input
+                    <PersonNameInput
                       value={applyLast}
                       onChange={(e) => setApplyLast(e.target.value)}
                       className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -526,23 +527,14 @@ export default function RequisitionDetailPage() {
                   <span className="mb-1.5 block text-sm font-medium text-slate-800">
                     Phone number <span className="text-red-500">*</span>
                   </span>
-                  <div className="flex rounded-lg border border-slate-200 bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
-                    <span className="flex shrink-0 items-center gap-1.5 border-r border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
-                      <span className="text-lg leading-none" title="Sri Lanka">
-                        🇱🇰
-                      </span>
-                      +94
-                    </span>
-                    <input
-                      value={applyPhoneLocal}
-                      onChange={(e) => setApplyPhoneLocal(e.target.value)}
-                      placeholder="77 123 4567"
-                      className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-sm text-slate-900 outline-none"
-                      autoComplete="tel-national"
-                      required
-                    />
-                  </div>
-                  <p className="mt-1.5 text-xs text-slate-500">The hiring team may use this number to contact you about this job.</p>
+                  <PhoneInput
+                    value={applyPhone}
+                    onChange={(e) => setApplyPhone(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    autoComplete="tel"
+                    required
+                  />
+                  <p className="mt-1.5 text-xs text-slate-500">Examples: +94112876663 or 0762535363 (8–15 digits).</p>
                 </label>
 
                 {applyMessage ? (

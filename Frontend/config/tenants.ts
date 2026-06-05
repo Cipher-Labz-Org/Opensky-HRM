@@ -5,7 +5,7 @@
  * When provisioning a new company:
  *   1. Add hostname → apiUrl in tenant-backends.json
  *   2. Add metadata entry below in TENANT_META
- *   3. Create PostgreSQL DB + IIS site; copy appsettings.Production.*.example.json
+ *   3. Create PostgreSQL DB + IIS site; copy appsettings.Production.*.example.json (e.g. DonAndSon)
  *   4. DNS + Vercel domain
  */
 
@@ -30,6 +30,10 @@ const TENANT_META: Record<string, Omit<TenantConfig, "apiUrl">> = {
   "tasty.openskyhrm.com": {
     companyId: "tasty",
     companyName: "Tasty",
+  },
+  "donandson.openskyhrm.com": {
+    companyId: "donandson",
+    companyName: "Don & Son",
   },
 };
 

@@ -2,17 +2,10 @@
 
 import * as React from "react";
 import { Suspense } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
-import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
-
-export type BirthdaysCompanyNoticesWidgetProps = {
-  /** Base URL for in-widget “View all” links; must include `#birthdays-notices` when used on that anchor. */
-  scrollAnchorHref?: string;
-};
 
 type BirthdayPerson = {
   employeeId: string;
@@ -195,50 +188,6 @@ function ChevronRight({ className }: { className?: string }) {
   );
 }
 
-/** Split `/path?query#anchor` — pathname excludes query string (for same-route checks). */
-function hubHrefParts(href: string): { pathname: string; hashId: string | null } {
-  const hashI = href.indexOf("#");
-  const beforeHash = hashI >= 0 ? href.slice(0, hashI) : href;
-  const rawHash = hashI >= 0 ? href.slice(hashI + 1).replace(/^#/, "") : "";
-  const hashId = rawHash.length > 0 ? rawHash : null;
-  const qI = beforeHash.indexOf("?");
-  const pathname = qI >= 0 ? beforeHash.slice(0, qI) : beforeHash;
-  return { pathname, hashId };
-}
-
-function BirthdaysHubLink({
-  href,
-  className,
-  children,
-}: {
-  href: string;
-  className: string;
-  children: React.ReactNode;
-}) {
-  const router = useRouter();
-  const { pathname, hashId } = hubHrefParts(href);
-
-  const handleClick = React.useCallback(
-    (e: React.MouseEvent<HTMLAnchorElement>) => {
-      if (!hashId || typeof window === "undefined") return;
-      if (window.location.pathname !== pathname) return;
-      e.preventDefault();
-      const tail = href.startsWith(pathname) ? href.slice(pathname.length) : "";
-      router.replace(`${pathname}${tail}`, { scroll: false });
-      window.setTimeout(() => {
-        document.getElementById(hashId)?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 120);
-    },
-    [hashId, href, pathname, router],
-  );
-
-  return (
-    <Link href={href} scroll={false} onClick={handleClick} className={className}>
-      {children}
-    </Link>
-  );
-}
-
 function sortNoticesForDisplay(items: NoticeItem[]): NoticeItem[] {
   const wishRank = (c: string) => (c === "BirthdayWish" || c === "BirthdayWishReply" ? 0 : 1);
   return [...items].sort((a, b) => {
@@ -249,7 +198,7 @@ function sortNoticesForDisplay(items: NoticeItem[]): NoticeItem[] {
   });
 }
 
-function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompanyNoticesWidgetProps) {
+function BirthdaysCompanyNoticesWidgetInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -527,7 +476,6 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
     }
   }
 
-  const hubHref = scrollAnchorHref ?? `${ROUTES.employeeProfile}#birthdays-notices`;
   const hasUnreadNotices = notices.some((n) => !n.readAt);
   const noticesUnreadCount = notices.filter((n) => !n.readAt).length;
   const canSendWishesToOthers = today.some((p) => !(myEmployeeId && p.employeeId === myEmployeeId));
@@ -994,20 +942,13 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
             </div>
           ) : null}
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-5 py-3.5 sm:px-6">
+          <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3.5 sm:px-6">
             <p className="flex min-w-0 items-center gap-2 text-sm text-slate-600">
               <span className="text-base text-violet-600" aria-hidden>
                 📅
               </span>
               <span>Never miss a moment that matters.</span>
             </p>
-            <BirthdaysHubLink
-              href={hubHref}
-              className="inline-flex shrink-0 items-center gap-1 text-sm font-bold text-violet-700 hover:text-violet-900 hover:underline"
-            >
-              View All
-              <ChevronRight className="h-4 w-4" />
-            </BirthdaysHubLink>
           </div>
         </>
       )}
@@ -1015,7 +956,7 @@ function BirthdaysCompanyNoticesWidgetInner({ scrollAnchorHref }: BirthdaysCompa
   );
 }
 
-export function BirthdaysCompanyNoticesWidget(props: BirthdaysCompanyNoticesWidgetProps) {
+export function BirthdaysCompanyNoticesWidget() {
   return (
     <Suspense
       fallback={
@@ -1026,7 +967,7 @@ export function BirthdaysCompanyNoticesWidget(props: BirthdaysCompanyNoticesWidg
         </section>
       }
     >
-      <BirthdaysCompanyNoticesWidgetInner {...props} />
+      <BirthdaysCompanyNoticesWidgetInner />
     </Suspense>
   );
 }

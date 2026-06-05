@@ -1,5 +1,6 @@
 "use client";
 
+import { appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
@@ -623,7 +624,7 @@ function AttendanceListTab() {
   }
 
   async function handleDelete(rec: AttendanceRecord) {
-    if (!confirm(`Delete attendance record for ${rec.employeeName} on ${fmtDate(rec.date)}?`)) return;
+    if (!(await appConfirm(`Delete attendance record for ${rec.employeeName} on ${fmtDate(rec.date)}?`))) return;
     try {
       await apiFetch(`/api/attendance/${rec.id}`, { method: "DELETE" });
       load();
@@ -884,7 +885,7 @@ function DevicesTab() {
   }
 
   async function deleteDevice(d: BiometricDevice) {
-    if (!confirm(`Delete device "${d.name}"?`)) return;
+    if (!(await appConfirm(`Delete device "${d.name}"?`))) return;
     try { await apiFetch(`/api/biometric/devices/${d.id}`, { method: "DELETE" }); loadDevices(); }
     catch (err) { setError(err instanceof Error ? err.message : "Delete failed"); }
   }
@@ -1308,7 +1309,7 @@ function ShiftsTab() {
   }
 
   async function handleDelete(item: ShiftItem) {
-    if (!confirm(`Delete shift "${item.name}"? This will fail if any employee is assigned to it.`)) return;
+    if (!(await appConfirm(`Delete shift "${item.name}"? This will fail if any employee is assigned to it.`))) return;
     setError(null);
     try {
       await apiFetch(`/api/shift/${item.id}`, { method: "DELETE" });
@@ -1755,7 +1756,7 @@ function RosterTab() {
   }
 
   async function deleteTemplate(t: RosterTemplateItem) {
-    if (!confirm(`Delete roster template "${t.name}"?`)) return;
+    if (!(await appConfirm(`Delete roster template "${t.name}"?`))) return;
     setError(null);
     try { await apiFetch(`/api/roster/templates/${t.id}`, { method: "DELETE" }); loadTemplates(); }
     catch (err) { setError(err instanceof Error ? err.message : "Delete failed"); }
@@ -1782,7 +1783,7 @@ function RosterTab() {
   }
 
   async function deleteAssignment(a: RosterAssignmentItem) {
-    if (!confirm(`Remove roster assignment for ${a.employeeName}?`)) return;
+    if (!(await appConfirm(`Remove roster assignment for ${a.employeeName}?`))) return;
     setError(null);
     try { await apiFetch(`/api/roster/assignments/${a.id}`, { method: "DELETE" }); loadAssignments(); }
     catch (err) { setError(err instanceof Error ? err.message : "Delete failed"); }
