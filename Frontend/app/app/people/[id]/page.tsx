@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
 import { COUNTRY_NAMES, NATIONALITY_NAMES } from "@/lib/people-form-lists";
 import { apiFetch } from "@/lib/api";
+import { getSystemSetting } from "@/lib/system-settings";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { API_BASE_URL } from "@/config/constants";
@@ -1060,9 +1061,10 @@ export default function EmployeeDetailPage() {
         setBenefitSpousal(b.spousalCoverage);
         setBenefitDeps(b.dependentsCovered);
       }).catch(() => {});
-      if (settings.EmployeeDashboardWidgets) {
+      const dashboardWidgetsJson = getSystemSetting(settings, "EmployeeDashboardWidgets");
+      if (dashboardWidgetsJson) {
         try {
-          const saved = JSON.parse(settings.EmployeeDashboardWidgets) as string[];
+          const saved = JSON.parse(dashboardWidgetsJson) as string[];
           if (!saved.includes("about")) {
             saved.unshift("about");
             apiFetch("/api/system-settings/EmployeeDashboardWidgets", {

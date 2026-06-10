@@ -43,6 +43,7 @@ public class OrganizationService : IOrganizationService
     {
         var dept = await _db.Departments
             .Include(d => d.ParentDepartment)
+            .Include(d => d.BusinessUnit)
             .Include(d => d.Employees)
             .FirstOrDefaultAsync(d => d.Id == id);
 
@@ -56,6 +57,8 @@ public class OrganizationService : IOrganizationService
             Description = dept.Description,
             ParentDepartmentId = dept.ParentDepartmentId,
             ParentDepartmentName = dept.ParentDepartment?.Name,
+            BusinessUnitId = dept.BusinessUnitId,
+            BusinessUnitName = dept.BusinessUnit?.Name,
             EmployeeCount = dept.Employees.Count(e => !e.IsDeleted),
         };
     }

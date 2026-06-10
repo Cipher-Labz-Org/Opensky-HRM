@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { DatePickerField } from "@/components/ui";
 import { FormSelect } from "@/components/ui/FormSelect";
 import { apiFetch } from "@/lib/api";
+import { getSystemSetting } from "@/lib/system-settings";
 
 interface Lookup {
   id: string;
@@ -107,7 +108,7 @@ export function CreateEmployeeModal({
       const ess = (fetchedRoles as RoleLookup[]).find((r) => r.code === "EMPLOYEE");
       if (ess) setEssRoleId(ess.id);
 
-      const isAuto = (settings as Record<string, string>).EmployeeCodeAutoGenerate !== "false";
+      const isAuto = getSystemSetting(settings as Record<string, string>, "EmployeeCodeAutoGenerate") !== "false";
       setAutoGenerate(isAuto);
       if (isAuto) {
         apiFetch<{ code: string }>("/api/system-settings/next-employee-code")

@@ -237,17 +237,6 @@ const PAGE_TABS: { key: PageTab; label: string }[] = [
   { key: "calendar", label: "Team Calendar" },
 ];
 
-/** Subtitles for overflow menu — same tone as Dashboard “Quick actions” */
-const OVERFLOW_TAB_HINTS: Partial<Record<PageTab, string>> = {
-  balances: "Entitlements and usage by employee",
-  carryForward: "Roll remaining days into a new year",
-  assignLeaveType: "Create a balance line for an employee and leave type",
-  leaveTypes: "Paid, unpaid, and custom leave categories",
-  policies: "Approvals, limits, and carry-forward rules",
-  holidays: "Company holidays and restricted dates",
-  calendar: "Team leave on a shared calendar",
-};
-
 const EMPLOYEE_TABS: { key: PageTab; label: string }[] = [
   { key: "applyLeave", label: "Apply Leave" },
   { key: "requests", label: "My Leave" },
@@ -325,16 +314,7 @@ export default function LeavePage() {
 
   return (
     <>
-      <AppTopbar
-        title="Leave & Absence"
-        subtitle={
-          isEmployeeView
-            ? "Apply leave and view your leave requests."
-            : isSupervisorView
-              ? "Apply leave, view your requests, and approve team leave."
-              : "Manage leave requests, balances, policies, holidays, and team calendars."
-        }
-      />
+      <AppTopbar title="Leave & Absence" />
 
       {/* ─── Tab Navigation (Command Center–style pills; overflow panel matches Dashboard “Quick actions”) ─── */}
       <div className="relative z-40 isolate mt-6 mb-6 flex flex-wrap items-center gap-2">
@@ -378,7 +358,6 @@ export default function LeavePage() {
                 <div className="grid gap-0.5 px-1">
                   {overflowTabs.map((t) => {
                     const active = pageTab === t.key;
-                    const hint = OVERFLOW_TAB_HINTS[t.key];
                     return (
                       <button
                         key={t.key}
@@ -388,24 +367,17 @@ export default function LeavePage() {
                           setPageTab(t.key);
                           setShowMoreMenu(false);
                         }}
-                        className={`group flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left transition ${
+                        className={`group flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition ${
                           active
                             ? "bg-indigo-50/80 text-indigo-900"
                             : "text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
                         }`}
                       >
-                        <div className="min-w-0">
-                          <div className={`truncate text-sm ${active ? "font-semibold text-indigo-900" : "font-medium text-slate-700 group-hover:text-indigo-900"}`}>
-                            {t.label}
-                          </div>
-                          {hint ? (
-                            <div className={`mt-0.5 line-clamp-2 text-xs ${active ? "text-indigo-700/80" : "text-slate-500 group-hover:text-indigo-700/80"}`}>
-                              {hint}
-                            </div>
-                          ) : null}
+                        <div className={`min-w-0 truncate text-sm ${active ? "font-semibold text-indigo-900" : "font-medium text-slate-700 group-hover:text-indigo-900"}`}>
+                          {t.label}
                         </div>
                         <span
-                          className={`mt-0.5 shrink-0 transition group-hover:translate-x-0.5 ${active ? "text-indigo-700" : "text-slate-400 group-hover:text-indigo-700"}`}
+                          className={`shrink-0 transition group-hover:translate-x-0.5 ${active ? "text-indigo-700" : "text-slate-400 group-hover:text-indigo-700"}`}
                           aria-hidden
                         >
                           →
@@ -557,11 +529,11 @@ function DashboardTab({
     ];
   }, [dash]);
 
-  const quickLinks: { tab: PageTab; title: string; sub: string }[] = [
-    { tab: "applyLeave", title: "Apply leave", sub: "Submit a new leave request" },
-    { tab: "requests", title: "Leave requests", sub: "Review and track submissions" },
-    { tab: "balances", title: "Leave balances", sub: "Entitlements and usage by employee" },
-    { tab: "holidays", title: "Holidays", sub: "Company holidays and restricted days" },
+  const quickLinks: { tab: PageTab; title: string }[] = [
+    { tab: "applyLeave", title: "Apply leave" },
+    { tab: "requests", title: "Leave requests" },
+    { tab: "balances", title: "Leave balances" },
+    { tab: "holidays", title: "Holidays" },
   ];
 
   if (dashLoading) {
@@ -600,18 +572,13 @@ function DashboardTab({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Leave activity</h3>
-            <span className="text-xs text-slate-500">Last 7 days</span>
           </div>
           <WeeklyActivityBars data={activityLast7Days} />
-          <p className="mt-2 text-[11px] text-slate-500">
-            Counts from recently submitted leave in the dashboard payload.
-          </p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Recent leave by status</h3>
-            <span className="text-xs text-slate-500">Sample</span>
           </div>
           {leaveStatusBars.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">No recent requests in the sample.</p>
@@ -623,7 +590,6 @@ function DashboardTab({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Status mix</h3>
-            <span className="text-xs text-slate-500">Same window</span>
           </div>
           {leaveStatusBars.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">No distribution data.</p>
@@ -638,7 +604,6 @@ function DashboardTab({
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-base font-semibold text-slate-900">Recent leave</h3>
-              <p className="text-xs text-slate-500">Latest submissions and statuses</p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
@@ -682,7 +647,6 @@ function DashboardTab({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
-            <p className="text-xs text-slate-500">Jump to common leave workflows</p>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
             {quickLinks.map((link) => (
@@ -705,11 +669,6 @@ function DashboardTab({
           </div>
         </div>
       </div>
-
-      <p className="footer-note">
-        Figures come from the leave dashboard API. Charts aggregate the recent-request sample; open Leave Requests for the
-        full ledger.
-      </p>
     </>
   );
 }

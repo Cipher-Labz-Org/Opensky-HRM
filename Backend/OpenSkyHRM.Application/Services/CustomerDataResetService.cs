@@ -108,7 +108,7 @@ public class CustomerDataResetService : ICustomerDataResetService
 
                 if (toTruncate.Length > 0)
                 {
-                    var truncateSql = CustomerDataResetSqlBuilder.BuildTransactionTruncateSql(toTruncate, cascade: false);
+                    var truncateSql = CustomerDataResetSqlBuilder.BuildTransactionTruncateSql(toTruncate, cascade: true);
                     await _db.Database.ExecuteSqlRawAsync(truncateSql, cancellationToken);
                 }
 

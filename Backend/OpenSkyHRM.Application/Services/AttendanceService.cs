@@ -636,7 +636,7 @@ public class AttendanceService : IAttendanceService
                     }
                     if (a.PunchOut.HasValue && shift.Session2EndTime.HasValue)
                     {
-                        var s2End = a.Date.Date + shift.Session2EndTime.Value;
+                        var s2End = ShiftAttendanceCalculator.ResolveSession2EndDateTime(shift, a.Date);
                         if (a.PunchOut.Value < s2End.AddMinutes(-shift.EarlyDepartureGraceMinutes))
                         {
                             isEarlyDeparture = true;
@@ -700,21 +700,8 @@ public class AttendanceService : IAttendanceService
         };
     }
 
-    private ShiftPattern? ResolveShiftPattern(Employee emp, List<RosterAssignment> rosters, DateTime date)
-    {
-        var roster = rosters
-            .Where(ra => ra.EmployeeId == emp.Id && ra.EffectiveFrom <= date && (ra.EffectiveTo == null || ra.EffectiveTo >= date))
-            .OrderByDescending(ra => ra.EffectiveFrom)
-            .FirstOrDefault();
-
-        if (roster?.RosterTemplate?.DefaultShiftPattern != null)
-            return roster.RosterTemplate.DefaultShiftPattern;
-
-        if (emp.ShiftPattern != null)
-            return emp.ShiftPattern;
-
-        return null;
-    }
+    private ShiftPattern? ResolveShiftPattern(Employee emp, List<RosterAssignment> rosters, DateTime date) =>
+        ShiftAttendanceCalculator.ResolveShiftPattern(emp, rosters, date);
 
     private (TimeSpan? start, TimeSpan? end, decimal hoursPerDay) GetExpectedShift(Employee emp, List<RosterAssignment> rosters, DateTime date)
     {
@@ -752,54 +739,6 @@ public class AttendanceService : IAttendanceService
     }
 
     private static (bool applies, TimeSpan? start, TimeSpan? end, decimal hours) GetShiftTimesForDate(
-        ShiftPattern shift, DateTime date, TimeSpan defaultStart, TimeSpan defaultEnd, decimal? defaultHours)
-    {
-        var day = date.DayOfWeek;
-        var applies = day switch
-        {
-            DayOfWeek.Monday => shift.AppliesOnMonday,
-            DayOfWeek.Tuesday => shift.AppliesOnTuesday,
-            DayOfWeek.Wednesday => shift.AppliesOnWednesday,
-            DayOfWeek.Thursday => shift.AppliesOnThursday,
-            DayOfWeek.Friday => shift.AppliesOnFriday,
-            DayOfWeek.Saturday => shift.AppliesOnSaturday,
-            DayOfWeek.Sunday => shift.AppliesOnSunday,
-            _ => false
-        };
-        if (!applies)
-            return (false, defaultStart, defaultEnd, 0);
-
-        TimeSpan? dayStart = day switch
-        {
-            DayOfWeek.Monday => shift.MondayStartTime,
-            DayOfWeek.Tuesday => shift.TuesdayStartTime,
-            DayOfWeek.Wednesday => shift.WednesdayStartTime,
-            DayOfWeek.Thursday => shift.ThursdayStartTime,
-            DayOfWeek.Friday => shift.FridayStartTime,
-            DayOfWeek.Saturday => shift.SaturdayStartTime,
-            DayOfWeek.Sunday => shift.SundayStartTime,
-            _ => null
-        };
-        TimeSpan? dayEnd = day switch
-        {
-            DayOfWeek.Monday => shift.MondayEndTime,
-            DayOfWeek.Tuesday => shift.TuesdayEndTime,
-            DayOfWeek.Wednesday => shift.WednesdayEndTime,
-            DayOfWeek.Thursday => shift.ThursdayEndTime,
-            DayOfWeek.Friday => shift.FridayEndTime,
-            DayOfWeek.Saturday => shift.SaturdayEndTime,
-            DayOfWeek.Sunday => shift.SundayEndTime,
-            _ => null
-        };
-
-        if (dayStart.HasValue && dayEnd.HasValue)
-        {
-            var hours = (decimal)(dayEnd.Value - dayStart.Value).TotalHours - shift.BreakHours;
-            return (true, dayStart, dayEnd, Math.Max(0, hours));
-        }
-        if (defaultHours.HasValue)
-            return (true, defaultStart, defaultEnd, defaultHours.Value);
-        var fullHours = (decimal)(defaultEnd - defaultStart).TotalHours - shift.BreakHours;
-        return (true, defaultStart, defaultEnd, Math.Max(0, fullHours));
-    }
+        ShiftPattern shift, DateTime date, TimeSpan defaultStart, TimeSpan defaultEnd, decimal? defaultHours) =>
+        ShiftAttendanceCalculator.GetShiftTimesForDate(shift, date, defaultStart, defaultEnd, defaultHours);
 }

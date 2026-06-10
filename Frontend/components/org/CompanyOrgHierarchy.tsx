@@ -18,18 +18,39 @@ type Props = {
   deletingId?: string | null;
 };
 
-/** Departments that belong to a BU tree: roots assigned to the BU plus all descendants. */
+/**
+ * Departments for a business-unit column (or the unassigned bucket when businessUnitId is null).
+ * - Uses explicit BusinessUnitId when set; otherwise inherits from the parent chain.
+ * - Includes nested departments (not only top-level roots with a BU).
+ * - Roots in the chart are nodes whose parent is outside this bucket.
+ */
 function departmentForestForBu(all: OrgChartDepartment[], businessUnitId: string | null): OrgChartDepartment[] {
-  const roots = all.filter(
-    (d) => (d.businessUnitId ?? null) === businessUnitId && !d.parentDepartmentId
-  );
-  const included = new Set<string>();
+  const buKey = businessUnitId ?? null;
+  const byId = new Map(all.map((d) => [d.id, d]));
 
+  function effectiveBuId(d: OrgChartDepartment): string | null {
+    if (d.businessUnitId) return d.businessUnitId;
+    if (d.parentDepartmentId) {
+      const parent = byId.get(d.parentDepartmentId);
+      if (parent) return effectiveBuId(parent);
+    }
+    return null;
+  }
+
+  const inBucket = all.filter((d) => effectiveBuId(d) === buKey);
+  if (inBucket.length === 0) return [];
+
+  const bucketIds = new Set(inBucket.map((d) => d.id));
+  const roots = inBucket.filter(
+    (d) => !d.parentDepartmentId || !bucketIds.has(d.parentDepartmentId)
+  );
+
+  const included = new Set<string>();
   function walk(id: string) {
     if (included.has(id)) return;
     included.add(id);
     for (const c of all) {
-      if (c.parentDepartmentId === id) walk(c.id);
+      if (c.parentDepartmentId === id && bucketIds.has(c.id)) walk(c.id);
     }
   }
 
@@ -103,8 +124,8 @@ export function CompanyOrgHierarchy({
                     />
                   ) : (
                     <div className="mt-2 max-w-xs rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-xs text-slate-500">
-                      No departments linked to this unit. Create a department and choose this business unit, or set{" "}
-                      <strong>Parent</strong> under a root that is already linked here.
+                      No departments for this unit. Edit a department and set <strong>Business unit</strong> to{" "}
+                      {bu.name}, or place it under a parent that already belongs to this unit.
                     </div>
                   )}
                 </div>

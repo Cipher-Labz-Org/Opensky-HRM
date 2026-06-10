@@ -147,10 +147,7 @@ export default function AttendancePage() {
 
   return (
     <>
-      <AppTopbar
-        title="Time & Attendance"
-        subtitle="Shift patterns, rosters, mobile/web punch, biometrics integration, overtime, and anomaly detection."
-      />
+      <AppTopbar title="Time & Attendance" />
 
       <div className="mt-6 mb-6 flex flex-wrap items-center gap-2">
         {PAGE_TABS.map((t) => (
@@ -281,38 +278,32 @@ function DashboardTab({
       summary.averageWorkHours != null && Number.isFinite(summary.averageWorkHours)
         ? summary.averageWorkHours.toFixed(1)
         : "—";
-    const denom = Math.max(1, summary.totalPresent + summary.totalAbsent);
-    const presentRate = Math.round((summary.totalPresent / denom) * 100);
     return [
       {
         label: "Present (incl. late)",
         value: formatInt(summary.totalPresent),
-        sub: `${presentRate}% of present + absent records today`,
       },
       {
         label: "Late arrivals",
         value: formatInt(summary.totalLate),
-        sub: "Marked late for today’s window",
       },
       {
         label: "Absent",
         value: formatInt(summary.totalAbsent),
-        sub: "No check-in for scheduled work",
       },
       {
         label: "Avg. work hours",
         value: avg,
-        sub: "Mean recorded hours where punches exist",
       },
     ];
   }, [summary]);
 
-  const quickLinks: { tab: PageTab; title: string; sub: string }[] = [
-    { tab: "shifts", title: "Shifts", sub: "Shift patterns and timings" },
-    { tab: "roster", title: "Roster", sub: "Assignments and coverage" },
-    { tab: "attendance", title: "Attendance log", sub: "Punch history and corrections" },
-    { tab: "devices", title: "Devices", sub: "Biometric and integration endpoints" },
-    { tab: "ot-nopay", title: "OT / No-pay", sub: "Overtime and unpaid time rules" },
+  const quickLinks: { tab: PageTab; title: string }[] = [
+    { tab: "shifts", title: "Shifts" },
+    { tab: "roster", title: "Roster" },
+    { tab: "attendance", title: "Attendance log" },
+    { tab: "devices", title: "Devices" },
+    { tab: "ot-nopay", title: "OT / No-pay" },
   ];
 
   const timelineItems = useMemo(
@@ -361,16 +352,13 @@ function DashboardTab({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Check-in volume</h3>
-            <span className="text-xs text-slate-500">Last 7 days</span>
           </div>
           <WeeklyActivityBars data={weekActivity} />
-          <p className="mt-2 text-[11px] text-slate-500">Daily count of present + late records from the attendance summary API.</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Today’s mix</h3>
-            <span className="text-xs text-slate-500">By status</span>
           </div>
           {statusBars.every((x) => x.value === 0) ? (
             <p className="py-8 text-center text-sm text-slate-500">No attendance rows for today yet.</p>
@@ -382,7 +370,6 @@ function DashboardTab({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Status distribution</h3>
-            <span className="text-xs text-slate-500">Today</span>
           </div>
           {donutValues.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">No distribution data.</p>
@@ -392,37 +379,11 @@ function DashboardTab({
         </div>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-slate-800">Capture channels</h3>
-          <span className="text-xs text-slate-500">Supported</span>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {[
-            ["Biometric devices", "Fingerprint / face terminals"],
-            ["Mobile geo-punch", "Field and remote workers"],
-            ["Web punch", "Desk and back office"],
-          ].map(([t, s]) => (
-            <div
-              key={t}
-              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 text-slate-700"
-            >
-              <div>
-                <div className="font-semibold text-slate-800">{t}</div>
-                <div className="text-xs text-slate-500">{s}</div>
-              </div>
-              <span className="shrink-0 text-emerald-600">✓</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-base font-semibold text-slate-900">Recent punches</h3>
-              <p className="text-xs text-slate-500">Latest activity for today (where available)</p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
@@ -466,7 +427,6 @@ function DashboardTab({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
-            <p className="text-xs text-slate-500">Jump to time and attendance workflows</p>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
             {quickLinks.map((link) => (
@@ -489,11 +449,6 @@ function DashboardTab({
           </div>
         </div>
       </div>
-
-      <p className="footer-note">
-        Summary and charts use today’s date in your browser timezone. Weekly bars call the attendance summary API per day;
-        open Attendance for filtered history and exports.
-      </p>
     </>
   );
 }
@@ -1491,8 +1446,7 @@ function ShiftsTab() {
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <h4 className="mb-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Applicable Days</h4>
-            <p className="mb-3 text-xs text-slate-500">Select which days this shift applies. Optionally set custom start/end times per day (e.g. 7h or 4h); leave blank to use default times above.</p>
+            <h4 className="mb-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Applicable Days</h4>
             <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
               <table className="w-full min-w-[420px] text-sm">
                 <thead>
@@ -1952,7 +1906,6 @@ function RosterTab() {
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div className="border-b border-slate-100 px-6 py-4">
             <h2 className="text-[15px] font-bold text-slate-700">Roster templates</h2>
-            <p className="mt-1 text-xs text-slate-500">Default times, hours per day, optional link to a shift pattern.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2020,7 +1973,6 @@ function RosterTab() {
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div className="border-b border-slate-100 px-6 py-4">
             <h2 className="text-[15px] font-bold text-slate-700">Roster assignments</h2>
-            <p className="mt-1 text-xs text-slate-500">Date ranges must not overlap for the same employee.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2071,24 +2023,20 @@ function RosterTab() {
               <option value="">None</option>
               {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
             </select>
-            <p className="mt-1 text-xs text-slate-500">When set, start/end times and work hours are taken from the shift.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelClass}>{tplShiftId ? "Default start" : "Default start *"}</label>
               <input type="time" value={tplStart} onChange={(e) => setTplStart(e.target.value)} readOnly={!!tplShiftId} className={inputClass} />
-              {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
             </div>
             <div>
               <label className={labelClass}>{tplShiftId ? "Default end" : "Default end *"}</label>
               <input type="time" value={tplEnd} onChange={(e) => setTplEnd(e.target.value)} readOnly={!!tplShiftId} className={inputClass} />
-              {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
             </div>
           </div>
           <div>
             <label className={labelClass}>Work hours per day</label>
             <input type="number" min={0} step={0.25} value={tplHours} onChange={(e) => setTplHours(Number(e.target.value) || 0)} readOnly={!!tplShiftId} className={inputClass} />
-            {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-600"><input name="isActive" type="checkbox" defaultChecked={editingTpl?.isActive ?? true} className="h-4 w-4 rounded border-slate-300" /> Active</label>
           <div className="flex justify-end gap-3 pt-2">
