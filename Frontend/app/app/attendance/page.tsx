@@ -1827,7 +1827,7 @@ function RosterTab() {
     setBulkSelectedIds(new Set());
     setBulkDeptFilter("");
     setBulkLocFilter("");
-    setBulkSearch("");
+    bulkSearchFilter.clear();
     setError(null);
     setSuccessMsg(null);
     setBulkModal(true);
