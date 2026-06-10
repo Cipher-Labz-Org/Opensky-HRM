@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
@@ -10,6 +10,9 @@ import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
 import { type EmploymentTypeCatalogItem, employmentTypeDisplayName } from "@/lib/employment-types";
 import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
+import { Modal } from "@/components/ui/Modal";
+import { ListAutocompleteInput, SectionRecordHeaderActions } from "@/components/ui";
+import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 
 function dash(v: string | null | undefined): string {
   const s = v?.trim();
@@ -163,6 +166,12 @@ interface SkillItem {
   comments: string | null;
 }
 
+interface SkillMasterItem {
+  id: string;
+  name: string;
+  isActive?: boolean;
+}
+
 interface EmployeeCertRow {
   id: string;
   certificationName: string;
@@ -269,16 +278,32 @@ const labelCls =
   "text-[11px] font-semibold uppercase tracking-wider text-slate-400";
 const valueCls = "mt-0.5 text-sm font-medium text-slate-800";
 
-function BioSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+function BioSection({
+  id,
+  title,
+  children,
+  headerExtra,
+}: {
+  id: string;
+  title: string;
+  children: ReactNode;
+  headerExtra?: ReactNode;
+}) {
   return (
     <section id={id} className={`${card} scroll-mt-36`}>
-      <div className={cardHead}>
+      <div className={`${cardHead} flex items-center justify-between gap-3`}>
         <h2 className={cardTitle}>{title}</h2>
+        {headerExtra}
       </div>
       <div className="p-5 sm:p-6">{children}</div>
     </section>
   );
 }
+
+const skillInputClass =
+  "w-full rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition-all duration-200 " +
+  "placeholder:text-slate-400 hover:border-slate-300 hover:shadow " +
+  "focus:border-indigo-500 focus:shadow-md focus:shadow-indigo-500/5 focus:ring-[3px] focus:ring-indigo-500/20";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -330,7 +355,7 @@ function DataTable({
 }
 
 export default function EmployeeProfilePage() {
-  const { user, isLoading: authLoading, getPeopleReadScope } = useAuth();
+  const { user, isLoading: authLoading, getPeopleReadScope, hasPermission } = useAuth();
   const employeeId = user?.employeeId ?? null;
   const peopleScope = getPeopleReadScope();
   const canSearchOthers = peopleScope === "Team" || peopleScope === "All";
@@ -345,6 +370,9 @@ export default function EmployeeProfilePage() {
   const dirSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectiveEmployeeId = selectedEmployeeId ?? employeeId;
+  const isOwnProfile = !!employeeId && effectiveEmployeeId === employeeId;
+  const canManageSkills =
+    isOwnProfile && (hasPermission("People", "Create") || hasPermission("People", "Update"));
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -353,6 +381,17 @@ export default function EmployeeProfilePage() {
   const [dependents, setDependents] = useState<DependentItem[]>([]);
   const [educations, setEducations] = useState<EducationItem[]>([]);
   const [skills, setSkills] = useState<SkillItem[]>([]);
+  const [showSkillModal, setShowSkillModal] = useState(false);
+  const [skillSaving, setSkillSaving] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<SkillItem | null>(null);
+  const [skillName, setSkillName] = useState("");
+  const [skillYears, setSkillYears] = useState("");
+  const [skillComments, setSkillComments] = useState("");
+  const [skillMasterList, setSkillMasterList] = useState<SkillMasterItem[]>([]);
+  const skillCatalogNames = useMemo(
+    () => skillMasterList.map((s) => s.name).sort((a, b) => a.localeCompare(b)),
+    [skillMasterList],
+  );
   const [certRows, setCertRows] = useState<EmployeeCertRow[]>([]);
   const [languages, setLanguages] = useState<LanguageItem[]>([]);
   const [workExperiences, setWorkExperiences] = useState<WorkExperienceItem[]>([]);
@@ -444,6 +483,10 @@ export default function EmployeeProfilePage() {
       setImmDocs(idocs);
       setBenefit(ben);
 
+      apiFetch<SkillMasterItem[]>("/api/employees/skills-catalog")
+        .then((rows) => setSkillMasterList(rows.filter((r) => r.isActive !== false)))
+        .catch(() => setSkillMasterList([]));
+
       try {
         const mx = await apiFetch<
           { id: string; skillName: string; proficiencyLevel: number; assessedAt: string | null; notes: string | null }[]
@@ -459,6 +502,67 @@ export default function EmployeeProfilePage() {
       setLoading(false);
     }
   }, []);
+
+  function openSkillModal(sk?: SkillItem) {
+    if (sk) {
+      setEditingSkill(sk);
+      setSkillName(sk.skill);
+      setSkillYears(sk.yearsOfExperience ?? "");
+      setSkillComments(sk.comments ?? "");
+    } else {
+      setEditingSkill(null);
+      setSkillName("");
+      setSkillYears("");
+      setSkillComments("");
+    }
+    setShowSkillModal(true);
+  }
+
+  function closeSkillModal() {
+    setShowSkillModal(false);
+    setEditingSkill(null);
+  }
+
+  async function saveSkill() {
+    if (!effectiveEmployeeId || !skillName.trim()) return;
+    setSkillSaving(true);
+    try {
+      const body = {
+        skill: skillName.trim(),
+        yearsOfExperience: skillYears || null,
+        comments: skillComments || null,
+      };
+      if (editingSkill) {
+        const updated = await apiFetch<SkillItem>(
+          `/api/employees/${effectiveEmployeeId}/skills/${editingSkill.id}`,
+          { method: "PUT", body: JSON.stringify(body) },
+        );
+        setSkills((prev) => prev.map((s) => (s.id === editingSkill.id ? updated : s)));
+      } else {
+        const created = await apiFetch<SkillItem>(`/api/employees/${effectiveEmployeeId}/skills`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        setSkills((prev) => [created, ...prev]);
+      }
+      closeSkillModal();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Failed to save skill");
+    } finally {
+      setSkillSaving(false);
+    }
+  }
+
+  async function deleteSkill(skillId: string) {
+    if (!effectiveEmployeeId) return;
+    if (!(await appConfirm("Delete this skill?"))) return;
+    try {
+      await apiFetch(`/api/employees/${effectiveEmployeeId}/skills/${skillId}`, { method: "DELETE" });
+      setSkills((prev) => prev.filter((s) => s.id !== skillId));
+    } catch {
+      /* ignore */
+    }
+  }
 
   useEffect(() => {
     apiFetch<EmploymentTypeCatalogItem[]>("/api/organization/employment-statuses")
@@ -843,7 +947,7 @@ export default function EmployeeProfilePage() {
             <Field label="ZIP / postal">{dash(emp.zipPostalCode)}</Field>
             <Field label="Country">{dash(emp.country)}</Field>
             <Field label="Polling division">{dash(emp.pollingDivision)}</Field>
-            <Field label="Distance to office">{dash(emp.distanceToOffice)}</Field>
+            <Field label="Distance to Office(KM)">{dash(emp.distanceToOffice)}</Field>
             <Field label="Mode of transport">{dash(emp.modeOfTransport)}</Field>
           </div>
           <h3 className="mb-4 text-xs font-bold uppercase tracking-wide text-slate-400">Permanent address</h3>
@@ -856,7 +960,7 @@ export default function EmployeeProfilePage() {
             <Field label="ZIP / postal">{dash(emp.permanentZipPostalCode)}</Field>
             <Field label="Country">{dash(emp.permanentCountry)}</Field>
             <Field label="Polling division">{dash(emp.permanentPollingDivision)}</Field>
-            <Field label="Distance to office">{dash(emp.permanentDistanceToOffice)}</Field>
+            <Field label="Distance to Office(KM)">{dash(emp.permanentDistanceToOffice)}</Field>
           </div>
         </BioSection>
 
@@ -972,20 +1076,78 @@ export default function EmployeeProfilePage() {
           />
         </BioSection>
 
-        <BioSection id="bio-skills" title="Skills">
-          <DataTable
-            empty="No skills listed."
-            columns={[
-              { key: "skill", header: "Skill" },
-              { key: "yrs", header: "Years" },
-              { key: "note", header: "Comments" },
-            ]}
-            rows={skills.map((r) => ({
-              skill: r.skill,
-              yrs: dash(r.yearsOfExperience),
-              note: dash(r.comments),
-            }))}
-          />
+        <BioSection
+          id="bio-skills"
+          title="Skills"
+          headerExtra={
+            canManageSkills ? (
+              <SectionRecordHeaderActions count={skills.length} onAdd={() => openSkillModal()} addTitle="Add skill" />
+            ) : undefined
+          }
+        >
+          {skills.length === 0 ? (
+            <p className="text-sm text-slate-400">{canManageSkills ? "No skills added." : "No skills listed."}</p>
+          ) : canManageSkills ? (
+            <div className="overflow-x-auto rounded-xl border border-slate-100">
+              <table className="w-full min-w-[520px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200/80 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-2.5">Skill</th>
+                    <th className="px-4 py-2.5">Years</th>
+                    <th className="px-4 py-2.5">Comments</th>
+                    <th className="px-4 py-2.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {skills.map((r) => (
+                    <tr key={r.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+                      <td className="px-4 py-2.5 font-medium text-slate-800">{r.skill}</td>
+                      <td className="px-4 py-2.5 text-slate-700">{dash(r.yearsOfExperience)}</td>
+                      <td className="max-w-xs truncate px-4 py-2.5 text-slate-700">{dash(r.comments)}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openSkillModal(r)}
+                            className="text-slate-500 transition hover:text-amber-600"
+                            title="Edit"
+                          >
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteSkill(r.id)}
+                            className="text-slate-400 transition hover:text-red-600"
+                            title="Delete"
+                          >
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <DataTable
+              empty="No skills listed."
+              columns={[
+                { key: "skill", header: "Skill" },
+                { key: "yrs", header: "Years" },
+                { key: "note", header: "Comments" },
+              ]}
+              rows={skills.map((r) => ({
+                skill: r.skill,
+                yrs: dash(r.yearsOfExperience),
+                note: dash(r.comments),
+              }))}
+            />
+          )}
         </BioSection>
 
         <BioSection id="bio-certs" title="Certifications">
@@ -1255,6 +1417,63 @@ export default function EmployeeProfilePage() {
           )}
         </BioSection>
       </div>
+
+      <Modal open={showSkillModal} onClose={closeSkillModal} title="">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-700">{editingSkill ? "Edit Skill" : "Add Skill"}</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Pick a skill from the list or type any skill name that is not listed yet.
+          </p>
+          <div className="mt-3 grid gap-x-6 gap-y-4 border-t border-slate-200 pt-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-slate-600">
+                Skill<span className="text-red-500">*</span>
+              </label>
+              <ListAutocompleteInput
+                name="skillName"
+                value={skillName}
+                onChange={setSkillName}
+                options={skillCatalogNames}
+                className={skillInputClass}
+                placeholder={skillCatalogNames.length ? "Choose from list or type a skill" : "Type a skill name"}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-600">Years of Experience</label>
+              <input value={skillYears} onChange={(e) => setSkillYears(e.target.value)} className={skillInputClass} />
+            </div>
+          </div>
+          <div className="mt-4">
+            <label className="mb-1 block text-sm font-semibold text-slate-600">Comments</label>
+            <textarea
+              value={skillComments}
+              onChange={(e) => setSkillComments(e.target.value)}
+              rows={4}
+              className={skillInputClass + " resize-y"}
+            />
+          </div>
+          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+            <span className="text-xs text-red-400">* Required</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={closeSkillModal}
+                className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveSkill()}
+                disabled={!skillName.trim() || skillSaving}
+                className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50"
+              >
+                {skillSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }

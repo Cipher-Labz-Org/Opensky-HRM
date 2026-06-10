@@ -109,6 +109,31 @@ public class LearningService : ILearningService
         return new SkillDto { Id = entity.Id, Name = entity.Name, Category = entity.Category };
     }
 
+    public async Task<SkillDto?> UpdateSkillAsync(Guid id, CreateSkillRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.Skills.FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+        if (entity is null)
+            return null;
+
+        entity.Name = request.Name.Trim();
+        entity.Category = string.IsNullOrWhiteSpace(request.Category) ? null : request.Category.Trim();
+        entity.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        entity.IsActive = request.IsActive;
+        await _db.SaveChangesAsync(cancellationToken);
+        return new SkillDto { Id = entity.Id, Name = entity.Name, Category = entity.Category };
+    }
+
+    public async Task<bool> DeleteSkillAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.Skills.FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+        if (entity is null)
+            return false;
+        entity.IsDeleted = true;
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     public async Task<List<SkillMatrixDto>> GetSkillMatrixAsync(IReadOnlyList<Guid>? allowedEmployeeIds,
         Guid? employeeId = null, CancellationToken cancellationToken = default)
     {

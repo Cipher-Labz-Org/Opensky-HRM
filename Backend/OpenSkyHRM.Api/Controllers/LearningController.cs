@@ -87,6 +87,25 @@ public class LearningController : ControllerBase
         return Ok(await _learningService.CreateSkillAsync(request, cancellationToken));
     }
 
+    [HttpPut("skills/{id:guid}")]
+    public async Task<IActionResult> UpdateSkill(Guid id, [FromBody] CreateSkillRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!LearningAccessHelper.CanManageLearningCatalog(User))
+            return Forbid();
+        var updated = await _learningService.UpdateSkillAsync(id, request, cancellationToken);
+        return updated is null ? NotFound() : Ok(updated);
+    }
+
+    [HttpDelete("skills/{id:guid}")]
+    public async Task<IActionResult> DeleteSkill(Guid id, CancellationToken cancellationToken)
+    {
+        if (!LearningAccessHelper.CanManageLearningCatalog(User))
+            return Forbid();
+        var ok = await _learningService.DeleteSkillAsync(id, cancellationToken);
+        return ok ? NoContent() : NotFound();
+    }
+
     [HttpGet("skill-matrix")]
     public async Task<IActionResult> GetSkillMatrix([FromQuery] Guid? employeeId = null,
         CancellationToken cancellationToken = default)
@@ -188,6 +207,13 @@ public class LearningController : ControllerBase
     [HttpGet("certification-summaries")]
     public async Task<IActionResult> GetCertificationSummaries(CancellationToken cancellationToken)
         => Ok(await _certificationService.GetCertificationSummariesAsync(cancellationToken));
+
+    [HttpGet("employee-certifications")]
+    public async Task<IActionResult> GetEmployeeCertifications(CancellationToken cancellationToken = default)
+    {
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        return Ok(await _certificationService.GetAllEmployeeCertificationsAsync(allowedIds, cancellationToken));
+    }
 
     [HttpGet("skill-coverage")]
     public async Task<IActionResult> GetSkillCoverage(CancellationToken cancellationToken)

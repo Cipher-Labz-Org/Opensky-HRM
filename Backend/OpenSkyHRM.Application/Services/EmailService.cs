@@ -56,8 +56,26 @@ public class EmailService : IEmailService
         Task.FromResult(OutboundEmailConfiguration.IsEmailProviderConfigured(_config));
 
     public async Task SendOfferEmailAsync(string toEmail, string candidateName, string positionTitle,
-        decimal salary, string currency, DateTime? joiningDate, string? remarks)
+        decimal salary, string currency, DateTime? joiningDate, string? remarks, string? customLetterHtml = null)
     {
+        if (!string.IsNullOrWhiteSpace(customLetterHtml))
+        {
+            var posEncoded = WebUtility.HtmlEncode(positionTitle);
+            var subjReplacements = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["{{PositionTitle}}"] = posEncoded,
+            };
+            var offerSubject = $"Offer of Employment – {posEncoded}";
+            var (resolvedSubject, _) = await ResolveTransactionalEmailAsync(
+                TransactionalEmailTemplateSeeder.RecruitmentOfferKey,
+                subjReplacements,
+                offerSubject,
+                subjReplacements,
+                () => "");
+            await SendHtmlEmailAsync(toEmail, candidateName, resolvedSubject, customLetterHtml, CategoryRecruitmentOffer);
+            return;
+        }
+
         var encName = WebUtility.HtmlEncode(candidateName);
         var encPos = WebUtility.HtmlEncode(positionTitle);
         var salaryFormatted = WebUtility.HtmlEncode($"{currency} {salary:N0}");

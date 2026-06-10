@@ -5,7 +5,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField } from "@/components/ui";
+import { DatePickerField, TablePagination } from "@/components/ui";
+import { useClientPagination } from "@/lib/use-client-pagination";
 import { FormSelect } from "@/components/ui/FormSelect";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
@@ -58,6 +59,7 @@ export default function PerformancePage() {
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [cycleAppraisals, setCycleAppraisals] = useState<AppraisalDto[]>([]);
+  const cycleAppraisalsPager = useClientPagination(cycleAppraisals);
 
   // Modals
   const [showScaleModal, setShowScaleModal] = useState(false);
@@ -662,7 +664,7 @@ export default function PerformancePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {cycleAppraisals.map((a) => {
+                      {cycleAppraisalsPager.pageItems.map((a) => {
                         const selfR = a.reviewers.find((r) => r.reviewerType === "Self");
                         const mgrR = a.reviewers.find((r) => r.reviewerType === "Manager");
                         return (
@@ -697,6 +699,7 @@ export default function PerformancePage() {
                     </tbody>
                   </table>
                 </div>
+                <TablePagination page={cycleAppraisalsPager.page} totalPages={cycleAppraisalsPager.totalPages} totalCount={cycleAppraisalsPager.totalCount} pageSize={cycleAppraisalsPager.pageSize} onPageChange={cycleAppraisalsPager.setPage} />
                 {cycleAppraisals.length === 0 && (
                   <div className="py-12 text-center text-sm text-slate-400">
                     No appraisals in this cycle yet. Activate the cycle to generate them.

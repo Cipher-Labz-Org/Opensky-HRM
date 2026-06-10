@@ -4,10 +4,11 @@ import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { FormSelect, type FormSelectOption } from "@/components/ui";
+import { FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 
 interface UserItem {
   id: string;
@@ -83,17 +84,26 @@ export default function UserManagementPage() {
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
+  const searchFilter = useApplyFilter();
   const [filterRole, setFilterRole] = useState("");
   const [filterStatus, setFilterStatus] = useState<"" | "active" | "disabled">("");
   const [activeSection, setActiveSection] = useState<"users" | "roles">("users");
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 20;
 
   async function loadData() {
     setLoading(true);
     setLoadError("");
     try {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (searchFilter.applied) params.set("search", searchFilter.applied);
+      if (filterRole) params.set("role", filterRole);
+      if (filterStatus === "active") params.set("isActive", "true");
+      if (filterStatus === "disabled") params.set("isActive", "false");
+
       const [u, r, e, loc, bu, gr, jt] = await Promise.all([
-        apiFetch<UserItem[]>("/api/user"),
+        apiFetch<{ items: UserItem[]; totalCount: number }>(`/api/user?${params}`),
         apiFetch<RoleItem[]>("/api/auth/roles"),
         apiFetch<{ items: EmpLookup[] }>("/api/employees?pageSize=500"),
         apiFetch<OrgLocation[]>("/api/organization/locations").catch(() => [] as OrgLocation[]),
@@ -101,7 +111,8 @@ export default function UserManagementPage() {
         apiFetch<OrgGrade[]>("/api/organization/grades").catch(() => [] as OrgGrade[]),
         apiFetch<OrgLocation[]>("/api/organization/job-titles").catch(() => [] as OrgLocation[]),
       ]);
-      setUsers(u);
+      setUsers(u.items ?? []);
+      setTotalCount(u.totalCount ?? 0);
       setRoles(r);
       setEmployees(e.items || []);
       setLocations(loc);
@@ -114,7 +125,7 @@ export default function UserManagementPage() {
     setLoading(false);
   }
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { void loadData(); }, [page, searchFilter.applied, filterRole, filterStatus]);
 
   function openCreate() {
     setEditUser(null);
@@ -240,19 +251,7 @@ export default function UserManagementPage() {
     );
   }
 
-  const filteredUsers = users.filter((u) => {
-    if (search) {
-      const q = search.toLowerCase();
-      const match = u.username.toLowerCase().includes(q)
-        || u.email.toLowerCase().includes(q)
-        || (u.employeeName && u.employeeName.toLowerCase().includes(q));
-      if (!match) return false;
-    }
-    if (filterRole && !u.roles.includes(filterRole)) return false;
-    if (filterStatus === "active" && !u.isActive) return false;
-    if (filterStatus === "disabled" && u.isActive) return false;
-    return true;
-  });
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const filterRoleOptions = useMemo<FormSelectOption[]>(
     () => [{ value: "", label: "All Roles" }, ...roles.map((r) => ({ value: r.name, label: r.name }))],
@@ -415,9 +414,15 @@ export default function UserManagementPage() {
               <div className="relative flex-1 min-w-[200px]">
                 <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
                 <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by username, email, or employee name..."
+                  value={searchFilter.input}
+                  onChange={(e) => searchFilter.setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      searchFilter.apply();
+                      setPage(1);
+                    }
+                  }}
+                  placeholder="Search username, email, or name… (Enter)"
                   className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
                 />
               </div>
@@ -425,7 +430,7 @@ export default function UserManagementPage() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Role</span>
                 <FormSelect
                   value={filterRole}
-                  onValueChange={setFilterRole}
+                  onValueChange={(v) => { setFilterRole(v); setPage(1); }}
                   options={filterRoleOptions}
                   placeholder="All Roles"
                 />
@@ -434,21 +439,21 @@ export default function UserManagementPage() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
                 <FormSelect
                   value={filterStatus}
-                  onValueChange={(v) => setFilterStatus(v as "" | "active" | "disabled")}
+                  onValueChange={(v) => { setFilterStatus(v as "" | "active" | "disabled"); setPage(1); }}
                   options={filterStatusOptions}
                   placeholder="All Status"
                 />
               </div>
-              {(search || filterRole || filterStatus) && (
+              {(searchFilter.hasApplied || filterRole || filterStatus) && (
                 <button
                   type="button"
-                  onClick={() => { setSearch(""); setFilterRole(""); setFilterStatus(""); }}
+                  onClick={() => { searchFilter.clear(); setFilterRole(""); setFilterStatus(""); setPage(1); }}
                   className="rounded-lg px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-white hover:text-slate-800"
                 >
                   Clear filters
                 </button>
               )}
-              <span className="text-xs text-slate-400">{filteredUsers.length} of {users.length}</span>
+              <span className="text-xs text-slate-400">{totalCount} user(s)</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -466,7 +471,7 @@ export default function UserManagementPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredUsers.map((u) => (
+                  {users.map((u) => (
                     <tr key={u.id} className="border-b border-slate-50 transition hover:bg-slate-50/70">
                       <td className="px-6 py-3 font-medium text-slate-800">{u.username}</td>
                       <td className="px-6 py-3 text-slate-600">{u.email}</td>
@@ -527,12 +532,19 @@ export default function UserManagementPage() {
                       </td>
                     </tr>
                   ))}
-                  {filteredUsers.length === 0 && (
+                  {users.length === 0 && (
                     <tr><td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-400">{users.length === 0 ? "No users found." : "No users match your search."}</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              page={page}
+              totalPages={totalPages}
+              totalCount={totalCount}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+            />
           </div>
         )}
 

@@ -30,6 +30,7 @@ interface Employee {
   locationName: string | null;
   isTopOfHierarchy: boolean;
   hasDirectSupervisor: boolean;
+  needsProfileSetup: boolean;
   profileImageUrl: string | null;
   joinDate: string;
   terminationDate: string | null;
@@ -224,25 +225,18 @@ export default function PeoplePage() {
     loadEmployees(appliedFilters, page, activeOnly, sortBy, sortAsc);
   }, [appliedFilters, page, activeOnly, sortBy, sortAsc, loadEmployees]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const next = { ...emptyFilters, search: quickSearch.trim() };
-      setAppliedFilters(next);
-      setPage(1);
-    }, 350);
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickSearch]);
-
   function handleQuickSearch() {
-    const next = { ...emptyFilters, search: quickSearch };
+    const next = { ...emptyFilters, search: quickSearch.trim() };
     setFilters(next);
     setAppliedFilters(next);
+    setQuickSearch("");
     setPage(1);
+    setShowSuggestions(false);
   }
 
   function handleSearch() {
     setAppliedFilters({ ...filters });
+    setFilters(emptyFilters);
     setPage(1);
     setShowFilters(false);
   }
@@ -378,12 +372,12 @@ export default function PeoplePage() {
           <div className="relative" ref={searchRef}>
             <input
               type="text"
-              placeholder="Search employees..."
+              placeholder="Search employees… (Enter)"
               className="w-[280px] rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-[13px] text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               value={quickSearch}
               onChange={(e) => { setQuickSearch(e.target.value); setShowSuggestions(true); }}
               onFocus={() => setShowSuggestions(true)}
-              onKeyDown={(e) => { if (e.key === "Enter") { setShowSuggestions(false); handleQuickSearch(); } if (e.key === "Escape") setShowSuggestions(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { handleQuickSearch(); } if (e.key === "Escape") setShowSuggestions(false); }}
             />
             <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -589,6 +583,11 @@ export default function PeoplePage() {
           </p>
         ) : (
           <>
+            {employees.some((e) => e.needsProfileSetup) && (
+              <div className="border-b border-amber-200/80 bg-amber-50 px-5 py-2.5 text-xs text-amber-900">
+                New hires converted from recruitment are listed first. Complete job title, location, and supervisor to clear the highlight.
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
@@ -611,7 +610,11 @@ export default function PeoplePage() {
                       <tr
                         key={emp.id}
                         onClick={() => router.push(`/app/people/${emp.id}`)}
-                        className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-blue-50/40"
+                        className={`cursor-pointer border-b transition-colors ${
+                          emp.needsProfileSetup
+                            ? "border-amber-200/80 bg-amber-50/90 hover:bg-amber-100/70"
+                            : "border-slate-100 hover:bg-blue-50/40"
+                        }`}
                       >
                         <td className="py-2 pl-5 pr-1">
                           {emp.profileImageUrl ? (
@@ -635,7 +638,12 @@ export default function PeoplePage() {
                                 <svg className="h-3 w-3 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005Z" clipRule="evenodd" /></svg>
                               </span>
                             )}
-                            {!emp.isTopOfHierarchy && !emp.hasDirectSupervisor && (
+                            {emp.needsProfileSetup && (
+                              <span title="New hire from recruitment — complete job title, work location, and direct supervisor" className="inline-flex shrink-0">
+                                <svg className="h-3 w-3 text-amber-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                              </span>
+                            )}
+                            {!emp.needsProfileSetup && !emp.isTopOfHierarchy && !emp.hasDirectSupervisor && (
                               <span title="No direct supervisor assigned" className="inline-flex shrink-0">
                                 <svg className="h-3 w-3 text-amber-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
                               </span>

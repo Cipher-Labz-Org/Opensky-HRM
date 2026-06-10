@@ -9,7 +9,9 @@ import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } f
 import { API_BASE_URL } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { useClientPagination } from "@/lib/use-client-pagination";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 
 interface Component {
   id: string; name: string; code: string; type: string; category: string;
@@ -497,6 +499,8 @@ function ComponentsTab() {
     load();
   }
 
+  const componentsPager = useClientPagination(components);
+
   if (loading) return <Loading />;
 
   return (
@@ -517,7 +521,7 @@ function ComponentsTab() {
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr></thead>
             <tbody>
-              {components.map(c => (
+              {componentsPager.pageItems.map(c => (
                 <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50/50">
                   <td className="px-4 py-3 font-medium text-slate-700">{c.name}</td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.code}</td>
@@ -537,6 +541,7 @@ function ComponentsTab() {
               ))}
             </tbody>
           </table>
+          <TablePagination page={componentsPager.page} totalPages={componentsPager.totalPages} totalCount={componentsPager.totalCount} pageSize={componentsPager.pageSize} onPageChange={componentsPager.setPage} />
         </div>
       )}
 
@@ -622,7 +627,7 @@ interface SalaryEmployee { id: string; firstName: string; lastName: string; empl
 function EmployeeSalaryTab() {
   const [allEmployees, setAllEmployees] = useState<SalaryEmployee[]>([]);
   const [listLoading, setListLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const searchFilter = useApplyFilter();
   const [filterDept, setFilterDept] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
@@ -683,8 +688,8 @@ function EmployeeSalaryTab() {
         if (filterDept && e.department !== filterDept) return false;
         if (filterGrade && e.grade !== filterGrade) return false;
         if (filterLocation && e.location !== filterLocation) return false;
-        if (search) {
-          const q = search.toLowerCase();
+        if (searchFilter.applied) {
+          const q = searchFilter.applied.toLowerCase();
           if (
             !e.firstName.toLowerCase().includes(q) &&
             !e.lastName.toLowerCase().includes(q) &&
@@ -694,7 +699,7 @@ function EmployeeSalaryTab() {
         }
         return true;
       }),
-    [allEmployees, filterDept, filterGrade, filterLocation, search]
+    [allEmployees, filterDept, filterGrade, filterLocation, searchFilter.applied]
   );
 
   const selectEmployee = useCallback((emp: SalaryEmployee) => {
@@ -729,9 +734,12 @@ function EmployeeSalaryTab() {
             inputCls +
             " !mb-0 rounded-lg border-slate-200/90 bg-white shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400"
           }
-          placeholder="Search name or code..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search name or code… (Enter)"
+          value={searchFilter.input}
+          onChange={(e) => searchFilter.setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") searchFilter.apply();
+          }}
         />
         <div className="flex min-w-0 gap-2">
           <div className="min-w-0 flex-1">
@@ -1363,7 +1371,7 @@ function VariableEntryTab() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editedAmounts, setEditedAmounts] = useState<Record<string, string>>({});
-  const [search, setSearch] = useState("");
+  const searchFilter = useApplyFilter();
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
@@ -1445,8 +1453,8 @@ function VariableEntryTab() {
   }
 
   const filtered = entries.filter(e => {
-    if (!search) return true;
-    const s = search.toLowerCase();
+    if (!searchFilter.applied) return true;
+    const s = searchFilter.applied.toLowerCase();
     return e.employeeName.toLowerCase().includes(s) || e.employeeCode.toLowerCase().includes(s)
       || e.componentName.toLowerCase().includes(s) || e.department.toLowerCase().includes(s);
   });
@@ -1478,7 +1486,15 @@ function VariableEntryTab() {
         </div>
         <div className="min-w-[200px]">
           <label className={labelCls}>Search</label>
-          <input className={inputCls} placeholder="Name, code, department..." value={search} onChange={e => setSearch(e.target.value)} />
+          <input
+            className={inputCls}
+            placeholder="Name, code, department..."
+            value={searchFilter.input}
+            onChange={(e) => searchFilter.setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") searchFilter.apply();
+            }}
+          />
         </div>
         <div className="ml-auto flex items-center gap-2">
           {dirtyCount > 0 && (
@@ -1577,6 +1593,7 @@ function PayrollRunTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  const batchesPager = useClientPagination(batches);
 
   async function handleAction(batchId: string, action: string) {
     setActionLoading(batchId);
@@ -1634,7 +1651,7 @@ function PayrollRunTab() {
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr></thead>
             <tbody>
-              {batches.map(b => (
+              {batchesPager.pageItems.map(b => (
                 <tr key={b.id} className="border-b border-slate-50 hover:bg-slate-50/50">
                   <td className="px-4 py-3">
                     <button onClick={() => viewBatchDetails(b)} className="font-medium text-blue-600 hover:underline">{b.batchCode}</button>
@@ -1665,6 +1682,7 @@ function PayrollRunTab() {
               ))}
             </tbody>
           </table>
+          <TablePagination page={batchesPager.page} totalPages={batchesPager.totalPages} totalCount={batchesPager.totalCount} pageSize={batchesPager.pageSize} onPageChange={batchesPager.setPage} />
         </div>
       )}
 
@@ -1802,7 +1820,7 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
   const [employees, setEmployees] = useState<EligibleEmployee[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
+  const searchFilter = useApplyFilter();
   const [filterDept, setFilterDept] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
@@ -1851,8 +1869,8 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
     if (filterDept && e.department !== filterDept) return false;
     if (filterGrade && e.grade !== filterGrade) return false;
     if (filterLocation && e.location !== filterLocation) return false;
-    if (!search) return true;
-    const q = search.toLowerCase();
+    if (!searchFilter.applied) return true;
+    const q = searchFilter.applied.toLowerCase();
     return e.firstName.toLowerCase().includes(q) || e.lastName.toLowerCase().includes(q)
       || e.employeeCode.toLowerCase().includes(q) || e.department.toLowerCase().includes(q);
   });
@@ -1953,8 +1971,15 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
       {step === 2 && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <input className={inputCls + " !mb-0 min-w-[180px] flex-1"} placeholder="Search name or code..."
-              value={search} onChange={e => setSearch(e.target.value)} />
+            <input
+              className={inputCls + " !mb-0 min-w-[180px] flex-1"}
+              placeholder="Search name or code… (Enter)"
+              value={searchFilter.input}
+              onChange={(e) => searchFilter.setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") searchFilter.apply();
+              }}
+            />
             <div className="w-auto min-w-[140px] shrink-0">
               <FormSelect
                 value={filterDept}

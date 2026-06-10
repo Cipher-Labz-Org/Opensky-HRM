@@ -76,6 +76,11 @@ public class EmployeeDto
     public string? ProfileImageUrl { get; set; }
     public bool IsTopOfHierarchy { get; set; }
     public bool HasDirectSupervisor { get; set; }
+    /// <summary>True for employees converted from recruitment who still need job title, location, or supervisor.</summary>
+    public bool NeedsProfileSetup { get; set; }
+    public Guid? ShiftPatternId { get; set; }
+    public string? ShiftPatternName { get; set; }
+    public string? ShiftPatternCode { get; set; }
 }
 
 public class CreateEmployeeDto

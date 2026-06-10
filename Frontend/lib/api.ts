@@ -1,4 +1,5 @@
 import { API_BASE_URL, getApiBaseUrl, getAssetBaseUrl } from "@/config/constants";
+import { formatApiErrorBody } from "@/lib/api-errors";
 
 export { getAssetBaseUrl };
 
@@ -16,6 +17,39 @@ const DEFAULT_API_TIMEOUT_MS = 45_000;
 function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("auth_token");
+}
+
+function parseHttpErrorMessage(text: string, status: number, endpoint: string): string {
+  let errorMessage = `API ${status}: ${text}`;
+  try {
+    const parsed = JSON.parse(text) as {
+      message?: string;
+      title?: string;
+      detail?: string;
+      code?: string;
+      module?: string;
+      errors?: Record<string, string[] | string>;
+    };
+    if (parsed.code === "MODULE_NOT_LICENSED") {
+      errorMessage = `The "${parsed.module ?? "requested"}" module is not licensed for this instance.`;
+    } else {
+      const friendly = formatApiErrorBody(parsed);
+      if (friendly) errorMessage = friendly;
+      else if (typeof parsed.message === "string") errorMessage = parsed.message;
+      else if (typeof parsed.detail === "string") errorMessage = parsed.detail;
+      else if (typeof parsed.title === "string") errorMessage = parsed.title;
+    }
+  } catch {
+    /* use raw text */
+  }
+  if (status === 404 && !text?.trim()) {
+    errorMessage = `API 404: no route for ${endpoint}. Restart the API after pulling changes, or set NEXT_PUBLIC_API_URL to your API (using ${API_BASE_URL}).`;
+  }
+  if (status >= 500 && !text?.trim()) {
+    errorMessage =
+      "The server failed while processing this request. Deploy the latest API build or check server logs, then try again.";
+  }
+  return errorMessage;
 }
 
 export type ApiFetchOptions = RequestInit & { timeoutMs?: number; baseUrl?: string };
@@ -79,31 +113,7 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "Unknown error");
-    let errorMessage = `API ${res.status}: ${text}`;
-    try {
-      const parsed = JSON.parse(text) as {
-        message?: string;
-        title?: string;
-        detail?: string;
-        code?: string;
-        module?: string;
-      };
-      if (parsed.code === "MODULE_NOT_LICENSED") {
-        errorMessage = `The "${parsed.module ?? "requested"}" module is not licensed for this instance.`;
-      } else if (typeof parsed.message === "string") errorMessage = parsed.message;
-      else if (typeof parsed.detail === "string") errorMessage = parsed.detail;
-      else if (typeof parsed.title === "string") errorMessage = parsed.title;
-    } catch {
-      /* use raw text */
-    }
-    if (res.status === 404 && !text?.trim()) {
-      errorMessage = `API 404: no route for ${endpoint}. Restart the API after pulling changes, or set NEXT_PUBLIC_API_URL to your API (using ${API_BASE_URL}).`;
-    }
-    if (res.status >= 500 && !text?.trim()) {
-      errorMessage =
-        "The server failed while processing this request. Deploy the latest API build or check server logs, then try again.";
-    }
-    throw new Error(errorMessage);
+    throw new Error(parseHttpErrorMessage(text, res.status, endpoint));
   }
 
   if (res.status === 204) return undefined as T;
@@ -168,31 +178,7 @@ export async function publicApiFetch<T>(endpoint: string, options?: ApiFetchOpti
 
   if (!res.ok) {
     const text = await res.text().catch(() => "Unknown error");
-    let errorMessage = `API ${res.status}: ${text}`;
-    try {
-      const parsed = JSON.parse(text) as {
-        message?: string;
-        title?: string;
-        detail?: string;
-        code?: string;
-        module?: string;
-      };
-      if (parsed.code === "MODULE_NOT_LICENSED") {
-        errorMessage = `The "${parsed.module ?? "requested"}" module is not licensed for this instance.`;
-      } else if (typeof parsed.message === "string") errorMessage = parsed.message;
-      else if (typeof parsed.detail === "string") errorMessage = parsed.detail;
-      else if (typeof parsed.title === "string") errorMessage = parsed.title;
-    } catch {
-      /* use raw text */
-    }
-    if (res.status === 404 && !text?.trim()) {
-      errorMessage = `API 404: no route for ${endpoint}. Restart the API after pulling changes, or set NEXT_PUBLIC_API_URL to your API (using ${API_BASE_URL}).`;
-    }
-    if (res.status >= 500 && !text?.trim()) {
-      errorMessage =
-        "The server failed while processing this request. Deploy the latest API build or check server logs, then try again.";
-    }
-    throw new Error(errorMessage);
+    throw new Error(parseHttpErrorMessage(text, res.status, endpoint));
   }
 
   if (res.status === 204) return undefined as T;

@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Auth;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
@@ -101,6 +102,50 @@ public class AuthService : IAuthService
 
         if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
             throw new UnauthorizedAccessException("New password must be at least 6 characters.");
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+        user.MustChangePassword = false;
+        user.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<ForgotPasswordVerifyResponseDto> VerifyForgotPasswordAsync(ForgotPasswordVerifyDto dto)
+    {
+        var employeeCode = (dto.EmployeeCode ?? "").Trim();
+        var emailLower = (dto.Email ?? "").Trim().ToLowerInvariant();
+
+        if (string.IsNullOrEmpty(employeeCode) || string.IsNullOrEmpty(emailLower))
+            throw new UnauthorizedAccessException("Employee number and email do not match our records.");
+
+        var user = await FindUserForForgotPasswordAsync(employeeCode, emailLower);
+        if (user == null)
+            throw new UnauthorizedAccessException("Employee number and email do not match our records.");
+
+        if (!user.IsActive)
+            throw new UnauthorizedAccessException("Employee number and email do not match our records.");
+
+        var (token, expiresAt) = GeneratePasswordResetJwt(user.Id);
+        return new ForgotPasswordVerifyResponseDto
+        {
+            ResetToken = token,
+            ExpiresAt = expiresAt
+        };
+    }
+
+    public async Task ResetPasswordWithTokenAsync(ForgotPasswordResetDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.ResetToken))
+            throw new UnauthorizedAccessException("Password reset link has expired. Please start again.");
+
+        if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
+            throw new UnauthorizedAccessException("New password must be at least 6 characters.");
+
+        var userId = ValidatePasswordResetJwt(dto.ResetToken);
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted)
+            ?? throw new UnauthorizedAccessException("Password reset link has expired. Please start again.");
+
+        if (!user.IsActive)
+            throw new UnauthorizedAccessException("Account is disabled. Contact your administrator.");
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
         user.MustChangePassword = false;
@@ -287,15 +332,44 @@ public class AuthService : IAuthService
 
     public async Task<List<UserListDto>> GetUsersAsync()
     {
-        return await _db.Users
-            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
-            .Include(u => u.Employee)
-            .Include(u => u.AssignedLocations)
-            .Include(u => u.AssignedBusinessUnits)
-            .Include(u => u.AssignedGrades)
-            .Include(u => u.AssignedJobTitles)
-            .Where(u => !u.IsDeleted)
+        var result = await GetUsersPagedAsync(1, 200);
+        return result.Items.ToList();
+    }
+
+    public async Task<PagedResult<UserListDto>> GetUsersPagedAsync(
+        int page = 1,
+        int pageSize = 20,
+        string? search = null,
+        string? role = null,
+        bool? isActive = null)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = _db.Users
+            .AsNoTracking()
+            .Where(u => !u.IsDeleted);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(u =>
+                u.Username.ToLower().Contains(term)
+                || u.Email.ToLower().Contains(term)
+                || (u.Employee != null && (u.Employee.FirstName + " " + u.Employee.LastName).ToLower().Contains(term)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(role))
+            query = query.Where(u => u.UserRoles.Any(ur => ur.Role.Name == role));
+
+        if (isActive.HasValue)
+            query = query.Where(u => u.IsActive == isActive.Value);
+
+        var total = await query.CountAsync();
+        var items = await query
             .OrderBy(u => u.Username)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(u => new UserListDto
             {
                 Id = u.Id,
@@ -313,6 +387,14 @@ public class AuthService : IAuthService
                 AssignedJobTitleIds = u.AssignedJobTitles.Select(a => a.JobTitleId).ToList()
             })
             .ToListAsync();
+
+        return new PagedResult<UserListDto>
+        {
+            Items = items,
+            TotalCount = total,
+            Page = page,
+            PageSize = pageSize,
+        };
     }
 
     public async Task<UserListDto?> GetUserByIdAsync(Guid id)
@@ -427,6 +509,82 @@ public class AuthService : IAuthService
         code = System.Text.RegularExpressions.Regex.Replace(code, @"[^A-Z0-9]+", "_");
         code = code.Trim('_');
         return string.IsNullOrEmpty(code) ? "ROLE" : code;
+    }
+
+    private async Task<User?> FindUserForForgotPasswordAsync(string employeeCode, string emailLower)
+    {
+        var codeLower = employeeCode.ToLowerInvariant();
+        return await _db.Users
+            .Include(u => u.Employee)
+            .FirstOrDefaultAsync(u =>
+                !u.IsDeleted &&
+                u.Employee != null &&
+                !u.Employee.IsDeleted &&
+                u.Employee.EmployeeCode.ToLower() == codeLower &&
+                (
+                    (u.Email != null && u.Email.ToLower() == emailLower) ||
+                    (u.Employee.Email != null && u.Employee.Email.ToLower() == emailLower)
+                ));
+    }
+
+    private (string token, DateTime expiresAt) GeneratePasswordResetJwt(Guid userId)
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
+            _config["Jwt:Key"] ?? "OpenSkyHRM-Default-Key-256bit-ChangeMe!!"));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var expiresAt = DateTime.UtcNow.AddMinutes(15);
+
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, userId.ToString()),
+            new("purpose", "password-reset"),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: _config["Jwt:Issuer"] ?? "OpenSkyHRM",
+            audience: _config["Jwt:Audience"] ?? "OpenSkyHRM",
+            claims: claims,
+            expires: expiresAt,
+            signingCredentials: creds);
+
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
+    private Guid ValidatePasswordResetJwt(string token)
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
+            _config["Jwt:Key"] ?? "OpenSkyHRM-Default-Key-256bit-ChangeMe!!"));
+        var handler = new JwtSecurityTokenHandler();
+        try
+        {
+            var principal = handler.ValidateToken(token, new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidIssuer = _config["Jwt:Issuer"] ?? "OpenSkyHRM",
+                ValidateAudience = true,
+                ValidAudience = _config["Jwt:Audience"] ?? "OpenSkyHRM",
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = key,
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromMinutes(1),
+            }, out _);
+
+            var purpose = principal.FindFirst("purpose")?.Value;
+            if (!string.Equals(purpose, "password-reset", StringComparison.Ordinal))
+                throw new UnauthorizedAccessException("Invalid reset token.");
+
+            var sub = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+                      ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!Guid.TryParse(sub, out var userId))
+                throw new UnauthorizedAccessException("Invalid reset token.");
+
+            return userId;
+        }
+        catch (SecurityTokenException)
+        {
+            throw new UnauthorizedAccessException("Password reset link has expired. Please start again.");
+        }
     }
 
     private (string token, DateTime expiresAt) GenerateJwt(User user)

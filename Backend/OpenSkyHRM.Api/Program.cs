@@ -325,6 +325,7 @@ if (dbAvailable)
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchCasualLeaveMonthlyEveryYearAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureShopOfficeSickLeaveRuleAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LearningSeeder.EnsureCatalogAsync(db);
     }
     catch (Exception ex)
     {

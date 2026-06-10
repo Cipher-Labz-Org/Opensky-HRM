@@ -277,13 +277,12 @@ export function LoginLandingExperience() {
               </div>
 
               <div className="mb-7 text-right">
-                <a
-                  href="#"
+                <Link
+                  href={ROUTES.forgotPassword}
                   className="text-sm font-semibold text-[#1a92d5] hover:text-[#157fc0] hover:underline"
-                  onClick={(e) => e.preventDefault()}
                 >
                   Forgot password?
-                </a>
+                </Link>
               </div>
 
               <button

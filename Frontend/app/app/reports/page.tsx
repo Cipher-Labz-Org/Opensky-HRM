@@ -9,6 +9,7 @@ import { DatePickerField } from "@/components/ui";
 import { formatDateTime } from "@/lib/date-utils";
 import { formatInt } from "@/lib/workspace-charts";
 import { getReportIconPaths } from "@/lib/report-icons";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 
 interface ReportItem {
   key: string;
@@ -214,7 +215,7 @@ export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<string>("");
   const [result, setResult] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
+  const resultsSearch = useApplyFilter();
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   /** Dedupes URL-driven loads (incl. filters) vs. identical `searchParams` after `router.replace`. */
@@ -286,7 +287,7 @@ export default function ReportsPage() {
       setResult(null);
       setLoading(true);
       setSortCol(null);
-      setSearchTerm("");
+      resultsSearch.clear();
       const merged = resolveReportQueryParams(item, urlOverrides);
       syncFilterInputsFromParams(merged);
       try {
@@ -311,7 +312,7 @@ export default function ReportsPage() {
     if (!selectedCategory || !selectedReport) return;
     setLoading(true);
     setSortCol(null);
-    setSearchTerm("");
+    resultsSearch.clear();
     try {
       const params = collectParamsFromForm(activeReportDef);
       await loadReport(selectedCategory, selectedReport, params);
@@ -349,8 +350,8 @@ export default function ReportsPage() {
   const activeCat = catalog.find(c => c.key === selectedCategory);
 
   const filteredRows = result?.rows?.filter(row => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
+    if (!resultsSearch.applied) return true;
+    const term = resultsSearch.applied.toLowerCase();
     return result.columns.some(col =>
       String(getReportCell(row, col) ?? "").toLowerCase().includes(term)
     );
@@ -569,9 +570,12 @@ export default function ReportsPage() {
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Search results..."
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
+                    placeholder="Search results… (Enter)"
+                    value={resultsSearch.input}
+                    onChange={(e) => resultsSearch.setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") resultsSearch.apply();
+                    }}
                     className="rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 w-56"
                   />
                   <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>

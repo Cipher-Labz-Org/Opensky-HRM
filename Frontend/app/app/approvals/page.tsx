@@ -4,7 +4,8 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { useClientPagination } from "@/lib/use-client-pagination";
 import { Modal } from "@/components/ui/Modal";
 import { LeaveRequestsPanel } from "@/components/workforce/LeaveRequestsPanel";
 import { apiFetch } from "@/lib/api";
@@ -12,6 +13,7 @@ import { formatDate } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { appAlert } from "@/components/ui/appDialogs";
 import { useAuth } from "@/contexts/auth-context";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 
 /** Match Recruitment & Hiring (`recruitment/page.tsx`) */
 const panelClass = "rounded-2xl border border-slate-200 bg-white shadow-sm";
@@ -169,7 +171,7 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
   });
   const [toDate, setToDate] = useState(() => todayLocalIso());
   const [deptFilter, setDeptFilter] = useState("");
-  const [empSearch, setEmpSearch] = useState("");
+  const empSearchFilter = useApplyFilter();
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
   const [rawResults, setRawResults] = useState<OtNopayRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -220,7 +222,7 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
   }, [fromDate, toDate]);
 
   const filteredRows = useMemo(() => {
-    const q = empSearch.trim().toLowerCase();
+    const q = empSearchFilter.applied.toLowerCase();
     return rawResults.filter((r) => {
       const meta = empDept.get(r.employeeId);
       if (deptFilter && meta?.deptId !== deptFilter) return false;
@@ -229,7 +231,9 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
       const code = (r.employeeCode ?? meta?.code ?? "").toLowerCase();
       return name.includes(q) || code.includes(q);
     });
-  }, [rawResults, empSearch, deptFilter, empDept]);
+  }, [rawResults, empSearchFilter.applied, deptFilter, empDept]);
+
+  const rowsPager = useClientPagination(filteredRows, 15);
 
   async function submitOtApproval() {
     if (!otModal) return;
@@ -311,9 +315,12 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
           <label className={labelClass}>Employee</label>
           <input
             type="search"
-            value={empSearch}
-            onChange={(e) => setEmpSearch(e.target.value)}
-            placeholder="Type name or code…"
+            value={empSearchFilter.input}
+            onChange={(e) => empSearchFilter.setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") empSearchFilter.apply();
+            }}
+            placeholder="Type name or code… (Enter)"
             className={`${inputClassSlate} min-h-[42px]`}
           />
         </div>
@@ -369,7 +376,7 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
                   </tr>
                 )}
               {!loading &&
-                filteredRows.map((r) => (
+                rowsPager.pageItems.map((r) => (
                   <tr key={r.employeeId} className="hover:bg-slate-50/60">
                     <td className="px-4 py-3 font-medium text-slate-800">
                       {r.employeeName}
@@ -437,6 +444,7 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
                 ))}
             </tbody>
           </table>
+        <TablePagination page={rowsPager.page} totalPages={rowsPager.totalPages} totalCount={rowsPager.totalCount} pageSize={rowsPager.pageSize} onPageChange={rowsPager.setPage} />
       </div>
 
       {!canApprove && (

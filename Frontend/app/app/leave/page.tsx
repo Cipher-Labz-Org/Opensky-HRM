@@ -5,7 +5,8 @@ import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { useClientPagination } from "@/lib/use-client-pagination";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
@@ -1461,6 +1462,8 @@ function BalancesTab() {
 
   useEffect(() => { loadBalances(); }, [loadBalances]);
 
+  const summariesPager = useClientPagination(summaries, 15);
+
   async function handleRecalculate() {
     setRecalculating(true);
     setRecalcMsg("");
@@ -1632,7 +1635,7 @@ function BalancesTab() {
                 </tr>
               )}
               {!loading &&
-                summaries.map((s) => (
+                summariesPager.pageItems.map((s) => (
                   <Fragment key={s.employeeId}>
                     <tr className="hover:bg-slate-50/30">
                       <td colSpan={7} className="border-b border-slate-200/80 bg-gradient-to-r from-slate-100/80 via-slate-50/50 to-white px-4 py-2.5 sm:px-6">
@@ -1692,6 +1695,7 @@ function BalancesTab() {
             </tbody>
           </table>
         </div>
+        <TablePagination page={summariesPager.page} totalPages={summariesPager.totalPages} totalCount={summariesPager.totalCount} pageSize={summariesPager.pageSize} onPageChange={summariesPager.setPage} />
       </div>
 
       <Modal open={!!editingBalance} onClose={() => setEditingBalance(null)} title={`Edit balance: ${editingBalance?.leaveTypeName ?? ""}`}>
@@ -2029,6 +2033,8 @@ function CarryForwardTab() {
     return n.toFixed(1);
   }
 
+  const employeesPager = useClientPagination(employees, 20);
+
   async function handleRun() {
     if (toYear !== fromYear + 1) {
       setError("To year must be the year after From year (e.g. 2025 → 2026).");
@@ -2161,7 +2167,7 @@ function CarryForwardTab() {
                   </tr>
                 )}
                 {!empLoading &&
-                  employees.map((e) => {
+                  employeesPager.pageItems.map((e) => {
                     const n = availableByEmployeeId[e.id] ?? 0;
                     const remClass = n > 0 ? "text-emerald-800" : n < 0 ? "text-rose-700" : "text-slate-500";
                     return (
@@ -2202,6 +2208,7 @@ function CarryForwardTab() {
               </tbody>
             </table>
           </div>
+          <TablePagination page={employeesPager.page} totalPages={employeesPager.totalPages} totalCount={employeesPager.totalCount} pageSize={employeesPager.pageSize} onPageChange={employeesPager.setPage} />
         </div>
 
         {error && (
@@ -2238,6 +2245,7 @@ function LeaveTypesTab() {
 
   const load = useCallback(() => { apiFetch<LeaveTypeItem[]>("/api/leave/types").then(setItems); }, []);
   useEffect(() => { load(); }, [load]);
+  const itemsPager = useClientPagination(items);
 
   function openAdd() { setEditing(null); setShowModal(true); }
   function openEdit(item: LeaveTypeItem) { setEditing(item); setShowModal(true); }
@@ -2332,7 +2340,7 @@ function LeaveTypesTab() {
                   </td>
                 </tr>
               )}
-              {items.map((t) => (
+              {itemsPager.pageItems.map((t) => (
                 <tr key={t.id} className="group border-b border-slate-100/90 transition hover:bg-sky-50/35">
                   <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-2 pr-2 text-slate-800 transition group-hover:border-sky-500/60 sm:pl-3 sm:pr-2">
                     <span className="font-medium">{t.name}</span>
@@ -2379,6 +2387,7 @@ function LeaveTypesTab() {
             </tbody>
           </table>
         </div>
+        <TablePagination page={itemsPager.page} totalPages={itemsPager.totalPages} totalCount={itemsPager.totalCount} pageSize={itemsPager.pageSize} onPageChange={itemsPager.setPage} />
       </div>
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Leave Type" : "Add Leave Type"}>
@@ -2855,6 +2864,7 @@ function PoliciesTab() {
     });
   }, []);
   useEffect(() => { load(); }, [load]);
+  const policiesPager = useClientPagination(items);
 
   function openAdd() { setEditing(null); setShowModal(true); }
   function openEdit(item: PolicyItem) { setEditing(item); setShowModal(true); }
@@ -2910,7 +2920,7 @@ function PoliciesTab() {
             </tr></thead>
             <tbody className="divide-y divide-slate-100">
               {items.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400">No policies defined.</td></tr>}
-              {items.map((p) => (
+              {policiesPager.pageItems.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-50/50">
                   <td className="px-6 py-3"><p className="font-medium text-slate-700">{p.name}</p>{p.description && <p className="text-xs text-slate-400">{p.description}</p>}</td>
                   <td className="px-4 py-3 text-slate-600">{p.leaveTypeName}</td>
@@ -2929,6 +2939,7 @@ function PoliciesTab() {
             </tbody>
           </table>
         </div>
+        <TablePagination page={policiesPager.page} totalPages={policiesPager.totalPages} totalCount={policiesPager.totalCount} pageSize={policiesPager.pageSize} onPageChange={policiesPager.setPage} />
       </div>
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Policy" : "Add Policy"}>

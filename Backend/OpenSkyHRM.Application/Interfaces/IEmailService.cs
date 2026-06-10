@@ -3,7 +3,7 @@ namespace OpenSkyHRM.Application.Interfaces;
 public interface IEmailService
 {
     Task SendOfferEmailAsync(string toEmail, string candidateName, string positionTitle,
-        decimal salary, string currency, DateTime? joiningDate, string? remarks);
+        decimal salary, string currency, DateTime? joiningDate, string? remarks, string? customLetterHtml = null);
 
     /// <summary>Sends a confirmation to the employee who submitted the leave request.</summary>
     Task SendLeaveApplicationConfirmationAsync(string toEmail, string employeeName, string leaveTypeName,

@@ -3,10 +3,11 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField } from "@/components/ui";
+import { DatePickerField, PasswordVisibilityToggle } from "@/components/ui";
 import { FormSelect } from "@/components/ui/FormSelect";
 import { PersonNameInput, PhoneInput } from "@/components/ui";
 import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { apiFetch } from "@/lib/api";
 
 interface Lookup {
@@ -29,16 +30,39 @@ interface TemplateLookup {
   itemCount: number;
 }
 
+export type EmployeeFormInitialValues = {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  joinDate?: string;
+  departmentId?: string;
+  jobTitleId?: string;
+  locationId?: string;
+  positionId?: string;
+};
+
 interface CreateEmployeeModalProps {
   open: boolean;
   onClose: () => void;
   onCreated?: () => void;
+  /** When set, submits to recruitment hire endpoint after validating the employee form. */
+  candidateId?: string;
+  initialValues?: EmployeeFormInitialValues;
+  title?: string;
+  submitLabel?: string;
+  onConverted?: (result: { employeeId: string; onboardingStarted?: boolean }) => void;
 }
 
 export function CreateEmployeeModal({
   open,
   onClose,
   onCreated,
+  candidateId,
+  initialValues,
+  title = "Create New Employee",
+  submitLabel = "Create Employee",
+  onConverted,
 }: CreateEmployeeModalProps) {
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [businessUnits, setBusinessUnits] = useState<Lookup[]>([]);
@@ -57,6 +81,8 @@ export function CreateEmployeeModal({
   const [loginStatus, setLoginStatus] = useState<"enabled" | "disabled">("enabled");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginConfirmPassword, setLoginConfirmPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showLoginConfirmPassword, setShowLoginConfirmPassword] = useState(false);
   const [loginUsernameError, setLoginUsernameError] = useState("");
   const [loginPasswordError, setLoginPasswordError] = useState("");
   const [loginConfirmPasswordError, setLoginConfirmPasswordError] = useState("");
@@ -75,6 +101,8 @@ export function CreateEmployeeModal({
     setLoginStatus("enabled");
     setLoginPassword("");
     setLoginConfirmPassword("");
+    setShowLoginPassword(false);
+    setShowLoginConfirmPassword(false);
     setLoginUsernameError("");
     setLoginPasswordError("");
     setLoginConfirmPasswordError("");
@@ -157,9 +185,16 @@ export function CreateEmployeeModal({
       if (hasFieldError) return;
     }
 
+    const fd = new FormData(e.currentTarget);
+    const joinDate = ((fd.get("joinDate") as string) ?? "").trim();
+    const todayIso = formatLocalDateToIso(new Date());
+    if (joinDate && joinDate > todayIso) {
+      setError("Join date cannot be in the future.");
+      return;
+    }
+
     setSubmitting(true);
 
-    const fd = new FormData(e.currentTarget);
     const phoneRaw = ((fd.get("phone") as string) ?? "").trim();
     if (phoneRaw && !isValidPhone(phoneRaw)) {
       setError(PHONE_VALIDATION_MESSAGE);
@@ -187,6 +222,7 @@ export function CreateEmployeeModal({
       locationId: fd.get("locationId") || null,
       gradeId: fd.get("gradeId") || null,
       jobTitleId: fd.get("jobTitleId") || null,
+      positionId: initialValues?.positionId || null,
     };
 
     if (createLogin) {
@@ -203,12 +239,26 @@ export function CreateEmployeeModal({
       payload.onboardingTemplateId = onboardingTemplateId;
     }
 
+    if (candidateId && withOnboarding && !onboardingTemplateId) {
+      setError("Select an onboarding template or turn off With Onboarding.");
+      setSubmitting(false);
+      return;
+    }
+
     try {
-      await apiFetch("/api/employees", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      onCreated?.();
+      if (candidateId) {
+        const result = await apiFetch<{ employeeId: string; onboardingStarted?: boolean }>(
+          `/api/recruitment/candidates/${candidateId}/hire`,
+          { method: "POST", body: JSON.stringify({ employee: payload }) },
+        );
+        onConverted?.({ employeeId: result.employeeId, onboardingStarted: result.onboardingStarted });
+      } else {
+        await apiFetch("/api/employees", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        onCreated?.();
+      }
       onClose();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to create employee";
@@ -233,9 +283,11 @@ export function CreateEmployeeModal({
   const supRoles = roles.filter((r) => r.code === "SUPERVISOR");
   const adminRoles = roles.filter((r) => r.code === "ADMIN" || r.code === "HR_MANAGER");
 
+  const formKey = `${candidateId ?? "new"}-${open ? "open" : "closed"}`;
+
   return (
-    <Modal open={open} onClose={onClose} title="Create New Employee" wide>
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal open={open} onClose={onClose} title={title} wide>
+      <form key={formKey} onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
             {error}
@@ -261,8 +313,10 @@ export function CreateEmployeeModal({
             <input
               name="email"
               type="email"
+              required={Boolean(candidateId)}
+              defaultValue={initialValues?.email ?? ""}
               pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}"
-              title="Optional. When set, must be a valid email (e.g. name@company.com)"
+              title={candidateId ? "Email is required for employee conversion." : "Optional. When set, must be a valid email (e.g. name@company.com)"}
               className={inputClass}
               placeholder="john@openskyhrm.com"
               onChange={(e) => {
@@ -277,7 +331,7 @@ export function CreateEmployeeModal({
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <label className={labelClass}>First Name *</label>
-            <PersonNameInput name="firstName" required className={inputClass} placeholder="John" />
+            <PersonNameInput name="firstName" required defaultValue={initialValues?.firstName ?? ""} className={inputClass} placeholder="John" />
           </div>
           <div>
             <label className={labelClass}>Middle Name</label>
@@ -285,7 +339,7 @@ export function CreateEmployeeModal({
           </div>
           <div>
             <label className={labelClass}>Last Name *</label>
-            <PersonNameInput name="lastName" required autoComplete="family-name" className={inputClass} placeholder="Doe" />
+            <PersonNameInput name="lastName" required defaultValue={initialValues?.lastName ?? ""} autoComplete="family-name" className={inputClass} placeholder="Doe" />
           </div>
         </div>
 
@@ -318,13 +372,19 @@ export function CreateEmployeeModal({
           </div>
           <div>
             <label className={labelClass}>Join Date *</label>
-            <DatePickerField name="joinDate" required className={inputClass} />
+            <DatePickerField
+              name="joinDate"
+              required
+              defaultValue={initialValues?.joinDate ?? ""}
+              className={inputClass}
+              max={formatLocalDateToIso(new Date())}
+            />
           </div>
         </div>
 
         <div>
           <label className={labelClass}>Phone</label>
-          <PhoneInput name="phone" className={inputClass} />
+          <PhoneInput name="phone" defaultValue={initialValues?.phone ?? ""} className={inputClass} />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -333,7 +393,7 @@ export function CreateEmployeeModal({
             <FormSelect
               name="departmentId"
               required
-              defaultValue=""
+              defaultValue={initialValues?.departmentId ?? ""}
               placeholder="Select..."
               options={[{ value: "", label: "Select..." }, ...departments.map((d) => ({ value: d.id, label: d.name }))]}
             />
@@ -354,7 +414,7 @@ export function CreateEmployeeModal({
             <label className={labelClass}>Location</label>
             <FormSelect
               name="locationId"
-              defaultValue=""
+              defaultValue={initialValues?.locationId ?? ""}
               placeholder="Select..."
               options={[{ value: "", label: "Select..." }, ...locations.map((l) => ({ value: l.id, label: l.name }))]}
             />
@@ -372,7 +432,7 @@ export function CreateEmployeeModal({
             <label className={labelClass}>Job Title</label>
             <FormSelect
               name="jobTitleId"
-              defaultValue=""
+              defaultValue={initialValues?.jobTitleId ?? ""}
               placeholder="Select..."
               options={[{ value: "", label: "Select..." }, ...jobTitles.map((j) => ({ value: j.id, label: j.name }))]}
             />
@@ -449,45 +509,66 @@ export function CreateEmployeeModal({
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>Password *</label>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={(e) => {
-                    setLoginPassword(e.target.value);
-                    if (loginPasswordError) setLoginPasswordError("");
-                    // keep confirm error live when user edits password
-                    if (loginConfirmPasswordError && loginConfirmPassword && e.target.value === loginConfirmPassword) {
-                      setLoginConfirmPasswordError("");
-                    }
-                  }}
-                  className={`${inputClass} ${loginPasswordError ? "border-red-300 focus:border-red-400 focus:ring-red-200/20" : ""}`}
-                  placeholder="Enter password"
-                />
-                {loginPasswordError && (
-                  <p className="mt-1 text-xs font-medium text-red-600">{loginPasswordError}</p>
-                )}
+                <div className="relative">
+                  <input
+                    type={showLoginPassword ? "text" : "password"}
+                    value={loginPassword}
+                    onChange={(e) => {
+                      setLoginPassword(e.target.value);
+                      if (loginPasswordError) setLoginPasswordError("");
+                      // keep confirm error live when user edits password
+                      if (loginConfirmPasswordError && loginConfirmPassword && e.target.value === loginConfirmPassword) {
+                        setLoginConfirmPasswordError("");
+                      }
+                    }}
+                    className={`${inputClass} pr-11 ${loginPasswordError ? "border-red-300 focus:border-red-400 focus:ring-red-200/20" : ""}`}
+                    placeholder="Enter password"
+                    autoComplete="new-password"
+                  />
+                  <PasswordVisibilityToggle
+                    visible={showLoginPassword}
+                    onToggle={() => setShowLoginPassword((v) => !v)}
+                  />
+                </div>
+                <p className={`mt-1 min-h-4 text-xs font-medium ${loginPasswordError ? "text-red-600" : "invisible"}`}>
+                  {loginPasswordError || " "}
+                </p>
               </div>
               <div>
                 <label className={labelClass}>Confirm Password *</label>
-                <input
-                  type="password"
-                  value={loginConfirmPassword}
-                  onChange={(e) => {
-                    setLoginConfirmPassword(e.target.value);
-                    if (loginConfirmPasswordError) setLoginConfirmPasswordError("");
-                  }}
-                  className={`${inputClass} ${
+                <div className="relative">
+                  <input
+                    type={showLoginConfirmPassword ? "text" : "password"}
+                    value={loginConfirmPassword}
+                    onChange={(e) => {
+                      setLoginConfirmPassword(e.target.value);
+                      if (loginConfirmPasswordError) setLoginConfirmPasswordError("");
+                    }}
+                    className={`${inputClass} pr-11 ${
+                      loginConfirmPasswordError || (loginConfirmPassword && loginPassword !== loginConfirmPassword)
+                        ? "border-red-300 focus:border-red-400 focus:ring-red-200/20"
+                        : ""
+                    }`}
+                    placeholder="Re-enter password"
+                    autoComplete="new-password"
+                  />
+                  <PasswordVisibilityToggle
+                    visible={showLoginConfirmPassword}
+                    onToggle={() => setShowLoginConfirmPassword((v) => !v)}
+                    label={showLoginConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                  />
+                </div>
+                <p
+                  className={`mt-1 min-h-4 text-xs font-medium ${
                     loginConfirmPasswordError || (loginConfirmPassword && loginPassword !== loginConfirmPassword)
-                      ? "border-red-300 focus:border-red-400 focus:ring-red-200/20"
-                      : ""
+                      ? "text-red-600"
+                      : "invisible"
                   }`}
-                  placeholder="Re-enter password"
-                />
-                {(loginConfirmPasswordError || (loginConfirmPassword && loginPassword !== loginConfirmPassword)) && (
-                  <p className="mt-1 text-xs font-medium text-red-600">
-                    {loginConfirmPasswordError || "Passwords do not match."}
-                  </p>
-                )}
+                >
+                  {loginConfirmPasswordError || (loginConfirmPassword && loginPassword !== loginConfirmPassword)
+                    ? loginConfirmPasswordError || "Passwords do not match."
+                    : " "}
+                </p>
               </div>
             </div>
 
@@ -586,7 +667,7 @@ export function CreateEmployeeModal({
             Cancel
           </Button>
           <Button type="submit" disabled={submitting}>
-            {submitting ? "Creating..." : "Create Employee"}
+            {submitting ? (candidateId ? "Converting..." : "Creating...") : submitLabel}
           </Button>
         </div>
       </form>
