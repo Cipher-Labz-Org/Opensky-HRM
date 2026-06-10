@@ -60,6 +60,8 @@ public static class SecurityRolesSeeder
             isSystemRole: true,
             BuildEmployeePermissions(),
             cancellationToken);
+
+        await EnsureRoleHasPermissionsAsync(context, "EMPLOYEE", BuildEmployeePermissions(), cancellationToken);
     }
 
     private static async Task EnsureRoleAsync(
@@ -148,6 +150,8 @@ public static class SecurityRolesSeeder
         {
             ("Dashboard", "Read", "Own"),
             ("People", "Read", "Own"),
+            ("People", "Create", "Own"),
+            ("People", "Update", "Own"),
             ("Leave", "Read", "Own"),
             ("Leave", "Create", "Own"),
             ("Leave", "Update", "Own"),
@@ -155,5 +159,42 @@ public static class SecurityRolesSeeder
             ("Performance", "Read", "Own"),
             ("Learning", "Read", "Own"),
         };
+    }
+
+    /// <summary>
+    /// Adds any missing default permissions to an existing system role (idempotent patch for upgraded tenants).
+    /// </summary>
+    private static async Task EnsureRoleHasPermissionsAsync(
+        AppDbContext context,
+        string roleCode,
+        IReadOnlyList<(string Module, string Action, string Scope)> required,
+        CancellationToken cancellationToken)
+    {
+        var role = await context.SecurityRoles
+            .Include(r => r.Permissions)
+            .FirstOrDefaultAsync(r => r.Code == roleCode && !r.IsDeleted, cancellationToken);
+        if (role == null) return;
+
+        var existing = role.Permissions
+            .Where(p => !p.IsDeleted)
+            .Select(p => (p.Module, p.Action, p.Scope))
+            .ToHashSet();
+
+        var added = false;
+        foreach (var perm in required)
+        {
+            if (existing.Contains(perm)) continue;
+            role.Permissions.Add(new Permission
+            {
+                RoleId = role.Id,
+                Module = perm.Module,
+                Action = perm.Action,
+                Scope = perm.Scope
+            });
+            added = true;
+        }
+
+        if (added)
+            await context.SaveChangesAsync(cancellationToken);
     }
 }

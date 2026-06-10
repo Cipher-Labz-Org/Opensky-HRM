@@ -5,11 +5,15 @@ import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { FormSelect } from "@/components/ui/FormSelect";
+import { SectionRecordHeaderActions } from "@/components/ui/SectionRecordHeaderActions";
+import { TablePagination } from "@/components/ui/TablePagination";
+import { useClientPagination } from "@/lib/use-client-pagination";
 import { Modal } from "@/components/ui/Modal";
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/date-utils";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 import { ROUTES } from "@/config/routes";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 
@@ -81,7 +85,7 @@ export default function EmployeeActionsPage() {
   const [hydrated, setHydrated] = useState(false);
 
   const [typeFilter, setTypeFilter] = useState<ActionType | "All">("All");
-  const [search, setSearch] = useState("");
+  const searchFilter = useApplyFilter();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -146,7 +150,7 @@ export default function EmployeeActionsPage() {
   }
 
   const visibleRecords = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = searchFilter.applied.toLowerCase();
     return records
       .filter((r) => typeFilter === "All" || r.actionType === typeFilter)
       .filter(
@@ -158,7 +162,9 @@ export default function EmployeeActionsPage() {
           r.details.toLowerCase().includes(q)
       )
       .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
-  }, [records, typeFilter, search]);
+  }, [records, typeFilter, searchFilter.applied]);
+
+  const recordsPager = useClientPagination(visibleRecords, 15);
 
   const kpis = useMemo(() => {
     const now = new Date();
@@ -364,10 +370,8 @@ export default function EmployeeActionsPage() {
         subtitle="Track promotions, warnings, transfers, and other HR actions. Records stay in this browser per signed-in user; use Export PDF for a printable report and re-import from that same export when needed."
       />
 
-      <div className="mb-6 flex flex-wrap gap-2">
-        <Button variant="primary" onClick={openCreate}>
-          Add record
-        </Button>
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <SectionRecordHeaderActions count={records.length} onAdd={openCreate} addTitle="Add record" />
         <Button
           variant="secondary"
           onClick={() => void exportPdf()}
@@ -431,7 +435,7 @@ export default function EmployeeActionsPage() {
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-base font-semibold text-slate-800">Records</h3>
-                <p className="text-xs text-slate-500">{visibleRecords.length} shown · {records.length} total</p>
+                <p className="text-xs text-slate-500">{visibleRecords.length} matching · {records.length} total</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <FormSelect
@@ -445,9 +449,12 @@ export default function EmployeeActionsPage() {
                 />
                 <input
                   type="search"
-                  placeholder="Search employee, code, title…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search employee, code, title… (Enter)"
+                  value={searchFilter.input}
+                  onChange={(e) => searchFilter.setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFilter.apply();
+                  }}
                   className="min-w-[200px] flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 sm:max-w-xs"
                 />
               </div>
@@ -466,7 +473,7 @@ export default function EmployeeActionsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {visibleRecords.length === 0 ? (
+                  {recordsPager.pageItems.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-12 text-center text-slate-500">
                         No records match your filters.{" "}
@@ -477,7 +484,7 @@ export default function EmployeeActionsPage() {
                       </td>
                     </tr>
                   ) : (
-                    visibleRecords.map((r) => (
+                    recordsPager.pageItems.map((r) => (
                       <tr key={r.id} className="text-slate-700">
                         <td className="py-3 pr-3 whitespace-nowrap text-slate-600">{formatDate(r.effectiveDate)}</td>
                         <td className="py-3 pr-3">
@@ -524,6 +531,13 @@ export default function EmployeeActionsPage() {
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              page={recordsPager.page}
+              totalPages={recordsPager.totalPages}
+              totalCount={recordsPager.totalCount}
+              pageSize={recordsPager.pageSize}
+              onPageChange={recordsPager.setPage}
+            />
           </div>
         </>
       )}

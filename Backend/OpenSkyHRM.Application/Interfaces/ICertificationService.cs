@@ -14,6 +14,9 @@ public interface ICertificationService
     Task<List<EmployeeCertificationDto>> GetEmployeeCertificationsAsync(Guid employeeId,
         IReadOnlyList<Guid>? allowedEmployeeIds, CancellationToken cancellationToken = default);
 
+    Task<List<EmployeeCertificationListItemDto>> GetAllEmployeeCertificationsAsync(
+        IReadOnlyList<Guid>? allowedEmployeeIds, CancellationToken cancellationToken = default);
+
     Task<EmployeeCertificationDto> CreateEmployeeCertificationAsync(Guid employeeId,
         CreateEmployeeCertificationRequest request, IReadOnlyList<Guid>? allowedEmployeeIds,
         CancellationToken cancellationToken = default);

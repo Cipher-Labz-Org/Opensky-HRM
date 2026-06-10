@@ -203,11 +203,20 @@ public class AttendanceService : IAttendanceService
                 TotalAbsent = g.Count(r => r.Status == "Absent"),
                 TotalLate = g.Count(r => r.Status == "Late"),
                 TotalNoPunch = g.Count(r => r.PunchIn == null),
-                AverageWorkHours = g.Where(r => r.WorkedHours.HasValue).Select(r => r.WorkedHours!.Value).DefaultIfEmpty(0).Average(),
+                AverageWorkHours = 0,
             })
             .FirstOrDefaultAsync();
 
-        return agg ?? new AttendanceSummaryDto();
+        if (agg == null)
+            return new AttendanceSummaryDto();
+
+        agg.AverageWorkHours = await query
+            .Where(r => r.WorkedHours.HasValue)
+            .Select(r => r.WorkedHours!.Value)
+            .DefaultIfEmpty(0)
+            .AverageAsync();
+
+        return agg;
     }
 
     public async Task<IReadOnlyList<AttendanceDailySummaryDto>> GetDailySummariesAsync(

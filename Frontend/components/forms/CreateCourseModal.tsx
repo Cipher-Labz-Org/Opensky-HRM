@@ -3,7 +3,21 @@
 import { useState, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { FormSelect, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+
+const COURSE_CATEGORY_OPTIONS: FormSelectOption[] = [
+  { value: "Leadership", label: "Leadership" },
+  { value: "Compliance", label: "Compliance" },
+  { value: "Technical", label: "Technical" },
+  { value: "Soft Skills", label: "Soft Skills" },
+  { value: "Role Skills", label: "Role Skills" },
+];
+
+const MANDATORY_OPTIONS: FormSelectOption[] = [
+  { value: "false", label: "No" },
+  { value: "true", label: "Yes" },
+];
 
 interface Props { open: boolean; onClose: () => void; onCreated?: () => void }
 
@@ -52,21 +66,11 @@ export function CreateCourseModal({ open, onClose, onCreated }: Props) {
           <div><label className={labelClass}>Provider</label><input name="provider" className={inputClass} placeholder="Internal / LinkedIn" /></div>
           <div><label className={labelClass}>Duration (hours)</label><input name="durationHours" type="number" min={1} defaultValue={8} className={inputClass} /></div>
           <div><label className={labelClass}>Category</label>
-            <select name="category" className={inputClass}>
-              <option value="">Select...</option>
-              <option value="Leadership">Leadership</option>
-              <option value="Compliance">Compliance</option>
-              <option value="Technical">Technical</option>
-              <option value="Soft Skills">Soft Skills</option>
-              <option value="Role Skills">Role Skills</option>
-            </select>
+            <FormSelect name="category" defaultValue="" options={COURSE_CATEGORY_OPTIONS} placeholder="Select..." />
           </div>
         </div>
         <div><label className={labelClass}>Mandatory?</label>
-          <select name="isMandatory" className={inputClass}>
-            <option value="false">No</option>
-            <option value="true">Yes</option>
-          </select>
+          <FormSelect name="isMandatory" defaultValue="false" options={MANDATORY_OPTIONS} />
         </div>
         <div className="flex items-center justify-end gap-3 pt-2">
           <Button variant="secondary" onClick={onClose} type="button">Cancel</Button>

@@ -109,6 +109,7 @@ public class RosterService : IRosterService
         var query = _db.Set<RosterAssignment>()
             .Include(a => a.Employee)
             .Include(a => a.RosterTemplate)
+                .ThenInclude(rt => rt.DefaultShiftPattern)
             .AsQueryable();
 
         if (employeeId.HasValue)
@@ -134,6 +135,10 @@ public class RosterService : IRosterService
                 EffectiveFrom = a.EffectiveFrom,
                 EffectiveTo = a.EffectiveTo,
                 Notes = a.Notes,
+                DefaultShiftPatternName = a.RosterTemplate.DefaultShiftPattern != null
+                    ? a.RosterTemplate.DefaultShiftPattern.Name
+                    : null,
+                WorkHoursPerDay = a.RosterTemplate.WorkHoursPerDay,
             })
             .ToListAsync();
     }
@@ -143,6 +148,7 @@ public class RosterService : IRosterService
         var a = await _db.Set<RosterAssignment>()
             .Include(x => x.Employee)
             .Include(x => x.RosterTemplate)
+                .ThenInclude(rt => rt.DefaultShiftPattern)
             .FirstOrDefaultAsync(x => x.Id == id);
         if (a is null) return null;
         return new RosterAssignmentDto
@@ -156,6 +162,8 @@ public class RosterService : IRosterService
             EffectiveFrom = a.EffectiveFrom,
             EffectiveTo = a.EffectiveTo,
             Notes = a.Notes,
+            DefaultShiftPatternName = a.RosterTemplate.DefaultShiftPattern?.Name,
+            WorkHoursPerDay = a.RosterTemplate.WorkHoursPerDay,
         };
     }
 

@@ -13,6 +13,8 @@ public interface ILearningService
 
     Task<List<SkillDto>> GetSkillsAsync(CancellationToken cancellationToken = default);
     Task<SkillDto> CreateSkillAsync(CreateSkillRequest request, CancellationToken cancellationToken = default);
+    Task<SkillDto?> UpdateSkillAsync(Guid id, CreateSkillRequest request, CancellationToken cancellationToken = default);
+    Task<bool> DeleteSkillAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<List<SkillMatrixDto>> GetSkillMatrixAsync(IReadOnlyList<Guid>? allowedEmployeeIds,
         Guid? employeeId = null, CancellationToken cancellationToken = default);

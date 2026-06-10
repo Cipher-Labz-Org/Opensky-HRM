@@ -86,6 +86,35 @@ public class CertificationService : ICertificationService
             }).ToListAsync(cancellationToken);
     }
 
+    public async Task<List<EmployeeCertificationListItemDto>> GetAllEmployeeCertificationsAsync(
+        IReadOnlyList<Guid>? allowedEmployeeIds, CancellationToken cancellationToken = default)
+    {
+        var query = _db.EmployeeCertifications.AsNoTracking()
+            .Include(ec => ec.Certification)
+            .Include(ec => ec.Employee)
+            .AsQueryable();
+
+        if (allowedEmployeeIds is not null)
+            query = query.Where(ec => allowedEmployeeIds.Contains(ec.EmployeeId));
+
+        return await query
+            .OrderBy(ec => ec.Employee.LastName)
+            .ThenBy(ec => ec.Employee.FirstName)
+            .ThenBy(ec => ec.Certification.Name)
+            .Select(ec => new EmployeeCertificationListItemDto
+            {
+                Id = ec.Id,
+                EmployeeId = ec.EmployeeId,
+                EmployeeName = ec.Employee.FirstName + " " + ec.Employee.LastName,
+                CertificationId = ec.CertificationId,
+                CertificationName = ec.Certification.Name,
+                ObtainedDate = ec.ObtainedDate,
+                ExpiryDate = ec.ExpiryDate,
+                CertificateNumber = ec.CertificateNumber,
+                Status = ec.Status,
+            }).ToListAsync(cancellationToken);
+    }
+
     public async Task<EmployeeCertificationDto> CreateEmployeeCertificationAsync(Guid employeeId,
         CreateEmployeeCertificationRequest request, IReadOnlyList<Guid>? allowedEmployeeIds,
         CancellationToken cancellationToken = default)

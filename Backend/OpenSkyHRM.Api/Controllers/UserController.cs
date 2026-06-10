@@ -20,8 +20,16 @@ public class UserController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? role = null,
+        [FromQuery] bool? isActive = null)
     {
+        if (page.HasValue || pageSize.HasValue || !string.IsNullOrWhiteSpace(search) || !string.IsNullOrWhiteSpace(role) || isActive.HasValue)
+            return Ok(await _authService.GetUsersPagedAsync(page ?? 1, pageSize ?? 20, search, role, isActive));
+
         var users = await _authService.GetUsersAsync();
         return Ok(users);
     }

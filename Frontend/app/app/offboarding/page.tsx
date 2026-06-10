@@ -5,6 +5,8 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { TablePagination } from "@/components/ui";
+import { useClientPagination } from "@/lib/use-client-pagination";
 import { Modal } from "@/components/ui/Modal";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/date-utils";
@@ -77,6 +79,8 @@ export default function OffboardingPage() {
 
   const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
   const [completing, setCompleting] = useState<string | null>(null);
+  const templatesPager = useClientPagination(templates);
+  const activesPager = useClientPagination(actives, 8);
 
   const loadTemplates = useCallback(async () => {
     const [t, u] = await Promise.all([
@@ -220,6 +224,7 @@ export default function OffboardingPage() {
               No task templates yet. Create your first one to define default offboarding tasks.
             </div>
           ) : (
+            <>
             <table className="hris-table">
               <thead>
                 <tr>
@@ -232,7 +237,7 @@ export default function OffboardingPage() {
                 </tr>
               </thead>
               <tbody>
-                {templates.map((t) => (
+                {templatesPager.pageItems.map((t) => (
                   <tr key={t.id}>
                     <td className="text-center text-xs text-slate-400">{t.sortOrder}</td>
                     <td>
@@ -279,6 +284,8 @@ export default function OffboardingPage() {
                 ))}
               </tbody>
             </table>
+            <TablePagination page={templatesPager.page} totalPages={templatesPager.totalPages} totalCount={templatesPager.totalCount} pageSize={templatesPager.pageSize} onPageChange={templatesPager.setPage} />
+            </>
           )}
         </div>
       )}
@@ -291,7 +298,7 @@ export default function OffboardingPage() {
               No active offboardings at the moment.
             </div>
           ) : (
-            actives.map((a) => {
+            activesPager.pageItems.map((a) => {
               const pct = a.totalTasks > 0 ? Math.round((a.completedTasks / a.totalTasks) * 100) : 0;
               const allDone = a.completedTasks === a.totalTasks;
               const isExpanded = expandedEmp === a.employeeId;
@@ -395,6 +402,9 @@ export default function OffboardingPage() {
                 </div>
               );
             })
+          )}
+          {actives.length > 0 && (
+            <TablePagination page={activesPager.page} totalPages={activesPager.totalPages} totalCount={activesPager.totalCount} pageSize={activesPager.pageSize} onPageChange={activesPager.setPage} />
           )}
         </div>
       )}

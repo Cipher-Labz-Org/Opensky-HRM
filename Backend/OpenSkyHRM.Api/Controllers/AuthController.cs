@@ -153,6 +153,36 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("forgot-password/verify")]
+    [AllowAnonymous]
+    public async Task<IActionResult> VerifyForgotPassword([FromBody] ForgotPasswordVerifyDto dto)
+    {
+        try
+        {
+            var result = await _authService.VerifyForgotPasswordAsync(dto);
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("forgot-password/reset")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResetForgotPassword([FromBody] ForgotPasswordResetDto dto)
+    {
+        try
+        {
+            await _authService.ResetPasswordWithTokenAsync(dto);
+            return Ok(new { message = "Password changed successfully. You can now sign in with your new password." });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("change-password")]
     [Authorize]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)

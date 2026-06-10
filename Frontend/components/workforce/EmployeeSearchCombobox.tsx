@@ -38,12 +38,15 @@ export function EmployeeSearchCombobox({
   placeholder = "Type name or employee code…",
   className = "",
   disabled = false,
+  departmentId,
 }: {
   value: string;
   onPick: (emp: EmployeeSearchPick | null) => void;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  /** When set, suggestions are limited to this department. */
+  departmentId?: string;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,11 +88,16 @@ export function EmployeeSearchCombobox({
   );
 
   const runSearch = useCallback(async (raw: string) => {
+    const q = raw.trim();
+    if (q.length === 0) {
+      setHits([]);
+      setOpen(false);
+      return;
+    }
     setLoading(true);
     try {
-      const params = new URLSearchParams({ pageSize: "14", excludeTerminated: "true" });
-      const q = raw.trim();
-      if (q.length > 0) params.set("search", q);
+      const params = new URLSearchParams({ pageSize: "14", excludeTerminated: "true", search: q });
+      if (departmentId) params.set("departmentId", departmentId);
       const res = await apiFetch<{ items: Hit[] }>(`/api/employees?${params}`);
       const items = res.items ?? [];
       setHits(items);
@@ -100,7 +108,7 @@ export function EmployeeSearchCombobox({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [departmentId]);
 
   function onInputChange(next: string) {
     setInputText(next);
@@ -154,7 +162,7 @@ export function EmployeeSearchCombobox({
           value={inputText}
           onChange={(e) => onInputChange(e.target.value)}
           onFocus={() => {
-            void runSearch(inputText.trim());
+            if (inputText.trim().length > 0) void runSearch(inputText.trim());
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape") setOpen(false);

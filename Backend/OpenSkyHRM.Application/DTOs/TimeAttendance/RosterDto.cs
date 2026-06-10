@@ -46,6 +46,8 @@ public class RosterAssignmentDto
     public DateTime EffectiveFrom { get; set; }
     public DateTime? EffectiveTo { get; set; }
     public string? Notes { get; set; }
+    public string? DefaultShiftPatternName { get; set; }
+    public decimal? WorkHoursPerDay { get; set; }
 }
 
 public class CreateRosterAssignmentDto

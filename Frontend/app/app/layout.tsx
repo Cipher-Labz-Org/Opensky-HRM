@@ -8,6 +8,7 @@ import { AppGlobalHeader } from "@/components/navigation/AppGlobalHeader";
 import { AppDialogsProvider } from "@/components/ui/AppDialogsProvider";
 import { LicensePageGate } from "@/components/licensing/LicensePageGate";
 import { ROUTES } from "@/config/routes";
+import { isAlwaysVisibleNavHref, isNavItemVisible } from "@/lib/nav-visibility";
 import { useAuth } from "@/contexts/auth-context";
 
 interface NavItem {
@@ -63,7 +64,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
       { href: ROUTES.orgStructure, label: "Org Structure", module: "OrgStructure" },
       { href: ROUTES.analytics, label: "Analytics", module: "Analytics" },
       { href: ROUTES.settings, label: "Policy & Settings", module: "Settings" },
-      { href: ROUTES.billing, label: "Billing" },
+      { href: ROUTES.billing, label: "Billing", module: "Billing" },
     ],
   },
   {
@@ -103,17 +104,6 @@ function isNavItemLicensed(item: NavItem, licensedModules: string[] | undefined)
   return isLicensedForNav(item.module, licensedModules);
 }
 
-function navItemReadAllowed(
-  item: NavItem,
-  isAdmin: boolean,
-  hasPermission: (module: string, action: string) => boolean
-): boolean {
-  if (isAdmin) return true;
-  if (item.moduleAnyOf?.length) return item.moduleAnyOf.some((m) => hasPermission(m, "Read"));
-  if (!item.module) return true;
-  return hasPermission(item.module, "Read");
-}
-
 function FullScreenSpinner() {
   return (
     <div className="flex min-h-screen items-center justify-center">
@@ -124,7 +114,17 @@ function FullScreenSpinner() {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, isAuthenticated, isLoading, logout, hasPermission, isAdmin } = useAuth();
+  const {
+    user,
+    isAuthenticated,
+    isLoading,
+    logout,
+    hasPermission,
+    isAdmin,
+    getPeopleReadScope,
+    getLeaveReadScope,
+    hasRole,
+  } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
@@ -183,15 +183,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const licensedModules = user.licensedModules;
 
-  const filteredNavGroups = ALL_NAV_GROUPS
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => {
-        if (!isNavItemLicensed(item, licensedModules)) return false;
-        return navItemReadAllowed(item, isAdmin, hasPermission);
-      }),
-    }))
-    .filter((group) => group.items.length > 0);
+  const navVisibilityCtx = {
+    isAdmin,
+    hasPermission,
+    getPeopleReadScope,
+    getLeaveReadScope,
+    hasRole,
+    permissions: user.permissions,
+  };
+
+  const filteredNavGroups = ALL_NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => {
+      if (isAlwaysVisibleNavHref(item.href)) return true;
+      if (!isNavItemLicensed(item, licensedModules)) return false;
+      return isNavItemVisible(item.href, navVisibilityCtx);
+    }),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <AppDialogsProvider>

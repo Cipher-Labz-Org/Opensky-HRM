@@ -20,6 +20,7 @@ public interface IEmployeeService
 
     Task<PagedResult<PeopleAuditLogEntryDto>> GetPeopleAuditTrailAsync(
         Guid? subjectEmployeeId,
+        string? employeeSearch,
         IReadOnlyList<Guid>? allowedEmployeeIds,
         int page = 1,
         int pageSize = 50);

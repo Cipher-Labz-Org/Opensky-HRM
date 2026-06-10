@@ -81,6 +81,9 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   const [requisitionTitle, setRequisitionTitle] = useState("");
   const [jobTitleId, setJobTitleId] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [customSkills, setCustomSkills] = useState<string[]>([]);
+  const [manualSkillInput, setManualSkillInput] = useState("");
+  const [manualSkillError, setManualSkillError] = useState("");
   const [description, setDescription] = useState("");
   const [applicationNotificationEmail, setApplicationNotificationEmail] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
@@ -119,9 +122,16 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
     [jobTitleLabel, requisitionTitle]
   );
 
+  const displaySkills = useMemo(() => {
+    const extra = customSkills.filter((s) => !suggestedSkills.includes(s));
+    return [...suggestedSkills, ...extra];
+  }, [suggestedSkills, customSkills]);
+
   useEffect(() => {
-    setSelectedSkills((prev) => prev.filter((s) => suggestedSkills.includes(s)));
-  }, [suggestedSkills]);
+    setSelectedSkills((prev) =>
+      prev.filter((s) => suggestedSkills.includes(s) || customSkills.includes(s))
+    );
+  }, [suggestedSkills, customSkills]);
 
   useEffect(() => {
     if (!open) return;
@@ -129,6 +139,9 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
     setRequisitionTitle("");
     setJobTitleId("");
     setSelectedSkills([]);
+    setCustomSkills([]);
+    setManualSkillInput("");
+    setManualSkillError("");
     setDescription("");
     setApplicationNotificationEmail("");
     autoCodeRef.current = generateRequisitionCode();
@@ -145,11 +158,71 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
     }).catch(() => {});
   }, [open]);
 
+  function addManualSkill() {
+    const skill = manualSkillInput.trim().replace(/\s+/g, " ");
+    setManualSkillError("");
+    if (!skill) {
+      setManualSkillError("Enter a skill name.");
+      return;
+    }
+    const exists = displaySkills.some((s) => s.toLowerCase() === skill.toLowerCase());
+    if (exists) {
+      setSelectedSkills((prev) =>
+        prev.some((s) => s.toLowerCase() === skill.toLowerCase()) ? prev : [...prev, displaySkills.find((s) => s.toLowerCase() === skill.toLowerCase())!]
+      );
+      setManualSkillInput("");
+      return;
+    }
+    setCustomSkills((prev) => [...prev, skill]);
+    setSelectedSkills((prev) => [...prev, skill]);
+    setManualSkillInput("");
+  }
+
+  function getCreateValidationError(fd: FormData): string | null {
+    const title = String(fd.get("title") ?? "").trim();
+    const departmentId = String(fd.get("departmentId") ?? "").trim();
+    const missing: string[] = [];
+    if (!title) missing.push("Title");
+    if (!departmentId) missing.push("Department");
+    if (missing.length > 0) {
+      return `To create a requisition, please provide: ${missing.join(" and ")}.`;
+    }
+
+    const email = applicationNotificationEmail.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      return "Application notification email must be a valid email address (e.g. hr@company.com).";
+    }
+
+    const vacancies = Number(fd.get("vacancies"));
+    if (fd.get("vacancies") && (!Number.isFinite(vacancies) || vacancies < 1)) {
+      return "Vacancies must be at least 1.";
+    }
+
+    const expMin = fd.get("experienceMin") ? Number(fd.get("experienceMin")) : null;
+    const expMax = fd.get("experienceMax") ? Number(fd.get("experienceMax")) : null;
+    if (expMin != null && expMax != null && expMin > expMax) {
+      return "Experience minimum cannot be greater than experience maximum.";
+    }
+
+    const salMin = fd.get("salaryMin") ? Number(fd.get("salaryMin")) : null;
+    const salMax = fd.get("salaryMax") ? Number(fd.get("salaryMax")) : null;
+    if (salMin != null && salMax != null && salMin > salMax) {
+      return "Salary minimum cannot be greater than salary maximum.";
+    }
+
+    return null;
+  }
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
-    setSubmitting(true);
     const fd = new FormData(e.currentTarget);
+    const validationError = getCreateValidationError(fd);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setSubmitting(true);
     const payload = {
       title: fd.get("title"),
       code: autoCodeRef.current || generateRequisitionCode(),
@@ -221,7 +294,11 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Create Requisition" wide>
       <form ref={formRef} key={formKey} onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+            {error}
+          </div>
+        )}
         <div>
           <label className={labelClass}>Title *</label>
           <input
@@ -293,11 +370,12 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
         <div>
           <label className={labelClass}>Skills</label>
           <p className="mb-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
-            Suggestions follow the <strong>job title</strong> and <strong>requisition title</strong> (e.g. &quot;Backend Engineer&quot; vs &quot;HR Generalist&quot;). Choose all that apply; anything not listed can go in the description.
+            Suggestions follow the <strong>job title</strong> and <strong>requisition title</strong> (e.g. &quot;Backend Engineer&quot; vs &quot;HR Generalist&quot;). Choose all that apply, or add any missing skill manually below.
           </p>
           <div className="max-h-[220px] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--soft)]/30 p-3 sm:grid sm:grid-cols-2 sm:gap-x-4 sm:gap-y-2">
-            {suggestedSkills.map((skill) => {
+            {displaySkills.map((skill) => {
               const checked = selectedSkills.includes(skill);
+              const isCustom = customSkills.includes(skill);
               return (
                 <label
                   key={skill}
@@ -313,10 +391,39 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
                       )
                     }
                   />
-                  <span className="min-w-0 leading-snug">{skill}</span>
+                  <span className="min-w-0 leading-snug">
+                    {skill}
+                    {isCustom ? <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)]">(custom)</span> : null}
+                  </span>
                 </label>
               );
             })}
+          </div>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-start">
+            <div className="min-w-0 flex-1">
+              <input
+                type="text"
+                value={manualSkillInput}
+                onChange={(e) => {
+                  setManualSkillInput(e.target.value);
+                  if (manualSkillError) setManualSkillError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addManualSkill();
+                  }
+                }}
+                className={`${inputClass} ${manualSkillError ? "border-red-300 focus:border-red-400 focus:ring-red-200/20" : ""}`}
+                placeholder="Type a skill not listed above…"
+              />
+              {manualSkillError ? (
+                <p className="mt-1 text-xs font-medium text-red-600">{manualSkillError}</p>
+              ) : null}
+            </div>
+            <Button type="button" variant="secondary" className="shrink-0" onClick={addManualSkill}>
+              Add skill
+            </Button>
           </div>
           {selectedSkills.length > 0 && (
             <p className="mt-2 text-xs text-[var(--text-muted)]">

@@ -13,6 +13,8 @@ public class Offer : AuditableEntity
     public string? Remarks { get; set; }
     public DateTime? JoiningDate { get; set; }
     public string? OfferLetterUrl { get; set; }
+    /// <summary>Editable HTML offer letter shared with the candidate (email body).</summary>
+    public string? LetterHtml { get; set; }
     public DateTime? AcceptedAt { get; set; }
     public DateTime? RejectedAt { get; set; }
     public string? RejectionReason { get; set; }
