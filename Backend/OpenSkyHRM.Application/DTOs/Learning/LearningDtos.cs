@@ -108,6 +108,19 @@ public class EmployeeCertificationDto
     public string Status { get; set; } = string.Empty;
 }
 
+public class EmployeeCertificationListItemDto
+{
+    public Guid Id { get; set; }
+    public Guid EmployeeId { get; set; }
+    public string EmployeeName { get; set; } = string.Empty;
+    public Guid CertificationId { get; set; }
+    public string CertificationName { get; set; } = string.Empty;
+    public DateTime ObtainedDate { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public string? CertificateNumber { get; set; }
+    public string Status { get; set; } = string.Empty;
+}
+
 public class CreateEmployeeCertificationRequest
 {
     public Guid CertificationId { get; set; }

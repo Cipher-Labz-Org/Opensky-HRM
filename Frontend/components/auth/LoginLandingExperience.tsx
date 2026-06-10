@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, type FormEvent, type CSSProperties } from 
 import React from "react";
 import Link from "next/link";
 import { useAuth } from "../../contexts/auth-context";
-import { API_ASSET_BASE_URL } from "../../config/constants";
+import { getAssetBaseUrl, resolveAuthApiPath } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
 
 type Branding = {
@@ -73,7 +73,7 @@ export function LoginLandingExperience() {
   const companyLogoSrc = rawLogo
     ? /^https?:\/\//i.test(rawLogo)
       ? rawLogo
-      : `${API_ASSET_BASE_URL}${rawLogo}`
+      : `${getAssetBaseUrl()}${rawLogo}`
     : null;
 
   useEffect(() => {
@@ -86,11 +86,7 @@ export function LoginLandingExperience() {
 
   useEffect(() => {
     let isMounted = true;
-    // Always same-origin (gamma.openskyhrm.com/api/...), never gammabackend — avoids CORS on deployed hosts.
-    const brandingUrl =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/api/auth/branding`
-        : "/api/auth/branding";
+    const brandingUrl = resolveAuthApiPath("/api/auth/branding");
     fetch(brandingUrl)
       .then(async (res) => {
         if (!res.ok) return null;
@@ -281,13 +277,12 @@ export function LoginLandingExperience() {
               </div>
 
               <div className="mb-7 text-right">
-                <a
-                  href="#"
+                <Link
+                  href={ROUTES.forgotPassword}
                   className="text-sm font-semibold text-[#1a92d5] hover:text-[#157fc0] hover:underline"
-                  onClick={(e) => e.preventDefault()}
                 >
                   Forgot password?
-                </a>
+                </Link>
               </div>
 
               <button

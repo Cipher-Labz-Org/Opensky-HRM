@@ -3,6 +3,8 @@
  * Used for branding, support, and default behavior.
  */
 
+import { getTenantByHostname } from "./tenants";
+
 export const APP_NAME = "OpenSky HRM";
 export const SUPPORT_EMAIL = "support@openskyhrm.com";
 export const DEFAULT_THEME = "light";
@@ -46,17 +48,53 @@ function isProductionAppHost(hostname: string): boolean {
 }
 
 /**
- * API prefix for browser `fetch` calls. On deployed app hosts, always same-origin even if
- * a stale build baked in a full backend URL in NEXT_PUBLIC_API_URL.
+ * API base URL for browser `fetch` calls.
+ * Registered tenants (mbkh, gamma, …) call their IIS backend directly — avoids Vercel
+ * proxying to private/local IPs (DNS_HOSTNAME_RESOLVED_PRIVATE).
  */
 export function getApiBaseUrl(): string {
-  if (typeof window !== "undefined" && isProductionAppHost(window.location.hostname)) {
-    return "";
+  if (typeof window !== "undefined") {
+    const tenant = getTenantByHostname(window.location.hostname);
+    if (tenant) return tenant.apiUrl.replace(/\/$/, "");
+    if (isProductionAppHost(window.location.hostname)) return "";
   }
   return API_BASE_URL;
 }
 
+/** Registered tenant hostname in the browser (mbkh.openskyhrm.com, gamma.openskyhrm.com, …). */
+export function isTenantBrowserHost(): boolean {
+  if (typeof window === "undefined") return false;
+  return getTenantByHostname(window.location.hostname) != null;
+}
+
+/** IIS backend URL for the current tenant (for error messages). */
+export function tenantBackendUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const tenant = getTenantByHostname(window.location.hostname);
+  return tenant ? tenant.apiUrl.replace(/\/$/, "") : null;
+}
+
+/**
+ * Auth endpoints on tenant hosts use same-origin `/api/auth/*` so Vercel proxies to IIS.
+ * Avoids browser CORS blocks when the backend returns 500 without CORS headers.
+ */
+export function resolveAuthApiPath(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (isTenantBrowserHost()) return normalized;
+  const base = getApiBaseUrl().replace(/\/$/, "");
+  return base ? `${base}${normalized}` : normalized;
+}
+
 /** Backend origin for static assets (profile images, company logo). <img src> does not need CORS. */
+export function getAssetBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    const tenant = getTenantByHostname(window.location.hostname);
+    if (tenant) return tenant.apiUrl.replace(/\/$/, "");
+  }
+  return (rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl : defaultLocalApi).replace(/\/$/, "");
+}
+
+/** @deprecated Use getAssetBaseUrl() — kept for existing imports. */
 export const API_ASSET_BASE_URL = (
   rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl : defaultLocalApi
 ).replace(/\/$/, "");

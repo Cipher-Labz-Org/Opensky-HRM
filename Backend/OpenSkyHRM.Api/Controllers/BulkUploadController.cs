@@ -63,13 +63,13 @@ public partial class BulkUploadController : ControllerBase
             ws.Cell(1, i + 1).Style.Font.FontColor = XLColor.White;
         }
 
-        var usernameColIndex = Array.FindIndex(cols, static c => string.Equals(c, "Username", StringComparison.OrdinalIgnoreCase));
-        if (usernameColIndex >= 0)
+        var employeeCodeColIndex = Array.FindIndex(cols, static c => string.Equals(c, "Employee Code", StringComparison.OrdinalIgnoreCase));
+        if (employeeCodeColIndex >= 0)
         {
-            var uc = ws.Cell(1, usernameColIndex + 1);
-            uc.CreateComment();
-            uc.GetComment().AddText(
-                "When \"Create employee logins\" is enabled on upload: every data row must have a login name in this column (letters, digits, . _ - only; unique). Leave blank only when you are not using Create employee logins for that upload.");
+            var ec = ws.Cell(1, employeeCodeColIndex + 1);
+            ec.CreateComment();
+            ec.GetComment().AddText(
+                "Leave blank to auto-generate a unique employee code (employee only — no login). When \"Create employee logins\" is enabled, enter Employee Code on rows that need a login; that code becomes the username (letters, digits, . _ - only; unique).");
         }
 
         ws.Columns().AdjustToContents(1, 1);
@@ -147,7 +147,7 @@ public partial class BulkUploadController : ControllerBase
             return BadRequest("Legacy .xls files are not supported. Save the workbook as .xlsx and upload again.");
 
         var wantLogins = string.Equals(createUserLogins, "true", StringComparison.OrdinalIgnoreCase);
-        var loginJobs = new List<(int Row, Employee Emp, string? UsernameFromSheet)>();
+        var loginJobs = new List<(int Row, Employee Emp, string EmployeeCodeForLogin)>();
         var reservedSheetUsernames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var usernamesTaken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var un in await _db.Users.AsNoTracking().Where(u => !u.IsDeleted).Select(u => u.Username).ToListAsync())
@@ -280,7 +280,6 @@ public partial class BulkUploadController : ControllerBase
             var firstName = Cell(row, "First Name");
             var lastName = Cell(row, "Last Name");
             var emailWork = Cell(row, "Email");
-            var usernameFromSheet = ReadUsernameFromImportRow(row, headerMap);
             var deptName = Cell(row, "Department");
             var genderStr = Cell(row, "Gender");
             var dobStr = DateCell(row, "Date of Birth");
@@ -291,9 +290,6 @@ public partial class BulkUploadController : ControllerBase
             if (string.IsNullOrEmpty(deptName)) errors.Add("Department is required");
             if (dobStr is null) errors.Add("Date of Birth is required");
             if (joinStr is null) errors.Add("Joined Date is required");
-            if (wantLogins && string.IsNullOrEmpty(NormalizeUsernameCandidate(usernameFromSheet)))
-                errors.Add("Username is required in the Username column on this row when Create employee logins is enabled. Turn off Create employee logins to import employees without accounts, or enter a Username for each row.");
-
             var dept = departments.FirstOrDefault(d => d.Name.Equals(deptName, StringComparison.OrdinalIgnoreCase));
             if (dept is null && !string.IsNullOrEmpty(deptName)) errors.Add($"Department '{deptName}' not found");
 
@@ -314,7 +310,9 @@ public partial class BulkUploadController : ControllerBase
                     employmentType = canonEmpType;
             }
 
-            var empCode = Cell(row, "Employee Code");
+            var empCodeRaw = Cell(row, "Employee Code");
+            var empCodeFromSheet = !string.IsNullOrEmpty(empCodeRaw);
+            var empCode = empCodeRaw;
             if (!string.IsNullOrEmpty(empCode) && empCode.Length > MaxEmployeeCodeLength)
                 errors.Add($"Employee Code must be at most {MaxEmployeeCodeLength} characters (this row has {empCode.Length}).");
             if (!string.IsNullOrEmpty(empCode) && reservedEmployeeCodes.Contains(empCode))
@@ -364,14 +362,15 @@ public partial class BulkUploadController : ControllerBase
                     employeeCodePrefix,
                     employeeCodeNumericLength);
 
-            var willCreateLoginForRow = ShouldCreateImportUserForRow(usernameFromSheet, wantLogins);
-            if (willCreateLoginForRow)
+            if (wantLogins && empCodeFromSheet)
             {
-                var usernameNorm = NormalizeUsernameCandidate(usernameFromSheet);
-                if (usernamesTaken.Contains(usernameNorm))
-                    errors.Add($"Username '{usernameNorm}' is already in use");
+                var usernameNorm = NormalizeUsernameCandidate(empCode);
+                if (string.IsNullOrEmpty(usernameNorm))
+                    errors.Add("Employee Code could not be used as a login username (use letters, digits, . _ - only).");
+                else if (usernamesTaken.Contains(usernameNorm))
+                    errors.Add($"Login username '{usernameNorm}' (from Employee Code) is already in use");
                 else if (!reservedSheetUsernames.Add(usernameNorm))
-                    errors.Add($"Duplicate Username '{usernameNorm}' in this file");
+                    errors.Add($"Duplicate login username '{usernameNorm}' from Employee Code in this file");
             }
 
             if (errors.Count > 0)
@@ -535,9 +534,12 @@ public partial class BulkUploadController : ControllerBase
             if (!managerLookup.ContainsKey(empCode!))
                 managerLookup[empCode!] = employee.Id;
             created++;
-            results.Add(new RowResult(r, firstName!, lastName!, true, new List<string>()));
-            if (wantLogins)
-                loginJobs.Add((r, employee, usernameFromSheet));
+            var rowNotes = new List<string>();
+            if (wantLogins && !empCodeFromSheet)
+                rowNotes.Add("Employee created; login skipped (Employee Code blank).");
+            results.Add(new RowResult(r, firstName!, lastName!, true, new List<string>(), rowNotes.Count > 0 ? rowNotes : null));
+            if (wantLogins && empCodeFromSheet)
+                loginJobs.Add((r, employee, empCode!));
         }
 
         var loginsCreated = 0;
@@ -549,6 +551,7 @@ public partial class BulkUploadController : ControllerBase
                 .FirstOrDefaultAsync();
             if (employeeRoleId != Guid.Empty)
             {
+                var defaultPasswordHash = BCrypt.Net.BCrypt.HashPassword(BulkImportDefaultLoginPassword);
                 foreach (var job in loginJobs)
                 {
                     if (await _db.Users.AnyAsync(u => u.EmployeeId == job.Emp.Id && !u.IsDeleted))
@@ -557,7 +560,7 @@ public partial class BulkUploadController : ControllerBase
                     string username;
                     try
                     {
-                        username = AllocateUsernameFromImportSheet(usernamesTaken, job.UsernameFromSheet);
+                        username = AllocateUsernameFromImportSheet(usernamesTaken, job.EmployeeCodeForLogin);
                     }
                     catch (InvalidOperationException)
                     {
@@ -569,7 +572,7 @@ public partial class BulkUploadController : ControllerBase
                     {
                         Username = username,
                         Email = job.Emp.Email,
-                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(BulkImportDefaultLoginPassword),
+                        PasswordHash = defaultPasswordHash,
                         MustChangePassword = true,
                         IsActive = true,
                         EmployeeId = job.Emp.Id,
@@ -630,13 +633,7 @@ public partial class BulkUploadController : ControllerBase
         return s;
     }
 
-    private static bool ShouldCreateImportUserForRow(string? usernameFromSheet, bool wantLogins)
-    {
-        if (!wantLogins) return false;
-        return !string.IsNullOrEmpty(NormalizeUsernameCandidate(usernameFromSheet));
-    }
-
-    /// <summary>Reads display text from a cell (text, number, boolean) so Username is not missed when Excel stores it as a number.</summary>
+    /// <summary>Reads display text from a cell (text, number, boolean) so import values are not missed when Excel stores them as a number.</summary>
     private static string? GetCellTrimmedDisplayText(IXLCell cell)
     {
         if (cell.DataType == XLDataType.Blank)
@@ -672,42 +669,6 @@ public partial class BulkUploadController : ControllerBase
                 return string.IsNullOrEmpty(s) ? null : s;
             }
         }
-    }
-
-    private static readonly string[] UsernameImportHeaderKeys =
-    [
-        "Username",
-        "User name",
-        "User Name",
-        "Login",
-        "Login ID",
-        "Login Id",
-        "User ID",
-        "User Id",
-        "UserName",
-    ];
-
-    private static string? ReadUsernameFromImportRow(IXLRow row, Dictionary<string, int> headerMap)
-    {
-        foreach (var header in UsernameImportHeaderKeys)
-        {
-            var key = NormalizeImportHeaderKey(header);
-            if (!headerMap.TryGetValue(key, out var col)) continue;
-            var text = GetCellTrimmedDisplayText(row.Cell(col));
-            if (!string.IsNullOrEmpty(text)) return text;
-        }
-
-        foreach (var kv in headerMap)
-        {
-            var compact = NormalizeImportHeaderKey(kv.Key).Replace(" ", "", StringComparison.Ordinal);
-            if (compact.Equals("Username", StringComparison.OrdinalIgnoreCase))
-            {
-                var text = GetCellTrimmedDisplayText(row.Cell(kv.Value));
-                if (!string.IsNullOrEmpty(text)) return text;
-            }
-        }
-
-        return null;
     }
 
     private static string ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
@@ -801,8 +762,8 @@ public partial class BulkUploadController : ControllerBase
         return new string(chars);
     }
 
-    /// <summary>Reserves a unique username from the import sheet only (no email/name/code fallbacks). Mutates <paramref name="taken"/>.</summary>
-    private static string AllocateUsernameFromImportSheet(HashSet<string> taken, string? fromSheet)
+    /// <summary>Reserves a unique login username from the employee code. Mutates <paramref name="taken"/>.</summary>
+    private static string AllocateUsernameFromImportSheet(HashSet<string> taken, string? employeeCode)
     {
         string? TryOnce(string candidate)
         {
@@ -823,9 +784,9 @@ public partial class BulkUploadController : ControllerBase
             return name;
         }
 
-        var fromSheetNorm = NormalizeUsernameCandidate(fromSheet);
+        var fromSheetNorm = NormalizeUsernameCandidate(employeeCode);
         if (string.IsNullOrEmpty(fromSheetNorm))
-            throw new InvalidOperationException("Username required.");
+            throw new InvalidOperationException("Employee Code could not be used as login username.");
 
         var u = TryOnce(fromSheetNorm);
         if (u != null) return u;
@@ -992,7 +953,6 @@ public partial class BulkUploadController : ControllerBase
         "First Name",
         "Middle Name",
         "Last Name",
-        "Username",
         "Email",
         "Phone",
         "Gender",

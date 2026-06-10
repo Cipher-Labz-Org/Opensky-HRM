@@ -1,5 +1,6 @@
 "use client";
 
+import { appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -124,7 +125,7 @@ export function MasterDataEditorModal({
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Are you sure you want to delete this item?")) return;
+    if (!(await appConfirm("Are you sure you want to delete this item?"))) return;
     try {
       await apiFetch(`${apiBase}/${id}`, { method: "DELETE" });
       await loadItems();

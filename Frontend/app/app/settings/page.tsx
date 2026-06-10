@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { PhoneInput } from "@/components/ui";
+import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal";
 import { apiFetch } from "@/lib/api";
@@ -160,6 +162,11 @@ export default function SettingsPage() {
   async function saveCompanyDetails() {
     setCompanySaving(true);
     setCompanyMsg("");
+    if (companyPhone.trim() && !isValidPhone(companyPhone)) {
+      setCompanyMsg(PHONE_VALIDATION_MESSAGE);
+      setCompanySaving(false);
+      return;
+    }
     try {
       await Promise.all([
         apiFetch("/api/system-settings/CompanyName", { method: "PUT", body: JSON.stringify({ value: companyName }) }),
@@ -572,7 +579,7 @@ export default function SettingsPage() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Phone</label>
-              <input value={companyPhone} onChange={(e) => setCompanyPhone(e.target.value)}
+              <PhoneInput value={companyPhone} onChange={(e) => setCompanyPhone(e.target.value)}
                 className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
             <div>

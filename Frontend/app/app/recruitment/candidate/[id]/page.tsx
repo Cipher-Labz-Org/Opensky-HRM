@@ -1,13 +1,24 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { DatePickerField, DateTimePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { CreateEmployeeModal } from "@/components/forms/CreateEmployeeModal";
 import { apiFetch, apiFetchBlob } from "@/lib/api";
-import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
+import { formatBusinessDateTime, formatDate, formatDateTime } from "@/lib/date-utils";
+import {
+  defaultScheduleTitle,
+  inferInterviewTypeFromTitle,
+  INTERVIEW_TYPE_OPTS,
+  resolveInterviewLocation,
+  scheduleOnsiteLocationOptions,
+  scheduleTitleOptions,
+} from "@/lib/interview-scheduling";
 
 interface CandidateDetail {
   id: string; firstName: string; lastName: string; fullName: string; email: string;
@@ -15,6 +26,8 @@ interface CandidateDetail {
   currentTitle?: string; currentCompany?: string; expectedSalary?: number;
   noticePeriod?: string; notes?: string; rating?: number; rejectionReason?: string;
   tags?: string; requisitionId: string; requisitionTitle?: string; employeeId?: string;
+  requisitionDepartmentId?: string; requisitionJobTitleId?: string;
+  requisitionLocationId?: string; requisitionPositionId?: string;
   interviews: Interview[]; offer?: Offer; activities: Activity[];
 }
 interface Interview {
@@ -27,48 +40,20 @@ interface Scorecard { id: string; criteria: string; rating: number; comment?: st
 interface Offer {
   id: string; salaryOffered: number; currency?: string; offerDate: string;
   expiryDate?: string; status: string; remarks?: string; joiningDate?: string;
-  offerLetterUrl?: string; acceptedAt?: string; rejectedAt?: string;
+  offerLetterUrl?: string; letterHtml?: string; acceptedAt?: string; rejectedAt?: string;
   rejectionReason?: string; candidateId: string;
 }
 interface Activity { id: string; activityType: string; description: string; performedBy?: string; performedAt: string; }
-interface OnboardingTemplate { id: string; name: string; type: string; itemCount: number; }
-interface HireResult { employeeId: string; onboardingStarted: boolean; }
 
 const STAGE_COLORS: Record<string, string> = {
   Sourced: "bg-gray-100 text-gray-700", Screening: "bg-blue-100 text-blue-700",
-  "Phone Screen": "bg-sky-100 text-sky-700", Interview: "bg-yellow-100 text-yellow-700",
+  Interview: "bg-yellow-100 text-yellow-700",
   Evaluation: "bg-purple-100 text-purple-700", Offer: "bg-orange-100 text-orange-700",
   Hired: "bg-green-100 text-green-700", Rejected: "bg-red-100 text-red-700",
   Withdrawn: "bg-gray-200 text-gray-500",
 };
-const STAGES = ["Sourced", "Screening", "Phone Screen", "Interview", "Evaluation", "Offer", "Hired"];
+const STAGES = ["Sourced", "Screening", "Interview", "Evaluation", "Offer", "Hired"];
 const INPUT = "w-full rounded-xl border border-[var(--border)] px-3 py-2 text-sm focus:ring-2 focus:ring-[var(--primary)] outline-none";
-
-const INTERVIEW_TYPE_TITLE: Record<string, string> = {
-  Phone: "Phone interview",
-  Video: "Video interview",
-  Onsite: "On-site interview",
-  Technical: "Technical interview",
-  HR: "HR interview",
-};
-
-function defaultScheduleTitle(interviewType: string | undefined, candidateFullName: string | undefined): string {
-  const base =
-    interviewType && INTERVIEW_TYPE_TITLE[interviewType] ? INTERVIEW_TYPE_TITLE[interviewType] : "Interview";
-  if (candidateFullName) return `${base} — ${candidateFullName}`;
-  return base;
-}
-
-const INTERVIEW_TYPE_OPTS: FormSelectOption[] = [
-  { value: "", label: "Select type…" },
-  { value: "Phone", label: "Phone" },
-  { value: "Video", label: "Video" },
-  { value: "Onsite", label: "Onsite" },
-  { value: "Technical", label: "Technical" },
-  { value: "HR", label: "HR" },
-];
-
-const SCHEDULE_LOCATION_OTHER = "__custom_location__";
 
 export default function CandidateDetailPage() {
   const params = useParams();
@@ -92,24 +77,35 @@ export default function CandidateDetailPage() {
     interviewerId: "",
     interviewerName: "",
   });
-  const [scheduleLocationOther, setScheduleLocationOther] = useState("");
+  const [scheduleMeetingLink, setScheduleMeetingLink] = useState("");
   const [scheduleLookups, setScheduleLookups] = useState<{
     locations: { id: string; name: string }[];
     interviewers: { id: string; name: string }[];
   }>({ locations: [], interviewers: [] });
   const [notifyInterviewCandidateEmail, setNotifyInterviewCandidateEmail] = useState(true);
   const [notifyInterviewInterviewerEmail, setNotifyInterviewInterviewerEmail] = useState(true);
-  const [hireModal, setHireModal] = useState(false);
-  const [hireLoading, setHireLoading] = useState(false);
-  const [hireResult, setHireResult] = useState<HireResult | null>(null);
-  const [onboardingTemplates, setOnboardingTemplates] = useState<OnboardingTemplate[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [offerForm, setOfferForm] = useState({ salaryOffered: "", currency: "LKR", offerDate: new Date().toISOString().slice(0, 10), expiryDate: "", joiningDate: "", remarks: "" });
+  const [convertEmployeeOpen, setConvertEmployeeOpen] = useState(false);
+  const [offerForm, setOfferForm] = useState({
+    positionTitle: "",
+    salaryOffered: "",
+    currency: "LKR",
+    offerDate: new Date().toISOString().slice(0, 10),
+    expiryDate: "",
+    joiningDate: "",
+    remarks: "",
+  });
   const [showOfferForm, setShowOfferForm] = useState(false);
+  const [offerLetterHtml, setOfferLetterHtml] = useState("");
+  const [offerLetterView, setOfferLetterView] = useState<"edit" | "preview">("edit");
+  const [offerLetterLoading, setOfferLetterLoading] = useState(false);
+  const [offerLetterSaving, setOfferLetterSaving] = useState(false);
+  const [createOfferLoading, setCreateOfferLoading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [resumeOpening, setResumeOpening] = useState(false);
+  const [evaluationNote, setEvaluationNote] = useState("");
+  const [evaluationNoteSaving, setEvaluationNoteSaving] = useState(false);
 
   const openStoredResumePdf = useCallback(async () => {
     if (!candidate?.id) return;
@@ -120,7 +116,7 @@ export default function CandidateDetailPage() {
       window.open(url, "_blank", "noopener,noreferrer");
       window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Could not open the resume PDF.");
+      await appAlert(e instanceof Error ? e.message : "Could not open the resume PDF.");
     } finally {
       setResumeOpening(false);
     }
@@ -137,29 +133,102 @@ export default function CandidateDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const scheduleTitleOpts = useMemo<FormSelectOption[]>(() => {
-    const name = candidate?.fullName ?? "";
-    const titles = new Set<string>();
-    titles.add(defaultScheduleTitle(undefined, name));
-    for (const k of Object.keys(INTERVIEW_TYPE_TITLE)) {
-      titles.add(defaultScheduleTitle(k, name));
-    }
-    return [
-      { value: "", label: "Select title…" },
-      ...Array.from(titles).sort((a, b) => a.localeCompare(b)).map((t) => ({ value: t, label: t })),
-    ];
-  }, [candidate?.fullName]);
+  const evaluationNotes = useMemo(
+    () => (candidate?.activities ?? []).filter((a) => a.activityType === "EvaluationNote"),
+    [candidate?.activities],
+  );
 
-  const scheduleLocationOpts = useMemo<FormSelectOption[]>(() => {
-    const rows = scheduleLookups.locations.map((l) => ({ value: l.name, label: l.name }));
-    return [
-      { value: "", label: "Select location…" },
-      ...rows,
-      { value: "Remote", label: "Remote" },
-      { value: "Video conference", label: "Video conference" },
-      { value: SCHEDULE_LOCATION_OTHER, label: "Other (room or link)…" },
-    ];
-  }, [scheduleLookups.locations]);
+  async function handleAddEvaluationNote() {
+    const text = evaluationNote.trim();
+    if (!text) return;
+    setEvaluationNoteSaving(true);
+    try {
+      await apiFetch(`/api/recruitment/candidates/${id}/evaluation-notes`, {
+        method: "POST",
+        body: JSON.stringify({ note: text }),
+      });
+      setEvaluationNote("");
+      await load();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not save evaluation note.");
+    } finally {
+      setEvaluationNoteSaving(false);
+    }
+  }
+
+  const offerLetterEditor = (opts: { showSave: boolean }) => (
+    <div className="rounded-2xl border border-[var(--border)] bg-white p-6 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-[var(--text)]">Offer letter</h3>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            Form fields above fill the letter automatically. Placeholders: {" "}
+            <code className="text-[11px]">{"{{CandidateName}}"}</code> (candidate),{" "}
+            <code className="text-[11px]">{"{{PositionTitle}}"}</code> (position),{" "}
+            <code className="text-[11px]">{"{{SalaryFormatted}}"}</code> (salary + currency),{" "}
+            <code className="text-[11px]">{"{{JoiningDate}}"}</code>,{" "}
+            <code className="text-[11px]">{"{{RemarksHtml}}"}</code> (remarks)
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" onClick={() => void handleResetOfferLetterTemplate()} disabled={offerLetterLoading}>
+            Reset template
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => void refreshOfferLetterPreview({ useCurrentAsTemplate: true })} disabled={offerLetterLoading}>
+            {offerLetterLoading ? "Refreshing…" : "Refresh fields"}
+          </Button>
+          {opts.showSave && (
+            <Button type="button" onClick={() => void handleSaveOfferLetter()} disabled={offerLetterSaving || !offerLetterHtml.trim()}>
+              {offerLetterSaving ? "Saving…" : "Save letter"}
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="mb-2 flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg)]/50 p-1 w-fit">
+        <button type="button" onClick={() => setOfferLetterView("edit")}
+          className={`rounded-md px-3 py-1.5 text-xs font-medium ${offerLetterView === "edit" ? "bg-white shadow-sm text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
+          Edit
+        </button>
+        <button type="button" onClick={() => setOfferLetterView("preview")}
+          className={`rounded-md px-3 py-1.5 text-xs font-medium ${offerLetterView === "preview" ? "bg-white shadow-sm text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
+          Preview
+        </button>
+      </div>
+      {offerLetterView === "edit" ? (
+        <textarea
+          value={offerLetterHtml}
+          onChange={(e) => {
+            offerLetterUserEdited.current = true;
+            setOfferLetterHtml(e.target.value);
+          }}
+          className={`${INPUT} min-h-[280px] font-mono text-xs leading-relaxed`}
+          placeholder="Offer letter HTML…"
+        />
+      ) : (
+        <div
+          className="prose prose-sm max-w-none min-h-[200px] rounded-xl border border-[var(--border)] bg-white p-4"
+          dangerouslySetInnerHTML={{ __html: offerLetterHtml || "<p class='text-slate-500'>No letter content yet.</p>" }}
+        />
+      )}
+    </div>
+  );
+
+  function activityTypeLabel(type: string): string {
+    if (type === "EvaluationNote") return "Evaluation note";
+    if (type === "StageChange") return "Stage change";
+    if (type === "ApplicationUpdate") return "Application update";
+    return type.replace(/([a-z])([A-Z])/g, "$1 $2");
+  }
+
+  const scheduleTitleOpts = useMemo(
+    () => scheduleTitleOptions(candidate?.fullName),
+    [candidate?.fullName],
+  );
+
+  const scheduleOnsiteLocationOpts = useMemo(
+    () => scheduleOnsiteLocationOptions(scheduleLookups.locations),
+    [scheduleLookups.locations],
+  );
 
   const scheduleInterviewerOpts = useMemo<FormSelectOption[]>(
     () => [
@@ -169,20 +238,24 @@ export default function CandidateDetailPage() {
     [scheduleLookups.interviewers]
   );
 
-  const onboardingTemplateOpts = useMemo<FormSelectOption[]>(
-    () => [
-      { value: "", label: "No onboarding template" },
-      ...onboardingTemplates.map((t) => ({
-        value: t.id,
-        label: `${t.name} (${t.itemCount} tasks)`,
-      })),
-    ],
-    [onboardingTemplates]
-  );
+  const convertEmployeeInitialValues = useMemo(() => {
+    if (!candidate) return undefined;
+    return {
+      firstName: candidate.firstName,
+      lastName: candidate.lastName,
+      email: candidate.email,
+      phone: candidate.phone ?? "",
+      joinDate: candidate.offer?.joiningDate?.slice(0, 10) || formatLocalDateToIso(new Date()),
+      departmentId: candidate.requisitionDepartmentId ?? "",
+      jobTitleId: candidate.requisitionJobTitleId ?? "",
+      locationId: candidate.requisitionLocationId ?? "",
+      positionId: candidate.requisitionPositionId ?? "",
+    };
+  }, [candidate]);
 
   useEffect(() => {
     if (!scheduleModal) {
-      setScheduleLocationOther("");
+      setScheduleMeetingLink("");
       setNotifyInterviewCandidateEmail(true);
       setNotifyInterviewInterviewerEmail(true);
       return;
@@ -213,7 +286,7 @@ export default function CandidateDetailPage() {
     const name = candidate?.fullName ?? "";
     setNotifyInterviewCandidateEmail(true);
     setNotifyInterviewInterviewerEmail(true);
-    setScheduleLocationOther("");
+    setScheduleMeetingLink("");
     setInterviewForm({
       title: defaultScheduleTitle("Onsite", name),
       scheduledAt: "",
@@ -226,10 +299,40 @@ export default function CandidateDetailPage() {
     setScheduleModal(true);
   }
 
+  const offerWorkflowOpened = useRef(false);
+  const offerLetterUserEdited = useRef(false);
+  const offerLetterSectionRef = useRef<HTMLDivElement>(null);
+
+  function handleViewOffer() {
+    setOfferLetterView("preview");
+    window.setTimeout(() => {
+      offerLetterSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  const initOfferForm = useCallback(() => {
+    offerLetterUserEdited.current = false;
+    setOfferLetterHtml("");
+    setOfferForm((f) => ({
+      ...f,
+      positionTitle: candidate?.requisitionTitle ?? "",
+      salaryOffered: f.salaryOffered || (candidate?.expectedSalary ? String(candidate.expectedSalary) : ""),
+    }));
+  }, [candidate?.expectedSalary, candidate?.requisitionTitle]);
+
+  const openOfferWorkflow = useCallback(() => {
+    setTab("offer");
+    if (!candidate?.offer) {
+      setShowOfferForm(true);
+      initOfferForm();
+    }
+  }, [candidate?.offer, initOfferForm]);
+
   async function handleStageChange(newStage: string) {
     try {
       await apiFetch(`/api/recruitment/candidates/${id}/stage`, { method: "PUT", body: JSON.stringify({ stage: newStage }) });
       await load(); setStageAction(false);
+      if (newStage === "Offer") openOfferWorkflow();
     } catch { /* */ }
   }
 
@@ -240,29 +343,23 @@ export default function CandidateDetailPage() {
     } catch { /* */ }
   }
 
-  async function openHireModal() {
-    setHireModal(true); setHireResult(null); setSelectedTemplateId("");
-    try { setOnboardingTemplates(await apiFetch<OnboardingTemplate[]>("/api/employee-tasks/templates?type=Onboarding")); }
-    catch { setOnboardingTemplates([]); }
-  }
-
-  async function handleHire() {
-    if (hireLoading) return;
-    if (!confirm("Create an employee from this candidate? Confirm offer and compliance steps are complete.")) return;
-    setHireLoading(true);
+  async function handleReinterview() {
     try {
-      const body: Record<string, unknown> = {};
-      if (selectedTemplateId) body.onboardingTemplateId = selectedTemplateId;
-      const result = await apiFetch<HireResult>(`/api/recruitment/candidates/${id}/hire`, { method: "POST", body: JSON.stringify(body) });
-      setHireResult(result); await load();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to convert candidate"); }
-    finally { setHireLoading(false); }
+      await apiFetch(`/api/recruitment/candidates/${id}/reinterview`, { method: "POST", body: JSON.stringify({}) });
+      await load();
+      openScheduleModal();
+    } catch (e) {
+      await appAlert(e instanceof Error ? e.message : "Could not reopen candidate for interview.");
+    }
   }
 
   async function handleScheduleInterview() {
     if (!interviewForm.title || !interviewForm.scheduledAt) return;
-    const locationResolved =
-      interviewForm.location === SCHEDULE_LOCATION_OTHER ? scheduleLocationOther.trim() || null : interviewForm.location || null;
+    const locationResolved = resolveInterviewLocation(
+      interviewForm.interviewType,
+      interviewForm.location,
+      scheduleMeetingLink,
+    );
     const interviewer = scheduleLookups.interviewers.find((e) => e.id === interviewForm.interviewerId);
     try {
       await apiFetch("/api/recruitment/interviews", {
@@ -290,49 +387,177 @@ export default function CandidateDetailPage() {
         interviewerId: "",
         interviewerName: "",
       });
-      setScheduleLocationOther("");
+      setScheduleMeetingLink("");
       setNotifyInterviewCandidateEmail(true);
       setNotifyInterviewInterviewerEmail(true);
       await load();
     } catch { /* */ }
   }
 
-  async function handleCreateOffer() {
-    if (!offerForm.salaryOffered) return;
-    if (!confirm("Create this offer? You can approve it internally, then email the candidate and record acceptance.")) return;
+  const refreshOfferLetterPreview = useCallback(async (opts?: { templateHtml?: string; useCurrentAsTemplate?: boolean }) => {
+    const activeOffer = candidate?.offer;
+    const salary = activeOffer ? activeOffer.salaryOffered : (Number(offerForm.salaryOffered) || 0);
+    setOfferLetterLoading(true);
     try {
-      await apiFetch("/api/recruitment/offers", {
+      const res = await apiFetch<{ html: string }>("/api/recruitment/offers/letter-preview", {
         method: "POST",
         body: JSON.stringify({
-          candidateId: id, salaryOffered: Number(offerForm.salaryOffered), currency: offerForm.currency,
-          offerDate: offerForm.offerDate, expiryDate: offerForm.expiryDate || null,
-          joiningDate: offerForm.joiningDate || null, remarks: offerForm.remarks || null,
+          candidateId: id,
+          salaryOffered: salary,
+          currency: activeOffer?.currency ?? offerForm.currency,
+          offerDate: activeOffer?.offerDate ?? offerForm.offerDate,
+          expiryDate: (activeOffer?.expiryDate ?? offerForm.expiryDate) || null,
+          joiningDate: (activeOffer?.joiningDate ?? offerForm.joiningDate) || null,
+          remarks: (activeOffer?.remarks ?? offerForm.remarks) || null,
+          positionTitle: activeOffer
+            ? null
+            : (offerForm.positionTitle.trim() || candidate?.requisitionTitle || null),
+          templateHtml: opts?.useCurrentAsTemplate ? offerLetterHtml : opts?.templateHtml,
         }),
       });
-      setShowOfferForm(false); await load(); setTab("offer");
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to create offer"); }
+      setOfferLetterHtml(res.html ?? "");
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not load offer letter template.");
+    } finally {
+      setOfferLetterLoading(false);
+    }
+  }, [id, offerForm, candidate?.offer, candidate?.requisitionTitle, offerLetterHtml]);
+
+  useEffect(() => {
+    if (candidate?.offer?.letterHtml) setOfferLetterHtml(candidate.offer.letterHtml);
+  }, [candidate?.offer?.letterHtml]);
+
+  useEffect(() => {
+    if (!showOfferForm || candidate?.offer || offerLetterUserEdited.current) return;
+    const handle = window.setTimeout(() => {
+      void refreshOfferLetterPreview();
+    }, 400);
+    return () => window.clearTimeout(handle);
+  }, [showOfferForm, candidate?.offer, offerForm, refreshOfferLetterPreview]);
+
+  useEffect(() => {
+    if (!candidate?.offer?.id || offerLetterHtml || offerLetterLoading) return;
+    if (!candidate.offer.letterHtml) void refreshOfferLetterPreview();
+  }, [candidate?.offer?.id, candidate?.offer?.letterHtml, offerLetterHtml, offerLetterLoading, refreshOfferLetterPreview]);
+
+  useEffect(() => {
+    if (!candidate || candidate.stage !== "Offer" || offerWorkflowOpened.current) return;
+    offerWorkflowOpened.current = true;
+    openOfferWorkflow();
+  }, [candidate, openOfferWorkflow]);
+
+  async function handleResetOfferLetterTemplate() {
+    try {
+      offerLetterUserEdited.current = false;
+      const res = await apiFetch<{ html: string }>("/api/recruitment/offers/letter-template");
+      await refreshOfferLetterPreview({ templateHtml: res.html });
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not load template.");
+    }
+  }
+
+  async function handleSaveOfferLetter() {
+    if (!candidate?.offer?.id || !offerLetterHtml.trim()) return;
+    setOfferLetterSaving(true);
+    try {
+      await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/letter`, {
+        method: "PUT",
+        body: JSON.stringify({ letterHtml: offerLetterHtml }),
+      });
+      await load();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not save offer letter.");
+    } finally {
+      setOfferLetterSaving(false);
+    }
+  }
+
+  async function handleCreateOffer() {
+    if (!offerForm.positionTitle.trim()) {
+      await appAlert("Position title is required for the offer letter.");
+      return;
+    }
+    if (!offerForm.salaryOffered || Number(offerForm.salaryOffered) <= 0) {
+      await appAlert("Enter a salary offered amount greater than zero.");
+      return;
+    }
+    if (!offerForm.offerDate) {
+      await appAlert("Offer date is required.");
+      return;
+    }
+    if (!offerLetterHtml.trim()) {
+      await appAlert("Offer letter is empty. Wait for the preview to load or click Refresh fields.");
+      return;
+    }
+    const candidateEmail = candidate?.email?.trim();
+    if (!candidateEmail) {
+      await appAlert("This candidate has no email address. Add an email on the candidate profile before sharing an offer.");
+      return;
+    }
+    if (!(await appConfirm(
+      `Save this offer letter and email it to ${candidateEmail}?`,
+      { title: "Share offer", confirmLabel: "Save & share" },
+    ))) return;
+
+    setCreateOfferLoading(true);
+    try {
+      const created = await apiFetch<Offer>("/api/recruitment/offers", {
+        method: "POST",
+        body: JSON.stringify({
+          candidateId: id,
+          salaryOffered: Number(offerForm.salaryOffered),
+          currency: offerForm.currency,
+          offerDate: offerForm.offerDate,
+          expiryDate: offerForm.expiryDate || null,
+          joiningDate: offerForm.joiningDate || null,
+          remarks: offerForm.remarks || null,
+          positionTitle: offerForm.positionTitle.trim() || null,
+          letterHtml: offerLetterHtml.trim(),
+        }),
+      });
+      await apiFetch(`/api/recruitment/offers/${created.id}/approve`, { method: "POST" });
+      const sendRes = await apiFetch<{ message: string; emailConfigured: boolean }>(
+        `/api/recruitment/offers/${created.id}/send-email`,
+        { method: "POST" },
+      );
+      setShowOfferForm(false);
+      setEmailSent(sendRes.emailConfigured);
+      await load();
+      setTab("offer");
+      if (sendRes.emailConfigured) {
+        await appAlert(`Offer saved and emailed to ${candidateEmail}.`);
+      } else {
+        await appAlert(
+          "Offer saved and approved. Email was not sent because outbound email is not configured on the server. Set up SMTP or SendGrid, then use Share with candidate.",
+        );
+      }
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Failed to save or share offer");
+    } finally {
+      setCreateOfferLoading(false);
+    }
   }
 
   async function handleSendOfferEmail() {
     if (!candidate?.offer) return;
-    if (!confirm("Send the offer details by email to the candidate?")) return;
+    if (!(await appConfirm("Email this offer letter to the candidate? Save the letter first if you made changes."))) return;
     setSendingEmail(true); setEmailSent(false);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/send-email`, { method: "POST" });
       setEmailSent(true); await load();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to send email"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to send email"); }
     finally { setSendingEmail(false); }
   }
 
   async function handleApproveOffer() {
     if (!candidate?.offer) return;
-    if (!confirm("Approve this offer internally? Only approved offers can be emailed; acceptance is recorded only after approval.")) return;
+    if (!(await appConfirm("Approve this offer internally? Only approved offers can be emailed; acceptance is recorded only after approval."))) return;
     setActionLoading(true);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/approve`, { method: "POST" });
       await load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to approve offer");
+      await appAlert(err instanceof Error ? err.message : "Failed to approve offer");
     } finally {
       setActionLoading(false);
     }
@@ -341,28 +566,28 @@ export default function CandidateDetailPage() {
   async function handleAcceptOffer() {
     if (!candidate?.offer) return;
     if (candidate.offer.status !== "Approved") {
-      alert("Approve the offer first, then record the candidate’s acceptance.");
+      await appAlert("Approve the offer first, then record the candidate’s acceptance.");
       return;
     }
-    if (!confirm("Mark this offer as accepted? The candidate will be moved to Hired.")) return;
+    if (!(await appConfirm("Mark this offer as accepted? The candidate will be moved to Hired."))) return;
     setActionLoading(true);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/accept`, { method: "POST" });
       await load();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to accept offer"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to accept offer"); }
     finally { setActionLoading(false); }
   }
 
   async function handleRejectOffer() {
     if (!candidate?.offer) return;
-    if (!confirm("Reject or withdraw this offer? Use this when the candidate declines or the offer is pulled.")) return;
-    const reason = prompt("Reason for rejecting the offer:");
+    if (!(await appConfirm("Reject or withdraw this offer? Use this when the candidate declines or the offer is pulled."))) return;
+    const reason = await appPrompt("Please provide the reason for rejecting this offer.", { title: "Reject Offer", confirmLabel: "Reject Offer", variant: "danger", placeholder: "Reason..." });
     if (reason === null) return;
     setActionLoading(true);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
       await load();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed to reject offer"); }
+    } catch (err) { await appAlert(err instanceof Error ? err.message : "Failed to reject offer"); }
     finally { setActionLoading(false); }
   }
 
@@ -433,10 +658,13 @@ export default function CandidateDetailPage() {
               c.employeeId ? (
                 <Link href={`/app/people/${c.employeeId}`}><Button>View Employee Profile</Button></Link>
               ) : (
-                <Button onClick={openHireModal}>Convert to Employee</Button>
+                <Button onClick={() => setConvertEmployeeOpen(true)}>Convert to Employee</Button>
               )
             )}
             {/* Pre-Hired stages (not Rejected) */}
+            {c.stage === "Rejected" && (
+              <Button onClick={() => void handleReinterview()}>Re-interview</Button>
+            )}
             {c.stage !== "Hired" && c.stage !== "Rejected" && (
               <>
                 <div className="relative">
@@ -450,8 +678,11 @@ export default function CandidateDetailPage() {
                     </div>
                   )}
                 </div>
-                {["Sourced", "Screening", "Phone Screen", "Interview"].includes(c.stage) && (
+                {c.stage === "Interview" && (
                   <Button variant="secondary" onClick={openScheduleModal}>Schedule Interview</Button>
+                )}
+                {c.stage === "Offer" && (
+                  <Button onClick={openOfferWorkflow}>{c.offer ? "Manage offer" : "Create offer"}</Button>
                 )}
                 <Button variant="secondary" className="text-red-600" onClick={() => setRejectModal(true)}>Reject</Button>
               </>
@@ -539,6 +770,61 @@ export default function CandidateDetailPage() {
                 </div>
               )}
             </div>
+
+            {c.stage === "Offer" && (
+              <div className="rounded-2xl border border-orange-200 bg-orange-50/50 p-6 shadow-sm lg:col-span-2">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--text)]">Offer letter</h3>
+                    <p className="mt-1 text-sm text-[var(--text-muted)]">
+                      {c.offer
+                        ? "Edit the offer letter, approve it, then share it with the candidate by email."
+                        : "Create an offer with an editable letter template, then approve and email it to the candidate."}
+                    </p>
+                  </div>
+                  <Button onClick={openOfferWorkflow}>{c.offer ? "Open offer" : "Create offer"}</Button>
+                </div>
+              </div>
+            )}
+
+            {(c.stage === "Evaluation" || evaluationNotes.length > 0) && (
+              <div className="rounded-2xl border border-[var(--border)] bg-white p-6 shadow-sm lg:col-span-2">
+                <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-[var(--text)]">Evaluation notes</h3>
+                <p className="mb-4 text-xs text-[var(--text-muted)]">
+                  While the candidate is in Evaluation, interviewers can add notes at any time — strengths, concerns, and why you recommend moving forward or not.
+                </p>
+                {c.stage === "Evaluation" && (
+                  <div className="mb-4 space-y-2">
+                    <textarea
+                      value={evaluationNote}
+                      onChange={(e) => setEvaluationNote(e.target.value)}
+                      placeholder="e.g. Strong technical skills; concerns about notice period…"
+                      className={`${INPUT} min-h-[88px]`}
+                    />
+                    <div className="flex justify-end">
+                      <Button onClick={() => void handleAddEvaluationNote()} disabled={evaluationNoteSaving || !evaluationNote.trim()}>
+                        {evaluationNoteSaving ? "Saving…" : "Add evaluation note"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {evaluationNotes.length === 0 ? (
+                  <p className="text-sm text-[var(--text-muted)]">No evaluation notes yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {evaluationNotes.map((a) => (
+                      <div key={a.id} className="rounded-xl border border-[var(--border)] bg-[var(--bg)]/40 px-4 py-3">
+                        <p className="whitespace-pre-wrap text-sm text-[var(--text)]">{a.description}</p>
+                        <p className="mt-1.5 text-xs text-[var(--text-muted)]">
+                          {a.performedBy && <>{a.performedBy} · </>}
+                          {formatBusinessDateTime(a.performedAt)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -548,9 +834,21 @@ export default function CandidateDetailPage() {
             {c.interviews.length === 0 ? (
               <div className="rounded-2xl border border-[var(--border)] bg-white p-8 text-center text-[var(--text-muted)] shadow-sm">
                 No interviews scheduled yet.
-                <div className="mt-3"><Button variant="secondary" onClick={openScheduleModal}>Schedule Interview</Button></div>
+                {c.stage === "Interview" && (
+                  <div className="mt-3"><Button variant="secondary" onClick={openScheduleModal}>Schedule Interview</Button></div>
+                )}
+                {c.stage === "Rejected" && (
+                  <div className="mt-3"><Button onClick={() => void handleReinterview()}>Re-interview</Button></div>
+                )}
               </div>
-            ) : c.interviews.map((iv) => (
+            ) : (
+              <>
+              {c.stage === "Rejected" && (
+                <div className="flex justify-end">
+                  <Button onClick={() => void handleReinterview()}>Re-interview</Button>
+                </div>
+              )}
+              {c.interviews.map((iv) => (
               <div key={iv.id} className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
                 <div className="flex items-start justify-between">
                   <div>
@@ -586,13 +884,16 @@ export default function CandidateDetailPage() {
                 )}
               </div>
             ))}
+              </>
+            )}
           </div>
         )}
 
         {/* ═══ OFFER TAB ═══ */}
         {tab === "offer" && (
           <div className="space-y-4">
-            {c.offer ? (
+            {c.offer && !(showOfferForm && c.offer.status === "Rejected") ? (
+              <>
               <div className="rounded-2xl border border-[var(--border)] bg-white p-6 shadow-sm">
                 <div className="flex items-start justify-between mb-4">
                   <h3 className="text-lg font-semibold">Offer Details</h3>
@@ -616,9 +917,22 @@ export default function CandidateDetailPage() {
                   </div>
                 )}
 
+                {c.offer.status === "Rejected" && (
+                  <div className="mt-6 pt-4 border-t border-[var(--border)]">
+                    <Button onClick={() => { setShowOfferForm(true); initOfferForm(); }}>Send new offer</Button>
+                  </div>
+                )}
+
                 {/* Offer action buttons */}
                 {c.offer.status !== "Rejected" && (
                   <div className="mt-6 flex flex-wrap items-center gap-3 pt-4 border-t border-[var(--border)]">
+                    <Button
+                      variant="secondary"
+                      onClick={handleViewOffer}
+                      disabled={offerLetterLoading || (!offerLetterHtml.trim() && !c.offer.letterHtml)}
+                    >
+                      View offer
+                    </Button>
                     {c.offer.status === "Pending" && (
                       <>
                         <Button onClick={handleApproveOffer} disabled={actionLoading}>
@@ -631,8 +945,8 @@ export default function CandidateDetailPage() {
                     )}
                     {c.offer.status === "Approved" && !c.offer.acceptedAt && (
                       <>
-                        <Button onClick={handleSendOfferEmail} disabled={sendingEmail} variant="secondary">
-                          {sendingEmail ? "Sending..." : "Send Offer Email"}
+                        <Button onClick={handleSendOfferEmail} disabled={sendingEmail || !offerLetterHtml.trim()}>
+                          {sendingEmail ? "Sending..." : "Share with candidate"}
                         </Button>
                         <Button onClick={handleAcceptOffer} disabled={actionLoading}>
                           {actionLoading ? "Processing..." : "Mark as Accepted"}
@@ -652,12 +966,34 @@ export default function CandidateDetailPage() {
                   </div>
                 )}
               </div>
+              {c.offer.status !== "Rejected" && (
+                <div ref={offerLetterSectionRef}>
+                  {offerLetterEditor({ showSave: true })}
+                </div>
+              )}
+              </>
             ) : (
               <div className="rounded-2xl border border-[var(--border)] bg-white shadow-sm">
                 {showOfferForm ? (
                   <div className="p-6">
                     <h3 className="text-lg font-semibold mb-4">Create Offer</h3>
                     <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Candidate Name</label>
+                          <input type="text" value={c.fullName} readOnly className={`${INPUT} bg-[var(--bg)]/60 text-[var(--text-muted)]`} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Position Title *</label>
+                          <input
+                            type="text"
+                            value={offerForm.positionTitle}
+                            onChange={(e) => setOfferForm({ ...offerForm, positionTitle: e.target.value })}
+                            placeholder="e.g. Senior Software Engineer"
+                            className={INPUT}
+                          />
+                        </div>
+                      </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-sm font-medium mb-1">Salary Offered *</label>
@@ -690,16 +1026,19 @@ export default function CandidateDetailPage() {
                         <textarea value={offerForm.remarks} onChange={(e) => setOfferForm({ ...offerForm, remarks: e.target.value })}
                           placeholder="Additional notes about the offer..." className={`${INPUT} min-h-[80px]`} />
                       </div>
+                      {offerLetterEditor({ showSave: false })}
                     </div>
                     <div className="mt-5 flex justify-end gap-3">
-                      <Button variant="secondary" onClick={() => setShowOfferForm(false)}>Cancel</Button>
-                      <Button onClick={handleCreateOffer}>Create Offer</Button>
+                      <Button variant="secondary" onClick={() => setShowOfferForm(false)} disabled={createOfferLoading}>Cancel</Button>
+                      <Button onClick={() => void handleCreateOffer()} disabled={createOfferLoading || offerLetterLoading}>
+                        {createOfferLoading ? "Saving…" : "Save & share with candidate"}
+                      </Button>
                     </div>
                   </div>
                 ) : (
                   <div className="p-8 text-center text-[var(--text-muted)]">
                     No offer created yet.
-                    <div className="mt-3"><Button onClick={() => setShowOfferForm(true)}>Create Offer</Button></div>
+                    <div className="mt-3"><Button onClick={() => { setShowOfferForm(true); initOfferForm(); }}>Create Offer</Button></div>
                   </div>
                 )}
               </div>
@@ -719,9 +1058,9 @@ export default function CandidateDetailPage() {
                     <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--primary)]" />
                     <div className="flex-1">
                       <p className="text-sm text-[var(--text)]">{a.description}</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{a.performedBy && <>{a.performedBy} &middot; </>}{formatDateTime(a.performedAt)}</p>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{a.performedBy && <>{a.performedBy} &middot; </>}{formatBusinessDateTime(a.performedAt)}</p>
                     </div>
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{a.activityType}</span>
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{activityTypeLabel(a.activityType)}</span>
                   </div>
                 ))}
               </div>
@@ -757,12 +1096,22 @@ export default function CandidateDetailPage() {
                 <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Title *</label>
                 <FormSelect
                   value={interviewForm.title}
-                  onValueChange={(v) => setInterviewForm((prev) => ({ ...prev, title: v }))}
+                  onValueChange={(v) => {
+                    const inferred = inferInterviewTypeFromTitle(v, candidate?.fullName);
+                    if (inferred !== "Video") setScheduleMeetingLink("");
+                    setInterviewForm((prev) => ({
+                      ...prev,
+                      title: v,
+                      ...(inferred !== null
+                        ? { interviewType: inferred, location: inferred === "Onsite" ? prev.location : "" }
+                        : {}),
+                    }));
+                  }}
                   options={scheduleTitleOpts}
                   placeholder="Select title…"
                 />
                 <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                  Default matches interview type below; pick another title or change type to adjust.
+                  Title and type stay in sync — change either field to update the other.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -771,7 +1120,7 @@ export default function CandidateDetailPage() {
                 <div><label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Duration (min)</label>
                   <input type="number" value={interviewForm.duration} onChange={(e) => setInterviewForm({ ...interviewForm, duration: Number(e.target.value) })} className={INPUT} /></div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className={`grid gap-3 ${interviewForm.interviewType === "Phone" ? "grid-cols-1" : "grid-cols-2"}`}>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Type</label>
                   <FormSelect
@@ -782,32 +1131,36 @@ export default function CandidateDetailPage() {
                         ...prev,
                         interviewType: v,
                         title: defaultScheduleTitle(v || undefined, name),
+                        location: v === "Onsite" ? prev.location : "",
                       }));
+                      if (v !== "Video") setScheduleMeetingLink("");
                     }}
                     options={INTERVIEW_TYPE_OPTS}
                     placeholder="Select type…"
                   />
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Location</label>
-                  <FormSelect
-                    value={interviewForm.location === SCHEDULE_LOCATION_OTHER ? SCHEDULE_LOCATION_OTHER : interviewForm.location || ""}
-                    onValueChange={(v) => {
-                      setInterviewForm({ ...interviewForm, location: v });
-                      if (v !== SCHEDULE_LOCATION_OTHER) setScheduleLocationOther("");
-                    }}
-                    options={scheduleLocationOpts}
-                    placeholder="Select location…"
-                  />
-                  {interviewForm.location === SCHEDULE_LOCATION_OTHER && (
+                {interviewForm.interviewType === "Video" && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Meeting link</label>
                     <input
-                      className={`${INPUT} mt-2`}
-                      placeholder="Room name, floor, or meeting link"
-                      value={scheduleLocationOther}
-                      onChange={(e) => setScheduleLocationOther(e.target.value)}
+                      className={INPUT}
+                      placeholder="https://teams.microsoft.com/…"
+                      value={scheduleMeetingLink}
+                      onChange={(e) => setScheduleMeetingLink(e.target.value)}
                     />
-                  )}
-                </div>
+                  </div>
+                )}
+                {interviewForm.interviewType === "Onsite" && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Location</label>
+                    <FormSelect
+                      value={interviewForm.location || ""}
+                      onValueChange={(v) => setInterviewForm({ ...interviewForm, location: v })}
+                      options={scheduleOnsiteLocationOpts}
+                      placeholder="Select location…"
+                    />
+                  </div>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Interviewer</label>
@@ -857,65 +1210,20 @@ export default function CandidateDetailPage() {
         </div>
       )}
 
-      {/* ═══ CONVERT TO EMPLOYEE MODAL ═══ */}
-      {hireModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-20"
-          onClick={(e) => { if (e.target === e.currentTarget && !hireLoading) setHireModal(false); }}>
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
-            {hireResult ? (
-              <div className="text-center py-4">
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-                  <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <h2 className="text-xl font-bold text-[var(--text)] mb-2">Employee Created</h2>
-                <p className="text-sm text-[var(--text-muted)] mb-1"><span className="font-semibold">{c.fullName}</span> has been converted to an employee.</p>
-                <p className="text-sm text-[var(--text-muted)] mb-1">An employee code from the number series has been assigned automatically.</p>
-                {hireResult.onboardingStarted && <p className="text-sm text-green-600 font-medium mt-2">Onboarding tasks have been created.</p>}
-                <div className="mt-6 flex justify-center gap-3">
-                  <Button variant="secondary" onClick={() => setHireModal(false)}>Close</Button>
-                  <Link href={`/app/people/${hireResult.employeeId}`}><Button>View Employee Profile</Button></Link>
-                </div>
-              </div>
-            ) : (
-              <>
-                <h2 className="text-lg font-semibold mb-1">Convert to Employee</h2>
-                <p className="text-sm text-[var(--text-muted)] mb-5">
-                  This will create a new employee record for <span className="font-semibold">{c.fullName}</span> with the next available employee code from the number series.
-                </p>
-                <div className="space-y-4">
-                  <div className="rounded-xl bg-[var(--bg)] p-4">
-                    <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-3">Details to be transferred</h4>
-                    <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                      <div><dt className="text-[var(--text-muted)]">Name</dt><dd className="font-medium">{c.fullName}</dd></div>
-                      <div><dt className="text-[var(--text-muted)]">Email</dt><dd className="font-medium">{c.email}</dd></div>
-                      {c.phone && <div><dt className="text-[var(--text-muted)]">Phone</dt><dd className="font-medium">{c.phone}</dd></div>}
-                      <div><dt className="text-[var(--text-muted)]">Department</dt><dd className="font-medium">{c.requisitionTitle ? "From requisition" : "—"}</dd></div>
-                      {c.offer?.joiningDate && <div><dt className="text-[var(--text-muted)]">Joining Date</dt><dd className="font-medium">{formatDate(c.offer.joiningDate)}</dd></div>}
-                      {c.offer && <div><dt className="text-[var(--text-muted)]">Salary</dt><dd className="font-medium">{c.offer.currency ?? "LKR"} {c.offer.salaryOffered.toLocaleString()}</dd></div>}
-                    </dl>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5">Onboarding Template (optional)</label>
-                    <FormSelect
-                      value={selectedTemplateId}
-                      onValueChange={setSelectedTemplateId}
-                      options={onboardingTemplateOpts}
-                      placeholder="No onboarding template"
-                    />
-                    <p className="mt-1 text-xs text-[var(--text-muted)]">Select a template to automatically create onboarding tasks for the new employee.</p>
-                  </div>
-                </div>
-                <div className="mt-6 flex justify-end gap-3">
-                  <Button variant="secondary" onClick={() => setHireModal(false)}>Cancel</Button>
-                  <Button onClick={handleHire} disabled={hireLoading}>{hireLoading ? "Creating..." : "Convert to Employee"}</Button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <CreateEmployeeModal
+        open={convertEmployeeOpen}
+        onClose={() => setConvertEmployeeOpen(false)}
+        candidateId={id}
+        title="Convert to Employee"
+        submitLabel="Convert to Employee"
+        initialValues={convertEmployeeInitialValues}
+        onConverted={async (result) => {
+          await load();
+          const onboardingNote = result.onboardingStarted ? " Onboarding tasks have been created." : "";
+          await appAlert(`${c.fullName} has been converted to an employee.${onboardingNote}`, { title: "Employee created" });
+          router.push(`/app/people/${result.employeeId}`);
+        }}
+      />
     </div>
   );
 }

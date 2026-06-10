@@ -1,5 +1,6 @@
 "use client";
 
+import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
@@ -8,7 +9,9 @@ import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } f
 import { API_BASE_URL } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { useClientPagination } from "@/lib/use-client-pagination";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 
 interface Component {
   id: string; name: string; code: string; type: string; category: string;
@@ -133,6 +136,25 @@ const ACTIVE_STATUS_OPTS: FormSelectOption[] = [
 ];
 
 const fmt = (n: number) => n.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const roundMoney = (n: number) => Math.round(n * 100) / 100;
+
+function calcStatutoryAmount(
+  def: Component,
+  taxableEarnings: number,
+  settings: Settings | null
+): number {
+  if (!settings || taxableEarnings <= 0) return 0;
+  switch (def.code.toUpperCase()) {
+    case "EPF_EE":
+      return roundMoney(taxableEarnings * settings.epfEmployeeRate);
+    case "EPF_ER":
+      return roundMoney(taxableEarnings * settings.epfEmployerRate);
+    case "ETF_ER":
+      return roundMoney(taxableEarnings * settings.etfEmployerRate);
+    default:
+      return 0;
+  }
+}
 
 const inputCls = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
 const labelCls = "mb-1 block text-xs font-medium text-slate-500";
@@ -472,10 +494,12 @@ function ComponentsTab() {
 
   function handleEdit(c: Component) { setEditing(c); setShowForm(true); }
   async function handleDelete(id: string) {
-    if (!confirm("Delete this component?")) return;
+    if (!(await appConfirm("Delete this component?"))) return;
     await apiFetch(`/api/payroll/components/${id}`, { method: "DELETE" });
     load();
   }
+
+  const componentsPager = useClientPagination(components);
 
   if (loading) return <Loading />;
 
@@ -497,7 +521,7 @@ function ComponentsTab() {
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr></thead>
             <tbody>
-              {components.map(c => (
+              {componentsPager.pageItems.map(c => (
                 <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50/50">
                   <td className="px-4 py-3 font-medium text-slate-700">{c.name}</td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.code}</td>
@@ -517,6 +541,7 @@ function ComponentsTab() {
               ))}
             </tbody>
           </table>
+          <TablePagination page={componentsPager.page} totalPages={componentsPager.totalPages} totalCount={componentsPager.totalCount} pageSize={componentsPager.pageSize} onPageChange={componentsPager.setPage} />
         </div>
       )}
 
@@ -602,21 +627,24 @@ interface SalaryEmployee { id: string; firstName: string; lastName: string; empl
 function EmployeeSalaryTab() {
   const [allEmployees, setAllEmployees] = useState<SalaryEmployee[]>([]);
   const [listLoading, setListLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const searchFilter = useApplyFilter();
   const [filterDept, setFilterDept] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
   const [selectedEmp, setSelectedEmp] = useState<SalaryEmployee | null>(null);
   const [empComp, setEmpComp] = useState<EmpComp[]>([]);
+  const [compError, setCompError] = useState<string | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
   const [compLoading, setCompLoading] = useState(false);
   const [compTab, setCompTab] = useState<"Fixed" | "Variable">("Fixed");
   const [showImport, setShowImport] = useState(false);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState("");
+  const [payrollSettings, setPayrollSettings] = useState<Settings | null>(null);
 
   useEffect(() => {
     apiFetch<Component[]>("/api/payroll/components").then(setComponents).catch(() => {});
+    apiFetch<Settings>("/api/payroll/settings").then(setPayrollSettings).catch(() => {});
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=50").then(d => {
       setBatches(d.items);
       const draft = d.items.find(b => b.status === "Draft" || b.status === "Calculated");
@@ -654,39 +682,64 @@ function EmployeeSalaryTab() {
   const batchEntryCategory =
     selectedBatch?.processType === "Bonus" ? "OneTime" : "Variable";
 
-  const filtered = allEmployees.filter(e => {
-    if (filterDept && e.department !== filterDept) return false;
-    if (filterGrade && e.grade !== filterGrade) return false;
-    if (filterLocation && e.location !== filterLocation) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!e.firstName.toLowerCase().includes(q) && !e.lastName.toLowerCase().includes(q)
-        && !e.employeeCode.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
+  const filtered = useMemo(
+    () =>
+      allEmployees.filter((e) => {
+        if (filterDept && e.department !== filterDept) return false;
+        if (filterGrade && e.grade !== filterGrade) return false;
+        if (filterLocation && e.location !== filterLocation) return false;
+        if (searchFilter.applied) {
+          const q = searchFilter.applied.toLowerCase();
+          if (
+            !e.firstName.toLowerCase().includes(q) &&
+            !e.lastName.toLowerCase().includes(q) &&
+            !e.employeeCode.toLowerCase().includes(q)
+          )
+            return false;
+        }
+        return true;
+      }),
+    [allEmployees, filterDept, filterGrade, filterLocation, searchFilter.applied]
+  );
 
-  function selectEmployee(emp: SalaryEmployee) {
+  const selectEmployee = useCallback((emp: SalaryEmployee) => {
     setSelectedEmp(emp);
     setCompLoading(true);
+    setCompError(null);
     apiFetch<EmpComp[]>(`/api/payroll/compensation/${emp.id}`)
-      .then(setEmpComp).catch(() => {}).finally(() => setCompLoading(false));
-  }
+      .then(setEmpComp)
+      .catch((err: unknown) => {
+        setEmpComp([]);
+        setCompError(err instanceof Error ? err.message : "Could not load compensation");
+      })
+      .finally(() => setCompLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedEmp) return;
+    if (!filtered.some((e) => e.id === selectedEmp.id)) {
+      setSelectedEmp(null);
+      setEmpComp([]);
+    }
+  }, [filtered, selectedEmp]);
 
   if (listLoading) return <Loading />;
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:gap-8" style={{ minHeight: 500 }}>
       {/* Employee list */}
-      <div className="w-full shrink-0 space-y-3 rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/95 to-white p-4 shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] lg:w-[340px]">
+      <div className="relative z-10 w-full shrink-0 space-y-3 rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/95 to-white p-4 shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] lg:w-[340px]">
         <input
           className={
             inputCls +
             " !mb-0 rounded-lg border-slate-200/90 bg-white shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400"
           }
-          placeholder="Search name or code..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search name or code… (Enter)"
+          value={searchFilter.input}
+          onChange={(e) => searchFilter.setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") searchFilter.apply();
+          }}
         />
         <div className="flex min-w-0 gap-2">
           <div className="min-w-0 flex-1">
@@ -728,8 +781,11 @@ function EmployeeSalaryTab() {
               <button
                 key={emp.id}
                 type="button"
-                onClick={() => selectEmployee(emp)}
-                className={`flex w-full items-center gap-2 border-b border-slate-100 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-slate-50/90 ${
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  selectEmployee(emp);
+                }}
+                className={`flex w-full cursor-pointer items-center gap-2 border-b border-slate-100 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-slate-50/90 active:bg-sky-50/70 ${
                   selectedEmp?.id === emp.id
                     ? "border-l-[3px] border-l-[#2E7BBF] bg-sky-50/90 pl-[13px]"
                     : ""
@@ -804,17 +860,25 @@ function EmployeeSalaryTab() {
             Select an employee to view their compensation
           </div>
         ) : (
-          <SalaryComponentsEditor
-            employeeId={selectedEmp.id}
-            title={`${selectedEmp.firstName} ${selectedEmp.lastName} — ${selectedEmp.employeeCode}`}
-            mode={compTab}
-            batchId={compTab === "Variable" ? selectedBatchId : undefined}
-            processType={compTab === "Variable" ? selectedBatch?.processType : undefined}
-            componentsLibrary={components}
-            assignmentsAll={empComp}
-            loading={compLoading}
-            onReload={() => selectEmployee(selectedEmp)}
-          />
+          <>
+            {compError ? (
+              <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700">{compError}</div>
+            ) : null}
+            <SalaryComponentsEditor
+              key={selectedEmp.id}
+              employeeId={selectedEmp.id}
+              employeeName={`${selectedEmp.firstName} ${selectedEmp.lastName}`}
+              title={`${selectedEmp.firstName} ${selectedEmp.lastName} — ${selectedEmp.employeeCode}`}
+              mode={compTab}
+              batchId={compTab === "Variable" ? selectedBatchId : undefined}
+              processType={compTab === "Variable" ? selectedBatch?.processType : undefined}
+              componentsLibrary={components}
+              assignmentsAll={empComp}
+              payrollSettings={payrollSettings}
+              loading={compLoading}
+              onReload={() => selectEmployee(selectedEmp)}
+            />
+          </>
         )}
       </div>
 
@@ -831,22 +895,26 @@ function EmployeeSalaryTab() {
 /** Lists payroll components for Fixed or batch-scoped Variable / OneTime entry; blur saves like the classic salary grid. */
 function SalaryComponentsEditor({
   employeeId,
+  employeeName,
   title,
   mode,
   batchId,
   processType,
   componentsLibrary,
   assignmentsAll,
+  payrollSettings,
   loading,
   onReload,
 }: {
   employeeId: string;
+  employeeName: string;
   title: string;
   mode: "Fixed" | "Variable";
   batchId?: string;
   processType?: string;
   componentsLibrary: Component[];
   assignmentsAll: EmpComp[];
+  payrollSettings: Settings | null;
   loading: boolean;
   onReload: () => void;
 }) {
@@ -865,6 +933,13 @@ function SalaryComponentsEditor({
           : componentsLibrary.filter((c) => c.isActive && c.category === "Variable");
     return [...list].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
   }, [componentsLibrary, mode, batchUsesOneTime]);
+
+  const isStatutory = (def: Component) => def.category === "Statutory" || def.isStatutory;
+
+  const manualDefinitions = useMemo(
+    () => definitions.filter((d) => !isStatutory(d)),
+    [definitions]
+  );
 
   const relevantLines = useMemo(() => {
     return assignmentsAll.filter((a) => {
@@ -900,6 +975,7 @@ function SalaryComponentsEditor({
   }
 
   async function commitComponent(def: Component) {
+    if (isStatutory(def)) return;
     const line = lineForComponent(def.id);
     const draft = draftByComp[def.id];
     if (draft === undefined) return;
@@ -974,8 +1050,9 @@ function SalaryComponentsEditor({
     }
   }
 
-  const earningsDefs = definitions.filter((d) => d.type === "Earning");
-  const deductionDefs = definitions.filter((d) => d.type !== "Earning");
+  const earningsDefs = manualDefinitions.filter((d) => d.type === "Earning");
+  const manualDeductionDefs = manualDefinitions.filter((d) => d.type !== "Earning");
+  const statutoryDefs = definitions.filter((d) => isStatutory(d));
 
   function numericAmount(componentId: string): number {
     const draft = draftByComp[componentId];
@@ -989,14 +1066,48 @@ function SalaryComponentsEditor({
     return line?.amount ?? 0;
   }
 
+  const taxableEarnings = earningsDefs
+    .filter((d) => d.isTaxable)
+    .reduce((s, d) => s + numericAmount(d.id), 0);
+
+  function statutoryAmount(def: Component): number {
+    return calcStatutoryAmount(def, taxableEarnings, payrollSettings);
+  }
+
+  function displayAmount(def: Component): number {
+    if (isStatutory(def)) return statutoryAmount(def);
+    return numericAmount(def.id);
+  }
+
   const totalEarnings = earningsDefs.reduce((s, d) => s + numericAmount(d.id), 0);
-  const totalDeductions = deductionDefs.reduce((s, d) => s + numericAmount(d.id), 0);
+  const manualDeductions = manualDeductionDefs.reduce((s, d) => s + numericAmount(d.id), 0);
+  const employeeStatutoryDeductions =
+    taxableEarnings > 0
+      ? statutoryDefs
+          .filter((d) => d.type === "StatutoryDeduction")
+          .reduce((s, d) => s + statutoryAmount(d), 0)
+      : 0;
+  const totalEmployeeDeductions = manualDeductions + employeeStatutoryDeductions;
+  const employerStatutoryCost =
+    taxableEarnings > 0
+      ? statutoryDefs
+          .filter((d) => d.isEmployerContribution)
+          .reduce((s, d) => s + statutoryAmount(d), 0)
+      : 0;
+  const visibleDeductionDefs =
+    taxableEarnings > 0 ? [...manualDeductionDefs, ...statutoryDefs] : manualDeductionDefs;
+  const deductionDisplayTotal = visibleDeductionDefs.reduce((s, d) => s + displayAmount(d), 0);
 
   function inputDisplay(defId: string): string {
     if (draftByComp[defId] !== undefined) return draftByComp[defId];
     const line = lineForComponent(defId);
     if (!line || Number(line.amount) === 0) return "";
     return String(line.amount);
+  }
+
+  function statutoryDisplay(def: Component): string {
+    const amount = statutoryAmount(def);
+    return amount > 0 ? fmt(amount) : "—";
   }
 
   const salaryAmtInputCls =
@@ -1034,19 +1145,31 @@ function SalaryComponentsEditor({
                 ) : null}
               </td>
               <td className="py-3 pl-2 pr-4 align-top">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  disabled={loading || savingCompId === def.id}
-                  className={salaryAmtInputCls}
-                  value={inputDisplay(def.id)}
-                  onChange={(e) =>
-                    setDraftByComp((prev) => ({ ...prev, [def.id]: e.target.value }))
-                  }
-                  onBlur={() => void commitComponent(def)}
-                  placeholder="—"
-                  aria-label={`${def.name} amount`}
-                />
+                {isStatutory(def) ? (
+                  <div
+                    className="flex h-10 min-w-[7rem] items-center justify-end gap-2 rounded-lg border border-slate-200/70 bg-slate-50 px-3 font-mono text-sm tabular-nums text-slate-700 md:min-w-[8.75rem]"
+                    title={`Auto-calculated from taxable earnings (LKR ${fmt(taxableEarnings)})`}
+                  >
+                    <span className="rounded bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                      Auto
+                    </span>
+                    <span>{statutoryDisplay(def)}</span>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    disabled={loading || savingCompId === def.id}
+                    className={salaryAmtInputCls}
+                    value={inputDisplay(def.id)}
+                    onChange={(e) =>
+                      setDraftByComp((prev) => ({ ...prev, [def.id]: e.target.value }))
+                    }
+                    onBlur={() => void commitComponent(def)}
+                    placeholder="—"
+                    aria-label={`${def.name} amount`}
+                  />
+                )}
               </td>
             </tr>
           ))}
@@ -1060,12 +1183,28 @@ function SalaryComponentsEditor({
       <div className="border-b border-slate-100 bg-white px-6 pb-5 pt-6">
         <h2 className="text-xl font-semibold tracking-tight text-slate-900">{title}</h2>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
-          Enter amounts in LKR and leave the field to save. Clear the amount and leave the field to remove an assignment.
+          Enter amounts in LKR and leave the field to save. EPF and ETF are calculated for{" "}
+          <span className="font-medium text-slate-700">{employeeName}</span> only, from their taxable earnings.
+          {taxableEarnings > 0 && payrollSettings ? (
+            <span className="mt-1 block text-xs text-slate-400">
+              {employeeName} taxable base: LKR {fmt(taxableEarnings)} · EPF{" "}
+              {Math.round(payrollSettings.epfEmployeeRate * 100)}% /{" "}
+              {Math.round(payrollSettings.epfEmployerRate * 100)}% · ETF{" "}
+              {Math.round(payrollSettings.etfEmployerRate * 100)}%
+            </span>
+          ) : (
+            <span className="mt-1 block text-xs text-amber-600">
+              Add taxable earnings above to auto-calculate EPF and ETF for this employee.
+            </span>
+          )}
         </p>
         <div className="mt-5 flex flex-wrap gap-x-10 gap-y-2 border-t border-slate-100 pt-5 text-sm">
           <span className="font-medium text-emerald-700">Earnings: LKR {fmt(totalEarnings)}</span>
-          <span className="font-medium text-red-600">Deductions: LKR {fmt(totalDeductions)}</span>
-          <span className="font-semibold text-slate-900">Net: LKR {fmt(totalEarnings - totalDeductions)}</span>
+          <span className="font-medium text-red-600">Employee deductions: LKR {fmt(totalEmployeeDeductions)}</span>
+          <span className="font-semibold text-slate-900">Net: LKR {fmt(totalEarnings - totalEmployeeDeductions)}</span>
+          {employerStatutoryCost > 0 ? (
+            <span className="text-slate-500">Employer statutory: LKR {fmt(employerStatutoryCost)}</span>
+          ) : null}
         </div>
         {saveError ? (
           <div className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{saveError}</div>
@@ -1098,13 +1237,21 @@ function SalaryComponentsEditor({
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <span className="text-sm font-semibold text-rose-950">Deductions</span>
                 <span className="text-xs font-medium text-rose-900/85">
-                  {deductionDefs.length} component{deductionDefs.length !== 1 ? "s" : ""} • Subtotal LKR{" "}
-                  {fmt(totalDeductions)}
+                  {visibleDeductionDefs.length} component{visibleDeductionDefs.length !== 1 ? "s" : ""} • Subtotal LKR{" "}
+                  {fmt(deductionDisplayTotal)}
                 </span>
               </div>
             </div>
             <div className="max-h-[min(62vh,26rem)] min-h-[14rem] overflow-y-auto overscroll-contain">
-              {renderSalaryColumnTable(deductionDefs, "deduction")}
+              {renderSalaryColumnTable(manualDeductionDefs, "deduction")}
+              {taxableEarnings > 0 && statutoryDefs.length > 0 ? (
+                <div className="border-t border-slate-200/90 bg-slate-50/50">
+                  <div className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Statutory (auto — {employeeName})
+                  </div>
+                  {renderSalaryColumnTable(statutoryDefs, "deduction")}
+                </div>
+              ) : null}
             </div>
           </section>
         </div>
@@ -1224,7 +1371,7 @@ function VariableEntryTab() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editedAmounts, setEditedAmounts] = useState<Record<string, string>>({});
-  const [search, setSearch] = useState("");
+  const searchFilter = useApplyFilter();
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
@@ -1306,8 +1453,8 @@ function VariableEntryTab() {
   }
 
   const filtered = entries.filter(e => {
-    if (!search) return true;
-    const s = search.toLowerCase();
+    if (!searchFilter.applied) return true;
+    const s = searchFilter.applied.toLowerCase();
     return e.employeeName.toLowerCase().includes(s) || e.employeeCode.toLowerCase().includes(s)
       || e.componentName.toLowerCase().includes(s) || e.department.toLowerCase().includes(s);
   });
@@ -1339,7 +1486,15 @@ function VariableEntryTab() {
         </div>
         <div className="min-w-[200px]">
           <label className={labelCls}>Search</label>
-          <input className={inputCls} placeholder="Name, code, department..." value={search} onChange={e => setSearch(e.target.value)} />
+          <input
+            className={inputCls}
+            placeholder="Name, code, department..."
+            value={searchFilter.input}
+            onChange={(e) => searchFilter.setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") searchFilter.apply();
+            }}
+          />
         </div>
         <div className="ml-auto flex items-center gap-2">
           {dirtyCount > 0 && (
@@ -1438,35 +1593,36 @@ function PayrollRunTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  const batchesPager = useClientPagination(batches);
 
   async function handleAction(batchId: string, action: string) {
     setActionLoading(batchId);
     try {
       if (action === "calculate") {
-        if (!confirm("Run payroll calculation for this batch? Totals will be computed (or refreshed) from current compensation data.")) {
+        if (!(await appConfirm("Run payroll calculation for this batch? Totals will be computed (or refreshed) from current compensation data."))) {
           setActionLoading(null);
           return;
         }
         await apiFetch(`/api/payroll/batches/${batchId}/calculate`, { method: "POST" });
       } else if (action === "approve") {
-        if (!confirm("Approve this payroll batch? Confirm you have reviewed gross, deductions, and net pay before approving.")) {
+        if (!(await appConfirm("Approve this payroll batch? Confirm you have reviewed gross, deductions, and net pay before approving."))) {
           setActionLoading(null);
           return;
         }
         await apiFetch(`/api/payroll/batches/${batchId}/approve`, { method: "PUT" });
       } else if (action === "finalize") {
-        if (!confirm("Finalize this payroll batch? Payslips will be locked for this period. Only continue if payroll is ready for release.")) {
+        if (!(await appConfirm("Finalize this payroll batch? Payslips will be locked for this period. Only continue if payroll is ready for release."))) {
           setActionLoading(null);
           return;
         }
         await apiFetch(`/api/payroll/batches/${batchId}/finalize`, { method: "PUT" });
       } else if (action === "delete") {
-        if (!confirm("Delete this batch?")) { setActionLoading(null); return; }
+        if (!(await appConfirm("Delete this batch?"))) { setActionLoading(null); return; }
         await apiFetch(`/api/payroll/batches/${batchId}`, { method: "DELETE" });
       }
       load();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Action failed");
+      await appAlert(err instanceof Error ? err.message : "Action failed");
     } finally { setActionLoading(null); }
   }
 
@@ -1495,7 +1651,7 @@ function PayrollRunTab() {
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr></thead>
             <tbody>
-              {batches.map(b => (
+              {batchesPager.pageItems.map(b => (
                 <tr key={b.id} className="border-b border-slate-50 hover:bg-slate-50/50">
                   <td className="px-4 py-3">
                     <button onClick={() => viewBatchDetails(b)} className="font-medium text-blue-600 hover:underline">{b.batchCode}</button>
@@ -1526,6 +1682,7 @@ function PayrollRunTab() {
               ))}
             </tbody>
           </table>
+          <TablePagination page={batchesPager.page} totalPages={batchesPager.totalPages} totalCount={batchesPager.totalCount} pageSize={batchesPager.pageSize} onPageChange={batchesPager.setPage} />
         </div>
       )}
 
@@ -1663,7 +1820,7 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
   const [employees, setEmployees] = useState<EligibleEmployee[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
+  const searchFilter = useApplyFilter();
   const [filterDept, setFilterDept] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
@@ -1712,8 +1869,8 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
     if (filterDept && e.department !== filterDept) return false;
     if (filterGrade && e.grade !== filterGrade) return false;
     if (filterLocation && e.location !== filterLocation) return false;
-    if (!search) return true;
-    const q = search.toLowerCase();
+    if (!searchFilter.applied) return true;
+    const q = searchFilter.applied.toLowerCase();
     return e.firstName.toLowerCase().includes(q) || e.lastName.toLowerCase().includes(q)
       || e.employeeCode.toLowerCase().includes(q) || e.department.toLowerCase().includes(q);
   });
@@ -1814,8 +1971,15 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
       {step === 2 && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <input className={inputCls + " !mb-0 min-w-[180px] flex-1"} placeholder="Search name or code..."
-              value={search} onChange={e => setSearch(e.target.value)} />
+            <input
+              className={inputCls + " !mb-0 min-w-[180px] flex-1"}
+              placeholder="Search name or code… (Enter)"
+              value={searchFilter.input}
+              onChange={(e) => searchFilter.setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") searchFilter.apply();
+              }}
+            />
             <div className="w-auto min-w-[140px] shrink-0">
               <FormSelect
                 value={filterDept}

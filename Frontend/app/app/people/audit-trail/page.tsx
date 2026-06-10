@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
 import { ROUTES } from "@/config/routes";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 
 interface PeopleAuditChange {
   field: string;
@@ -56,8 +57,7 @@ export default function PeopleAuditTrailPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [employeeIdInput, setEmployeeIdInput] = useState("");
-  const [appliedEmployeeId, setAppliedEmployeeId] = useState("");
+  const employeeFilter = useApplyFilter();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const pageSize = 25;
@@ -73,9 +73,13 @@ export default function PeopleAuditTrailPage() {
       const q = new URLSearchParams();
       q.set("page", String(page));
       q.set("pageSize", String(pageSize));
-      const id = appliedEmployeeId.trim();
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-        q.set("employeeId", id);
+      const filter = employeeFilter.applied.trim();
+      if (filter) {
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filter)) {
+          q.set("employeeId", filter);
+        } else {
+          q.set("search", filter);
+        }
       }
       const res = await apiFetch<PagedAudit>(`/api/employees/audit-trail?${q.toString()}`);
       setData(res);
@@ -85,11 +89,16 @@ export default function PeopleAuditTrailPage() {
     } finally {
       setLoading(false);
     }
-  }, [canView, page, appliedEmployeeId]);
+  }, [canView, page, employeeFilter.applied]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  function applyEmployeeFilter() {
+    employeeFilter.apply();
+    setPage(1);
+  }
 
   if (!canView) {
     return (
@@ -110,25 +119,37 @@ export default function PeopleAuditTrailPage() {
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div>
           <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-            Filter by employee ID
+            Filter by employee
           </label>
           <input
             className="w-72 rounded-lg border border-slate-200 px-3 py-2 text-[13px] shadow-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            placeholder="Optional GUID"
-            value={employeeIdInput}
-            onChange={(e) => setEmployeeIdInput(e.target.value)}
+            placeholder="Name, employee code, or ID"
+            value={employeeFilter.input}
+            onChange={(e) => employeeFilter.setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") applyEmployeeFilter();
+            }}
           />
         </div>
         <button
           type="button"
           className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"
-          onClick={() => {
-            setAppliedEmployeeId(employeeIdInput.trim());
-            setPage(1);
-          }}
+          onClick={applyEmployeeFilter}
         >
           Apply
         </button>
+        {employeeFilter.hasApplied && (
+          <button
+            type="button"
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-500 shadow-sm hover:border-slate-300"
+            onClick={() => {
+              employeeFilter.clear();
+              setPage(1);
+            }}
+          >
+            Clear
+          </button>
+        )}
         <Link
           href={ROUTES.people}
           className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700"
@@ -145,7 +166,9 @@ export default function PeopleAuditTrailPage() {
         <div className="flex justify-center py-16 text-slate-500">Loading…</div>
       ) : !data || data.items.length === 0 ? (
         <div className="hris-card p-8 text-center text-sm text-slate-500">
-          No People Hub audit entries yet. Changes to profiles and related records appear here after the next save.
+          {employeeFilter.hasApplied
+            ? `No audit entries found for "${employeeFilter.applied}".`
+            : "No People Hub audit entries yet. Changes to profiles and related records appear here after the next save."}
         </div>
       ) : (
         <>

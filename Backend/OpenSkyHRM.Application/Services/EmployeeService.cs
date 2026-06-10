@@ -31,32 +31,61 @@ public class EmployeeService : IEmployeeService
         return string.IsNullOrEmpty(s) ? $"e-{Guid.NewGuid():N}" : s;
     }
 
-    private static IQueryable<Employee> ApplyEmployeeListSort(IQueryable<Employee> query, string? sortBy, string? sortDir)
+    private static bool IsProfileSetupIncomplete(Employee e, bool hasDirectSupervisor) =>
+        (!e.IsTopOfHierarchy && !hasDirectSupervisor)
+        || !e.JobTitleId.HasValue
+        || !e.LocationId.HasValue;
+
+    private IQueryable<Employee> ApplyEmployeeListSort(IQueryable<Employee> query, string? sortBy, string? sortDir)
     {
         var key = (sortBy ?? "employeeCode").Trim().ToLowerInvariant();
         var asc = !string.Equals(sortDir, "desc", StringComparison.OrdinalIgnoreCase);
 
+        var candidateEmployeeIds = _db.Candidates
+            .Where(c => c.EmployeeId != null)
+            .Select(c => c.EmployeeId!.Value);
+
+        // Only new hires converted from recruitment stay at the top until profile setup is complete.
+        IOrderedQueryable<Employee> ordered = query.OrderByDescending(e =>
+            candidateEmployeeIds.Contains(e.Id)
+            && ((!e.IsTopOfHierarchy && !_db.EmployeeSupervisors.Any(s =>
+                    !s.IsDeleted && s.ReportingMethod == "Direct" && s.EmployeeId == e.Id))
+                || e.JobTitleId == null
+                || e.LocationId == null));
+
         return key switch
         {
             "name" or "fullname" => asc
-                ? query.OrderBy(e => e.LastName).ThenBy(e => e.FirstName).ThenBy(e => e.MiddleName)
-                : query.OrderByDescending(e => e.LastName).ThenByDescending(e => e.FirstName).ThenByDescending(e => e.MiddleName),
+                ? ordered.ThenBy(e => e.LastName).ThenBy(e => e.FirstName).ThenBy(e => e.MiddleName)
+                : ordered.ThenByDescending(e => e.LastName).ThenByDescending(e => e.FirstName).ThenByDescending(e => e.MiddleName),
             "jobtitle" => asc
-                ? query.OrderBy(e => (e.JobTitle != null ? e.JobTitle.Title : null) ?? (e.Position != null ? e.Position.Title : null) ?? "")
-                : query.OrderByDescending(e => (e.JobTitle != null ? e.JobTitle.Title : null) ?? (e.Position != null ? e.Position.Title : null) ?? ""),
-            "status" => asc ? query.OrderBy(e => e.Status) : query.OrderByDescending(e => e.Status),
-            "employmenttype" => asc ? query.OrderBy(e => e.EmploymentType) : query.OrderByDescending(e => e.EmploymentType),
+                ? ordered.ThenBy(e => (e.JobTitle != null ? e.JobTitle.Title : null) ?? (e.Position != null ? e.Position.Title : null) ?? "")
+                : ordered.ThenByDescending(e => (e.JobTitle != null ? e.JobTitle.Title : null) ?? (e.Position != null ? e.Position.Title : null) ?? ""),
+            "status" => asc ? ordered.ThenBy(e => e.Status) : ordered.ThenByDescending(e => e.Status),
+            "employmenttype" => asc ? ordered.ThenBy(e => e.EmploymentType) : ordered.ThenByDescending(e => e.EmploymentType),
             "department" => asc
-                ? query.OrderBy(e => e.Department != null ? e.Department.Name : "")
-                : query.OrderByDescending(e => e.Department != null ? e.Department.Name : ""),
+                ? ordered.ThenBy(e => e.Department != null ? e.Department.Name : "")
+                : ordered.ThenByDescending(e => e.Department != null ? e.Department.Name : ""),
             "location" => asc
-                ? query.OrderBy(e => e.Location != null ? e.Location.Name : "")
-                : query.OrderByDescending(e => e.Location != null ? e.Location.Name : ""),
+                ? ordered.ThenBy(e => e.Location != null ? e.Location.Name : "")
+                : ordered.ThenByDescending(e => e.Location != null ? e.Location.Name : ""),
             "supervisor" or "manager" => asc
-                ? query.OrderBy(e => e.Manager != null ? e.Manager.LastName : "").ThenBy(e => e.Manager != null ? e.Manager.FirstName : "")
-                : query.OrderByDescending(e => e.Manager != null ? e.Manager.LastName : "").ThenByDescending(e => e.Manager != null ? e.Manager.FirstName : ""),
-            _ => asc ? query.OrderBy(e => e.EmployeeCode) : query.OrderByDescending(e => e.EmployeeCode),
+                ? ordered.ThenBy(e => e.Manager != null ? e.Manager.LastName : "").ThenBy(e => e.Manager != null ? e.Manager.FirstName : "")
+                : ordered.ThenByDescending(e => e.Manager != null ? e.Manager.LastName : "").ThenByDescending(e => e.Manager != null ? e.Manager.FirstName : ""),
+            _ => asc ? ordered.ThenBy(e => e.EmployeeCode) : ordered.ThenByDescending(e => e.EmployeeCode),
         };
+    }
+
+    private async Task<HashSet<Guid>> GetCandidateLinkedEmployeeIdsAsync(IEnumerable<Guid> employeeIds)
+    {
+        var ids = employeeIds.ToList();
+        if (ids.Count == 0) return [];
+
+        return (await _db.Candidates.AsNoTracking()
+            .Where(c => c.EmployeeId != null && ids.Contains(c.EmployeeId.Value))
+            .Select(c => c.EmployeeId!.Value)
+            .ToListAsync())
+            .ToHashSet();
     }
 
     private async Task<Dictionary<Guid, string>> GetDirectSupervisorMapAsync(IEnumerable<Guid> employeeIds)
@@ -137,11 +166,15 @@ public class EmployeeService : IEmployeeService
 
         var empIds = items.Select(i => i.Id).ToList();
         var supMap = await GetDirectSupervisorMapAsync(empIds);
-        foreach (var item in items)
+        var candidateLinkedIds = await GetCandidateLinkedEmployeeIdsAsync(empIds);
+        for (var i = 0; i < items.Count; i++)
         {
+            var item = items[i];
             item.HasDirectSupervisor = supMap.ContainsKey(item.Id);
             if (supMap.TryGetValue(item.Id, out var supName))
                 item.ManagerName = supName;
+            item.NeedsProfileSetup = candidateLinkedIds.Contains(item.Id)
+                && IsProfileSetupIncomplete(entities[i], item.HasDirectSupervisor);
         }
 
         return new PagedResult<EmployeeDto>
@@ -166,6 +199,7 @@ public class EmployeeService : IEmployeeService
             .Include(e => e.Grade)
             .Include(e => e.JobTitle)
             .Include(e => e.Manager)
+            .Include(e => e.ShiftPattern)
             .FirstOrDefaultAsync(e => e.Id == id);
 
         if (employee is null) return null;
@@ -174,18 +208,35 @@ public class EmployeeService : IEmployeeService
         dto.HasDirectSupervisor = supMap.ContainsKey(employee.Id);
         if (supMap.TryGetValue(employee.Id, out var supName))
             dto.ManagerName = supName;
+        var candidateLinkedIds = await GetCandidateLinkedEmployeeIdsAsync(new[] { employee.Id });
+        dto.NeedsProfileSetup = candidateLinkedIds.Contains(employee.Id)
+            && IsProfileSetupIncomplete(employee, dto.HasDirectSupervisor);
         return dto;
     }
 
     public async Task<EmployeeDto> CreateAsync(CreateEmployeeDto dto)
     {
+        InputValidators.ValidatePersonName(dto.FirstName, "First name");
+        InputValidators.ValidatePersonName(dto.MiddleName, "Middle name", required: false);
+        InputValidators.ValidatePersonName(dto.LastName, "Last name");
+        InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
+        InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
+        InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
+        InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
+        InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
+
+        if (dto.DepartmentId == Guid.Empty)
+            throw new InvalidOperationException("Department is required.");
+
         var code = string.IsNullOrWhiteSpace(dto.EmployeeCode)
             ? await _settings.GenerateNextEmployeeCodeAsync()
-            : dto.EmployeeCode;
+            : dto.EmployeeCode.Trim();
 
         var resolvedEmail = string.IsNullOrWhiteSpace(dto.Email)
             ? $"{SanitizeForNoEmailLocalPart(code)}@employee.noemail.opensky.hrm"
             : dto.Email.Trim();
+
+        await EmployeeUniqueness.ValidateForCreateAsync(_db, code, resolvedEmail);
 
         var employee = new Employee
         {
@@ -250,10 +301,17 @@ public class EmployeeService : IEmployeeService
         _db.Employees.Add(employee);
         await _db.SaveChangesAsync();
 
-        var calendarYear = DateTime.UtcNow.Year;
-        await _entitlementService.CalculateAndApplyAsync(employee.Id, calendarYear);
-        if (employee.JoinDate.Year != calendarYear)
-            await _entitlementService.CalculateAndApplyAsync(employee.Id, employee.JoinDate.Year);
+        try
+        {
+            var calendarYear = DateTime.UtcNow.Year;
+            await _entitlementService.CalculateAndApplyAsync(employee.Id, calendarYear);
+            if (employee.JoinDate.Year != calendarYear)
+                await _entitlementService.CalculateAndApplyAsync(employee.Id, employee.JoinDate.Year);
+        }
+        catch
+        {
+            // Leave balances can be recalculated from Leave admin; do not roll back the hire.
+        }
 
         return (await GetByIdAsync(employee.Id))!;
     }
@@ -263,15 +321,26 @@ public class EmployeeService : IEmployeeService
         var employee = await _db.Employees.FindAsync(id);
         if (employee is null) return null;
 
+        InputValidators.ValidatePersonName(dto.FirstName, "First name");
+        InputValidators.ValidatePersonName(dto.MiddleName, "Middle name", required: false);
+        InputValidators.ValidatePersonName(dto.LastName, "Last name");
+        InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
+        InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
+        InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
+        InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
+        InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
+
         var snapJoin = employee.JoinDate;
         var snapEmploymentType = employee.EmploymentType;
         var snapProbationEnd = employee.ProbationEndDate;
         var snapPermanency = employee.DateOfPermanency;
 
+        await EmployeeUniqueness.ValidateEmailForUpdateAsync(_db, id, dto.Email);
+
         employee.FirstName = dto.FirstName;
         employee.MiddleName = dto.MiddleName;
         employee.LastName = dto.LastName;
-        employee.Email = dto.Email;
+        employee.Email = dto.Email.Trim();
         employee.Phone = dto.Phone;
         employee.DateOfBirth = dto.DateOfBirth;
         employee.Gender = Enum.Parse<Gender>(dto.Gender, true);
@@ -348,9 +417,23 @@ public class EmployeeService : IEmployeeService
     public async Task<bool> DeleteAsync(Guid id)
     {
         var employee = await _db.Employees.FindAsync(id);
-        if (employee is null) return false;
+        if (employee is null || employee.IsDeleted) return false;
+
+        var status = employee.Status?.Trim() ?? "";
+        if (!string.Equals(status, "Terminated", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(status, "Retired", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Only terminated or retired employees can be deleted.");
+        }
 
         employee.IsDeleted = true;
+        employee.Email = EmployeeUniqueness.ArchiveEmail(employee.Id, employee.Email);
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.EmployeeId == id && !u.IsDeleted);
+        if (user is not null)
+            user.IsActive = false;
+
         await _db.SaveChangesAsync();
         return true;
     }
@@ -367,6 +450,7 @@ public class EmployeeService : IEmployeeService
 
     public async Task<PagedResult<PeopleAuditLogEntryDto>> GetPeopleAuditTrailAsync(
         Guid? subjectEmployeeId,
+        string? employeeSearch,
         IReadOnlyList<Guid>? allowedEmployeeIds,
         int page = 1,
         int pageSize = 50)
@@ -375,7 +459,47 @@ public class EmployeeService : IEmployeeService
         if (pageSize < 1) pageSize = 50;
         if (pageSize > 200) pageSize = 200;
 
-        if (subjectEmployeeId.HasValue && allowedEmployeeIds != null && !allowedEmployeeIds.Contains(subjectEmployeeId.Value))
+        Guid? resolvedSubjectId = subjectEmployeeId;
+        List<Guid>? subjectIdFilter = null;
+
+        if (!resolvedSubjectId.HasValue && !string.IsNullOrWhiteSpace(employeeSearch))
+        {
+            var term = employeeSearch.Trim();
+            if (Guid.TryParse(term, out var parsed))
+            {
+                resolvedSubjectId = parsed;
+            }
+            else
+            {
+                var t = term.ToLower();
+                var employeeQuery = _db.Employees.AsNoTracking().Where(e => !e.IsDeleted);
+                if (allowedEmployeeIds != null)
+                    employeeQuery = employeeQuery.Where(e => allowedEmployeeIds.Contains(e.Id));
+
+                subjectIdFilter = await employeeQuery
+                    .Where(e =>
+                        e.EmployeeCode.ToLower().Contains(t) ||
+                        e.FirstName.ToLower().Contains(t) ||
+                        e.LastName.ToLower().Contains(t) ||
+                        (e.FirstName + " " + e.LastName).ToLower().Contains(t) ||
+                        (e.MiddleName != null && e.MiddleName.ToLower().Contains(t)))
+                    .Select(e => e.Id)
+                    .ToListAsync();
+
+                if (subjectIdFilter.Count == 0)
+                {
+                    return new PagedResult<PeopleAuditLogEntryDto>
+                    {
+                        Items = Array.Empty<PeopleAuditLogEntryDto>(),
+                        TotalCount = 0,
+                        Page = page,
+                        PageSize = pageSize,
+                    };
+                }
+            }
+        }
+
+        if (resolvedSubjectId.HasValue && allowedEmployeeIds != null && !allowedEmployeeIds.Contains(resolvedSubjectId.Value))
         {
             return new PagedResult<PeopleAuditLogEntryDto>
             {
@@ -389,8 +513,10 @@ public class EmployeeService : IEmployeeService
         var query = _db.AuditLogs.AsNoTracking()
             .Where(a => !a.IsDeleted && a.Module == PeopleHubAuditSaveChangesInterceptor.PeopleModule);
 
-        if (subjectEmployeeId.HasValue)
-            query = query.Where(a => a.SubjectEmployeeId == subjectEmployeeId.Value);
+        if (resolvedSubjectId.HasValue)
+            query = query.Where(a => a.SubjectEmployeeId == resolvedSubjectId.Value);
+        else if (subjectIdFilter != null)
+            query = query.Where(a => a.SubjectEmployeeId != null && subjectIdFilter.Contains(a.SubjectEmployeeId.Value));
         else if (allowedEmployeeIds != null)
             query = query.Where(a => a.SubjectEmployeeId != null && allowedEmployeeIds.Contains(a.SubjectEmployeeId.Value));
 
@@ -497,5 +623,8 @@ public class EmployeeService : IEmployeeService
         ManagerName = e.Manager != null ? $"{e.Manager.FirstName} {e.Manager.LastName}" : null,
         ProfileImageUrl = e.ProfileImageUrl,
         IsTopOfHierarchy = e.IsTopOfHierarchy,
+        ShiftPatternId = e.ShiftPatternId,
+        ShiftPatternName = e.ShiftPattern?.Name,
+        ShiftPatternCode = e.ShiftPattern?.Code,
     };
 }

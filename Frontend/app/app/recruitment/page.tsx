@@ -1,16 +1,29 @@
 "use client";
 
+import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { DateTimePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { TablePagination } from "@/components/ui/TablePagination";
+import { DateTimePickerField, FormSelect, PersonNameInput, PhoneInput, type FormSelectOption } from "@/components/ui";
+import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { CreateRequisitionModal } from "@/components/forms/CreateRequisitionModal";
+import { Modal } from "@/components/ui/Modal";
 import { apiFetch } from "@/lib/api";
-import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatBusinessDateTime, formatDate } from "@/lib/date-utils";
 import { type EmploymentTypeCatalogItem, employmentTypeSelectOptions } from "@/lib/employment-types";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 import { ROUTES } from "@/config/routes";
+import {
+  defaultScheduleTitle,
+  inferInterviewTypeFromTitle,
+  INTERVIEW_TYPE_OPTS,
+  resolveInterviewLocation,
+  scheduleOnsiteLocationOptions,
+  scheduleTitleOptions,
+} from "@/lib/interview-scheduling";
 
 interface Requisition {
   id: string; title: string; code: string; description?: string; vacancies: number;
@@ -35,7 +48,37 @@ interface Interview {
   id: string; title: string; scheduledAt: string; duration: number; location?: string;
   interviewType?: string; status: string; feedback?: string; overallRating?: number;
   recommendation?: string; interviewerName?: string; interviewerId?: string;
-  candidateId: string; candidateName?: string; requisitionTitle?: string;
+  candidateId: string; candidateName?: string; candidateStage?: string; requisitionTitle?: string;
+}
+
+interface OfferHistory {
+  id: string;
+  candidateId: string;
+  candidateName?: string;
+  requisitionTitle?: string;
+  positionTitle?: string;
+  salaryOffered: number;
+  currency?: string;
+  offerDate: string;
+  expiryDate?: string;
+  joiningDate?: string;
+  status: string;
+  acceptedAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  hasLetter: boolean;
+  updatedAt: string;
+}
+
+interface OfferDetail {
+  id: string;
+  candidateId: string;
+  candidateName?: string;
+  letterHtml?: string;
+  salaryOffered: number;
+  currency?: string;
+  offerDate: string;
+  status: string;
 }
 
 interface Dashboard {
@@ -50,11 +93,11 @@ interface Activity {
   performedBy?: string; performedAt: string;
 }
 
-const TABS = ["Dashboard", "Requisitions", "Candidates", "Interviews"] as const;
-const STAGES = ["Sourced", "Screening", "Phone Screen", "Interview", "Evaluation", "Offer", "Hired"];
+const TABS = ["Dashboard", "Requisitions", "Candidates", "Interviews", "Interview History", "Offer Letter History"] as const;
+const STAGES = ["Sourced", "Screening", "Interview", "Evaluation", "Offer", "Hired"];
 const STAGE_COLORS: Record<string, string> = {
   Sourced: "bg-gray-100 text-gray-700", Screening: "bg-blue-100 text-blue-700",
-  "Phone Screen": "bg-sky-100 text-sky-700", Interview: "bg-yellow-100 text-yellow-700",
+  Interview: "bg-yellow-100 text-yellow-700",
   Evaluation: "bg-purple-100 text-purple-700", Offer: "bg-orange-100 text-orange-700",
   Hired: "bg-green-100 text-green-700", Rejected: "bg-red-100 text-red-700",
   Withdrawn: "bg-gray-200 text-gray-500",
@@ -74,14 +117,6 @@ const REQ_PRIORITY_FILTER_OPTS: FormSelectOption[] = [
   { value: "Low", label: "Low" },
 ];
 
-const INTERVIEW_TYPE_OPTS: FormSelectOption[] = [
-  { value: "", label: "Select type…" },
-  { value: "Phone", label: "Phone" },
-  { value: "Video", label: "Video" },
-  { value: "Onsite", label: "Onsite" },
-  { value: "Technical", label: "Technical" },
-  { value: "HR", label: "HR" },
-];
 
 const CANDIDATE_SOURCE_OPTS: FormSelectOption[] = [
   { value: "", label: "Select…" },
@@ -101,24 +136,6 @@ const REQ_PRIORITY_EDIT_OPTS: FormSelectOption[] = [
   { value: "Low", label: "Low" },
 ];
 
-/** When scheduling, title is derived from interview type + candidate unless the user edits it. */
-const INTERVIEW_TYPE_TITLE: Record<string, string> = {
-  Phone: "Phone interview",
-  Video: "Video interview",
-  Onsite: "On-site interview",
-  Technical: "Technical interview",
-  HR: "HR interview",
-};
-
-function defaultScheduleTitle(interviewType: string | undefined, candidateFullName: string | undefined): string {
-  const base =
-    interviewType && INTERVIEW_TYPE_TITLE[interviewType] ? INTERVIEW_TYPE_TITLE[interviewType] : "Interview";
-  if (candidateFullName) return `${base} — ${candidateFullName}`;
-  return base;
-}
-
-const SCHEDULE_LOCATION_OTHER = "__custom_location__";
-
 /** Match Command Center (dashboard) card / KPI styling */
 const kpiTileClass =
   "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
@@ -132,13 +149,24 @@ export default function RecruitmentPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
+  const [requisitionPicklist, setRequisitionPicklist] = useState<Requisition[]>([]);
+  const [reqPage, setReqPage] = useState(1);
+  const [reqTotalCount, setReqTotalCount] = useState(0);
+  const REQ_PAGE_SIZE = 10;
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [candPage, setCandPage] = useState(1);
+  const [candTotalCount, setCandTotalCount] = useState(0);
+  const CAND_PAGE_SIZE = 20;
   const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [interviewHistory, setInterviewHistory] = useState<Interview[]>([]);
+  const [offerHistory, setOfferHistory] = useState<OfferHistory[]>([]);
+  const [viewOfferModal, setViewOfferModal] = useState<OfferDetail | null>(null);
+  const [viewOfferLoading, setViewOfferLoading] = useState(false);
   const [filterReqStatus, setFilterReqStatus] = useState("");
   const [filterReqPriority, setFilterReqPriority] = useState("");
   const [filterCandStage, setFilterCandStage] = useState("");
   const [filterCandReq, setFilterCandReq] = useState("");
-  const [filterCandSearch, setFilterCandSearch] = useState("");
+  const candSearchFilter = useApplyFilter();
   const [candidateView, setCandidateView] = useState<"kanban" | "table">("kanban");
   const [dragCandidate, setDragCandidate] = useState<string | null>(null);
   const [editReq, setEditReq] = useState<Requisition | null>(null);
@@ -147,7 +175,7 @@ export default function RecruitmentPage() {
   const [scheduleNotifyCandidateEmail, setScheduleNotifyCandidateEmail] = useState(true);
   const [scheduleNotifyInterviewerEmail, setScheduleNotifyInterviewerEmail] = useState(true);
   const [scheduleTitleManual, setScheduleTitleManual] = useState(false);
-  const [scheduleLocationOther, setScheduleLocationOther] = useState("");
+  const [scheduleMeetingLink, setScheduleMeetingLink] = useState("");
   const [scheduleLookups, setScheduleLookups] = useState<{
     locations: { id: string; name: string }[];
     interviewers: { id: string; name: string }[];
@@ -156,8 +184,8 @@ export default function RecruitmentPage() {
   const [candidateForm, setCandidateForm] = useState({ firstName: "", lastName: "", email: "", phone: "", source: "", requisitionId: "", currentTitle: "", currentCompany: "", expectedSalary: "", noticePeriod: "", notes: "", tags: "" });
 
   const candReqFilterOpts = useMemo<FormSelectOption[]>(
-    () => [{ value: "", label: "All Requisitions" }, ...requisitions.map((r) => ({ value: r.id, label: r.title }))],
-    [requisitions]
+    () => [{ value: "", label: "All Requisitions" }, ...requisitionPicklist.map((r) => ({ value: r.id, label: r.title }))],
+    [requisitionPicklist]
   );
 
   const candStageFilterOpts = useMemo<FormSelectOption[]>(
@@ -171,20 +199,14 @@ export default function RecruitmentPage() {
   );
 
   const addCandidateReqOpts = useMemo<FormSelectOption[]>(
-    () => [{ value: "", label: "Select requisition…" }, ...requisitions.map((r) => ({ value: r.id, label: `${r.code} — ${r.title}` }))],
-    [requisitions]
+    () => [{ value: "", label: "Select requisition…" }, ...requisitionPicklist.map((r) => ({ value: r.id, label: `${r.code} — ${r.title}` }))],
+    [requisitionPicklist]
   );
 
-  const scheduleLocationOpts = useMemo<FormSelectOption[]>(() => {
-    const rows = scheduleLookups.locations.map((l) => ({ value: l.name, label: l.name }));
-    return [
-      { value: "", label: "Select location…" },
-      ...rows,
-      { value: "Remote", label: "Remote" },
-      { value: "Video conference", label: "Video conference" },
-      { value: SCHEDULE_LOCATION_OTHER, label: "Other (room or link)…" },
-    ];
-  }, [scheduleLookups.locations]);
+  const scheduleOnsiteLocationOpts = useMemo(
+    () => scheduleOnsiteLocationOptions(scheduleLookups.locations),
+    [scheduleLookups.locations],
+  );
 
   const scheduleInterviewerOpts = useMemo<FormSelectOption[]>(
     () => [
@@ -193,6 +215,11 @@ export default function RecruitmentPage() {
     ],
     [scheduleLookups.interviewers]
   );
+
+  const scheduleTitleOpts = useMemo(() => {
+    const cand = candidates.find((c) => c.id === scheduleForm.candidateId);
+    return scheduleTitleOptions(cand?.fullName);
+  }, [candidates, scheduleForm.candidateId]);
 
   const scheduleTitleAutoKey = `${scheduleForm.candidateId ?? ""}|${scheduleForm.interviewType ?? ""}`;
 
@@ -206,7 +233,7 @@ export default function RecruitmentPage() {
   useEffect(() => {
     if (!scheduleModal) {
       setScheduleTitleManual(false);
-      setScheduleLocationOther("");
+      setScheduleMeetingLink("");
       setScheduleNotifyCandidateEmail(true);
       setScheduleNotifyInterviewerEmail(true);
       return;
@@ -237,51 +264,93 @@ export default function RecruitmentPage() {
     try { setDashboard(await apiFetch<Dashboard>("/api/recruitment/dashboard")); } catch { /* */ }
   }, []);
 
+  const loadRequisitionPicklist = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ items: Requisition[] }>("/api/recruitment/requisitions?page=1&pageSize=500");
+      setRequisitionPicklist(res.items ?? []);
+    } catch { /* */ }
+  }, []);
+
   const loadRequisitions = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ pageSize: "100" });
+      const params = new URLSearchParams({ page: String(reqPage), pageSize: String(REQ_PAGE_SIZE) });
       if (filterReqStatus) params.set("status", filterReqStatus);
       if (filterReqPriority) params.set("priority", filterReqPriority);
-      const res = await apiFetch<{ items: Requisition[] }>(`/api/recruitment/requisitions?${params}`);
-      setRequisitions(res.items);
+      const res = await apiFetch<{ items: Requisition[]; totalCount: number }>(`/api/recruitment/requisitions?${params}`);
+      setRequisitions(res.items ?? []);
+      setReqTotalCount(res.totalCount ?? res.items?.length ?? 0);
     } catch { /* */ }
-  }, [filterReqStatus, filterReqPriority]);
+  }, [filterReqStatus, filterReqPriority, reqPage]);
 
   const loadCandidates = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ pageSize: "200" });
+      const isKanban = candidateView === "kanban";
+      const params = new URLSearchParams({
+        page: String(isKanban ? 1 : candPage),
+        pageSize: String(isKanban ? 500 : CAND_PAGE_SIZE),
+      });
       if (filterCandStage) params.set("stage", filterCandStage);
       if (filterCandReq) params.set("requisitionId", filterCandReq);
-      if (filterCandSearch) params.set("search", filterCandSearch);
-      const res = await apiFetch<{ items: Candidate[] }>(`/api/recruitment/candidates?${params}`);
-      setCandidates(res.items);
+      if (candSearchFilter.applied) params.set("search", candSearchFilter.applied);
+      const res = await apiFetch<{ items: Candidate[]; totalCount: number }>(`/api/recruitment/candidates?${params}`);
+      setCandidates(res.items ?? []);
+      setCandTotalCount(res.totalCount ?? res.items?.length ?? 0);
     } catch { /* */ }
-  }, [filterCandStage, filterCandReq, filterCandSearch]);
+  }, [filterCandStage, filterCandReq, candSearchFilter.applied, candPage, candidateView]);
 
   const loadInterviews = useCallback(async () => {
     try { setInterviews(await apiFetch<Interview[]>("/api/recruitment/interviews/upcoming")); } catch { /* */ }
   }, []);
 
+  const loadInterviewHistory = useCallback(async () => {
+    try {
+      setInterviewHistory(await apiFetch<Interview[]>("/api/recruitment/interviews/history?page=1&pageSize=50"));
+    } catch { /* */ }
+  }, []);
+
+  const loadOfferHistory = useCallback(async () => {
+    try {
+      setOfferHistory(await apiFetch<OfferHistory[]>("/api/recruitment/offers/history?page=1&pageSize=50"));
+    } catch { /* */ }
+  }, []);
+
+  async function handleViewOfferLetter(offerId: string) {
+    setViewOfferLoading(true);
+    try {
+      const offer = await apiFetch<OfferDetail>(`/api/recruitment/offers/${offerId}`);
+      setViewOfferModal(offer);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not load offer letter.");
+    } finally {
+      setViewOfferLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (tab === "Dashboard") loadDashboard();
     if (tab === "Requisitions") loadRequisitions();
-    if (tab === "Candidates") { loadCandidates(); loadRequisitions(); }
-    if (tab === "Interviews") { loadInterviews(); loadCandidates(); }
-  }, [tab, loadDashboard, loadRequisitions, loadCandidates, loadInterviews]);
+    if (tab === "Candidates") { loadCandidates(); loadRequisitionPicklist(); }
+    if (tab === "Interviews") { loadInterviews(); loadCandidates(); loadRequisitionPicklist(); }
+    if (tab === "Interview History") loadInterviewHistory();
+    if (tab === "Offer Letter History") loadOfferHistory();
+  }, [tab, loadDashboard, loadRequisitions, loadCandidates, loadInterviews, loadInterviewHistory, loadOfferHistory, loadRequisitionPicklist]);
+
+  useEffect(() => { setReqPage(1); }, [filterReqStatus, filterReqPriority]);
+  useEffect(() => { setCandPage(1); }, [filterCandStage, filterCandReq, candSearchFilter.applied, candidateView]);
 
   const handleApproveReq = async (id: string) => {
-    if (!confirm("Approve this requisition? Approved roles can proceed in the hiring pipeline.")) return;
+    if (!(await appConfirm("Approve this requisition? Approved roles can proceed in the hiring pipeline."))) return;
     try {
       await apiFetch(`/api/recruitment/requisitions/${id}/approve`, { method: "POST" });
       loadRequisitions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Approve failed");
+      await appAlert(err instanceof Error ? err.message : "Approve failed");
     }
   };
 
   const handleRejectReq = async (id: string) => {
-    if (!confirm("Reject this requisition? It will be marked rejected and should not be used for new hiring.")) return;
-    const remarks = window.prompt("Optional internal remarks:");
+    if (!(await appConfirm("Reject this requisition? It will be marked rejected and should not be used for new hiring."))) return;
+    const remarks = await appPrompt("Add optional internal remarks for this rejection.", { title: "Rejection Remarks", confirmLabel: "Continue", placeholder: "Optional remarks..." });
     if (remarks === null) return;
     try {
       await apiFetch(`/api/recruitment/requisitions/${id}/reject`, {
@@ -290,22 +359,22 @@ export default function RecruitmentPage() {
       });
       loadRequisitions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Reject failed");
+      await appAlert(err instanceof Error ? err.message : "Reject failed");
     }
   };
 
   const handleCloseReq = async (id: string) => {
-    if (!confirm("Close this requisition? Use this when the role is filled or the search is stopped.")) return;
+    if (!(await appConfirm("Close this requisition? Use this when the role is filled or the search is stopped."))) return;
     try {
       await apiFetch(`/api/recruitment/requisitions/${id}/close`, { method: "POST" });
       loadRequisitions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Close failed");
+      await appAlert(err instanceof Error ? err.message : "Close failed");
     }
   };
 
   const handleDeleteReq = async (id: string) => {
-    if (!confirm("Delete this requisition?")) return;
+    if (!(await appConfirm("Delete this requisition?"))) return;
     await apiFetch(`/api/recruitment/requisitions/${id}`, { method: "DELETE" });
     loadRequisitions();
   };
@@ -318,10 +387,41 @@ export default function RecruitmentPage() {
     loadDashboard();
   };
 
+  const handleReinterview = async (candidateId: string, candidateName?: string, interviewerId?: string) => {
+    try {
+      await apiFetch(`/api/recruitment/candidates/${candidateId}/reinterview`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setScheduleForm({
+        candidateId,
+        title: defaultScheduleTitle("Onsite", candidateName),
+        scheduledAt: "",
+        duration: 60,
+        location: "",
+        interviewType: "Onsite",
+        interviewerId: interviewerId ?? "",
+        interviewerName: "",
+      });
+      setScheduleTitleManual(false);
+      setScheduleMeetingLink("");
+      setScheduleNotifyCandidateEmail(true);
+      setScheduleNotifyInterviewerEmail(true);
+      setScheduleModal(true);
+      loadCandidates();
+      loadDashboard();
+    } catch (e) {
+      await appAlert(e instanceof Error ? e.message : "Could not reopen candidate for interview.");
+    }
+  };
+
   const handleScheduleInterview = async () => {
     if (!scheduleForm.candidateId || !scheduleForm.title || !scheduleForm.scheduledAt) return;
-    const locationResolved =
-      scheduleForm.location === SCHEDULE_LOCATION_OTHER ? scheduleLocationOther.trim() || null : scheduleForm.location || null;
+    const locationResolved = resolveInterviewLocation(
+      scheduleForm.interviewType,
+      scheduleForm.location,
+      scheduleMeetingLink,
+    );
     const interviewer = scheduleLookups.interviewers.find((e) => e.id === scheduleForm.interviewerId);
     await apiFetch("/api/recruitment/interviews", {
       method: "POST",
@@ -340,12 +440,19 @@ export default function RecruitmentPage() {
     });
     setScheduleModal(false);
     setScheduleForm({});
-    setScheduleLocationOther("");
+    setScheduleMeetingLink("");
     loadInterviews();
+    loadInterviewHistory();
+    loadCandidates();
+    loadDashboard();
   };
 
   const handleAddCandidate = async () => {
     if (!candidateForm.firstName || !candidateForm.lastName || !candidateForm.email || !candidateForm.requisitionId) return;
+    if (candidateForm.phone.trim() && !isValidPhone(candidateForm.phone)) {
+      await appAlert(PHONE_VALIDATION_MESSAGE);
+      return;
+    }
     await apiFetch("/api/recruitment/candidates", {
       method: "POST",
       body: JSON.stringify({
@@ -470,7 +577,7 @@ export default function RecruitmentPage() {
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-slate-800">{iv.title}</div>
                       <div className="text-xs text-slate-500">
-                        {iv.candidateName} · {formatDateTime(iv.scheduledAt)}
+                        {iv.candidateName} · {formatBusinessDateTime(iv.scheduledAt)}
                       </div>
                     </div>
                     <span className="shrink-0 rounded-full bg-sky-50 px-2.5 py-0.5 text-xs font-medium text-sky-800">
@@ -493,13 +600,13 @@ export default function RecruitmentPage() {
                   {dashboard.recentActivities.length} items
                 </span>
               </div>
-              <div className="space-y-2.5">
+              <div className="max-h-[min(320px,50vh)] space-y-2.5 overflow-y-auto pr-1">
                 {dashboard.recentActivities.map((a) => (
                   <div
                     key={a.id}
                     className="grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
                   >
-                    <div className="pt-0.5 text-[11px] font-medium text-slate-500">{formatDateTime(a.performedAt)}</div>
+                    <div className="pt-0.5 text-[11px] font-medium text-slate-500">{formatBusinessDateTime(a.performedAt)}</div>
                     <div className="min-w-0">
                       <div className="mb-0.5 flex items-center gap-2">
                         <span
@@ -530,7 +637,7 @@ export default function RecruitmentPage() {
             <div className="w-40 shrink-0">
               <FormSelect
                 value={filterReqStatus}
-                onValueChange={setFilterReqStatus}
+                onValueChange={(v) => { setFilterReqStatus(v); setReqPage(1); }}
                 options={REQ_STATUS_FILTER_OPTS}
                 placeholder="All Statuses"
               />
@@ -538,7 +645,7 @@ export default function RecruitmentPage() {
             <div className="w-40 shrink-0">
               <FormSelect
                 value={filterReqPriority}
-                onValueChange={setFilterReqPriority}
+                onValueChange={(v) => { setFilterReqPriority(v); setReqPage(1); }}
                 options={REQ_PRIORITY_FILTER_OPTS}
                 placeholder="All Priorities"
               />
@@ -601,6 +708,14 @@ export default function RecruitmentPage() {
                 )}
               </tbody>
             </table>
+            <TablePagination
+              page={reqPage}
+              totalPages={Math.max(1, Math.ceil(reqTotalCount / REQ_PAGE_SIZE))}
+              totalCount={reqTotalCount}
+              pageSize={REQ_PAGE_SIZE}
+              onPageChange={setReqPage}
+              alwaysShow
+            />
           </div>
         </div>
       )}
@@ -610,9 +725,15 @@ export default function RecruitmentPage() {
         <div className="mt-6 space-y-4">
           <div className={`flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm`}>
             <input
-              placeholder="Search candidates..."
-              value={filterCandSearch}
-              onChange={(e) => setFilterCandSearch(e.target.value)}
+              placeholder="Search candidates… (Enter)"
+              value={candSearchFilter.input}
+              onChange={(e) => candSearchFilter.setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  candSearchFilter.apply();
+                  setCandPage(1);
+                }
+              }}
               className={`${inputClass} w-52`}
             />
             <div className="w-48 shrink-0">
@@ -722,7 +843,7 @@ export default function RecruitmentPage() {
                       </td>
                       <td>{c.source}</td>
                       <td>{c.rating ? "★".repeat(c.rating) : "-"}</td>
-                      <td>{formatDateTime(c.appliedAt)}</td>
+                      <td>{formatBusinessDateTime(c.appliedAt)}</td>
                       <td>
                         <Link href={`/app/recruitment/candidate/${c.id}`} className="text-xs text-[#2E7BBF] hover:underline">View</Link>
                       </td>
@@ -733,6 +854,13 @@ export default function RecruitmentPage() {
                   )}
                 </tbody>
               </table>
+              <TablePagination
+                page={candPage}
+                totalPages={Math.max(1, Math.ceil(candTotalCount / CAND_PAGE_SIZE))}
+                totalCount={candTotalCount}
+                pageSize={CAND_PAGE_SIZE}
+                onPageChange={setCandPage}
+              />
             </div>
           )}
         </div>
@@ -750,7 +878,7 @@ export default function RecruitmentPage() {
               onClick={() => {
                 setScheduleForm({ duration: 60 });
                 setScheduleTitleManual(false);
-                setScheduleLocationOther("");
+                setScheduleMeetingLink("");
                 setScheduleNotifyCandidateEmail(true);
                 setScheduleNotifyInterviewerEmail(true);
                 setScheduleModal(true);
@@ -775,7 +903,7 @@ export default function RecruitmentPage() {
                     <td className="font-medium">{iv.title}</td>
                     <td>{iv.candidateName}</td>
                     <td>{iv.requisitionTitle}</td>
-                    <td>{formatDateTime(iv.scheduledAt)}</td>
+                    <td>{formatBusinessDateTime(iv.scheduledAt)}</td>
                     <td>{iv.duration} min</td>
                     <td>{iv.interviewerName || "-"}</td>
                     <td>{iv.interviewType || "-"}</td>
@@ -795,11 +923,182 @@ export default function RecruitmentPage() {
         </div>
       )}
 
-      <p className="footer-note mt-6">
-        Recruitment data is loaded from live APIs. Filters and pipeline stages reflect your current requisitions and candidates.
-      </p>
+      {/* ── Offer Letter History Tab ───────────────────────── */}
+      {tab === "Offer Letter History" && (
+        <div className="mt-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div>
+              <h3 className="text-base font-semibold text-slate-800">Offer letter history</h3>
+              <p className="text-xs text-slate-500">Saved offer letters across all candidates</p>
+            </div>
+          </div>
+
+          <div className={`${panelClass} overflow-x-auto`}>
+            <table className="hris-table">
+              <thead>
+                <tr>
+                  <th>Candidate</th>
+                  <th>Position</th>
+                  <th>Requisition</th>
+                  <th>Salary</th>
+                  <th>Offer date</th>
+                  <th>Joining date</th>
+                  <th>Status</th>
+                  <th>Letter</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {offerHistory.map((offer) => (
+                  <tr key={offer.id}>
+                    <td>
+                      <Link href={`/app/recruitment/candidate/${offer.candidateId}`} className="font-medium text-[#2E7BBF] hover:underline">
+                        {offer.candidateName || "—"}
+                      </Link>
+                    </td>
+                    <td>{offer.positionTitle || "—"}</td>
+                    <td>{offer.requisitionTitle || "—"}</td>
+                    <td>{offer.currency ?? "LKR"} {offer.salaryOffered.toLocaleString()}</td>
+                    <td>{formatDate(offer.offerDate)}</td>
+                    <td>{offer.joiningDate ? formatDate(offer.joiningDate) : "—"}</td>
+                    <td>
+                      <span className={`badge ${
+                        offer.status === "Approved" ? "badge-green"
+                          : offer.status === "Rejected" ? "badge-red"
+                            : "badge-yellow"
+                      }`}>
+                        {offer.status}
+                      </span>
+                    </td>
+                    <td>{offer.hasLetter ? "Saved" : "—"}</td>
+                    <td>
+                      <div className="flex flex-wrap gap-2">
+                        {offer.hasLetter && (
+                          <button
+                            type="button"
+                            onClick={() => void handleViewOfferLetter(offer.id)}
+                            disabled={viewOfferLoading}
+                            className="text-sm font-medium text-[#2E7BBF] hover:underline disabled:opacity-50"
+                          >
+                            View letter
+                          </button>
+                        )}
+                        <Link
+                          href={`/app/recruitment/candidate/${offer.candidateId}`}
+                          className="text-sm font-medium text-slate-600 hover:underline"
+                        >
+                          Open candidate
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {offerHistory.length === 0 && (
+                  <tr><td colSpan={9} className="text-center text-slate-500">No offer letters yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Interview History Tab ──────────────────────────── */}
+      {tab === "Interview History" && (
+        <div className="mt-6 space-y-4">
+          <div className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm`}>
+            <div>
+              <h3 className="text-base font-semibold text-slate-800">Interview history</h3>
+              <p className="text-xs text-slate-500">Completed, cancelled, and past scheduled sessions</p>
+            </div>
+          </div>
+
+          <div className={`${panelClass} overflow-x-auto`}>
+            <table className="hris-table">
+              <thead>
+                <tr>
+                  <th>Title</th><th>Candidate</th><th>Requisition</th>
+                  <th>Scheduled</th><th>Duration</th><th>Interviewer</th>
+                  <th>Type</th><th>Location / Link</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {interviewHistory.map((iv) => (
+                  <tr key={iv.id}>
+                    <td className="font-medium">{iv.title}</td>
+                    <td>
+                      {iv.candidateId ? (
+                        <Link href={`/app/recruitment/candidate/${iv.candidateId}`} className="text-[#2E7BBF] hover:underline">
+                          {iv.candidateName}
+                        </Link>
+                      ) : (iv.candidateName || "-")}
+                    </td>
+                    <td>{iv.requisitionTitle || "-"}</td>
+                    <td>{formatBusinessDateTime(iv.scheduledAt)}</td>
+                    <td>{iv.duration} min</td>
+                    <td>{iv.interviewerName || "-"}</td>
+                    <td>{iv.interviewType || "-"}</td>
+                    <td className="max-w-[12rem] truncate" title={iv.location || undefined}>{iv.location || "-"}</td>
+                    <td>
+                      <span className={`badge ${iv.status === "Completed" ? "badge-green" : iv.status === "Cancelled" ? "badge-red" : "badge-yellow"}`}>
+                        {iv.status}
+                      </span>
+                    </td>
+                    <td>
+                      {iv.candidateStage === "Rejected" && iv.candidateId && (
+                        <button
+                          type="button"
+                          onClick={() => void handleReinterview(iv.candidateId, iv.candidateName, iv.interviewerId)}
+                          className="text-sm font-medium text-[#2E7BBF] hover:underline"
+                        >
+                          Re-interview
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {interviewHistory.length === 0 && (
+                  <tr><td colSpan={10} className="text-center text-slate-500">No interview history yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* ── Modals ─────────────────────────────────────────── */}
+      {viewOfferModal && (
+        <Modal
+          open
+          wide
+          title={`Offer letter — ${viewOfferModal.candidateName ?? "Candidate"}`}
+          onClose={() => setViewOfferModal(null)}
+        >
+          <div className="space-y-3 px-1 pb-1">
+            <div className="flex flex-wrap gap-4 text-sm text-slate-600">
+              <span><strong className="text-slate-800">Salary:</strong> {viewOfferModal.currency ?? "LKR"} {viewOfferModal.salaryOffered.toLocaleString()}</span>
+              <span><strong className="text-slate-800">Offer date:</strong> {formatDate(viewOfferModal.offerDate)}</span>
+              <span><strong className="text-slate-800">Status:</strong> {viewOfferModal.status}</span>
+            </div>
+            {viewOfferModal.letterHtml?.trim() ? (
+              <div
+                className="prose prose-sm max-w-none rounded-xl border border-slate-200 bg-white p-4"
+                dangerouslySetInnerHTML={{ __html: viewOfferModal.letterHtml }}
+              />
+            ) : (
+              <p className="text-sm text-slate-500">No letter content saved for this offer.</p>
+            )}
+            <div className="flex justify-end gap-3 pt-2">
+              <Link
+                href={`/app/recruitment/candidate/${viewOfferModal.candidateId}`}
+                className="text-sm font-medium text-[#2E7BBF] hover:underline"
+              >
+                Open candidate offer
+              </Link>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       <CreateRequisitionModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
@@ -834,17 +1133,26 @@ export default function RecruitmentPage() {
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">Title *</label>
-                <input
-                  className={inputClass}
-                  placeholder="Fills from interview type and candidate"
+                <FormSelect
                   value={scheduleForm.title || ""}
-                  onChange={(e) => {
-                    setScheduleTitleManual(true);
-                    setScheduleForm({ ...scheduleForm, title: e.target.value });
+                  onValueChange={(v) => {
+                    const cand = candidates.find((c) => c.id === scheduleForm.candidateId);
+                    const inferred = inferInterviewTypeFromTitle(v, cand?.fullName);
+                    if (inferred !== "Video") setScheduleMeetingLink("");
+                    setScheduleTitleManual(false);
+                    setScheduleForm((prev) => ({
+                      ...prev,
+                      title: v,
+                      ...(inferred !== null
+                        ? { interviewType: inferred, location: inferred === "Onsite" ? prev.location : "" }
+                        : {}),
+                    }));
                   }}
+                  options={scheduleTitleOpts}
+                  placeholder="Select title…"
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Updates automatically when you change candidate or interview type unless you edit this field.
+                  Title and type stay in sync — change either field to update the other.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -862,36 +1170,46 @@ export default function RecruitmentPage() {
                     onChange={(e) => setScheduleForm({ ...scheduleForm, duration: Number(e.target.value) })} />
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className={`grid gap-3 ${scheduleForm.interviewType === "Phone" ? "grid-cols-1" : "sm:grid-cols-2"}`}>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">Type</label>
                   <FormSelect
                     value={scheduleForm.interviewType || ""}
-                    onValueChange={(v) => setScheduleForm({ ...scheduleForm, interviewType: v })}
+                    onValueChange={(v) => {
+                      setScheduleTitleManual(false);
+                      setScheduleForm((prev) => ({
+                        ...prev,
+                        interviewType: v,
+                        location: v === "Onsite" ? prev.location : "",
+                      }));
+                      if (v !== "Video") setScheduleMeetingLink("");
+                    }}
                     options={INTERVIEW_TYPE_OPTS}
                     placeholder="Select type…"
                   />
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500">Location</label>
-                  <FormSelect
-                    value={scheduleForm.location === SCHEDULE_LOCATION_OTHER ? SCHEDULE_LOCATION_OTHER : scheduleForm.location || ""}
-                    onValueChange={(v) => {
-                      setScheduleForm({ ...scheduleForm, location: v });
-                      if (v !== SCHEDULE_LOCATION_OTHER) setScheduleLocationOther("");
-                    }}
-                    options={scheduleLocationOpts}
-                    placeholder="Select location…"
-                  />
-                  {scheduleForm.location === SCHEDULE_LOCATION_OTHER && (
+                {scheduleForm.interviewType === "Video" && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-500">Meeting link</label>
                     <input
-                      className={`${inputClass} mt-2`}
-                      placeholder="Room name, floor, or meeting link"
-                      value={scheduleLocationOther}
-                      onChange={(e) => setScheduleLocationOther(e.target.value)}
+                      className={inputClass}
+                      placeholder="https://teams.microsoft.com/…"
+                      value={scheduleMeetingLink}
+                      onChange={(e) => setScheduleMeetingLink(e.target.value)}
                     />
-                  )}
-                </div>
+                  </div>
+                )}
+                {scheduleForm.interviewType === "Onsite" && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-500">Location</label>
+                    <FormSelect
+                      value={scheduleForm.location || ""}
+                      onValueChange={(v) => setScheduleForm({ ...scheduleForm, location: v })}
+                      options={scheduleOnsiteLocationOpts}
+                      placeholder="Select location…"
+                    />
+                  </div>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">Interviewer</label>
@@ -958,12 +1276,12 @@ export default function RecruitmentPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">First Name *</label>
-                  <input className={inputClass} value={candidateForm.firstName}
+                  <PersonNameInput className={inputClass} value={candidateForm.firstName}
                     onChange={(e) => setCandidateForm({ ...candidateForm, firstName: e.target.value })} />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">Last Name *</label>
-                  <input className={inputClass} value={candidateForm.lastName}
+                  <PersonNameInput className={inputClass} value={candidateForm.lastName} autoComplete="family-name"
                     onChange={(e) => setCandidateForm({ ...candidateForm, lastName: e.target.value })} />
                 </div>
               </div>
@@ -975,7 +1293,7 @@ export default function RecruitmentPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">Phone</label>
-                  <input className={inputClass} value={candidateForm.phone}
+                  <PhoneInput className={inputClass} value={candidateForm.phone}
                     onChange={(e) => setCandidateForm({ ...candidateForm, phone: e.target.value })} />
                 </div>
               </div>

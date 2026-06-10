@@ -153,6 +153,36 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("forgot-password/verify")]
+    [AllowAnonymous]
+    public async Task<IActionResult> VerifyForgotPassword([FromBody] ForgotPasswordVerifyDto dto)
+    {
+        try
+        {
+            var result = await _authService.VerifyForgotPasswordAsync(dto);
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("forgot-password/reset")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResetForgotPassword([FromBody] ForgotPasswordResetDto dto)
+    {
+        try
+        {
+            await _authService.ResetPasswordWithTokenAsync(dto);
+            return Ok(new { message = "Password changed successfully. You can now sign in with your new password." });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("change-password")]
     [Authorize]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
@@ -181,6 +211,21 @@ public class AuthController : ControllerBase
     {
         var roles = await _authService.GetRolesAsync();
         return Ok(roles);
+    }
+
+    [HttpPost("roles")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> CreateRole([FromBody] CreateRoleDto dto)
+    {
+        try
+        {
+            var role = await _authService.CreateRoleAsync(dto);
+            return Ok(role);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpGet("roles/available-modules")]

@@ -1,15 +1,18 @@
 "use client";
 
+import { appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, DateTimePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, DateTimePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { useClientPagination } from "@/lib/use-client-pagination";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { apiFetch } from "@/lib/api";
 import { formatBusinessTime, formatDate, formatDateTime } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 
 // ──────────────────────────── Tabs ────────────────────────────
 
@@ -487,7 +490,7 @@ function AttendanceListTab() {
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const [filterEmployee, setFilterEmployee] = useState("");
-  const [filterEmployeeText, setFilterEmployeeText] = useState("");
+  const employeeSearchFilter = useApplyFilter();
   const [filterFrom, setFilterFrom] = useState(() => todayLocalIso());
   const [filterTo, setFilterTo] = useState(() => todayLocalIso());
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
@@ -578,7 +581,7 @@ function AttendanceListTab() {
   }
 
   async function handleDelete(rec: AttendanceRecord) {
-    if (!confirm(`Delete attendance record for ${rec.employeeName} on ${fmtDate(rec.date)}?`)) return;
+    if (!(await appConfirm(`Delete attendance record for ${rec.employeeName} on ${fmtDate(rec.date)}?`))) return;
     try {
       await apiFetch(`/api/attendance/${rec.id}`, { method: "DELETE" });
       load();
@@ -589,23 +592,38 @@ function AttendanceListTab() {
 
   const totalPages = Math.ceil(totalCount / pageSize);
 
+  function applyEmployeeFilter() {
+    const q = employeeSearchFilter.apply().toLowerCase();
+    if (!q) {
+      setFilterEmployee("");
+      setPage(1);
+      return;
+    }
+    const matched =
+      employeeOptions.find((opt) => opt.label.toLowerCase() === q) ??
+      employeeOptions.find((opt) => opt.label.toLowerCase().includes(q));
+    setFilterEmployee(matched?.id ?? "");
+    setPage(1);
+  }
+
+  const activeEmployeeLabel = filterEmployee
+    ? employeeOptions.find((opt) => opt.id === filterEmployee)?.label
+    : null;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className={labelClass}>Employee</label>
           <input
-            value={filterEmployeeText}
+            value={employeeSearchFilter.input}
             onFocus={loadEmployees}
-            onChange={(e) => {
-              const text = e.target.value;
-              setFilterEmployeeText(text);
-              const matched = employeeOptions.find((opt) => opt.label.toLowerCase() === text.toLowerCase());
-              setFilterEmployee(matched?.id ?? "");
-              setPage(1);
+            onChange={(e) => employeeSearchFilter.setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") applyEmployeeFilter();
             }}
             list="attendance-employee-filter-options"
-            placeholder="Type employee name"
+            placeholder="Name or code… (Enter)"
             className={`${inputClass} w-56`}
           />
           <datalist id="attendance-employee-filter-options">
@@ -613,6 +631,11 @@ function AttendanceListTab() {
               <option key={opt.id} value={opt.label} />
             ))}
           </datalist>
+          {activeEmployeeLabel && (
+            <p className="mt-1 text-xs text-slate-500">
+              Filtering: <span className="font-medium text-slate-700">{activeEmployeeLabel}</span>
+            </p>
+          )}
         </div>
         <div>
           <label className={labelClass}>From</label>
@@ -622,7 +645,7 @@ function AttendanceListTab() {
           <label className={labelClass}>To</label>
           <DatePickerField value={filterTo} onChange={(v) => { setFilterTo(v); setPage(1); }} className={`${inputClass} w-40`} />
         </div>
-        <Button variant="secondary" onClick={() => { setFilterEmployee(""); setFilterEmployeeText(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}>Clear</Button>
+        <Button variant="secondary" onClick={() => { employeeSearchFilter.clear(); setFilterEmployee(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}>Clear</Button>
         <Button variant="secondary" onClick={() => load()} disabled={loading || refreshing}>
           Refresh
         </Button>
@@ -839,7 +862,7 @@ function DevicesTab() {
   }
 
   async function deleteDevice(d: BiometricDevice) {
-    if (!confirm(`Delete device "${d.name}"?`)) return;
+    if (!(await appConfirm(`Delete device "${d.name}"?`))) return;
     try { await apiFetch(`/api/biometric/devices/${d.id}`, { method: "DELETE" }); loadDevices(); }
     catch (err) { setError(err instanceof Error ? err.message : "Delete failed"); }
   }
@@ -1066,6 +1089,8 @@ function OtNopayTab() {
       .finally(() => setLoading(false));
   }, [fromDate, toDate, filterEmployee]);
 
+  const resultsPager = useClientPagination(results, 15);
+
   const totals = results.reduce(
     (acc, r) => ({
       worked: acc.worked + r.totalWorkedHours,
@@ -1117,7 +1142,7 @@ function OtNopayTab() {
             <tbody className="divide-y divide-slate-100">
               {loading && <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-400">Calculating...</td></tr>}
               {!loading && results.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-400">No data. Select a date range and click Calculate.</td></tr>}
-              {!loading && results.map((r) => (
+              {!loading && resultsPager.pageItems.map((r) => (
                 <tr key={r.employeeId} className="hover:bg-slate-50/50">
                   <td className="px-4 py-2.5 font-medium text-slate-700">
                     {r.employeeName}
@@ -1149,6 +1174,7 @@ function OtNopayTab() {
             )}
           </table>
         </div>
+        <TablePagination page={resultsPager.page} totalPages={resultsPager.totalPages} totalCount={resultsPager.totalCount} pageSize={resultsPager.pageSize} onPageChange={resultsPager.setPage} />
       </div>
     </div>
   );
@@ -1173,6 +1199,7 @@ function ShiftsTab() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load shifts"));
   }, [includeInactive]);
   useEffect(() => { load(); }, [load]);
+  const itemsPager = useClientPagination(items);
 
   function openAdd() {
     editingIdRef.current = null;
@@ -1263,7 +1290,7 @@ function ShiftsTab() {
   }
 
   async function handleDelete(item: ShiftItem) {
-    if (!confirm(`Delete shift "${item.name}"? This will fail if any employee is assigned to it.`)) return;
+    if (!(await appConfirm(`Delete shift "${item.name}"? This will fail if any employee is assigned to it.`))) return;
     setError(null);
     try {
       await apiFetch(`/api/shift/${item.id}`, { method: "DELETE" });
@@ -1336,7 +1363,7 @@ function ShiftsTab() {
             </tr></thead>
             <tbody className="divide-y divide-slate-100">
               {items.length === 0 && <tr><td colSpan={9} className="px-6 py-8 text-center text-slate-400">No shifts defined. Add a shift to get started.</td></tr>}
-              {items.map((s) => (
+              {itemsPager.pageItems.map((s) => (
                 <tr key={s.id} className="hover:bg-slate-50/50">
                   <td className="px-6 py-3 font-medium text-slate-700">{s.name}</td>
                   <td className="px-4 py-3 text-slate-600">{s.code}</td>
@@ -1378,6 +1405,7 @@ function ShiftsTab() {
             </tbody>
           </table>
         </div>
+        <TablePagination page={itemsPager.page} totalPages={itemsPager.totalPages} totalCount={itemsPager.totalCount} pageSize={itemsPager.pageSize} onPageChange={itemsPager.setPage} />
       </div>
 
       <Modal
@@ -1591,7 +1619,7 @@ function RosterTab() {
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeptFilter, setBulkDeptFilter] = useState("");
   const [bulkLocFilter, setBulkLocFilter] = useState("");
-  const [bulkSearch, setBulkSearch] = useState("");
+  const bulkSearchFilter = useApplyFilter();
   const [bulkSaving, setBulkSaving] = useState(false);
 
   const departments = (() => {
@@ -1709,7 +1737,7 @@ function RosterTab() {
   }
 
   async function deleteTemplate(t: RosterTemplateItem) {
-    if (!confirm(`Delete roster template "${t.name}"?`)) return;
+    if (!(await appConfirm(`Delete roster template "${t.name}"?`))) return;
     setError(null);
     try { await apiFetch(`/api/roster/templates/${t.id}`, { method: "DELETE" }); loadTemplates(); }
     catch (err) { setError(err instanceof Error ? err.message : "Delete failed"); }
@@ -1736,7 +1764,7 @@ function RosterTab() {
   }
 
   async function deleteAssignment(a: RosterAssignmentItem) {
-    if (!confirm(`Remove roster assignment for ${a.employeeName}?`)) return;
+    if (!(await appConfirm(`Remove roster assignment for ${a.employeeName}?`))) return;
     setError(null);
     try { await apiFetch(`/api/roster/assignments/${a.id}`, { method: "DELETE" }); loadAssignments(); }
     catch (err) { setError(err instanceof Error ? err.message : "Delete failed"); }
@@ -1753,7 +1781,7 @@ function RosterTab() {
     setBulkSelectedIds(new Set());
     setBulkDeptFilter("");
     setBulkLocFilter("");
-    setBulkSearch("");
+    bulkSearchFilter.clear();
     setError(null);
     setSuccessMsg(null);
     setBulkModal(true);
@@ -1764,8 +1792,8 @@ function RosterTab() {
   const bulkVisibleEmployees = employees.filter((emp) => {
     if (bulkDeptFilter && emp.departmentId !== bulkDeptFilter) return false;
     if (bulkLocFilter && emp.locationId !== bulkLocFilter) return false;
-    if (bulkSearch) {
-      const q = bulkSearch.toLowerCase();
+    if (bulkSearchFilter.applied) {
+      const q = bulkSearchFilter.applied.toLowerCase();
       const match = emp.fullName.toLowerCase().includes(q) || (emp.employeeCode?.toLowerCase().includes(q) ?? false);
       if (!match) return false;
     }
@@ -2120,7 +2148,16 @@ function RosterTab() {
                   placeholder="All locations"
                   className="max-w-[180px]"
                 />
-                <input type="text" placeholder="Search name or code..." value={bulkSearch} onChange={(e) => setBulkSearch(e.target.value)} className={`${inputClass} max-w-[200px]`} />
+                <input
+                  type="text"
+                  placeholder="Search name or code… (Enter)"
+                  value={bulkSearchFilter.input}
+                  onChange={(e) => bulkSearchFilter.setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") bulkSearchFilter.apply();
+                  }}
+                  className={`${inputClass} max-w-[200px]`}
+                />
               </div>
 
               {/* Select all toggle */}

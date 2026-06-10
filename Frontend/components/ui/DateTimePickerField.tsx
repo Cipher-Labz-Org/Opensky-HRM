@@ -2,10 +2,8 @@
 
 import * as React from "react";
 import { DatePickerField } from "./DatePickerField";
+import { TimePickerField } from "./TimePickerField";
 import { joinDateTime, splitDateTime } from "@/lib/datePickerIso";
-
-const timeInputClass =
-  "w-[8.5rem] shrink-0 rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 disabled:cursor-not-allowed disabled:opacity-50";
 
 export type DateTimePickerFieldProps = {
   id?: string;
@@ -82,13 +80,11 @@ export function DateTimePickerField({
         placeholder="Date"
         className={`min-w-0 flex-1 ${className}`.trim()}
       />
-      <input
-        type="time"
+      <TimePickerField
         value={timePart}
-        onChange={(e) => setTime(e.target.value)}
+        onChange={setTime}
         disabled={disabled}
-        className={timeInputClass}
-        aria-label="Time"
+        className="w-[8.5rem]"
       />
     </div>
   );

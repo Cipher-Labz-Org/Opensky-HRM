@@ -34,11 +34,12 @@ public class EmployeesController : ControllerBase
     [HttpGet("audit-trail")]
     public async Task<IActionResult> GetPeopleAuditTrail(
         [FromQuery] Guid? employeeId = null,
+        [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50)
     {
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        var result = await _employeeService.GetPeopleAuditTrailAsync(employeeId, allowedIds, page, pageSize);
+        var result = await _employeeService.GetPeopleAuditTrailAsync(employeeId, search, allowedIds, page, pageSize);
         return Ok(result);
     }
 
@@ -85,7 +86,19 @@ public class EmployeesController : ControllerBase
         var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
         if (licenseErr != null) return licenseErr;
 
-        var created = await _employeeService.CreateAsync(dto);
+        EmployeeDto created;
+        try
+        {
+            created = await _employeeService.CreateAsync(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = EmployeeSaveExceptionMapper.Map(ex) });
+        }
 
         if (dto.CreateLogin != null)
         {
@@ -129,8 +142,15 @@ public class EmployeesController : ControllerBase
             return Forbid();
         var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
         if (licenseErr != null) return licenseErr;
-        var updated = await _employeeService.UpdateAsync(id, dto);
-        return updated is null ? NotFound() : Ok(updated);
+        try
+        {
+            var updated = await _employeeService.UpdateAsync(id, dto);
+            return updated is null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id:guid}/terminate")]
@@ -213,8 +233,15 @@ public class EmployeesController : ControllerBase
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Delete");
         if (allowedIds != null && (allowedIds.Count == 0 || !allowedIds.Contains(id)))
             return Forbid();
-        var deleted = await _employeeService.DeleteAsync(id);
-        return deleted ? NoContent() : NotFound();
+        try
+        {
+            var deleted = await _employeeService.DeleteAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("{id:guid}/photo")]
@@ -292,6 +319,171 @@ public class EmployeesController : ControllerBase
             .ToListAsync();
 
         return Ok(rows);
+    }
+
+    /// <summary>Atomically replace all supervisor and subordinate reporting lines for an employee.</summary>
+    [HttpPost("{id:guid}/reporting-lines")]
+    public async Task<IActionResult> SaveReportingLines(Guid id, [FromBody] SaveReportingLinesRequest req)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+            return Forbid();
+
+        var employee = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id);
+        if (employee is null) return NotFound();
+
+        var supervisors = req.Supervisors ?? new List<ReportingLineSupervisorItem>();
+        var subordinates = req.Subordinates ?? new List<ReportingLineSubordinateItem>();
+
+        if (supervisors.GroupBy(s => s.SupervisorId).Any(g => g.Count() > 1))
+            return BadRequest(new { error = "Duplicate supervisor in the list." });
+        if (subordinates.GroupBy(s => s.EmployeeId).Any(g => g.Count() > 1))
+            return BadRequest(new { error = "Duplicate subordinate in the list." });
+
+        var supervisorIds = supervisors.Select(s => s.SupervisorId).ToHashSet();
+        foreach (var sub in subordinates)
+        {
+            if (sub.EmployeeId == id)
+                return BadRequest(new { error = "An employee cannot be their own subordinate." });
+            if (supervisorIds.Contains(sub.EmployeeId))
+                return BadRequest(new { error = "An employee who is assigned as your supervisor cannot be added as your subordinate." });
+        }
+
+        foreach (var sup in supervisors)
+        {
+            if (sup.SupervisorId == id)
+                return BadRequest(new { error = "An employee cannot be their own supervisor." });
+            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, sup.SupervisorId, "Read"))
+                return Forbid();
+
+            var supervisor = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == sup.SupervisorId);
+            if (supervisor is null)
+                return BadRequest(new { error = "Supervisor not found." });
+            if (supervisor.IsDeleted || supervisor.Status == "Terminated")
+                return BadRequest(new { error = "That employee cannot be assigned as a supervisor." });
+            if (string.IsNullOrWhiteSpace(sup.ReportingMethod))
+                return BadRequest(new { error = "Reporting method is required for each supervisor." });
+        }
+
+        foreach (var sub in subordinates)
+        {
+            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, sub.EmployeeId, "Read"))
+                return Forbid();
+
+            var subordinate = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == sub.EmployeeId);
+            if (subordinate is null)
+                return BadRequest(new { error = "Subordinate employee not found." });
+            if (string.IsNullOrWhiteSpace(sub.ReportingMethod))
+                return BadRequest(new { error = "Reporting method is required for each subordinate." });
+        }
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var existingSupervisorLinks = await _db.EmployeeSupervisors
+                .IgnoreQueryFilters()
+                .Where(x => x.EmployeeId == id)
+                .ToListAsync();
+
+            foreach (var link in existingSupervisorLinks.Where(l => !l.IsDeleted))
+            {
+                if (!supervisorIds.Contains(link.SupervisorId))
+                    link.IsDeleted = true;
+            }
+
+            foreach (var item in supervisors)
+            {
+                var method = item.ReportingMethod.Trim();
+                var matches = existingSupervisorLinks.Where(l => l.SupervisorId == item.SupervisorId).ToList();
+                var keeper = matches.FirstOrDefault(l => !l.IsDeleted) ?? matches.FirstOrDefault();
+                if (keeper is not null)
+                {
+                    keeper.IsDeleted = false;
+                    keeper.ReportingMethod = method;
+                    foreach (var extra in matches.Where(l => l.Id != keeper.Id))
+                        extra.IsDeleted = true;
+                }
+                else
+                {
+                    _db.EmployeeSupervisors.Add(new EmployeeSupervisor
+                    {
+                        EmployeeId = id,
+                        SupervisorId = item.SupervisorId,
+                        ReportingMethod = method,
+                    });
+                }
+            }
+
+            var desiredSubordinateIds = subordinates.Select(s => s.EmployeeId).ToHashSet();
+            var existingSubordinateLinks = await _db.EmployeeSupervisors
+                .IgnoreQueryFilters()
+                .Where(x => x.SupervisorId == id)
+                .ToListAsync();
+
+            foreach (var link in existingSubordinateLinks.Where(l => !l.IsDeleted))
+            {
+                if (!desiredSubordinateIds.Contains(link.EmployeeId))
+                    link.IsDeleted = true;
+            }
+
+            foreach (var item in subordinates)
+            {
+                var method = item.ReportingMethod.Trim();
+                var matches = existingSubordinateLinks.Where(l => l.EmployeeId == item.EmployeeId).ToList();
+                var keeper = matches.FirstOrDefault(l => !l.IsDeleted) ?? matches.FirstOrDefault();
+                if (keeper is not null)
+                {
+                    keeper.IsDeleted = false;
+                    keeper.ReportingMethod = method;
+                    foreach (var extra in matches.Where(l => l.Id != keeper.Id))
+                        extra.IsDeleted = true;
+                }
+                else
+                {
+                    _db.EmployeeSupervisors.Add(new EmployeeSupervisor
+                    {
+                        EmployeeId = item.EmployeeId,
+                        SupervisorId = id,
+                        ReportingMethod = method,
+                    });
+                }
+            }
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        var supervisorRows = await _db.EmployeeSupervisors
+            .Where(x => x.EmployeeId == id)
+            .Include(x => x.Supervisor)
+            .Select(x => new
+            {
+                x.Id,
+                SupervisorId = x.SupervisorId,
+                EmployeeCode = x.Supervisor.EmployeeCode,
+                FullName = x.Supervisor.FirstName + (x.Supervisor.MiddleName != null ? " " + x.Supervisor.MiddleName : "") + " " + x.Supervisor.LastName,
+                x.ReportingMethod,
+            })
+            .ToListAsync();
+
+        var subordinateRows = await _db.EmployeeSupervisors
+            .Where(x => x.SupervisorId == id)
+            .Include(x => x.Employee)
+            .Select(x => new
+            {
+                x.Id,
+                EmployeeId = x.EmployeeId,
+                EmployeeCode = x.Employee.EmployeeCode,
+                FullName = x.Employee.FirstName + (x.Employee.MiddleName != null ? " " + x.Employee.MiddleName : "") + " " + x.Employee.LastName,
+                x.ReportingMethod,
+            })
+            .ToListAsync();
+
+        return Ok(new { supervisors = supervisorRows, subordinates = subordinateRows });
     }
 
     /// <summary>Employees who may be assigned as supervisors: active non-terminated others in People read scope (same idea as reporting lines elsewhere).</summary>
@@ -398,6 +590,33 @@ public class EmployeesController : ControllerBase
         });
     }
 
+    [HttpPut("{id:guid}/supervisors/{entryId:guid}")]
+    public async Task<IActionResult> UpdateSupervisor(Guid id, Guid entryId, [FromBody] UpdateReportingMethodRequest req)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+            return Forbid();
+        if (string.IsNullOrWhiteSpace(req.ReportingMethod))
+            return BadRequest(new { error = "Reporting method is required." });
+
+        var entry = await _db.EmployeeSupervisors
+            .Include(x => x.Supervisor)
+            .FirstOrDefaultAsync(x => x.Id == entryId && x.EmployeeId == id);
+        if (entry is null) return NotFound();
+
+        entry.ReportingMethod = req.ReportingMethod.Trim();
+        await _db.SaveChangesAsync();
+
+        var supervisor = entry.Supervisor;
+        return Ok(new
+        {
+            entry.Id,
+            entry.SupervisorId,
+            supervisor.EmployeeCode,
+            FullName = supervisor.FirstName + (supervisor.MiddleName != null ? " " + supervisor.MiddleName : "") + " " + supervisor.LastName,
+            entry.ReportingMethod,
+        });
+    }
+
     [HttpDelete("{id:guid}/supervisors/{entryId:guid}")]
     public async Task<IActionResult> RemoveSupervisor(Guid id, Guid entryId)
     {
@@ -408,6 +627,33 @@ public class EmployeesController : ControllerBase
         entry.IsDeleted = true;
         await _db.SaveChangesAsync();
         return NoContent();
+    }
+
+    [HttpPut("{id:guid}/subordinates/{entryId:guid}")]
+    public async Task<IActionResult> UpdateSubordinate(Guid id, Guid entryId, [FromBody] UpdateReportingMethodRequest req)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+            return Forbid();
+        if (string.IsNullOrWhiteSpace(req.ReportingMethod))
+            return BadRequest(new { error = "Reporting method is required." });
+
+        var entry = await _db.EmployeeSupervisors
+            .Include(x => x.Employee)
+            .FirstOrDefaultAsync(x => x.Id == entryId && x.SupervisorId == id);
+        if (entry is null) return NotFound();
+
+        entry.ReportingMethod = req.ReportingMethod.Trim();
+        await _db.SaveChangesAsync();
+
+        var employee = entry.Employee;
+        return Ok(new
+        {
+            entry.Id,
+            entry.EmployeeId,
+            employee.EmployeeCode,
+            FullName = employee.FirstName + (employee.MiddleName != null ? " " + employee.MiddleName : "") + " " + employee.LastName,
+            entry.ReportingMethod,
+        });
     }
 
     [HttpDelete("{id:guid}/subordinates/{entryId:guid}")]
@@ -599,6 +845,29 @@ public class AddSubordinateRequest
 {
     public Guid EmployeeId { get; set; }
     public string? ReportingMethod { get; set; }
+}
+
+public class UpdateReportingMethodRequest
+{
+    public string? ReportingMethod { get; set; }
+}
+
+public class SaveReportingLinesRequest
+{
+    public List<ReportingLineSupervisorItem> Supervisors { get; set; } = new();
+    public List<ReportingLineSubordinateItem> Subordinates { get; set; } = new();
+}
+
+public class ReportingLineSupervisorItem
+{
+    public Guid SupervisorId { get; set; }
+    public string ReportingMethod { get; set; } = "Direct";
+}
+
+public class ReportingLineSubordinateItem
+{
+    public Guid EmployeeId { get; set; }
+    public string ReportingMethod { get; set; } = "Direct";
 }
 
 public class TerminateRequest

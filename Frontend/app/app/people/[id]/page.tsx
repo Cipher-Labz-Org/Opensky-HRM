@@ -1,18 +1,23 @@
 "use client";
 
+import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useRef, useMemo, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
-import { COUNTRY_NAMES, NATIONALITY_NAMES } from "@/lib/people-form-lists";
+import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, CountryAutocompleteInput, NationalityAutocompleteInput, OptionsAutocompleteInput, ListAutocompleteInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, type FormSelectOption } from "@/components/ui";
+import { useClientPagination } from "@/lib/use-client-pagination";
+import { isValidPhone, isValidNic, isValidDrivingLicense, PHONE_VALIDATION_MESSAGE, NIC_VALIDATION_MESSAGE, DRIVING_LICENSE_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import { inferStateFromDistrict } from "@/lib/geo-regions";
 import { apiFetch } from "@/lib/api";
 import { getSystemSetting } from "@/lib/system-settings";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
+import { useAuth } from "@/contexts/auth-context";
 import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
+import { EmployeeTimesheetsWidget } from "@/components/employee-profile/EmployeeTimesheetsWidget";
 import {
   type EmploymentTypeCatalogItem,
   employmentTypeDisplayName,
@@ -93,6 +98,9 @@ interface EmployeeDetail {
   profileImageUrl: string | null;
   isTopOfHierarchy: boolean;
   hasDirectSupervisor: boolean;
+  shiftPatternId?: string | null;
+  shiftPatternName?: string | null;
+  shiftPatternCode?: string | null;
 }
 
 interface AttachmentTypeItem {
@@ -126,6 +134,17 @@ interface ReportPerson {
   fullName: string;
   jobTitleName: string | null;
   reportingMethod: string;
+}
+
+interface LeaveBalanceWidgetRow {
+  id: string;
+  leaveTypeId?: string;
+  leaveTypeName: string;
+  year: number;
+  entitled: number;
+  used: number;
+  carriedForward?: number;
+  remaining: number;
 }
 
 interface EmergencyContactItem {
@@ -202,10 +221,25 @@ interface EmployeeCertRow {
 
 interface SkillMatrixRow {
   id: string;
+  skillId: string;
   skillName: string;
   proficiencyLevel: number;
   assessedAt: string | null;
   notes: string | null;
+}
+
+interface CertCatalogOption {
+  id: string;
+  name: string;
+  issuingBody: string | null;
+  isActive: boolean;
+}
+
+interface LearningSkillOption {
+  id: string;
+  name: string;
+  category: string | null;
+  isActive?: boolean;
 }
 
 interface CourseOption {
@@ -324,6 +358,29 @@ const DEFAULT_VISIBLE = [
   "leaveList",
   "timesheets",
 ];
+
+const LEAVE_BALANCE_BAR_COLORS: Record<string, string> = {
+  "Annual Leave": "bg-blue-500",
+  "Sick Leave": "bg-amber-500",
+  "Casual Leave": "bg-emerald-500",
+  "Maternity Leave": "bg-pink-500",
+  "No-Pay Leave": "bg-slate-400",
+};
+const LEAVE_BALANCE_BAR_FALLBACK = ["bg-blue-500", "bg-amber-500", "bg-emerald-500", "bg-violet-500", "bg-rose-500"];
+
+function leaveBalanceBarColor(name: string, index: number): string {
+  return LEAVE_BALANCE_BAR_COLORS[name] ?? LEAVE_BALANCE_BAR_FALLBACK[index % LEAVE_BALANCE_BAR_FALLBACK.length];
+}
+
+function leaveBalanceTotalDays(row: LeaveBalanceWidgetRow): number {
+  const entitled = Number(row.entitled) || 0;
+  const carried = Number(row.carriedForward) || 0;
+  const used = Number(row.used) || 0;
+  const remaining = Number(row.remaining) || 0;
+  if (entitled + carried > 0) return entitled + carried;
+  if (used + remaining > 0) return used + remaining;
+  return 1;
+}
 
 const lifecycleColors: Record<string, string> = { Active: "bg-emerald-500", OnNotice: "bg-amber-500", Resigned: "bg-orange-500", Terminated: "bg-red-500", Retired: "bg-slate-400", Deceased: "bg-slate-400", Absconded: "bg-red-500" };
 const lifecycleLabels: Record<string, string> = { Active: "Active", OnNotice: "On Notice", Resigned: "Resigned", Terminated: "Terminated", Retired: "Retired", Deceased: "Deceased", Absconded: "Absconded" };
@@ -508,8 +565,76 @@ function buildCareerProgressionRows(emp: EmployeeDetail): CareerPathRow[] {
   return rows;
 }
 
+function buildEmployeePutPayload(
+  emp: EmployeeDetail,
+  overrides: Partial<{ epfNumber: string | null; etfNumber: string | null }> = {},
+) {
+  return {
+    firstName: emp.firstName,
+    middleName: emp.middleName,
+    lastName: emp.lastName,
+    email: emp.email,
+    phone: emp.phone,
+    addressStreet1: emp.addressStreet1,
+    addressStreet2: emp.addressStreet2,
+    city: emp.city,
+    country: emp.country,
+    stateProvince: emp.stateProvince,
+    zipPostalCode: emp.zipPostalCode,
+    district: emp.district,
+    pollingDivision: emp.pollingDivision,
+    distanceToOffice: emp.distanceToOffice,
+    modeOfTransport: emp.modeOfTransport,
+    homeTelephone: emp.homeTelephone,
+    workTelephone: emp.workTelephone,
+    otherEmail: emp.otherEmail,
+    permanentStreet1: emp.permanentStreet1,
+    permanentStreet2: emp.permanentStreet2,
+    permanentCity: emp.permanentCity,
+    permanentCountry: emp.permanentCountry,
+    permanentStateProvince: emp.permanentStateProvince,
+    permanentZipPostalCode: emp.permanentZipPostalCode,
+    permanentDistrict: emp.permanentDistrict,
+    permanentPollingDivision: emp.permanentPollingDivision,
+    permanentDistanceToOffice: emp.permanentDistanceToOffice,
+    dateOfBirth: emp.dateOfBirth,
+    gender: emp.gender,
+    maritalStatus: emp.maritalStatus,
+    nationality: emp.nationality,
+    religion: emp.religion,
+    ethnicity: emp.ethnicity,
+    otherId: emp.otherId,
+    nationalId: emp.nationalId,
+    tinNumber: emp.tinNumber,
+    epfNumber: overrides.epfNumber !== undefined ? overrides.epfNumber : emp.epfNumber,
+    etfNumber: overrides.etfNumber !== undefined ? overrides.etfNumber : emp.etfNumber,
+    driversLicenseNumber: emp.driversLicenseNumber,
+    driversLicenseType: emp.driversLicenseType,
+    licenseIssueDate: emp.licenseIssueDate,
+    licenseExpiryDate: emp.licenseExpiryDate,
+    driversLicenseIssuingCountry: emp.driversLicenseIssuingCountry,
+    joinDate: emp.joinDate,
+    probationEndDate: emp.probationEndDate,
+    dateOfPermanency: emp.dateOfPermanency,
+    status: emp.status,
+    employmentType: emp.employmentType,
+    departmentId: emp.departmentId,
+    businessUnitId: emp.businessUnitId,
+    positionId: emp.positionId,
+    locationId: emp.locationId,
+    gradeId: emp.gradeId,
+    jobTitleId: emp.jobTitleId,
+    managerId: emp.managerId,
+    isTopOfHierarchy: emp.isTopOfHierarchy,
+  };
+}
+
 const genderOptions = ["Male", "Female", "Other"];
-const sriLankaDistricts = ["Ampara","Anuradhapura","Badulla","Batticaloa","Colombo","Galle","Gampaha","Hambantota","Jaffna","Kalutara","Kandy","Kegalle","Kilinochchi","Kurunegala","Mannar","Matale","Matara","Monaragala","Mullaitivu","Nuwara Eliya","Polonnaruwa","Puttalam","Ratnapura","Trincomalee","Vavuniya"];
+function distanceKmInputValue(value: string | null | undefined): string {
+  if (!value?.trim()) return "";
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)/);
+  return match?.[1] ?? "";
+}
 
 function selectOpts(list: ReadonlyArray<string>): FormSelectOption[] {
   return list.map((v) => ({ value: v, label: v }));
@@ -522,21 +647,86 @@ const MARITAL_VALUES = ["Single", "Married", "Divorced", "Widowed", "Separated"]
 const RELIGION_VALUES = ["Buddhism", "Christianity", "Hinduism", "Islam", "Judaism", "Sikhism", "Bahá'í", "Jainism", "Shinto", "Taoism", "Zoroastrianism", "Other", "Prefer not to say"] as const;
 const ETHNICITY_VALUES = ["Asian", "Black / African", "Hispanic / Latino", "Middle Eastern / North African", "Native American / Indigenous", "Pacific Islander", "White / Caucasian", "Mixed / Multiracial", "Other", "Prefer not to say"] as const;
 const MARITAL_OPTIONS = selectOptsOptional("--Select--", MARITAL_VALUES);
-const NATIONALITY_OPTIONS = selectOptsOptional("--Select--", NATIONALITY_NAMES);
 const RELIGION_OPTIONS = selectOptsOptional("--Select--", RELIGION_VALUES);
 const ETHNICITY_OPTIONS = selectOptsOptional("--Select--", ETHNICITY_VALUES);
-const COUNTRY_OPTIONS = selectOptsOptional("--Select--", COUNTRY_NAMES);
-const COUNTRY_OPTIONS_ISSUING = selectOptsOptional("-- Select --", COUNTRY_NAMES);
-const SL_DISTRICT_OPTIONS = selectOptsOptional("-- Select --", sriLankaDistricts);
 const MODE_TRANSPORT_OPTIONS = selectOptsOptional("-- Select --", ["Own Vehicle", "Company Vehicle", "Public Transport", "Bicycle", "Walking", "Ride Sharing", "Other"]);
 const GENDER_SELECT_OPTIONS = selectOpts(genderOptions);
 const DEP_RELATIONSHIP_OPTIONS = selectOptsOptional("-- Select --", ["Child", "Spouse", "Parent", "Sibling", "Other"]);
+const EC_RELATIONSHIP_OPTIONS = selectOptsOptional("-- Select --", ["Spouse", "Parent", "Child", "Sibling", "Friend", "Relative", "Guardian", "Other"]);
 const EDU_LEVEL_OPTIONS = selectOptsOptional("-- Select --", ["High School", "Diploma", "Associate", "Bachelor", "Master", "Doctorate", "Certificate", "Other"]);
+function buildYearSelectOptions(fromYear = 1950, toYear = new Date().getFullYear() + 5): FormSelectOption[] {
+  const years: string[] = [];
+  for (let y = toYear; y >= fromYear; y--) years.push(String(y));
+  return selectOptsOptional("-- Select --", years);
+}
+const EDU_YEAR_OPTIONS = buildYearSelectOptions();
+const CERT_STATUS_OPTIONS = selectOpts(["Active", "Expired", "Revoked"]);
+const MATRIX_PROFICIENCY_OPTIONS: FormSelectOption[] = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }));
 const LANGUAGE_NAME_OPTIONS = selectOptsOptional("-- Select --", [
   "Arabic", "Bengali", "Chinese", "Dutch", "English", "French", "German", "Hindi", "Italian", "Japanese", "Korean", "Malay", "Portuguese", "Russian", "Sinhala", "Spanish", "Tamil", "Turkish", "Urdu", "Other",
 ]);
+const LANGUAGE_CATALOG_NAMES = LANGUAGE_NAME_OPTIONS.map((o) => o.label).filter((n) => n && n !== "-- Select --");
 const LANGUAGE_FLUENCY_OPTIONS = selectOpts(["Beginner", "Elementary", "Intermediate", "Upper Intermediate", "Advanced", "Native"]);
 const REPORTING_METHOD_OPTIONS = selectOptsOptional("-- Select --", ["Direct", "Indirect", "Other"]);
+const REPORTING_METHOD_ROW_OPTIONS = selectOpts(["Direct", "Indirect", "Other"]);
+
+function dedupeReportPeople(
+  rows: ReportPerson[],
+  personKey: "supervisorId" | "employeeId",
+): ReportPerson[] {
+  const seen = new Map<string, ReportPerson>();
+  for (const row of rows) {
+    const personId = row[personKey];
+    if (!personId || seen.has(personId)) continue;
+    seen.set(personId, row);
+  }
+  return Array.from(seen.values());
+}
+
+function reportLinesMatchSaved(
+  saved: ReportPerson[],
+  draft: ReportPerson[],
+  personKey: "supervisorId" | "employeeId",
+) {
+  if (saved.length !== draft.length) return false;
+  const savedByPerson = new Map(
+    saved.map((row) => [row[personKey] ?? "", row]),
+  );
+  return draft.every((row) => {
+    const personId = row[personKey] ?? "";
+    const prev = savedByPerson.get(personId);
+    if (!prev) return false;
+    return prev.reportingMethod === row.reportingMethod;
+  });
+}
+
+function validateReportingDraft(
+  supervisors: ReportPerson[],
+  subordinates: ReportPerson[],
+): string | null {
+  for (const row of supervisors) {
+    if (!row.supervisorId || !row.reportingMethod.trim()) {
+      return "Each supervisor must have a reporting method.";
+    }
+  }
+  for (const row of subordinates) {
+    if (!row.employeeId || !row.reportingMethod.trim()) {
+      return "Each subordinate must have a reporting method.";
+    }
+  }
+  const supervisorIds = supervisors.map((s) => s.supervisorId).filter(Boolean) as string[];
+  if (new Set(supervisorIds).size !== supervisorIds.length) {
+    return "Duplicate supervisors are not allowed.";
+  }
+  const subordinateIds = subordinates.map((s) => s.employeeId).filter(Boolean) as string[];
+  if (new Set(subordinateIds).size !== subordinateIds.length) {
+    return "Duplicate subordinates are not allowed.";
+  }
+  if (subordinateIds.some((subId) => supervisorIds.includes(subId))) {
+    return "An employee cannot be both a supervisor and a subordinate.";
+  }
+  return null;
+}
 const BA_BANK_OPTIONS = selectOptsOptional("-- Select --", [
   "Bank of Ceylon",
   "People's Bank",
@@ -568,27 +758,6 @@ const BENEFIT_INSURER_OPTIONS = selectOptsOptional("-- Select --", [
   "MetLife",
   "State Farm",
   "UnitedHealthcare",
-  "Other",
-]);
-const IMM_ISSUER_OPTIONS = selectOptsOptional("-- Select --", [
-  "Afghanistan",
-  "Australia",
-  "Bangladesh",
-  "Canada",
-  "China",
-  "France",
-  "Germany",
-  "India",
-  "Japan",
-  "Malaysia",
-  "Pakistan",
-  "Qatar",
-  "Saudi Arabia",
-  "Singapore",
-  "Sri Lanka",
-  "UAE",
-  "United Kingdom",
-  "United States",
   "Other",
 ]);
 const YES_NO_OPTIONS: FormSelectOption[] = [
@@ -645,13 +814,28 @@ const PAGE_TABS: { key: PageTab; label: string }[] = [
   { key: "workExperience", label: "Work Experience" },
   { key: "driversLicense", label: "Driver's License" },
   { key: "bankAccount", label: "Bank Details" },
-  { key: "reportTo", label: "Report To" },
+  { key: "reportTo", label: "Supervisor" },
   { key: "benefits", label: "Benefits" },
   { key: "immigration", label: "Immigration Docs" },
 ];
 const VISIBLE_TAB_COUNT = 3;
 const PRIMARY_TABS = PAGE_TABS.slice(0, VISIBLE_TAB_COUNT);
 const OVERFLOW_TABS = PAGE_TABS.slice(VISIBLE_TAB_COUNT);
+
+type QualificationsSubTab = "qualifications" | "education" | "skills" | "training" | "matrix" | "certifications" | "languages";
+const QUALIFICATIONS_SUB_TABS: { key: QualificationsSubTab; label: string }[] = [
+  { key: "qualifications", label: "Qualifications" },
+  { key: "education", label: "Education" },
+  { key: "skills", label: "Skills" },
+  { key: "training", label: "Training" },
+  { key: "matrix", label: "Matrix" },
+  { key: "certifications", label: "Certs" },
+  { key: "languages", label: "Languages" },
+];
+const qualificationsPanelShellClass =
+  "w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm";
+const qualificationsTableScrollClass =
+  "max-h-[min(52vh,520px)] overflow-auto [scrollbar-width:thin] [scrollbar-color:rgb(203_213_225)_rgb(241_245_249)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100";
 
 /** Short MIME / content-type label for tables; full value in tooltip when truncated or mapped. */
 function attachmentMimeLabel(contentType: string | null | undefined): { label: string; title?: string } {
@@ -689,11 +873,6 @@ const sectionCardHeaderRowSm =
   "flex items-center justify-between border-b border-slate-200/55 bg-gradient-to-b from-white/90 via-slate-50/40 to-slate-100/20 px-5 py-3 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.92)]";
 const sectionCardHeaderRowGap =
   "flex items-center gap-2.5 border-b border-slate-200/55 bg-gradient-to-b from-white/90 via-slate-50/40 to-slate-100/20 px-6 py-4 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.92)]";
-const sectionHeaderAddBtn =
-  "grid h-9 w-9 place-items-center rounded-full border border-[#2B7DE9]/30 bg-white/65 text-[#2B7DE9] shadow-sm shadow-sky-500/15 backdrop-blur-md transition hover:border-[#2B7DE9]/50 hover:bg-white/95 hover:shadow-md active:scale-95";
-const sectionHeaderAddTextBtn =
-  "rounded-xl border border-[#2B7DE9]/30 bg-white/70 px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#2B7DE9] shadow-sm shadow-sky-500/10 backdrop-blur-md transition hover:border-[#2B7DE9]/50 hover:bg-white/95 hover:shadow-md active:scale-[0.98]";
-
 const SECTION_ICON_GLASS: Record<string, { shell: string; ink: string }> = {
   "bg-slate-600": { shell: "border-slate-200/70 bg-slate-500/[0.09]", ink: "text-slate-600" },
   "bg-blue-500": { shell: "border-blue-200/55 bg-blue-500/12", ink: "text-blue-600" },
@@ -771,26 +950,35 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+const DELETABLE_EMPLOYEE_STATUSES = new Set(["Terminated", "Retired"]);
+
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { hasPermission, isAdmin } = useAuth();
 
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [pageTab, setPageTab] = useState<PageTab>("profile");
+  const [qualificationsSubTab, setQualificationsSubTab] = useState<QualificationsSubTab>("qualifications");
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
-  const [topSearch, setTopSearch] = useState("");
-  const [topSearchResults, setTopSearchResults] = useState<{ id: string; fullName: string; employeeCode: string }[]>([]);
-  const [topSearchOpen, setTopSearchOpen] = useState(false);
-  const topSearchRef = useRef<HTMLDivElement>(null);
-  const topSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showIdValidationErrors, setShowIdValidationErrors] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const flashSuccessMsg = useCallback((text: string) => {
+    setMsg({ type: "ok", text });
+    setTimeout(() => setMsg(null), 3000);
+  }, []);
 
   const [pdFirstName, setPdFirstName] = useState("");
   const [pdMiddleName, setPdMiddleName] = useState("");
   const [pdLastName, setPdLastName] = useState("");
+  const [pdNationality, setPdNationality] = useState("");
+  const [epfNumber, setEpfNumber] = useState("");
+  const [etfNumber, setEtfNumber] = useState("");
+  const [epfSaving, setEpfSaving] = useState(false);
 
   const [pdFullName, setPdFullName] = useState("");
   const [pdNameWithInitials, setPdNameWithInitials] = useState("");
@@ -814,6 +1002,8 @@ export default function EmployeeDetailPage() {
   const [reactTimezone, setReactTimezone] = useState("(GMT+05:30) GMT+05:30");
   const [reactWithOnboarding, setReactWithOnboarding] = useState(false);
   const [reactSaving, setReactSaving] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
 
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [businessUnits, setBusinessUnits] = useState<Lookup[]>([]);
@@ -840,6 +1030,10 @@ export default function EmployeeDetailPage() {
   const [pendingOnboarding, setPendingOnboarding] = useState<PendingLifecycleTaskRow[]>([]);
   const [pendingOffboarding, setPendingOffboarding] = useState<PendingLifecycleTaskRow[]>([]);
 
+  const leaveBalanceYear = new Date().getFullYear();
+  const [leaveBalanceRows, setLeaveBalanceRows] = useState<LeaveBalanceWidgetRow[]>([]);
+  const [leaveBalanceLoading, setLeaveBalanceLoading] = useState(false);
+
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -851,7 +1045,7 @@ export default function EmployeeDetailPage() {
   const [showAttachModal, setShowAttachModal] = useState(false);
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const [attachDesc, setAttachDesc] = useState("");
-  const [attachTypeId, setAttachTypeId] = useState("");
+  const [attachTypeName, setAttachTypeName] = useState("");
   const [attachExpiry, setAttachExpiry] = useState("");
   const [attachmentTypeMasters, setAttachmentTypeMasters] = useState<AttachmentTypeItem[]>([]);
   const attachFileRef = useRef<HTMLInputElement>(null);
@@ -861,11 +1055,15 @@ export default function EmployeeDetailPage() {
   const [editAttachExpiry, setEditAttachExpiry] = useState("");
   const [supervisors, setSupervisors] = useState<ReportPerson[]>([]);
   const [subordinates, setSubordinates] = useState<ReportPerson[]>([]);
+  const [draftSupervisors, setDraftSupervisors] = useState<ReportPerson[]>([]);
+  const [draftSubordinates, setDraftSubordinates] = useState<ReportPerson[]>([]);
+  const [savedReportingSupervisors, setSavedReportingSupervisors] = useState<ReportPerson[]>([]);
+  const [savedReportingSubordinates, setSavedReportingSubordinates] = useState<ReportPerson[]>([]);
+  const [reportingSaving, setReportingSaving] = useState(false);
   const [showAddSupervisor, setShowAddSupervisor] = useState(false);
   const [showAddSubordinate, setShowAddSubordinate] = useState(false);
   const [addReportMethod, setAddReportMethod] = useState("");
   const [addReportPersonId, setAddReportPersonId] = useState("");
-  const [addReportSaving, setAddReportSaving] = useState(false);
 
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContactItem[]>([]);
   const [showEcModal, setShowEcModal] = useState(false);
@@ -891,6 +1089,7 @@ export default function EmployeeDetailPage() {
 
   const [educations, setEducations] = useState<EducationItem[]>([]);
   const [showEduModal, setShowEduModal] = useState(false);
+  const [eduModalContext, setEduModalContext] = useState<"qualification" | "education">("education");
   const [eduSaving, setEduSaving] = useState(false);
   const [editingEdu, setEditingEdu] = useState<EducationItem | null>(null);
   const [eduLevel, setEduLevel] = useState("");
@@ -920,6 +1119,25 @@ export default function EmployeeDetailPage() {
   const [trainCourseId, setTrainCourseId] = useState("");
   const [trainDue, setTrainDue] = useState("");
   const [trainSaving, setTrainSaving] = useState(false);
+
+  const [showCertModal, setShowCertModal] = useState(false);
+  const [certSaving, setCertSaving] = useState(false);
+  const [editingCert, setEditingCert] = useState<EmployeeCertRow | null>(null);
+  const [certCatalog, setCertCatalog] = useState<CertCatalogOption[]>([]);
+  const [certCatalogId, setCertCatalogId] = useState("");
+  const [certObtained, setCertObtained] = useState("");
+  const [certExpiry, setCertExpiry] = useState("");
+  const [certNumber, setCertNumber] = useState("");
+  const [certStatus, setCertStatus] = useState("Active");
+
+  const [showMatrixModal, setShowMatrixModal] = useState(false);
+  const [matrixSaving, setMatrixSaving] = useState(false);
+  const [editingMatrix, setEditingMatrix] = useState<SkillMatrixRow | null>(null);
+  const [learningSkillsCatalog, setLearningSkillsCatalog] = useState<LearningSkillOption[]>([]);
+  const [matrixSkillId, setMatrixSkillId] = useState("");
+  const [matrixProficiency, setMatrixProficiency] = useState("3");
+  const [matrixAssessedAt, setMatrixAssessedAt] = useState("");
+  const [matrixNotes, setMatrixNotes] = useState("");
 
   const [languages, setLanguages] = useState<LanguageItem[]>([]);
   const [showLangModal, setShowLangModal] = useState(false);
@@ -975,6 +1193,14 @@ export default function EmployeeDetailPage() {
   const [dlType, setDlType] = useState("");
   const [dlIssue, setDlIssue] = useState("");
   const [dlExpiry, setDlExpiry] = useState("");
+  const [dlIssuingCountry, setDlIssuingCountry] = useState("");
+
+  const [addrCountry, setAddrCountry] = useState("");
+  const [addrState, setAddrState] = useState("");
+  const [addrDistrict, setAddrDistrict] = useState("");
+  const [permCountry, setPermCountry] = useState("");
+  const [permState, setPermState] = useState("");
+  const [permDistrict, setPermDistrict] = useState("");
 
   const [bankAccounts, setBankAccounts] = useState<BankAccountItem[]>([]);
   const [showBaModal, setShowBaModal] = useState(false);
@@ -995,6 +1221,86 @@ export default function EmployeeDetailPage() {
     if (pdLastName) parts.push(pdLastName);
     setPdNameWithInitials(parts.join(" "));
   }, [pdFirstName, pdMiddleName, pdLastName]);
+
+  const attachmentTypeCatalogNames = useMemo(
+    () =>
+      [...attachmentTypeMasters]
+        .filter((t) => t.isActive)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name))
+        .map((t) => t.name),
+    [attachmentTypeMasters],
+  );
+
+  const editAttachmentTypeOptions = useMemo(
+    () =>
+      [...attachmentTypeMasters]
+        .filter((t) => t.isActive || t.id === editAttachTypeId)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name))
+        .map((t) => ({ value: t.id, label: t.name })),
+    [attachmentTypeMasters, editAttachTypeId],
+  );
+
+  const skillCatalogNames = useMemo(
+    () => skillMasterList.map((s) => s.name).sort((a, b) => a.localeCompare(b)),
+    [skillMasterList],
+  );
+
+  const qualificationRecords = useMemo(
+    () => educations.filter((e) => e.qualificationName?.trim()),
+    [educations],
+  );
+
+  const educationRecords = useMemo(
+    () => educations.filter((e) => !e.qualificationName?.trim()),
+    [educations],
+  );
+
+  const ecRelationshipSelectOptions = useMemo((): FormSelectOption[] => {
+    if (!ecRelationship.trim() || EC_RELATIONSHIP_OPTIONS.some((o) => o.value === ecRelationship)) {
+      return EC_RELATIONSHIP_OPTIONS;
+    }
+    return [...EC_RELATIONSHIP_OPTIONS, { value: ecRelationship, label: ecRelationship }];
+  }, [ecRelationship]);
+
+  const attachmentsPager = useClientPagination(attachments);
+  const emergencyContactsPager = useClientPagination(emergencyContacts);
+  const dependentsPager = useClientPagination(dependents);
+  const qualificationRecordsPager = useClientPagination(qualificationRecords);
+  const educationRecordsPager = useClientPagination(educationRecords);
+  const skillsPager = useClientPagination(skills);
+  const languagesPager = useClientPagination(languages);
+  const workExperiencesPager = useClientPagination(workExperiences);
+  const bankAccountsPager = useClientPagination(bankAccounts);
+  const supervisorsPager = useClientPagination(draftSupervisors);
+  const subordinatesPager = useClientPagination(draftSubordinates);
+
+  const reportingDirty = useMemo(
+    () =>
+      !reportLinesMatchSaved(savedReportingSupervisors, draftSupervisors, "supervisorId") ||
+      !reportLinesMatchSaved(savedReportingSubordinates, draftSubordinates, "employeeId"),
+    [savedReportingSupervisors, draftSupervisors, savedReportingSubordinates, draftSubordinates],
+  );
+
+  const draftHasDirectSupervisor = useMemo(
+    () => draftSupervisors.some((s) => s.reportingMethod === "Direct"),
+    [draftSupervisors],
+  );
+
+  const syncReportingDraft = useCallback((sup: ReportPerson[], sub: ReportPerson[]) => {
+    const uniqueSupervisors = dedupeReportPeople(sup, "supervisorId");
+    const uniqueSubordinates = dedupeReportPeople(sub, "employeeId");
+    setSupervisors(uniqueSupervisors);
+    setSubordinates(uniqueSubordinates);
+    setDraftSupervisors(uniqueSupervisors);
+    setDraftSubordinates(uniqueSubordinates);
+    setSavedReportingSupervisors(uniqueSupervisors);
+    setSavedReportingSubordinates(uniqueSubordinates);
+  }, []);
+  const immigrationsPager = useClientPagination(immigrations);
+  const immDocsPager = useClientPagination(immDocs);
+  const trainingRowsPager = useClientPagination(trainingRows);
+  const matrixRowsPager = useClientPagination(matrixRows);
+  const certRowsPager = useClientPagination(certRows);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1020,6 +1326,9 @@ export default function EmployeeDetailPage() {
       setPdFirstName(e.firstName);
       setPdMiddleName(e.middleName ?? "");
       setPdLastName(e.lastName);
+      setPdNationality(e.nationality ?? "");
+      setEpfNumber(e.epfNumber ?? "");
+      setEtfNumber(e.etfNumber ?? "");
       setDepartments(deps);
       setBusinessUnits(bus);
       setLocations(locs);
@@ -1030,8 +1339,10 @@ export default function EmployeeDetailPage() {
       setSupervisorPickList(supCands);
       setSubordinatePickList(subCands);
       setAttachments(atts);
-      apiFetch<ReportPerson[]>(`/api/employees/${id}/supervisors`).then(setSupervisors).catch(() => {});
-      apiFetch<ReportPerson[]>(`/api/employees/${id}/subordinates`).then(setSubordinates).catch(() => {});
+      Promise.all([
+        apiFetch<ReportPerson[]>(`/api/employees/${id}/supervisors`).catch(() => [] as ReportPerson[]),
+        apiFetch<ReportPerson[]>(`/api/employees/${id}/subordinates`).catch(() => [] as ReportPerson[]),
+      ]).then(([sup, sub]) => syncReportingDraft(sup, sub));
       apiFetch<EmergencyContactItem[]>(`/api/employees/${id}/emergency-contacts`).then(setEmergencyContacts).catch(() => {});
       apiFetch<DependentItem[]>(`/api/employees/${id}/dependents`).then(setDependents).catch(() => {});
       apiFetch<EducationItem[]>(`/api/employees/${id}/educations`).then(setEducations).catch(() => {});
@@ -1044,8 +1355,8 @@ export default function EmployeeDetailPage() {
         .catch(() => setAttachmentTypeMasters([]));
       apiFetch<TrainingAssignmentRow[]>(`/api/employees/${id}/training-assignments`).then(setTrainingRows).catch(() => { setTrainingRows([]); });
       apiFetch<EmployeeCertRow[]>(`/api/employees/${id}/certifications`).then(setCertRows).catch(() => { setCertRows([]); });
-      apiFetch<{ id: string; skillName: string; proficiencyLevel: number; assessedAt: string | null; notes: string | null }[]>(`/api/learning/skill-matrix?employeeId=${id}`)
-        .then((rows) => setMatrixRows(rows.map((r) => ({ id: r.id, skillName: r.skillName, proficiencyLevel: r.proficiencyLevel, assessedAt: r.assessedAt, notes: r.notes }))))
+      apiFetch<{ id: string; skillId: string; skillName: string; proficiencyLevel: number; assessedAt: string | null; notes: string | null }[]>(`/api/learning/skill-matrix?employeeId=${id}`)
+        .then((rows) => setMatrixRows(rows.map((r) => ({ id: r.id, skillId: r.skillId, skillName: r.skillName, proficiencyLevel: r.proficiencyLevel, assessedAt: r.assessedAt, notes: r.notes }))))
         .catch(() => { setMatrixRows([]); });
       apiFetch<LanguageItem[]>(`/api/employees/${id}/languages`).then(setLanguages).catch(() => {});
       apiFetch<ImmigrationItem[]>(`/api/employees/${id}/immigrations`).then(setImmigrations).catch(() => {});
@@ -1097,7 +1408,7 @@ export default function EmployeeDetailPage() {
       }
     } catch { setMsg({ type: "err", text: "Employee not found." }); }
     finally { setLoading(false); }
-  }, [id]);
+  }, [id, syncReportingDraft]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1139,12 +1450,37 @@ export default function EmployeeDetailPage() {
     void loadPendingLifecycleTasks();
   }, [pageTab, visibleWidgets, id, loadPendingLifecycleTasks]);
 
+  const loadLeaveBalances = useCallback(async () => {
+    if (!id) return;
+    setLeaveBalanceLoading(true);
+    try {
+      const rows = await apiFetch<LeaveBalanceWidgetRow[]>(`/api/leave/balances/${id}?year=${leaveBalanceYear}`);
+      setLeaveBalanceRows(Array.isArray(rows) ? rows : []);
+    } catch {
+      setLeaveBalanceRows([]);
+    } finally {
+      setLeaveBalanceLoading(false);
+    }
+  }, [id, leaveBalanceYear]);
+
+  useEffect(() => {
+    if (pageTab !== "profile" || !visibleWidgets.includes("leaveBalance") || !id) return;
+    void loadLeaveBalances();
+  }, [pageTab, visibleWidgets, id, loadLeaveBalances]);
+
   useEffect(() => {
     if (!emp) return;
+    setAddrCountry(emp.country ?? "");
+    setAddrState(emp.stateProvince ?? inferStateFromDistrict(emp.country ?? "", emp.district ?? "") ?? "");
+    setAddrDistrict(emp.district ?? "");
+    setPermCountry(emp.permanentCountry ?? "");
+    setPermState(emp.permanentStateProvince ?? inferStateFromDistrict(emp.permanentCountry ?? "", emp.permanentDistrict ?? "") ?? "");
+    setPermDistrict(emp.permanentDistrict ?? "");
     setDlType(emp.driversLicenseType ?? "");
     setDlIssue(emp.licenseIssueDate ? emp.licenseIssueDate.split("T")[0] : "");
     setDlExpiry(emp.licenseExpiryDate ? emp.licenseExpiryDate.split("T")[0] : "");
-  }, [emp?.id, emp?.driversLicenseType, emp?.licenseIssueDate, emp?.licenseExpiryDate]);
+    setDlIssuingCountry(emp.driversLicenseIssuingCountry ?? "");
+  }, [emp]);
 
   useEffect(() => {
     if (!emp) return;
@@ -1171,28 +1507,6 @@ export default function EmployeeDetailPage() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showDocPopover]);
 
-  useEffect(() => {
-    if (!topSearchOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (topSearchRef.current && !topSearchRef.current.contains(e.target as Node)) setTopSearchOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [topSearchOpen]);
-
-  function handleTopSearch(query: string) {
-    setTopSearch(query);
-    if (topSearchTimer.current) clearTimeout(topSearchTimer.current);
-    if (!query.trim()) { setTopSearchResults([]); setTopSearchOpen(false); return; }
-    topSearchTimer.current = setTimeout(async () => {
-      try {
-        const res = await apiFetch<{ items: { id: string; fullName: string; employeeCode: string }[] }>(`/api/employees?search=${encodeURIComponent(query.trim())}&pageSize=8`);
-        setTopSearchResults(res.items);
-        setTopSearchOpen(true);
-      } catch { setTopSearchResults([]); }
-    }, 300);
-  }
-
   function openConfig() { setDraftWidgets(normalizeVisibleWidgetIds([...visibleWidgets])); setShowConfig(true); }
   function toggleDraftWidget(wid: string) { setDraftWidgets((p) => p.includes(wid) ? p.filter((x) => x !== wid) : [...p, wid]); }
   async function saveConfig() {
@@ -1215,15 +1529,57 @@ export default function EmployeeDetailPage() {
     } catch { /* ignore */ }
   }
 
+  async function ensureAttachmentTypeId(typeName: string): Promise<{ id: string; code?: string }> {
+    const trimmed = typeName.trim();
+    if (!trimmed) throw new Error("Attachment type is required.");
+
+    const existing = attachmentTypeMasters.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      if (!existing.isActive) throw new Error("This attachment type is inactive. Choose another or ask an admin.");
+      return { id: existing.id, code: existing.code };
+    }
+
+    let code = trimmed
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 32) || "CUSTOM";
+    let suffix = 0;
+    while (attachmentTypeMasters.some((t) => t.code === code) && suffix < 8) {
+      suffix += 1;
+      code = `${trimmed.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24) || "CUSTOM"}_${suffix}`;
+    }
+
+    const created = await apiFetch<AttachmentTypeItem>("/api/employees/profile-attachment-types", {
+      method: "POST",
+      body: JSON.stringify({
+        name: trimmed,
+        code,
+        isActive: true,
+        sortOrder: attachmentTypeMasters.length,
+      }),
+    });
+    setAttachmentTypeMasters((prev) => [...prev, created]);
+    return { id: created.id, code: created.code };
+  }
+
   async function uploadAttachment() {
-    if (!attachFile || !attachTypeId) return;
+    if (!attachFile) {
+      await appAlert("Please choose a file to upload.");
+      return;
+    }
+    if (!attachTypeName.trim()) {
+      await appAlert("Please enter or select an attachment type.");
+      return;
+    }
     setAttachUploading(true);
     try {
+      const { id: typeId, code: typeCode } = await ensureAttachmentTypeId(attachTypeName);
       const fd = new FormData();
       fd.append("file", attachFile, attachFile.name);
-      fd.append("attachmentTypeId", attachTypeId);
-      const typeRow = attachmentTypeMasters.find((t) => t.id === attachTypeId);
-      if (typeRow?.code) fd.append("attachmentTypeCode", typeRow.code);
+      fd.append("attachmentTypeId", typeId);
+      if (typeCode) fd.append("attachmentTypeCode", typeCode);
+      fd.append("attachmentTypeName", attachTypeName.trim());
       if (attachDesc.trim()) fd.append("description", attachDesc.trim());
       if (attachExpiry.trim()) fd.append("expiryDate", attachExpiry.trim());
       const res = await fetch(`${API_BASE_URL}/api/employees/${id}/attachments`, {
@@ -1256,17 +1612,17 @@ export default function EmployeeDetailPage() {
       setShowAttachModal(false);
       setAttachFile(null);
       setAttachDesc("");
-      setAttachTypeId("");
+      setAttachTypeName("");
       setAttachExpiry("");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Upload failed");
+      await appAlert(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setAttachUploading(false);
     }
   }
 
   async function deleteAttachment(attId: string) {
-    if (!confirm("Delete this attachment?")) return;
+    if (!(await appConfirm("Delete this attachment?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/attachments/${attId}`, { method: "DELETE" });
       setAttachments((prev) => prev.filter((a) => a.id !== attId));
@@ -1275,7 +1631,7 @@ export default function EmployeeDetailPage() {
 
   async function updateAttachmentRow(attId: string) {
     if (!editAttachTypeId) {
-      alert("Please select an attachment type.");
+      await appAlert("Please select an attachment type.");
       return;
     }
     try {
@@ -1292,58 +1648,184 @@ export default function EmployeeDetailPage() {
     } catch { /* ignore */ }
   }
 
-  async function addSupervisor() {
+  function stageAddSupervisor() {
     if (!addReportPersonId || !addReportMethod) return;
-    setAddReportSaving(true);
-    try {
-      const res = await apiFetch<ReportPerson>(`/api/employees/${id}/supervisors`, {
-        method: "POST",
-        body: JSON.stringify({ supervisorId: addReportPersonId, reportingMethod: addReportMethod }),
-      });
-      setSupervisors((prev) => [...prev, res]);
-      setShowAddSupervisor(false);
-      setAddReportPersonId("");
-      setAddReportMethod("");
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add supervisor");
-    } finally {
-      setAddReportSaving(false);
-    }
+    const pick = supervisorPickList.find((m) => m.id === addReportPersonId);
+    setDraftSupervisors((prev) => [
+      ...prev,
+      {
+        id: `pending-supervisor-${addReportPersonId}`,
+        supervisorId: addReportPersonId,
+        employeeCode: "",
+        fullName: pick?.name ?? "",
+        jobTitleName: null,
+        reportingMethod: addReportMethod,
+      },
+    ]);
+    setShowAddSupervisor(false);
+    setAddReportPersonId("");
+    setAddReportMethod("");
+    flashSuccessMsg("Supervisor added successfully. Click Save to apply changes.");
   }
 
-  async function addSubordinate() {
+  function stageAddSubordinate() {
     if (!addReportPersonId || !addReportMethod) return;
-    setAddReportSaving(true);
-    try {
-      const res = await apiFetch<ReportPerson>(`/api/employees/${id}/subordinates`, {
-        method: "POST",
-        body: JSON.stringify({ employeeId: addReportPersonId, reportingMethod: addReportMethod }),
-      });
-      setSubordinates((prev) => [...prev, res]);
-      setShowAddSubordinate(false);
-      setAddReportPersonId("");
-      setAddReportMethod("");
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add subordinate");
-    } finally {
-      setAddReportSaving(false);
+    const pick = subordinatePickList.find((m) => m.id === addReportPersonId);
+    setDraftSubordinates((prev) => [
+      ...prev,
+      {
+        id: `pending-subordinate-${addReportPersonId}`,
+        employeeId: addReportPersonId,
+        employeeCode: "",
+        fullName: pick?.name ?? "",
+        jobTitleName: null,
+        reportingMethod: addReportMethod,
+      },
+    ]);
+    setShowAddSubordinate(false);
+    setAddReportPersonId("");
+    setAddReportMethod("");
+    flashSuccessMsg("Subordinate added successfully. Click Save to apply changes.");
+  }
+
+  function updateDraftSupervisorMethod(entryId: string, reportingMethod: string) {
+    setDraftSupervisors((prev) => prev.map((s) => (s.id === entryId ? { ...s, reportingMethod } : s)));
+  }
+
+  function updateDraftSubordinateMethod(entryId: string, reportingMethod: string) {
+    setDraftSubordinates((prev) => prev.map((s) => (s.id === entryId ? { ...s, reportingMethod } : s)));
+  }
+
+  async function removeSupervisorDraft(entryId: string) {
+    if (!(await appConfirm("Remove this supervisor?"))) return;
+    setDraftSupervisors((prev) => prev.filter((s) => s.id !== entryId));
+  }
+
+  async function removeSubordinateDraft(entryId: string) {
+    if (!(await appConfirm("Remove this subordinate?"))) return;
+    setDraftSubordinates((prev) => prev.filter((s) => s.id !== entryId));
+  }
+
+  async function reloadReportingLinesFromServer() {
+    const [sup, sub, updatedEmp] = await Promise.all([
+      apiFetch<ReportPerson[]>(`/api/employees/${id}/supervisors`),
+      apiFetch<ReportPerson[]>(`/api/employees/${id}/subordinates`),
+      apiFetch<EmployeeDetail>(`/api/employees/${id}`),
+    ]);
+    syncReportingDraft(sup, sub);
+    setEmp(updatedEmp);
+  }
+
+  async function saveReportingLinesIncremental() {
+    const draftSupervisorIds = new Set(
+      draftSupervisors.map((row) => row.supervisorId).filter(Boolean) as string[],
+    );
+    for (const saved of savedReportingSupervisors) {
+      if (saved.supervisorId && !draftSupervisorIds.has(saved.supervisorId)) {
+        await apiFetch(`/api/employees/${id}/supervisors/${saved.id}`, { method: "DELETE" });
+      }
     }
+    const savedSupervisorByPersonId = new Map(
+      savedReportingSupervisors
+        .filter((row) => row.supervisorId)
+        .map((row) => [row.supervisorId as string, row]),
+    );
+    for (const draft of draftSupervisors) {
+      if (!draft.supervisorId) continue;
+      const saved = savedSupervisorByPersonId.get(draft.supervisorId);
+      if (!saved) {
+        await apiFetch(`/api/employees/${id}/supervisors`, {
+          method: "POST",
+          body: JSON.stringify({ supervisorId: draft.supervisorId, reportingMethod: draft.reportingMethod }),
+        });
+      } else if (saved.reportingMethod !== draft.reportingMethod) {
+        for (const row of savedReportingSupervisors.filter((s) => s.supervisorId === draft.supervisorId)) {
+          await apiFetch(`/api/employees/${id}/supervisors/${row.id}`, { method: "DELETE" });
+        }
+        await apiFetch(`/api/employees/${id}/supervisors`, {
+          method: "POST",
+          body: JSON.stringify({ supervisorId: draft.supervisorId, reportingMethod: draft.reportingMethod }),
+        });
+      }
+    }
+
+    const draftSubordinateIds = new Set(
+      draftSubordinates.map((row) => row.employeeId).filter(Boolean) as string[],
+    );
+    for (const saved of savedReportingSubordinates) {
+      if (saved.employeeId && !draftSubordinateIds.has(saved.employeeId)) {
+        await apiFetch(`/api/employees/${id}/subordinates/${saved.id}`, { method: "DELETE" });
+      }
+    }
+    const savedSubordinateByPersonId = new Map(
+      savedReportingSubordinates
+        .filter((row) => row.employeeId)
+        .map((row) => [row.employeeId as string, row]),
+    );
+    for (const draft of draftSubordinates) {
+      if (!draft.employeeId) continue;
+      const saved = savedSubordinateByPersonId.get(draft.employeeId);
+      if (!saved) {
+        await apiFetch(`/api/employees/${id}/subordinates`, {
+          method: "POST",
+          body: JSON.stringify({ employeeId: draft.employeeId, reportingMethod: draft.reportingMethod }),
+        });
+      } else if (saved.reportingMethod !== draft.reportingMethod) {
+        for (const row of savedReportingSubordinates.filter((s) => s.employeeId === draft.employeeId)) {
+          await apiFetch(`/api/employees/${id}/subordinates/${row.id}`, { method: "DELETE" });
+        }
+        await apiFetch(`/api/employees/${id}/subordinates`, {
+          method: "POST",
+          body: JSON.stringify({ employeeId: draft.employeeId, reportingMethod: draft.reportingMethod }),
+        });
+      }
+    }
+
+    await reloadReportingLinesFromServer();
   }
 
-  async function removeSupervisor(entryId: string) {
-    if (!confirm("Remove this supervisor?")) return;
+  async function saveReportingLines() {
+    if (reportingSaving || !reportingDirty) return;
+    const validationError = validateReportingDraft(draftSupervisors, draftSubordinates);
+    if (validationError) {
+      await appAlert(validationError);
+      return;
+    }
+    setReportingSaving(true);
     try {
-      await apiFetch(`/api/employees/${id}/supervisors/${entryId}`, { method: "DELETE" });
-      setSupervisors((prev) => prev.filter((s) => s.id !== entryId));
-    } catch { /* ignore */ }
-  }
-
-  async function removeSubordinate(entryId: string) {
-    if (!confirm("Remove this subordinate?")) return;
-    try {
-      await apiFetch(`/api/employees/${id}/subordinates/${entryId}`, { method: "DELETE" });
-      setSubordinates((prev) => prev.filter((s) => s.id !== entryId));
-    } catch { /* ignore */ }
+      const payload = {
+        supervisors: draftSupervisors.map((row) => ({
+          supervisorId: row.supervisorId,
+          reportingMethod: row.reportingMethod,
+        })),
+        subordinates: draftSubordinates.map((row) => ({
+          employeeId: row.employeeId,
+          reportingMethod: row.reportingMethod,
+        })),
+      };
+      try {
+        const res = await apiFetch<{ supervisors: ReportPerson[]; subordinates: ReportPerson[] }>(
+          `/api/employees/${id}/reporting-lines`,
+          { method: "POST", body: JSON.stringify(payload) },
+        );
+        const updatedEmp = await apiFetch<EmployeeDetail>(`/api/employees/${id}`);
+        syncReportingDraft(res.supervisors, res.subordinates);
+        setEmp(updatedEmp);
+        flashSuccessMsg("Reporting lines saved successfully.");
+      } catch (batchErr) {
+        const batchMsg = batchErr instanceof Error ? batchErr.message : "";
+        if (batchMsg.includes("API 404") && batchMsg.includes("reporting-lines")) {
+          await saveReportingLinesIncremental();
+          flashSuccessMsg("Reporting lines saved successfully.");
+          return;
+        }
+        throw batchErr;
+      }
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Failed to save reporting lines");
+    } finally {
+      setReportingSaving(false);
+    }
   }
 
   function openEcModal(ec?: EmergencyContactItem) {
@@ -1377,6 +1859,22 @@ export default function EmployeeDetailPage() {
 
   async function saveEmergencyContact() {
     if (!ecName.trim() || !ecRelationship.trim()) return;
+    const phones = [
+      { label: "Home telephone", value: ecHome.trim() },
+      { label: "Mobile telephone", value: ecMobile.trim() },
+      { label: "Work telephone", value: ecWork.trim() },
+    ];
+    const filled = phones.filter((p) => p.value);
+    if (filled.length === 0) {
+      await appAlert("Enter at least one telephone number.");
+      return;
+    }
+    for (const p of filled) {
+      if (!isValidPhone(p.value, true)) {
+        await appAlert(`${p.label}: ${PHONE_VALIDATION_MESSAGE}`);
+        return;
+      }
+    }
     setEcSaving(true);
     const body = {
       name: ecName.trim(),
@@ -1395,14 +1893,14 @@ export default function EmployeeDetailPage() {
       }
       closeEcModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save emergency contact");
+      await appAlert(err instanceof Error ? err.message : "Failed to save emergency contact");
     } finally {
       setEcSaving(false);
     }
   }
 
   async function deleteEmergencyContact(contactId: string) {
-    if (!confirm("Delete this emergency contact?")) return;
+    if (!(await appConfirm("Delete this emergency contact?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/emergency-contacts/${contactId}`, { method: "DELETE" });
       setEmergencyContacts((prev) => prev.filter((c) => c.id !== contactId));
@@ -1466,23 +1964,24 @@ export default function EmployeeDetailPage() {
       }
       closeDepModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save dependent");
+      await appAlert(err instanceof Error ? err.message : "Failed to save dependent");
     } finally {
       setDepSaving(false);
     }
   }
 
   async function deleteDependent(depId: string) {
-    if (!confirm("Delete this dependent?")) return;
+    if (!(await appConfirm("Delete this dependent?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/dependents/${depId}`, { method: "DELETE" });
       setDependents((prev) => prev.filter((d) => d.id !== depId));
     } catch { /* ignore */ }
   }
 
-  function openEduModal(edu?: EducationItem) {
+  function openEduModal(edu?: EducationItem, context: "qualification" | "education" = "education") {
     if (edu) {
       setEditingEdu(edu);
+      setEduModalContext(edu.qualificationName?.trim() ? "qualification" : "education");
       setEduLevel(edu.level);
       setEduQualName(edu.qualificationName ?? "");
       setEduInstitute(edu.institute ?? "");
@@ -1494,6 +1993,7 @@ export default function EmployeeDetailPage() {
       setEduRemark(edu.remark ?? "");
     } else {
       setEditingEdu(null);
+      setEduModalContext(context);
       setEduLevel("");
       setEduQualName("");
       setEduInstitute("");
@@ -1513,7 +2013,12 @@ export default function EmployeeDetailPage() {
   }
 
   async function saveEducation() {
-    if (!eduLevel.trim()) return;
+    const isQualification = eduModalContext === "qualification";
+    if (isQualification) {
+      if (!eduQualName.trim()) return;
+    } else if (!eduLevel.trim()) {
+      return;
+    }
     if (eduStartDate && eduEndDate && eduEndDate < eduStartDate) {
       setMsg({ type: "err", text: "Education End Date must be on or after the Start Date." });
       return;
@@ -1521,8 +2026,8 @@ export default function EmployeeDetailPage() {
     setEduSaving(true);
     try {
       const body = {
-        level: eduLevel,
-        qualificationName: eduQualName || null,
+        level: eduLevel.trim() || "Other",
+        qualificationName: isQualification ? eduQualName.trim() : null,
         institute: eduInstitute || null,
         major: eduMajor || null,
         year: eduYear || null,
@@ -1540,14 +2045,14 @@ export default function EmployeeDetailPage() {
       }
       closeEduModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save education");
+      await appAlert(err instanceof Error ? err.message : "Failed to save education");
     } finally {
       setEduSaving(false);
     }
   }
 
   async function deleteEducation(eduId: string) {
-    if (!confirm("Delete this education record?")) return;
+    if (!(await appConfirm("Delete this education record?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/educations/${eduId}`, { method: "DELETE" });
       setEducations((prev) => prev.filter((e) => e.id !== eduId));
@@ -1592,14 +2097,14 @@ export default function EmployeeDetailPage() {
       }
       closeSkillModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save skill");
+      await appAlert(err instanceof Error ? err.message : "Failed to save skill");
     } finally {
       setSkillSaving(false);
     }
   }
 
   async function deleteSkill(skillId: string) {
-    if (!confirm("Delete this skill?")) return;
+    if (!(await appConfirm("Delete this skill?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/skills/${skillId}`, { method: "DELETE" });
       setSkills((prev) => prev.filter((s) => s.id !== skillId));
@@ -1611,7 +2116,7 @@ export default function EmployeeDetailPage() {
       const cs = await apiFetch<CourseOption[]>("/api/learning/courses");
       const active = cs.filter((c) => c.isActive);
       if (active.length === 0) {
-        alert("No active courses in the catalog. Add a course from Learning first.");
+        await appAlert("No active courses in the catalog. Add a course from Learning first.");
         return;
       }
       setCoursesCatalog(active);
@@ -1619,7 +2124,7 @@ export default function EmployeeDetailPage() {
       setTrainDue("");
       setShowTrainAssignModal(true);
     } catch {
-      alert("Could not load courses. Ensure the Learning module is licensed and you have access.");
+      await appAlert("Could not load courses. Ensure the Learning module is licensed and you have access.");
     }
   }
 
@@ -1645,9 +2150,176 @@ export default function EmployeeDetailPage() {
       setTrainingRows(rows);
       closeTrainAssignModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to assign training");
+      await appAlert(err instanceof Error ? err.message : "Failed to assign training");
     } finally {
       setTrainSaving(false);
+    }
+  }
+
+  async function refreshCertRows() {
+    const rows = await apiFetch<EmployeeCertRow[]>(`/api/employees/${id}/certifications`);
+    setCertRows(rows);
+  }
+
+  async function refreshMatrixRows() {
+    const rows = await apiFetch<{ id: string; skillId: string; skillName: string; proficiencyLevel: number; assessedAt: string | null; notes: string | null }[]>(
+      `/api/learning/skill-matrix?employeeId=${id}`,
+    );
+    setMatrixRows(rows.map((r) => ({ id: r.id, skillId: r.skillId, skillName: r.skillName, proficiencyLevel: r.proficiencyLevel, assessedAt: r.assessedAt, notes: r.notes })));
+  }
+
+  async function openCertModal(cert?: EmployeeCertRow) {
+    try {
+      const catalog = await apiFetch<CertCatalogOption[]>("/api/learning/certifications");
+      const active = catalog.filter((c) => c.isActive);
+      if (!cert && active.length === 0) {
+        await appAlert("No certification types in the catalog. Restart the API to load defaults, or add types from Learning.");
+        return;
+      }
+      setCertCatalog(active);
+      if (cert) {
+        setEditingCert(cert);
+        setCertCatalogId(cert.certificationId);
+        setCertObtained(cert.obtainedDate?.slice(0, 10) ?? "");
+        setCertExpiry(cert.expiryDate?.slice(0, 10) ?? "");
+        setCertNumber(cert.certificateNumber ?? "");
+        setCertStatus(cert.status || "Active");
+      } else {
+        setEditingCert(null);
+        setCertCatalogId(active[0]!.id);
+        setCertObtained("");
+        setCertExpiry("");
+        setCertNumber("");
+        setCertStatus("Active");
+      }
+      setShowCertModal(true);
+    } catch {
+      await appAlert("Could not load certification catalog. Ensure the Learning module is licensed and you have access.");
+    }
+  }
+
+  function closeCertModal() {
+    setShowCertModal(false);
+    setEditingCert(null);
+  }
+
+  async function saveCertification() {
+    if (!certCatalogId || !certObtained.trim()) return;
+    setCertSaving(true);
+    try {
+      const body = {
+        certificationId: certCatalogId,
+        obtainedDate: new Date(certObtained).toISOString(),
+        expiryDate: certExpiry ? new Date(certExpiry).toISOString() : null,
+        certificateNumber: certNumber.trim() || null,
+        status: certStatus || "Active",
+      };
+      if (editingCert) {
+        await apiFetch(`/api/employees/${id}/certifications/${editingCert.id}`, { method: "PUT", body: JSON.stringify(body) });
+      } else {
+        await apiFetch(`/api/employees/${id}/certifications`, { method: "POST", body: JSON.stringify(body) });
+      }
+      await refreshCertRows();
+      closeCertModal();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Failed to save certification");
+    } finally {
+      setCertSaving(false);
+    }
+  }
+
+  async function deleteCertification(certId: string) {
+    if (!(await appConfirm("Remove this certification record?"))) return;
+    try {
+      await apiFetch(`/api/employees/${id}/certifications/${certId}`, { method: "DELETE" });
+      setCertRows((prev) => prev.filter((c) => c.id !== certId));
+    } catch {
+      await appAlert("Failed to delete certification");
+    }
+  }
+
+  async function openMatrixModal(row?: SkillMatrixRow) {
+    try {
+      const skills = await apiFetch<LearningSkillOption[]>("/api/learning/skills");
+      const active = skills.filter((s) => s.isActive !== false);
+      if (!row) {
+        const usedIds = new Set(matrixRows.map((m) => m.skillId));
+        const available = active.filter((s) => !usedIds.has(s.id));
+        if (available.length === 0) {
+          await appAlert(active.length === 0
+            ? "No skills in the learning catalog. Restart the API to load defaults, or add skills from Learning."
+            : "This employee already has matrix entries for all catalog skills.");
+          return;
+        }
+        setLearningSkillsCatalog(available);
+        setEditingMatrix(null);
+        setMatrixSkillId(available[0]!.id);
+        setMatrixProficiency("3");
+        setMatrixAssessedAt("");
+        setMatrixNotes("");
+      } else {
+        setLearningSkillsCatalog(active);
+        setEditingMatrix(row);
+        setMatrixSkillId(row.skillId);
+        setMatrixProficiency(String(row.proficiencyLevel));
+        setMatrixAssessedAt(row.assessedAt?.slice(0, 10) ?? "");
+        setMatrixNotes(row.notes ?? "");
+      }
+      setShowMatrixModal(true);
+    } catch {
+      await appAlert("Could not load skills catalog. Ensure the Learning module is licensed and you have access.");
+    }
+  }
+
+  function closeMatrixModal() {
+    setShowMatrixModal(false);
+    setEditingMatrix(null);
+  }
+
+  async function saveMatrixEntry() {
+    if (!editingMatrix && !matrixSkillId) return;
+    if (!matrixProficiency.trim()) return;
+    setMatrixSaving(true);
+    try {
+      const assessedPayload = matrixAssessedAt ? new Date(matrixAssessedAt).toISOString() : null;
+      const notesPayload = matrixNotes.trim() || null;
+      if (editingMatrix) {
+        await apiFetch(`/api/learning/skill-matrix/${editingMatrix.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            proficiencyLevel: Number(matrixProficiency),
+            assessedAt: assessedPayload,
+            notes: notesPayload,
+          }),
+        });
+      } else {
+        await apiFetch("/api/learning/skill-matrix", {
+          method: "POST",
+          body: JSON.stringify({
+            employeeId: id,
+            skillId: matrixSkillId,
+            proficiencyLevel: Number(matrixProficiency),
+            assessedAt: assessedPayload,
+            notes: notesPayload,
+          }),
+        });
+      }
+      await refreshMatrixRows();
+      closeMatrixModal();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Failed to save skill matrix entry");
+    } finally {
+      setMatrixSaving(false);
+    }
+  }
+
+  async function deleteMatrixEntry(matrixId: string) {
+    if (!(await appConfirm("Remove this skill matrix entry?"))) return;
+    try {
+      await apiFetch(`/api/learning/skill-matrix/${matrixId}`, { method: "DELETE" });
+      setMatrixRows((prev) => prev.filter((m) => m.id !== matrixId));
+    } catch {
+      await appAlert("Failed to delete skill matrix entry");
     }
   }
 
@@ -1699,14 +2371,14 @@ export default function EmployeeDetailPage() {
       }
       closeLangModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save language");
+      await appAlert(err instanceof Error ? err.message : "Failed to save language");
     } finally {
       setLangSaving(false);
     }
   }
 
   async function deleteLanguage(langId: string) {
-    if (!confirm("Delete this language?")) return;
+    if (!(await appConfirm("Delete this language?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/languages/${langId}`, { method: "DELETE" });
       setLanguages((prev) => prev.filter((l) => l.id !== langId));
@@ -1728,7 +2400,7 @@ export default function EmployeeDetailPage() {
         }),
       });
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save benefits");
+      await appAlert(err instanceof Error ? err.message : "Failed to save benefits");
     } finally {
       setBenefitSaving(false);
     }
@@ -1787,14 +2459,14 @@ export default function EmployeeDetailPage() {
       }
       closeImmModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save immigration record");
+      await appAlert(err instanceof Error ? err.message : "Failed to save immigration record");
     } finally {
       setImmSaving(false);
     }
   }
 
   async function deleteImmigration(immId: string) {
-    if (!confirm("Delete this immigration record?")) return;
+    if (!(await appConfirm("Delete this immigration record?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/immigrations/${immId}`, { method: "DELETE" });
       setImmigrations((prev) => prev.filter((i) => i.id !== immId));
@@ -1820,14 +2492,14 @@ export default function EmployeeDetailPage() {
       setImmDocs((prev) => [created, ...prev]);
       setShowImmDocModal(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to upload document");
+      await appAlert(err instanceof Error ? err.message : "Failed to upload document");
     } finally {
       setImmDocUploading(false);
     }
   }
 
   async function deleteImmDoc(docId: string) {
-    if (!confirm("Delete this document?")) return;
+    if (!(await appConfirm("Delete this document?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/immigration-documents/${docId}`, { method: "DELETE" });
       setImmDocs((prev) => prev.filter((d) => d.id !== docId));
@@ -1904,14 +2576,14 @@ export default function EmployeeDetailPage() {
       }
       closeWeModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save work experience");
+      await appAlert(err instanceof Error ? err.message : "Failed to save work experience");
     } finally {
       setWeSaving(false);
     }
   }
 
   async function deleteWorkExperience(weId: string) {
-    if (!confirm("Delete this work experience?")) return;
+    if (!(await appConfirm("Delete this work experience?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/work-experiences/${weId}`, { method: "DELETE" });
       setWorkExperiences((prev) => prev.filter((w) => w.id !== weId));
@@ -1971,14 +2643,14 @@ export default function EmployeeDetailPage() {
       }
       closeBaModal();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save bank account");
+      await appAlert(err instanceof Error ? err.message : "Failed to save bank account");
     } finally {
       setBaSaving(false);
     }
   }
 
   async function deleteBankAccount(baId: string) {
-    if (!confirm("Delete this bank account?")) return;
+    if (!(await appConfirm("Delete this bank account?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/bank-accounts/${baId}`, { method: "DELETE" });
       setBankAccounts((prev) => prev.filter((b) => b.id !== baId));
@@ -1986,14 +2658,14 @@ export default function EmployeeDetailPage() {
   }
 
   async function handleTerminate() {
-    if (!emp || !termReason || !termDate) return;
+    if (!emp || !termReason.trim() || !termDate) return;
     setTermSaving(true);
     try {
       await apiFetch(`/api/employees/${id}/terminate`, {
         method: "POST",
         body: JSON.stringify({
           terminationDate: termDate,
-          terminationReason: termReason,
+          terminationReason: termReason.trim(),
           terminationNote: termNote || null,
           withOffboarding,
           templateId: withOffboarding && selectedTemplateId ? selectedTemplateId : null,
@@ -2002,9 +2674,23 @@ export default function EmployeeDetailPage() {
       setShowTerminateModal(false);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to terminate");
+      await appAlert(err instanceof Error ? err.message : "Failed to terminate");
     } finally {
       setTermSaving(false);
+    }
+  }
+
+  async function handleDeleteEmployee() {
+    if (!emp) return;
+    setDeleteSaving(true);
+    try {
+      await apiFetch(`/api/employees/${id}`, { method: "DELETE" });
+      setShowDeleteModal(false);
+      router.push(ROUTES.people);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Failed to delete employee");
+    } finally {
+      setDeleteSaving(false);
     }
   }
 
@@ -2079,7 +2765,7 @@ export default function EmployeeDetailPage() {
       setShowReactivateModal(false);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to reactivate");
+      await appAlert(err instanceof Error ? err.message : "Failed to reactivate");
     } finally {
       setReactSaving(false);
     }
@@ -2090,7 +2776,7 @@ export default function EmployeeDetailPage() {
       const res = await apiFetch<{ html: string }>(`/api/documenttemplates/render/${templateKey}/${id}`);
       const filename = `${docName.replace(/\s+/g, "_")}_${emp?.employeeCode ?? "EMP"}.pdf`;
       const printWin = window.open("", "_blank");
-      if (!printWin) { alert("Please allow pop-ups to download PDF"); return; }
+      if (!printWin) { await appAlert("Please allow pop-ups to download PDF"); return; }
       printWin.document.write(`
         <html><head><title>${filename}</title></head>
         <body>${res.html}</body></html>
@@ -2098,7 +2784,7 @@ export default function EmployeeDetailPage() {
       printWin.document.close();
       printWin.onload = () => { printWin.print(); };
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to generate document");
+      await appAlert(err instanceof Error ? err.message : "Failed to generate document");
     }
   }
 
@@ -2119,7 +2805,7 @@ export default function EmployeeDetailPage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to generate document");
+      await appAlert(err instanceof Error ? err.message : "Failed to generate document");
     }
   }
 
@@ -2174,6 +2860,32 @@ export default function EmployeeDetailPage() {
     } finally { setPhotoSaving(false); }
   }
 
+  async function saveEpfEtf(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!emp) return;
+    setEpfSaving(true);
+    setMsg(null);
+    try {
+      const payload = buildEmployeePutPayload(emp, {
+        epfNumber: epfNumber.trim() || null,
+        etfNumber: etfNumber.trim() || null,
+      });
+      const updated = await apiFetch<EmployeeDetail>(`/api/employees/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      setEmp(updated);
+      setEpfNumber(updated.epfNumber ?? "");
+      setEtfNumber(updated.etfNumber ?? "");
+      setMsg({ type: "ok", text: "EPF / ETF details saved." });
+      setTimeout(() => setMsg(null), 3000);
+    } catch (err) {
+      setMsg({ type: "err", text: err instanceof Error ? err.message : "Failed to save EPF / ETF details." });
+    } finally {
+      setEpfSaving(false);
+    }
+  }
+
   async function handleSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!emp) return;
@@ -2216,8 +2928,8 @@ export default function EmployeeDetailPage() {
       otherId: fd.get("otherId") || null,
       nationalId: fd.get("nationalId") || null,
       tinNumber: fd.get("tinNumber") || null,
-      epfNumber: fd.get("epfNumber") || null,
-      etfNumber: fd.get("etfNumber") || null,
+      epfNumber: (fd.get("epfNumber") as string)?.trim() || emp.epfNumber || null,
+      etfNumber: (fd.get("etfNumber") as string)?.trim() || emp.etfNumber || null,
       driversLicenseNumber: fd.get("driversLicenseNumber") || null,
       driversLicenseType: (fd.get("driversLicenseType") as string)?.trim() || null,
       licenseIssueDate: (fd.get("licenseIssueDate") as string)?.trim() || null,
@@ -2252,6 +2964,19 @@ export default function EmployeeDetailPage() {
       setMsg({ type: "err", text: "Personal Email is not a valid email address (e.g. name@example.com)." });
       return;
     }
+
+    const nic = ((payload.nationalId as string) ?? "").trim();
+    const dl = ((payload.driversLicenseNumber as string) ?? "").trim();
+    if ((nic && !isValidNic(nic)) || (dl && !isValidDrivingLicense(dl))) {
+      setSaving(false);
+      setShowIdValidationErrors(true);
+      setMsg({
+        type: "err",
+        text: nic && !isValidNic(nic) ? NIC_VALIDATION_MESSAGE : DRIVING_LICENSE_VALIDATION_MESSAGE,
+      });
+      return;
+    }
+    setShowIdValidationErrors(false);
 
     const jd = payload.joinDate ? (payload.joinDate as string).split("T")[0] : "";
     const pe = payload.probationEndDate ? (payload.probationEndDate as string).split("T")[0] : "";
@@ -2693,46 +3418,6 @@ export default function EmployeeDetailPage() {
             </button>
           )}
         </div>
-
-        {/* Employee Search — keep above tab row when results overlap (stacking / wrap) */}
-        <div ref={topSearchRef} className={`relative ml-auto min-w-0 ${topSearchOpen ? "z-50" : "z-20"}`}>
-          <div className="flex items-center rounded-full border border-slate-200 bg-white px-3 py-1">
-            <svg className="mr-2 h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            <input
-              type="text"
-              value={topSearch}
-              onChange={(e) => handleTopSearch(e.target.value)}
-              onFocus={() => { if (topSearchResults.length > 0) setTopSearchOpen(true); }}
-              placeholder="Search employee..."
-              className="w-44 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-            />
-          </div>
-          {topSearchOpen && topSearchResults.length > 0 && (
-            <div className="absolute right-0 top-full z-[60] mt-1.5 w-72 rounded-xl border border-slate-200 bg-white py-1 shadow-xl ring-1 ring-slate-900/5">
-              {topSearchResults.map((emp) => (
-                <button
-                  key={emp.id}
-                  type="button"
-                  onClick={() => { router.push(`/app/people/${emp.id}`); setTopSearch(""); setTopSearchOpen(false); setTopSearchResults([]); }}
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-slate-50"
-                >
-                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 text-xs font-bold text-blue-700">
-                    {emp.fullName.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-slate-700">{emp.fullName}</div>
-                    <div className="text-xs text-slate-400">{emp.employeeCode}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Help button */}
-        <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:bg-slate-50 hover:text-slate-600" title="Help">
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        </button>
       </div>
 
       {/* Toast */}
@@ -2950,9 +3635,7 @@ export default function EmployeeDetailPage() {
 
               {wOn("birthdaysNotices") && (
                 <div id="birthdays-notices" className="min-w-0 scroll-mt-28">
-                  <BirthdaysCompanyNoticesWidget
-                    scrollAnchorHref={`${ROUTES.people}/${id}#birthdays-notices`}
-                  />
+                  <BirthdaysCompanyNoticesWidget />
                 </div>
               )}
             </div>
@@ -2961,8 +3644,49 @@ export default function EmployeeDetailPage() {
           {/* LEAVE BALANCE */}
           {wOn("leaveBalance") && (
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
-              <div className={sectionCardHeaderRowSm}><div className="flex items-center gap-2"><SectionIcon path="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" color="bg-indigo-500" /><h2 className="text-[15px] font-bold text-slate-700">Leave Balance</h2></div><WidgetGear onRemove={() => removeWidget("leaveBalance")} /></div>
-              <div className="p-4"><div className="space-y-3">{[{type:"Annual Leave",used:5,total:14,color:"bg-blue-500"},{type:"Sick Leave",used:2,total:7,color:"bg-amber-500"},{type:"Casual Leave",used:1,total:3,color:"bg-emerald-500"}].map((lv)=>(<div key={lv.type}><div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium text-slate-600">{lv.type}</span><span className="text-slate-400">{lv.used}/{lv.total} used</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${lv.color}`} style={{width:`${(lv.used/lv.total)*100}%`}}/></div></div>))}</div><p className="mt-4 text-center text-[11px] text-slate-400">Data synced from Leave module</p></div>
+              <div className={sectionCardHeaderRowSm}>
+                <div className="flex items-center gap-2">
+                  <SectionIcon path="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" color="bg-indigo-500" />
+                  <h2 className="text-[15px] font-bold text-slate-700">Leave Balance</h2>
+                </div>
+                <WidgetGear onRemove={() => removeWidget("leaveBalance")} />
+              </div>
+              <div className="p-4">
+                {leaveBalanceLoading ? (
+                  <p className="py-4 text-center text-xs text-slate-400">Loading leave balances…</p>
+                ) : leaveBalanceRows.length === 0 ? (
+                  <p className="py-4 text-center text-xs text-slate-400">
+                    No leave balances assigned for {leaveBalanceYear}.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {leaveBalanceRows.map((row, index) => {
+                      const used = Number(row.used) || 0;
+                      const total = leaveBalanceTotalDays(row);
+                      const pct = Math.min(100, (used / total) * 100);
+                      return (
+                        <div key={row.id}>
+                          <div className="mb-1 flex items-center justify-between text-xs">
+                            <span className="font-medium text-slate-600">{row.leaveTypeName}</span>
+                            <span className="text-slate-400">
+                              {used}/{total} used · {Number(row.remaining) || 0} left
+                            </span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className={`h-full rounded-full ${leaveBalanceBarColor(row.leaveTypeName, index)}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="mt-4 text-center text-[11px] text-slate-400">
+                  Data from Leave module · {leaveBalanceYear}
+                </p>
+              </div>
             </div>
           )}
 
@@ -2978,7 +3702,11 @@ export default function EmployeeDetailPage() {
           {wOn("timesheets") && (
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
               <div className={sectionCardHeaderRowSm}><div className="flex items-center gap-2"><SectionIcon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" color="bg-teal-500" /><h2 className="text-[15px] font-bold text-slate-700">Timesheets</h2></div><WidgetGear onRemove={() => removeWidget("timesheets")} /></div>
-              <div className="p-4"><div className="grid grid-cols-3 gap-2">{[{label:"Today",value:"8h 15m",sub:"On track"},{label:"This Week",value:"36h",sub:"4 days logged"},{label:"This Month",value:"142h",sub:"Target: 160h"}].map((ts)=>(<div key={ts.label} className="rounded-xl bg-slate-50 px-2 py-2.5 text-center"><div className="text-[9px] font-medium uppercase tracking-wider text-slate-400">{ts.label}</div><div className="mt-0.5 text-base font-extrabold text-slate-800">{ts.value}</div><div className="text-[9px] text-slate-400">{ts.sub}</div></div>))}</div><button type="button" className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50">View Full Timesheets</button></div>
+              <EmployeeTimesheetsWidget
+                employeeId={id}
+                shiftPatternName={emp?.shiftPatternName}
+                shiftPatternCode={emp?.shiftPatternCode}
+              />
             </div>
           )}
 
@@ -3007,11 +3735,11 @@ export default function EmployeeDetailPage() {
               <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
                 <div><label className={labelClass}>Employee Id</label><input className={inputReadonlyClass} value={emp.employeeCode} readOnly /></div>
                 <div><label className={labelClass}>Other Id</label><input name="otherId" className={inputClass} defaultValue={emp.otherId ?? ""} /></div>
-                <div><label className={labelClass}>SSN/AADHAAR/ID NO/QID</label><input name="nationalId" className={inputClass} defaultValue={emp.nationalId ?? ""} /></div>
+                <div><label className={labelClass}>NIC Number</label><NicInput name="nationalId" className={inputClass} defaultValue={emp.nationalId ?? ""} forceShowError={showIdValidationErrors} /></div>
                 <div><label className={labelClass}>TIN Number</label><input name="tinNumber" className={inputClass} defaultValue={emp.tinNumber ?? ""} /></div>
-                <div><label className={labelClass}>First Name *</label><input name="firstName" required className={inputClass} value={pdFirstName} onChange={(e) => setPdFirstName(e.target.value)} /></div>
-                <div><label className={labelClass}>Middle Name</label><input name="middleName" className={inputClass} value={pdMiddleName} onChange={(e) => setPdMiddleName(e.target.value)} /></div>
-                <div><label className={labelClass}>Last Name *</label><input name="lastName" required className={inputClass} value={pdLastName} onChange={(e) => setPdLastName(e.target.value)} /></div>
+                <div><label className={labelClass}>First Name *</label><PersonNameInput name="firstName" required className={inputClass} value={pdFirstName} onChange={(e) => setPdFirstName(e.target.value)} /></div>
+                <div><label className={labelClass}>Middle Name</label><PersonNameInput name="middleName" autoComplete="additional-name" className={inputClass} value={pdMiddleName} onChange={(e) => setPdMiddleName(e.target.value)} /></div>
+                <div><label className={labelClass}>Last Name *</label><PersonNameInput name="lastName" required autoComplete="family-name" className={inputClass} value={pdLastName} onChange={(e) => setPdLastName(e.target.value)} /></div>
                 <div><label className={labelClass}>Full Name</label><input className={inputClass} value={pdFullName} onChange={(e) => setPdFullName(e.target.value)} /></div>
                 <div><label className={labelClass}>Name with Initials</label><input className={inputClass} value={pdNameWithInitials} onChange={(e) => setPdNameWithInitials(e.target.value)} /></div>
                 <div>
@@ -3028,7 +3756,16 @@ export default function EmployeeDetailPage() {
                 </div>
                 <div><label className={labelClass}>Marital Status</label><FormSelect name="maritalStatus" defaultValue={emp.maritalStatus ?? ""} options={MARITAL_OPTIONS} placeholder="--Select--" /></div>
                 <div><label className={labelClass}>Gender *</label><FormSelect name="gender" required defaultValue={emp.gender} options={GENDER_SELECT_OPTIONS} /></div>
-                <div><label className={labelClass}>Nationality</label><FormSelect name="nationality" defaultValue={emp.nationality ?? ""} options={NATIONALITY_OPTIONS} placeholder="--Select--" /></div>
+                <div>
+                  <label className={labelClass}>Nationality</label>
+                  <NationalityAutocompleteInput
+                    name="nationality"
+                    value={pdNationality}
+                    onChange={setPdNationality}
+                    className={inputClass}
+                    placeholder="Type to search nationality…"
+                  />
+                </div>
                 <div><label className={labelClass}>Religion</label><FormSelect name="religion" defaultValue={emp.religion ?? ""} options={RELIGION_OPTIONS} placeholder="--Select--" /></div>
                 <div><label className={labelClass}>Ethnicity</label><FormSelect name="ethnicity" defaultValue={emp.ethnicity ?? ""} options={ETHNICITY_OPTIONS} placeholder="--Select--" /></div>
                 <div>
@@ -3093,7 +3830,7 @@ export default function EmployeeDetailPage() {
         </form>
 
         {/* ── Add Attachment Modal ── */}
-        <Modal open={showAttachModal} onClose={() => { setShowAttachModal(false); setAttachFile(null); setAttachDesc(""); setAttachTypeId(""); setAttachExpiry(""); }} title="">
+        <Modal open={showAttachModal} onClose={() => { setShowAttachModal(false); setAttachFile(null); setAttachDesc(""); setAttachTypeName(""); setAttachExpiry(""); }} title="">
           <div>
             <h3 className="text-lg font-semibold text-slate-700">Add Attachment</h3>
             <div className="mt-3 border-t border-slate-200 pt-4">
@@ -3116,11 +3853,11 @@ export default function EmployeeDetailPage() {
                   ref={attachFileRef}
                   type="file"
                   className="hidden"
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const f = e.target.files?.[0];
                     if (f) {
                       if (f.size > 10 * 1024 * 1024) {
-                        alert("File size must be less than 10 MB.");
+                        await appAlert("File size must be less than 10 MB.", "File Too Large");
                         return;
                       }
                       setAttachFile(f);
@@ -3133,17 +3870,13 @@ export default function EmployeeDetailPage() {
               <label className="mb-1 block text-sm font-semibold text-slate-600">
                 Attachment type<span className="text-blue-500">*</span>
               </label>
-              <FormSelect
-                value={attachTypeId}
-                onValueChange={setAttachTypeId}
-                placeholder="Select type…"
-                options={[
-                  { value: "", label: "Select type…" },
-                  ...[...attachmentTypeMasters]
-                    .filter((t) => t.isActive)
-                    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name))
-                    .map((t) => ({ value: t.id, label: t.name })),
-                ]}
+              <ListAutocompleteInput
+                name="attachTypeName"
+                value={attachTypeName}
+                onChange={setAttachTypeName}
+                options={attachmentTypeCatalogNames}
+                placeholder="Type or choose attachment type"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               />
             </div>
             <div className="mt-4">
@@ -3170,7 +3903,7 @@ export default function EmployeeDetailPage() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => { setShowAttachModal(false); setAttachFile(null); setAttachDesc(""); setAttachTypeId(""); setAttachExpiry(""); }}
+                    onClick={() => { setShowAttachModal(false); setAttachFile(null); setAttachDesc(""); setAttachTypeName(""); setAttachExpiry(""); }}
                     className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
                   >
                     Cancel
@@ -3178,7 +3911,7 @@ export default function EmployeeDetailPage() {
                   <button
                     type="button"
                     onClick={uploadAttachment}
-                    disabled={!attachFile || !attachTypeId || attachUploading}
+                    disabled={!attachFile || !attachTypeName.trim() || attachUploading}
                     className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50"
                   >
                     {attachUploading ? "Saving..." : "Save"}
@@ -3190,7 +3923,7 @@ export default function EmployeeDetailPage() {
         </Modal>
 
         {/* ── EPF / ETF Section ── */}
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <form onSubmit={saveEpfEtf} className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className={sectionCardHeaderRow}>
             <div className="flex items-center gap-2.5">
               <SectionIcon path="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" color="bg-cyan-500" />
@@ -3199,11 +3932,23 @@ export default function EmployeeDetailPage() {
           </div>
           <div className="p-6">
             <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-              <div><label className={labelClass}>EPF Number</label><input name="epfNumber" className={inputClass} defaultValue={emp.epfNumber ?? ""} /></div>
-              <div><label className={labelClass}>ETF Number</label><input name="etfNumber" className={inputClass} defaultValue={emp.etfNumber ?? ""} /></div>
+              <div>
+                <label className={labelClass}>EPF Number</label>
+                <input name="epfNumber" className={inputClass} value={epfNumber} onChange={(ev) => setEpfNumber(ev.target.value)} />
+              </div>
+              <div>
+                <label className={labelClass}>ETF Number</label>
+                <input name="etfNumber" className={inputClass} value={etfNumber} onChange={(ev) => setEtfNumber(ev.target.value)} />
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100/90 pt-6">
+              <button type="submit" disabled={epfSaving} className="inline-flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:from-indigo-500 hover:to-blue-500 hover:shadow-lg disabled:opacity-50">
+                {epfSaving && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
+                {epfSaving ? "Saving..." : "Save changes"}
+              </button>
             </div>
           </div>
-        </div>
+        </form>
 
         {/* ── Attachments Section ── */}
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -3212,31 +3957,27 @@ export default function EmployeeDetailPage() {
               <SectionIcon path="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" color="bg-cyan-500" />
               <h2 className="text-base font-bold text-slate-800">Attachments</h2>
             </div>
-            <div className="flex shrink-0 items-center gap-3">
-              <span className="hidden text-sm text-slate-500 sm:inline">{attachments.length} record(s)</span>
-              <span className="text-sm text-slate-500 sm:hidden">{attachments.length}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setAttachFile(null);
-                  setAttachDesc("");
-                  setAttachTypeId("");
-                  setAttachExpiry("");
-                  setShowAttachModal(true);
-                  apiFetch<AttachmentTypeItem[]>("/api/employees/profile-attachment-types")
-                    .then(setAttachmentTypeMasters)
-                    .catch(() => setAttachmentTypeMasters([]));
-                }}
-                className={sectionHeaderAddTextBtn}
-              >
-                Add
-              </button>
-            </div>
+            <SectionRecordHeaderActions
+              count={attachments.length}
+              compactCountOnMobile
+              addTitle="Add attachment"
+              onAdd={() => {
+                setAttachFile(null);
+                setAttachDesc("");
+                setAttachTypeName("");
+                setAttachExpiry("");
+                setShowAttachModal(true);
+                apiFetch<AttachmentTypeItem[]>("/api/employees/profile-attachment-types")
+                  .then(setAttachmentTypeMasters)
+                  .catch(() => setAttachmentTypeMasters([]));
+              }}
+            />
           </div>
 
           {attachments.length === 0 ? (
             <div className="px-6 py-8 text-center text-sm text-slate-400">No attachments yet.</div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] table-fixed border-collapse text-left text-sm">
                 <thead>
@@ -3254,7 +3995,7 @@ export default function EmployeeDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {attachments.map((att) => {
+                  {attachmentsPager.pageItems.map((att) => {
                     const mime = attachmentMimeLabel(att.contentType);
                     return (
                     <tr key={att.id} className="border-b border-slate-100/90 transition hover:bg-slate-50/80">
@@ -3266,18 +4007,12 @@ export default function EmployeeDetailPage() {
                       </td>
                       <td className="max-w-0 px-3 py-2.5 align-middle text-slate-600">
                         {editingAttach === att.id ? (
-                          <FormSelect
+                          <OptionsAutocompleteInput
                             value={editAttachTypeId}
-                            onValueChange={setEditAttachTypeId}
-                            className="!h-8 !min-h-0 !w-full !max-w-full !rounded-lg !px-2 !py-1 !text-xs"
-                            placeholder="Select…"
-                            options={[
-                              { value: "", label: "Select…" },
-                              ...[...attachmentTypeMasters]
-                                .filter((t) => t.isActive || t.id === att.attachmentTypeId)
-                                .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name))
-                                .map((t) => ({ value: t.id, label: t.name })),
-                            ]}
+                            onChange={setEditAttachTypeId}
+                            className="!min-h-0 w-full max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs shadow-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/30"
+                            placeholder="Type to search…"
+                            options={editAttachmentTypeOptions}
                           />
                         ) : (
                           <span className="block truncate" title={att.attachmentTypeName ?? undefined}>
@@ -3357,6 +4092,8 @@ export default function EmployeeDetailPage() {
                 </tbody>
               </table>
             </div>
+            <TablePagination page={attachmentsPager.page} totalPages={attachmentsPager.totalPages} totalCount={attachmentsPager.totalCount} pageSize={attachmentsPager.pageSize} onPageChange={attachmentsPager.setPage} />
+            </>
           )}
         </div>
         </>
@@ -3368,8 +4105,8 @@ export default function EmployeeDetailPage() {
       {pageTab === "job" && (
         <div className="space-y-6">
         <form onSubmit={handleSave}>
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className={sectionCardHeaderRow}>
+          <div className="overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className={`${sectionCardHeaderRow} relative ${showDocPopover ? "z-50" : "z-10"}`}>
               <div className="flex items-center gap-2.5"><SectionIcon path="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" color="bg-indigo-500" /><h2 className="text-[15px] font-bold text-slate-700">Job Details</h2></div>
               <div ref={docPopoverRef} className="relative">
                 <button type="button" onClick={() => setShowDocPopover((p) => !p)} title="Create Document" className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 hover:border-slate-300">
@@ -3377,11 +4114,11 @@ export default function EmployeeDetailPage() {
                   Create Document
                 </button>
                 {showDocPopover && (
-                  <div className="absolute right-0 top-full z-30 mt-2 w-72 rounded-xl border border-slate-200 bg-white shadow-lg">
+                  <div className="absolute right-0 top-full z-[60] mt-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                     <div className="border-b border-slate-100 px-4 py-2.5">
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Generate Letter</span>
                     </div>
-                    <div className="divide-y divide-slate-50 py-1">
+                    <div className="max-h-[min(60vh,320px)] divide-y divide-slate-50 overflow-y-auto py-1">
                       {[
                         { key: "job_confirmation", name: "Job Confirmation Letter" },
                         { key: "probation_confirmation", name: "Probation Confirmation Letter" },
@@ -3522,21 +4259,55 @@ export default function EmployeeDetailPage() {
           </div>
         </form>
 
-        {emp.status === "Terminated" ? (
-          <>
-          {/* Activate Employment Link */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm px-6 py-4">
+        {(() => {
+          const isTerminated = emp.status === "Terminated";
+          const isRetired = emp.status === "Retired";
+          const canTerminate = !isTerminated && !isRetired;
+          const canReactivate = isTerminated;
+          const canDelete = DELETABLE_EMPLOYEE_STATUSES.has(emp.status) && (isAdmin || hasPermission("People", "Delete"));
+          if (!canTerminate && !canReactivate && !canDelete) return null;
+
+          return (
+          <div className="flex flex-wrap items-center gap-3">
+          {canReactivate ? (
+          <div className="w-fit rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <button
               type="button"
               onClick={() => { setReactActivateNow(false); setReactUpdateJoinDate(true); setReactDate(new Date().toISOString().split("T")[0]); setReactHour("00"); setReactMinute("00"); setReactWithOnboarding(false); setShowReactivateModal(true); }}
-              className="flex items-center gap-2 text-green-600 transition hover:text-green-700"
+              className="inline-flex items-center gap-2 rounded-full bg-green-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600"
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
-              <span className="text-sm font-medium">Activate Employment</span>
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
+              <span>Activate Employment</span>
             </button>
           </div>
+          ) : null}
 
-          {/* Reactivate Employment Modal */}
+          {canTerminate ? (
+          <div className="w-fit rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <button
+              type="button"
+              onClick={() => { setTermReason(""); setTermDate(new Date().toISOString().split("T")[0]); setTermNote(""); setWithOffboarding(true); setSelectedTemplateId(""); setShowTerminateModal(true); }}
+              className="inline-flex items-center gap-2 rounded-full bg-red-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
+              <span>Terminate Employment</span>
+            </button>
+          </div>
+          ) : null}
+
+          {canDelete ? (
+          <div className="w-fit rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-red-300 bg-red-50 px-5 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+              <span>Delete Employee</span>
+            </button>
+          </div>
+          ) : null}
+
           <Modal open={showReactivateModal} onClose={() => setShowReactivateModal(false)} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">Reactivate Employment</h3>
@@ -3571,35 +4342,19 @@ export default function EmployeeDetailPage() {
               </div>
             </div>
           </Modal>
-          </>
-        ) : (
-          <>
-          {/* Terminate Employment Link */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm px-6 py-4">
-            <button
-              type="button"
-              onClick={() => { setTermReason(""); setTermDate(new Date().toISOString().split("T")[0]); setTermNote(""); setWithOffboarding(true); setSelectedTemplateId(""); setShowTerminateModal(true); }}
-              className="flex items-center gap-2 text-slate-500 transition hover:text-red-600"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
-              <span className="text-sm font-medium">Terminate Employment</span>
-            </button>
-          </div>
 
-          {/* Terminate Employment Modal */}
           <Modal open={showTerminateModal} onClose={() => setShowTerminateModal(false)} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">Terminate Employment</h3>
               <div className="mt-3 border-t border-slate-200 pt-4">
                 <label className="mb-1 block text-sm font-semibold text-slate-600">Reason<span className="text-red-500">*</span></label>
-                <FormSelect
+                <input
+                  type="text"
                   value={termReason}
-                  onValueChange={setTermReason}
-                  placeholder="-- Select --"
-                  options={[
-                    { value: "", label: "-- Select --" },
-                    ...employeeStatuses.filter((s) => s.code !== "Active").map((s) => ({ value: s.name, label: s.name })),
-                  ]}
+                  onChange={(e) => setTermReason(e.target.value)}
+                  placeholder="Enter termination reason"
+                  maxLength={100}
+                  className={inputClass}
                 />
               </div>
               <div className="mt-4">
@@ -3651,13 +4406,28 @@ export default function EmployeeDetailPage() {
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={() => setShowTerminateModal(false)} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={handleTerminate} disabled={!termReason || !termDate || termSaving} className="rounded-full bg-red-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">{termSaving ? "Processing..." : "Terminate"}</button>
+                  <button type="button" onClick={handleTerminate} disabled={!termReason.trim() || !termDate || termSaving} className="rounded-full bg-red-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">{termSaving ? "Processing..." : "Terminate"}</button>
                 </div>
               </div>
             </div>
           </Modal>
-          </>
-        )}
+
+          <Modal open={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-700">Delete Employee</h3>
+              <p className="mt-3 text-sm text-slate-600">
+                Permanently remove <span className="font-semibold text-slate-800">{emp.fullName}</span> from the employee directory?
+                This action cannot be undone.
+              </p>
+              <div className="mt-5 border-t border-slate-100 pt-4 flex items-center justify-end gap-3">
+                <button type="button" onClick={() => setShowDeleteModal(false)} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
+                <button type="button" onClick={handleDeleteEmployee} disabled={deleteSaving} className="rounded-full bg-red-600 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50">{deleteSaving ? "Deleting..." : "Delete Employee"}</button>
+              </div>
+            </div>
+          </Modal>
+          </div>
+          );
+        })()}
         </div>
       )}
 
@@ -3673,9 +4443,9 @@ export default function EmployeeDetailPage() {
             </div>
             <div className="p-6">
               <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-                <div><label className={labelClass}>Home Telephone</label><input name="homeTelephone" className={inputClass} defaultValue={emp.homeTelephone ?? ""} /></div>
-                <div><label className={labelClass}>Mobile</label><input name="phone" className={inputClass} defaultValue={emp.phone ?? ""} /></div>
-                <div><label className={labelClass}>Work Telephone</label><input name="workTelephone" className={inputClass} defaultValue={emp.workTelephone ?? ""} /></div>
+                <div><label className={labelClass}>Home Telephone</label><PhoneInput name="homeTelephone" className={inputClass} defaultValue={emp.homeTelephone ?? ""} autoComplete="tel-national" /></div>
+                <div><label className={labelClass}>Mobile</label><PhoneInput name="phone" className={inputClass} defaultValue={emp.phone ?? ""} autoComplete="tel" /></div>
+                <div><label className={labelClass}>Work Telephone</label><PhoneInput name="workTelephone" className={inputClass} defaultValue={emp.workTelephone ?? ""} autoComplete="tel" /></div>
                 <div><label className={labelClass}>Work Email</label><input name="email" type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@company.com)" className={inputClass} defaultValue={emp.email} /></div>
                 <div><label className={labelClass}>Personal Email</label><input name="otherEmail" type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@example.com)" className={inputClass} defaultValue={emp.otherEmail ?? ""} /></div>
               </div>
@@ -3692,12 +4462,22 @@ export default function EmployeeDetailPage() {
                 <div><label className={labelClass}>Address Street 1</label><input name="addressStreet1" className={inputClass} defaultValue={emp.addressStreet1 ?? ""} /></div>
                 <div><label className={labelClass}>Address Street 2</label><input name="addressStreet2" className={inputClass} defaultValue={emp.addressStreet2 ?? ""} /></div>
                 <div><label className={labelClass}>City</label><input name="city" className={inputClass} defaultValue={emp.city ?? ""} /></div>
-                <div><label className={labelClass}>Country</label><FormSelect name="country" defaultValue={emp.country ?? ""} options={COUNTRY_OPTIONS} placeholder="--Select--" /></div>
-                <div><label className={labelClass}>State/Province</label><input name="stateProvince" className={inputClass} defaultValue={emp.stateProvince ?? ""} /></div>
+                <AddressRegionFields
+                  countryName="country"
+                  stateName="stateProvince"
+                  districtName="district"
+                  country={addrCountry}
+                  stateProvince={addrState}
+                  district={addrDistrict}
+                  onCountryChange={setAddrCountry}
+                  onStateChange={setAddrState}
+                  onDistrictChange={setAddrDistrict}
+                  inputClass={inputClass}
+                  labelClass={labelClass}
+                />
                 <div><label className={labelClass}>Zip/Postal Code</label><input name="zipPostalCode" className={inputClass} defaultValue={emp.zipPostalCode ?? ""} /></div>
-                <div><label className={labelClass}>District</label><FormSelect name="district" defaultValue={emp.district ?? ""} options={SL_DISTRICT_OPTIONS} placeholder="-- Select --" /></div>
                 <div><label className={labelClass}>Polling Division</label><input name="pollingDivision" className={inputClass} defaultValue={emp.pollingDivision ?? ""} /></div>
-                <div><label className={labelClass}>Distance to Office</label><input name="distanceToOffice" className={inputClass} defaultValue={emp.distanceToOffice ?? ""} placeholder="e.g. 15 km" /></div>
+                <div><label className={labelClass}>Distance to Office(KM)</label><input name="distanceToOffice" type="number" min={0} step="any" inputMode="decimal" className={inputClass} defaultValue={distanceKmInputValue(emp.distanceToOffice)} placeholder="e.g. 15" /></div>
                 <div><label className={labelClass}>Mode of Transport</label><FormSelect name="modeOfTransport" defaultValue={emp.modeOfTransport ?? ""} options={MODE_TRANSPORT_OPTIONS} placeholder="-- Select --" /></div>
               </div>
             </div>
@@ -3713,12 +4493,22 @@ export default function EmployeeDetailPage() {
                 <div><label className={labelClass}>Address Street 1</label><input name="permanentStreet1" className={inputClass} defaultValue={emp.permanentStreet1 ?? ""} /></div>
                 <div><label className={labelClass}>Address Street 2</label><input name="permanentStreet2" className={inputClass} defaultValue={emp.permanentStreet2 ?? ""} /></div>
                 <div><label className={labelClass}>City</label><input name="permanentCity" className={inputClass} defaultValue={emp.permanentCity ?? ""} /></div>
-                <div><label className={labelClass}>Country</label><FormSelect name="permanentCountry" defaultValue={emp.permanentCountry ?? ""} options={COUNTRY_OPTIONS} placeholder="--Select--" /></div>
-                <div><label className={labelClass}>State/Province</label><input name="permanentStateProvince" className={inputClass} defaultValue={emp.permanentStateProvince ?? ""} /></div>
+                <AddressRegionFields
+                  countryName="permanentCountry"
+                  stateName="permanentStateProvince"
+                  districtName="permanentDistrict"
+                  country={permCountry}
+                  stateProvince={permState}
+                  district={permDistrict}
+                  onCountryChange={setPermCountry}
+                  onStateChange={setPermState}
+                  onDistrictChange={setPermDistrict}
+                  inputClass={inputClass}
+                  labelClass={labelClass}
+                />
                 <div><label className={labelClass}>Zip/Postal Code</label><input name="permanentZipPostalCode" className={inputClass} defaultValue={emp.permanentZipPostalCode ?? ""} /></div>
-                <div><label className={labelClass}>District</label><FormSelect name="permanentDistrict" defaultValue={emp.permanentDistrict ?? ""} options={SL_DISTRICT_OPTIONS} placeholder="-- Select --" /></div>
                 <div><label className={labelClass}>Polling Division</label><input name="permanentPollingDivision" className={inputClass} defaultValue={emp.permanentPollingDivision ?? ""} /></div>
-                <div><label className={labelClass}>Distance to Office</label><input name="permanentDistanceToOffice" className={inputClass} defaultValue={emp.permanentDistanceToOffice ?? ""} placeholder="e.g. 15 km" /></div>
+                <div><label className={labelClass}>Distance to Office(KM)</label><input name="permanentDistanceToOffice" type="number" min={0} step="any" inputMode="decimal" className={inputClass} defaultValue={distanceKmInputValue(emp.permanentDistanceToOffice)} placeholder="e.g. 15" /></div>
               </div>
             </div>
           </div>
@@ -3759,11 +4549,11 @@ export default function EmployeeDetailPage() {
                 <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-sm font-semibold text-slate-600">Name<span className="text-red-500">*</span></label>
-                    <input value={ecName} onChange={(e) => setEcName(e.target.value)} className={inputClass} />
+                    <PersonNameInput value={ecName} onChange={(e) => setEcName(e.target.value)} autoComplete="name" className={inputClass} />
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-semibold text-slate-600">Relationship<span className="text-red-500">*</span></label>
-                    <input value={ecRelationship} onChange={(e) => setEcRelationship(e.target.value)} className={inputClass} />
+                    <FormSelect value={ecRelationship} onValueChange={setEcRelationship} options={ecRelationshipSelectOptions} placeholder="-- Select --" />
                   </div>
                 </div>
               </div>
@@ -3772,15 +4562,15 @@ export default function EmployeeDetailPage() {
                 <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-500">Home</label>
-                    <input value={ecHome} onChange={(e) => setEcHome(e.target.value)} className={inputClass} />
+                    <PhoneInput value={ecHome} onChange={(e) => setEcHome(e.target.value)} autoComplete="tel-national" className={inputClass} />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-500">Mobile</label>
-                    <input value={ecMobile} onChange={(e) => setEcMobile(e.target.value)} className={inputClass} />
+                    <PhoneInput value={ecMobile} onChange={(e) => setEcMobile(e.target.value)} autoComplete="tel" className={inputClass} />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-500">Work</label>
-                    <input value={ecWork} onChange={(e) => setEcWork(e.target.value)} className={inputClass} />
+                    <PhoneInput value={ecWork} onChange={(e) => setEcWork(e.target.value)} autoComplete="tel" className={inputClass} />
                   </div>
                 </div>
               </div>
@@ -3801,16 +4591,12 @@ export default function EmployeeDetailPage() {
                 <SectionIcon path="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" color="bg-red-500" />
                 <h2 className="text-base font-bold text-slate-800">Assigned Emergency Contacts</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{emergencyContacts.length} record(s)</span>
-                <button type="button" onClick={() => openEcModal()} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={emergencyContacts.length} onAdd={() => openEcModal()} addTitle="Add emergency contact" />
             </div>
             {emergencyContacts.length === 0 ? (
               <div className="px-6 py-8 text-center text-sm text-slate-400">No emergency contacts assigned.</div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
@@ -3824,7 +4610,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {emergencyContacts.map((ec) => (
+                    {emergencyContactsPager.pageItems.map((ec) => (
                       <tr key={ec.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{ec.name}</td>
                         <td className="px-4 py-3 text-slate-600">{ec.relationship}</td>
@@ -3846,6 +4632,8 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={emergencyContactsPager.page} totalPages={emergencyContactsPager.totalPages} totalCount={emergencyContactsPager.totalCount} pageSize={emergencyContactsPager.pageSize} onPageChange={emergencyContactsPager.setPage} />
+            </>
             )}
           </div>
         </div>
@@ -3863,8 +4651,8 @@ export default function EmployeeDetailPage() {
               <div className="mt-3 border-t border-slate-200 pt-4">
                 <label className="mb-1 block text-sm font-semibold text-slate-600">Name<span className="text-red-500">*</span></label>
                 <div className="grid gap-x-4 sm:grid-cols-2">
-                  <input placeholder="First Name" value={depFirstName} onChange={(e) => setDepFirstName(e.target.value)} className={inputClass} />
-                  <input placeholder="Last Name" value={depLastName} onChange={(e) => setDepLastName(e.target.value)} className={inputClass + " mt-2 sm:mt-0"} />
+                  <PersonNameInput placeholder="First Name" value={depFirstName} onChange={(e) => setDepFirstName(e.target.value)} className={inputClass} />
+                  <PersonNameInput placeholder="Last Name" value={depLastName} onChange={(e) => setDepLastName(e.target.value)} autoComplete="family-name" className={inputClass + " mt-2 sm:mt-0"} />
                 </div>
               </div>
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
@@ -3908,16 +4696,12 @@ export default function EmployeeDetailPage() {
                 <SectionIcon path="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" color="bg-purple-500" />
                 <h2 className="text-base font-bold text-slate-800">Assigned Dependents</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{dependents.length} record(s)</span>
-                <button type="button" onClick={() => openDepModal()} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={dependents.length} onAdd={() => openDepModal()} addTitle="Add dependent" />
             </div>
             {dependents.length === 0 ? (
               <div className="px-6 py-8 text-center text-sm text-slate-400">No dependents assigned.</div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
@@ -3932,7 +4716,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {dependents.map((dep) => (
+                    {dependentsPager.pageItems.map((dep) => (
                       <tr key={dep.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{dep.firstName} {dep.lastName}</td>
                         <td className="px-4 py-3 text-slate-600">{dep.relationship}</td>
@@ -3955,6 +4739,8 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={dependentsPager.page} totalPages={dependentsPager.totalPages} totalCount={dependentsPager.totalCount} pageSize={dependentsPager.pageSize} onPageChange={dependentsPager.setPage} />
+            </>
             )}
           </div>
         </div>
@@ -3964,20 +4750,33 @@ export default function EmployeeDetailPage() {
           TAB: QUALIFICATIONS
          ══════════════════════════════════════════════════ */}
       {pageTab === "qualifications" && (
-        <div className="space-y-6">
+        <>
           {/* Add / Edit Education Modal */}
           <Modal open={showEduModal} onClose={closeEduModal} title="">
             <div>
-              <h3 className="text-lg font-semibold text-slate-700">{editingEdu ? "Edit Education" : "Add Education"}</h3>
+              <h3 className="text-lg font-semibold text-slate-700">
+                {editingEdu
+                  ? (eduModalContext === "qualification" ? "Edit Qualification" : "Edit Education")
+                  : (eduModalContext === "qualification" ? "Add Qualification" : "Add Education")}
+              </h3>
               <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">Level<span className="text-red-500">*</span></label>
-                  <FormSelect value={eduLevel} onValueChange={setEduLevel} options={EDU_LEVEL_OPTIONS} placeholder="-- Select --" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">Qualification Name</label>
-                  <input value={eduQualName} onChange={(e) => setEduQualName(e.target.value)} className={inputClass} placeholder="e.g. BSc Computer Science" />
-                </div>
+                {eduModalContext === "qualification" ? (
+                  <>
+                    <div className="sm:col-span-2">
+                      <label className="mb-1 block text-sm font-semibold text-slate-600">Qualification Name<span className="text-red-500">*</span></label>
+                      <input value={eduQualName} onChange={(e) => setEduQualName(e.target.value)} className={inputClass} placeholder="e.g. CIMA, BSc Computer Science" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-600">Level</label>
+                      <FormSelect value={eduLevel} onValueChange={setEduLevel} options={EDU_LEVEL_OPTIONS} placeholder="-- Select --" />
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-600">Level<span className="text-red-500">*</span></label>
+                    <FormSelect value={eduLevel} onValueChange={setEduLevel} options={EDU_LEVEL_OPTIONS} placeholder="-- Select --" />
+                  </div>
+                )}
               </div>
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>
@@ -3992,7 +4791,7 @@ export default function EmployeeDetailPage() {
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Year</label>
-                  <input value={eduYear} onChange={(e) => setEduYear(e.target.value)} className={inputClass} />
+                  <FormSelect value={eduYear} onValueChange={setEduYear} options={EDU_YEAR_OPTIONS} placeholder="-- Select --" />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">GPA/Score</label>
@@ -4017,30 +4816,66 @@ export default function EmployeeDetailPage() {
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={closeEduModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={saveEducation} disabled={!eduLevel.trim() || eduSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{eduSaving ? "Saving..." : "Save"}</button>
+                  <button
+                    type="button"
+                    onClick={saveEducation}
+                    disabled={(eduModalContext === "qualification" ? !eduQualName.trim() : !eduLevel.trim()) || eduSaving}
+                    className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50"
+                  >
+                    {eduSaving ? "Saving..." : "Save"}
+                  </button>
                 </div>
               </div>
             </div>
           </Modal>
 
-          {/* Formal qualifications (same backing store as education; qualification name is the credential title) */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className={qualificationsPanelShellClass}>
+            <div className="flex gap-1 overflow-x-auto border-b border-slate-200/55 bg-gradient-to-b from-white/90 via-slate-50/40 to-slate-100/20 px-3 py-2 [scrollbar-width:thin]">
+              {QUALIFICATIONS_SUB_TABS.map((tab) => {
+                const active = qualificationsSubTab === tab.key;
+                const count =
+                  tab.key === "qualifications"
+                    ? qualificationRecords.length
+                    : tab.key === "education"
+                      ? educationRecords.length
+                      : tab.key === "skills"
+                        ? skills.length
+                        : tab.key === "training"
+                          ? trainingRows.length
+                          : tab.key === "matrix"
+                            ? matrixRows.length
+                            : tab.key === "certifications"
+                              ? certRows.length
+                              : languages.length;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setQualificationsSubTab(tab.key)}
+                    className={`shrink-0 rounded-full px-2.5 py-1.5 text-xs font-semibold transition sm:px-3 sm:text-sm ${
+                      active
+                        ? "border border-[#2B7DE9]/25 bg-white/65 text-[#1565C9] shadow-sm ring-1 ring-inset ring-white/70"
+                        : "border border-transparent text-slate-600 hover:bg-white/60 hover:text-slate-800"
+                    }`}
+                  >
+                    {tab.label}
+                    <span className="ml-1.5 tabular-nums text-slate-400">({count})</span>
+                  </button>
+                );
+              })}
+            </div>
+          {qualificationsSubTab === "qualifications" && (
+          <div>
             <div className={sectionCardHeaderRow}>
               <div className="flex items-center gap-2.5">
                 <SectionIcon path="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" color="bg-emerald-600" />
                 <h2 className="text-base font-bold text-slate-800">Qualifications</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{educations.length} record(s)</span>
-                <button type="button" onClick={() => openEduModal()} className={sectionHeaderAddBtn} title="Add">
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={qualificationRecords.length} onAdd={() => openEduModal(undefined, "qualification")} addTitle="Add qualification" />
             </div>
-            {educations.length === 0 ? (
-              <div className="px-6 py-8 text-center text-sm text-slate-400">No records yet.</div>
-            ) : (
-              <div className="overflow-x-auto">
+            {qualificationRecords.length === 0 ? null : (
+              <>
+              <div className={qualificationsTableScrollClass}>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
@@ -4054,10 +4889,10 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {educations.map((edu) => (
+                    {qualificationRecordsPager.pageItems.map((edu) => (
                       <tr key={`qual-${edu.id}`} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-800">{edu.qualificationName?.trim() || "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.level}</td>
+                        <td className="px-4 py-3 text-slate-600">{edu.level === "Other" ? "—" : edu.level}</td>
                         <td className="px-4 py-3 text-slate-600">{edu.institute ?? "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{edu.major ?? "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{edu.year ?? "—"}</td>
@@ -4081,27 +4916,24 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={qualificationRecordsPager.page} totalPages={qualificationRecordsPager.totalPages} totalCount={qualificationRecordsPager.totalCount} pageSize={qualificationRecordsPager.pageSize} onPageChange={qualificationRecordsPager.setPage} />
+            </>
             )}
           </div>
+          )}
 
-          {/* Education: academic structure and study metadata (same API as qualifications) */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {qualificationsSubTab === "education" && (
+          <div>
             <div className={sectionCardHeaderRow}>
               <div className="flex items-center gap-2.5">
                 <SectionIcon path="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222" color="bg-indigo-500" />
                 <h2 className="text-base font-bold text-slate-800">Education</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{educations.length} record(s)</span>
-                <button type="button" onClick={() => openEduModal()} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={educationRecords.length} onAdd={() => openEduModal(undefined, "education")} addTitle="Add education" />
             </div>
-            {educations.length === 0 ? (
-              <div className="px-6 py-8 text-center text-sm text-slate-400">No education records added.</div>
-            ) : (
-              <div className="overflow-x-auto">
+            {educationRecords.length === 0 ? null : (
+              <>
+              <div className={qualificationsTableScrollClass}>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
@@ -4116,7 +4948,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {educations.map((edu) => (
+                    {educationRecordsPager.pageItems.map((edu) => (
                       <tr key={edu.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{edu.level}</td>
                         <td className="px-4 py-3 text-slate-600">{edu.institute ?? "—"}</td>
@@ -4144,8 +4976,11 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={educationRecordsPager.page} totalPages={educationRecordsPager.totalPages} totalCount={educationRecordsPager.totalCount} pageSize={educationRecordsPager.pageSize} onPageChange={educationRecordsPager.setPage} />
+            </>
             )}
           </div>
+          )}
 
           {/* ── Skills Section (separate from formal qualifications) ── */}
           <Modal open={showSkillModal} onClose={closeSkillModal} title="">
@@ -4154,20 +4989,14 @@ export default function EmployeeDetailPage() {
               <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Skill<span className="text-red-500">*</span></label>
-                  <input
-                    id="employee-skill-name-input"
-                    list="employee-skill-catalog"
+                  <ListAutocompleteInput
+                    name="skillName"
                     value={skillName}
-                    onChange={(e) => setSkillName(e.target.value)}
+                    onChange={setSkillName}
+                    options={skillCatalogNames}
                     className={inputClass}
-                    placeholder={skillMasterList.length ? "Choose from list or type a skill" : "Type a skill name"}
-                    autoComplete="off"
+                    placeholder={skillCatalogNames.length ? "Choose from list or type a skill" : "Type a skill name"}
                   />
-                  <datalist id="employee-skill-catalog">
-                    {skillMasterList.map((s) => (
-                      <option key={s.id} value={s.name} />
-                    ))}
-                  </datalist>
                   {skillMasterList.length === 0 && (
                     <p className="mt-1.5 text-xs text-amber-700">
                       No catalog entries loaded (or none active). You can still type a skill above. To manage the shared catalog, use <strong>Settings</strong> → Master data → <strong>Skills</strong> (requires Org Structure on the API).
@@ -4193,23 +5022,18 @@ export default function EmployeeDetailPage() {
             </div>
           </Modal>
 
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {qualificationsSubTab === "skills" && (
+          <div>
             <div className={sectionCardHeaderRow}>
               <div className="flex items-center gap-2.5">
                 <SectionIcon path="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" color="bg-teal-500" />
                 <h2 className="text-base font-bold text-slate-800">Skills</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{skills.length} record(s)</span>
-                <button type="button" onClick={() => openSkillModal()} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={skills.length} onAdd={() => openSkillModal()} addTitle="Add skill" />
             </div>
-            {skills.length === 0 ? (
-              <div className="px-6 py-8 text-center text-sm text-slate-400">No skills added.</div>
-            ) : (
-              <div className="overflow-x-auto">
+            {skills.length === 0 ? null : (
+              <>
+              <div className={qualificationsTableScrollClass}>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
@@ -4220,7 +5044,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {skills.map((sk) => (
+                    {skillsPager.pageItems.map((sk) => (
                       <tr key={sk.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{sk.skill}</td>
                         <td className="px-4 py-3 text-slate-600">{sk.yearsOfExperience ?? "—"}</td>
@@ -4240,8 +5064,11 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={skillsPager.page} totalPages={skillsPager.totalPages} totalCount={skillsPager.totalCount} pageSize={skillsPager.pageSize} onPageChange={skillsPager.setPage} />
+            </>
             )}
           </div>
+          )}
 
           <Modal open={showTrainAssignModal} onClose={closeTrainAssignModal} title="">
             <form onSubmit={saveTrainingAssign}>
@@ -4273,23 +5100,104 @@ export default function EmployeeDetailPage() {
             </form>
           </Modal>
 
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <Modal open={showMatrixModal} onClose={closeMatrixModal} title="">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-700">{editingMatrix ? "Edit skill matrix entry" : "Add skill matrix entry"}</h3>
+              <p className="mt-1 text-sm text-slate-500">Structured proficiency against the Learning skills catalog (shown on Learning → Skills &amp; matrix).</p>
+              <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Skill{editingMatrix ? "" : <span className="text-red-500">*</span>}</label>
+                  {editingMatrix ? (
+                    <input value={editingMatrix.skillName} readOnly className={inputClass + " bg-slate-50 text-slate-600"} />
+                  ) : (
+                    <FormSelect
+                      value={matrixSkillId}
+                      onValueChange={setMatrixSkillId}
+                      options={learningSkillsCatalog.map((s) => ({ value: s.id, label: s.category ? `${s.name} (${s.category})` : s.name }))}
+                      placeholder="-- Select --"
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Proficiency (1–5)<span className="text-red-500">*</span></label>
+                  <FormSelect value={matrixProficiency} onValueChange={setMatrixProficiency} options={MATRIX_PROFICIENCY_OPTIONS} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Assessed date</label>
+                  <DatePickerField value={matrixAssessedAt} onChange={setMatrixAssessedAt} className={inputClass} />
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="mb-1 block text-sm font-semibold text-slate-600">Notes</label>
+                <textarea value={matrixNotes} onChange={(e) => setMatrixNotes(e.target.value)} rows={3} className={inputClass + " resize-y"} placeholder="Optional assessment notes..." />
+              </div>
+              <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-between">
+                <span className="text-xs text-red-400">* Required</span>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={closeMatrixModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
+                  <button type="button" onClick={() => void saveMatrixEntry()} disabled={(!editingMatrix && !matrixSkillId) || !matrixProficiency || matrixSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{matrixSaving ? "Saving..." : "Save"}</button>
+                </div>
+              </div>
+            </div>
+          </Modal>
+
+          <Modal open={showCertModal} onClose={closeCertModal} title="">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-700">{editingCert ? "Edit certification" : "Add certification"}</h3>
+              <p className="mt-1 text-sm text-slate-500">Assign a certification type from the Learning catalog to this employee.</p>
+              <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Certification type{editingCert ? "" : <span className="text-red-500">*</span>}</label>
+                  {editingCert ? (
+                    <input value={editingCert.certificationName} readOnly className={inputClass + " bg-slate-50 text-slate-600"} />
+                  ) : (
+                    <FormSelect
+                      value={certCatalogId}
+                      onValueChange={setCertCatalogId}
+                      options={certCatalog.map((c) => ({ value: c.id, label: c.issuingBody ? `${c.name} (${c.issuingBody})` : c.name }))}
+                      placeholder="-- Select --"
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Obtained date<span className="text-red-500">*</span></label>
+                  <DatePickerField value={certObtained} onChange={setCertObtained} max={certExpiry || undefined} className={inputClass} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Expiry date</label>
+                  <DatePickerField value={certExpiry} onChange={setCertExpiry} min={certObtained || undefined} className={inputClass} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Certificate number</label>
+                  <input value={certNumber} onChange={(e) => setCertNumber(e.target.value)} className={inputClass} placeholder="Optional reference" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Status</label>
+                  <FormSelect value={certStatus} onValueChange={setCertStatus} options={CERT_STATUS_OPTIONS} />
+                </div>
+              </div>
+              <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-between">
+                <span className="text-xs text-red-400">* Required</span>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={closeCertModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
+                  <button type="button" onClick={() => void saveCertification()} disabled={!certObtained.trim() || (!editingCert && !certCatalogId) || certSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{certSaving ? "Saving..." : "Save"}</button>
+                </div>
+              </div>
+            </div>
+          </Modal>
+
+          {qualificationsSubTab === "training" && (
+          <div>
             <div className={sectionCardHeaderRow}>
               <div className="flex items-center gap-2.5">
                 <SectionIcon path="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" color="bg-indigo-500" />
                 <h2 className="text-base font-bold text-indigo-700">Training assignments</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{trainingRows.length} record(s)</span>
-                <button type="button" onClick={() => void openTrainAssignModal()} className="grid h-9 w-9 place-items-center rounded-full bg-indigo-600 text-white shadow-sm transition hover:bg-indigo-700" title="Assign training">
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={trainingRows.length} onAdd={() => void openTrainAssignModal()} addTitle="Assign training" />
             </div>
-            {trainingRows.length === 0 ? (
-              <div className="px-6 py-8 text-center text-sm text-slate-400">No training assignments (requires Learning module access).</div>
-            ) : (
-              <div className="overflow-x-auto">
+            {trainingRows.length === 0 ? null : (
+              <>
+              <div className={qualificationsTableScrollClass}>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
@@ -4301,7 +5209,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {trainingRows.map((t) => (
+                    {trainingRowsPager.pageItems.map((t) => (
                       <tr key={t.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{t.courseTitle}</td>
                         <td className="px-4 py-3 text-slate-600">{t.courseCode}</td>
@@ -4313,21 +5221,24 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={trainingRowsPager.page} totalPages={trainingRowsPager.totalPages} totalCount={trainingRowsPager.totalCount} pageSize={trainingRowsPager.pageSize} onPageChange={trainingRowsPager.setPage} />
+            </>
             )}
           </div>
+          )}
 
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {qualificationsSubTab === "matrix" && (
+          <div>
             <div className={sectionCardHeaderRow}>
               <div className="flex items-center gap-2.5">
                 <SectionIcon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" color="bg-violet-500" />
                 <h2 className="text-base font-bold text-violet-800">Skill matrix (reference skills)</h2>
               </div>
-              <span className="text-sm text-slate-500">{matrixRows.length} record(s)</span>
+              <SectionRecordHeaderActions count={matrixRows.length} onAdd={() => void openMatrixModal()} addTitle="Add skill matrix entry" />
             </div>
-            {matrixRows.length === 0 ? (
-              <div className="px-6 py-8 text-center text-sm text-slate-400">No structured skill matrix rows for this employee.</div>
-            ) : (
-              <div className="overflow-x-auto">
+            {matrixRows.length === 0 ? null : (
+              <>
+              <div className={qualificationsTableScrollClass}>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
@@ -4335,35 +5246,49 @@ export default function EmployeeDetailPage() {
                       <th className="px-4 py-3">Proficiency</th>
                       <th className="px-4 py-3">Assessed</th>
                       <th className="px-4 py-3">Notes</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {matrixRows.map((m) => (
+                    {matrixRowsPager.pageItems.map((m) => (
                       <tr key={m.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{m.skillName}</td>
                         <td className="px-4 py-3 text-slate-600">{m.proficiencyLevel}</td>
                         <td className="px-4 py-3 text-slate-600">{formatDateTime(m.assessedAt)}</td>
                         <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{m.notes ?? "—"}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => void openMatrixModal(m)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => void deleteMatrixEntry(m.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={matrixRowsPager.page} totalPages={matrixRowsPager.totalPages} totalCount={matrixRowsPager.totalCount} pageSize={matrixRowsPager.pageSize} onPageChange={matrixRowsPager.setPage} />
+            </>
             )}
           </div>
+          )}
 
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {qualificationsSubTab === "certifications" && (
+          <div>
             <div className={sectionCardHeaderRow}>
               <div className="flex items-center gap-2.5">
                 <SectionIcon path="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" color="bg-amber-500" />
                 <h2 className="text-base font-bold text-amber-800">Certifications</h2>
               </div>
-              <span className="text-sm text-slate-500">{certRows.length} record(s)</span>
+              <SectionRecordHeaderActions count={certRows.length} onAdd={() => void openCertModal()} addTitle="Add certification" />
             </div>
-            {certRows.length === 0 ? (
-              <div className="px-6 py-8 text-center text-sm text-slate-400">No certifications recorded.</div>
-            ) : (
-              <div className="overflow-x-auto">
+            {certRows.length === 0 ? null : (
+              <>
+              <div className={qualificationsTableScrollClass}>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
@@ -4371,32 +5296,53 @@ export default function EmployeeDetailPage() {
                       <th className="px-4 py-3">Obtained</th>
                       <th className="px-4 py-3">Expires</th>
                       <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {certRows.map((c) => (
+                    {certRowsPager.pageItems.map((c) => (
                       <tr key={c.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{c.certificationName}</td>
                         <td className="px-4 py-3 text-slate-600">{formatDate(c.obtainedDate)}</td>
                         <td className="px-4 py-3 text-slate-600">{formatDate(c.expiryDate)}</td>
                         <td className="px-4 py-3 text-slate-600">{c.status}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => void openCertModal(c)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => void deleteCertification(c.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={certRowsPager.page} totalPages={certRowsPager.totalPages} totalCount={certRowsPager.totalCount} pageSize={certRowsPager.pageSize} onPageChange={certRowsPager.setPage} />
+            </>
             )}
           </div>
+          )}
 
           {/* ── Languages Section ── */}
           <Modal open={showLangModal} onClose={closeLangModal} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">{editingLang ? "Edit Language" : "Add Language"}</h3>
-              <p className="mt-1 text-xs text-slate-500">Pick the language, tick reading / writing / speaking (any combination), and fluency. Defaults cover a full proficiency so you can save quickly.</p>
+              <p className="mt-1 text-xs text-slate-500">Type a language or pick from suggestions, then tick reading / writing / speaking and set fluency.</p>
               <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Language<span className="text-red-500">*</span></label>
-                  <FormSelect value={langName} onValueChange={setLangName} options={LANGUAGE_NAME_OPTIONS} placeholder="-- Select --" />
+                  <ListAutocompleteInput
+                    name="langName"
+                    value={langName}
+                    onChange={setLangName}
+                    options={LANGUAGE_CATALOG_NAMES}
+                    className={inputClass}
+                    placeholder="Type or choose a language"
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Fluency<span className="text-red-500">*</span></label>
@@ -4448,23 +5394,18 @@ export default function EmployeeDetailPage() {
             </div>
           </Modal>
 
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {qualificationsSubTab === "languages" && (
+          <div>
             <div className={sectionCardHeaderRow}>
               <div className="flex items-center gap-2.5">
                 <SectionIcon path="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" color="bg-orange-500" />
                 <h2 className="text-base font-bold text-slate-800">Languages</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{languages.length} record(s)</span>
-                <button type="button" onClick={() => openLangModal()} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={languages.length} onAdd={() => openLangModal()} addTitle="Add language" />
             </div>
-            {languages.length === 0 ? (
-              <div className="px-6 py-8 text-center text-sm text-slate-400">No languages added.</div>
-            ) : (
-              <div className="overflow-x-auto">
+            {languages.length === 0 ? null : (
+              <>
+              <div className={qualificationsTableScrollClass}>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
@@ -4476,7 +5417,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {languages.map((lang) => (
+                    {languagesPager.pageItems.map((lang) => (
                       <tr key={lang.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{lang.language}</td>
                         <td className="px-4 py-3 text-slate-600">{lang.skill}</td>
@@ -4497,9 +5438,13 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={languagesPager.page} totalPages={languagesPager.totalPages} totalCount={languagesPager.totalCount} pageSize={languagesPager.pageSize} onPageChange={languagesPager.setPage} />
+            </>
             )}
           </div>
+          )}
         </div>
+        </>
       )}
 
       {/* ══════════════════════════════════════════════════
@@ -4575,16 +5520,12 @@ export default function EmployeeDetailPage() {
                 <SectionIcon path="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" color="bg-indigo-500" />
                 <h2 className="text-base font-bold text-slate-800">Work Experience</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{workExperiences.length} record(s)</span>
-                <button type="button" onClick={() => openWeModal()} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={workExperiences.length} onAdd={() => openWeModal()} addTitle="Add work experience" />
             </div>
             {workExperiences.length === 0 ? (
               <div className="px-6 py-8 text-center text-sm text-slate-400">No work experience records.</div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
@@ -4600,7 +5541,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {workExperiences.map((we) => (
+                    {workExperiencesPager.pageItems.map((we) => (
                       <tr key={we.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{we.company}</td>
                         <td className="px-4 py-3 text-slate-600">{we.jobTitle}</td>
@@ -4624,6 +5565,8 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={workExperiencesPager.page} totalPages={workExperiencesPager.totalPages} totalCount={workExperiencesPager.totalCount} pageSize={workExperiencesPager.pageSize} onPageChange={workExperiencesPager.setPage} />
+            </>
             )}
           </div>
         </div>
@@ -4643,7 +5586,7 @@ export default function EmployeeDetailPage() {
             </div>
             <div className="p-6">
               <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-                <div><label className={labelClass}>Driver&apos;s License Number</label><input name="driversLicenseNumber" className={inputClass} defaultValue={emp.driversLicenseNumber ?? ""} /></div>
+                <div><label className={labelClass}>Driver&apos;s License Number</label><DrivingLicenseInput name="driversLicenseNumber" className={inputClass} defaultValue={emp.driversLicenseNumber ?? ""} forceShowError={showIdValidationErrors} /></div>
                 <div>
                   <label className={labelClass}>License type</label>
                   <FormSelect
@@ -4666,7 +5609,16 @@ export default function EmployeeDetailPage() {
                   <label className={labelClass}>Expiry date</label>
                   <DatePickerField name="licenseExpiryDate" className={inputClass} min={dlIssue || undefined} value={dlExpiry} onChange={setDlExpiry} />
                 </div>
-                <div><label className={labelClass}>Issuing Country</label><FormSelect name="driversLicenseIssuingCountry" defaultValue={emp.driversLicenseIssuingCountry ?? ""} options={COUNTRY_OPTIONS_ISSUING} placeholder="-- Select --" /></div>
+                <div>
+                  <label className={labelClass}>Issuing Country</label>
+                  <CountryAutocompleteInput
+                    name="driversLicenseIssuingCountry"
+                    value={dlIssuingCountry}
+                    onChange={setDlIssuingCountry}
+                    className={inputClass}
+                    placeholder="Type to search country…"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -4774,16 +5726,12 @@ export default function EmployeeDetailPage() {
                 <SectionIcon path="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" color="bg-emerald-500" />
                 <h2 className="text-base font-bold text-slate-800">Bank Accounts</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{bankAccounts.length} record(s)</span>
-                <button type="button" onClick={() => openBaModal()} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={bankAccounts.length} onAdd={() => openBaModal()} addTitle="Add bank account" />
             </div>
             {bankAccounts.length === 0 ? (
               <div className="px-6 py-8 text-center text-sm text-slate-400">No bank accounts added.</div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
@@ -4798,7 +5746,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {bankAccounts.map((ba) => (
+                    {bankAccountsPager.pageItems.map((ba) => (
                       <tr key={ba.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{ba.accountNumber}</td>
                         <td className="px-4 py-3 text-slate-600">{ba.bankName || "—"}</td>
@@ -4821,6 +5769,8 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={bankAccountsPager.page} totalPages={bankAccountsPager.totalPages} totalCount={bankAccountsPager.totalCount} pageSize={bankAccountsPager.pageSize} onPageChange={bankAccountsPager.setPage} />
+            </>
             )}
           </div>
         </div>
@@ -4890,7 +5840,7 @@ export default function EmployeeDetailPage() {
           </div>
 
           {/* Warning if no supervisor and not top of hierarchy */}
-          {!emp.isTopOfHierarchy && !emp.hasDirectSupervisor && (
+          {!emp.isTopOfHierarchy && !(reportingDirty ? draftHasDirectSupervisor : emp.hasDirectSupervisor) && (
             <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-3">
               <svg className="h-5 w-5 shrink-0 text-amber-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
               <p className="text-sm text-amber-800">No direct supervisor assigned. This employee will not be able to apply for leave until a supervisor is added or &quot;Top of Hierarchy&quot; is enabled.</p>
@@ -4910,7 +5860,7 @@ export default function EmployeeDetailPage() {
                   options={[
                     { value: "", label: "Select Supervisor" },
                     ...supervisorPickList
-                      .filter((m) => m.id !== id && !supervisors.some((s) => s.supervisorId === m.id))
+                      .filter((m) => m.id !== id && !draftSupervisors.some((s) => s.supervisorId === m.id))
                       .map((m) => ({ value: m.id, label: m.name })),
                   ]}
                 />
@@ -4923,7 +5873,7 @@ export default function EmployeeDetailPage() {
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={() => { setShowAddSupervisor(false); setAddReportPersonId(""); setAddReportMethod(""); }} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={addSupervisor} disabled={!addReportPersonId || !addReportMethod || addReportSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{addReportSaving ? "Saving..." : "Save"}</button>
+                  <button type="button" onClick={stageAddSupervisor} disabled={!addReportPersonId || !addReportMethod} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">Add</button>
                 </div>
               </div>
             </div>
@@ -4942,7 +5892,7 @@ export default function EmployeeDetailPage() {
                   options={[
                     { value: "", label: "Select Employee" },
                     ...subordinatePickList
-                      .filter((m) => m.id !== id && !subordinates.some((s) => s.employeeId === m.id) && !supervisors.some((s) => s.supervisorId === m.id))
+                      .filter((m) => m.id !== id && !draftSubordinates.some((s) => s.employeeId === m.id) && !draftSupervisors.some((s) => s.supervisorId === m.id))
                       .map((m) => ({ value: m.id, label: m.name })),
                   ]}
                 />
@@ -4955,7 +5905,7 @@ export default function EmployeeDetailPage() {
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={() => { setShowAddSubordinate(false); setAddReportPersonId(""); setAddReportMethod(""); }} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={addSubordinate} disabled={!addReportPersonId || !addReportMethod || addReportSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{addReportSaving ? "Saving..." : "Save"}</button>
+                  <button type="button" onClick={stageAddSubordinate} disabled={!addReportPersonId || !addReportMethod} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">Add</button>
                 </div>
               </div>
             </div>
@@ -4965,35 +5915,39 @@ export default function EmployeeDetailPage() {
           <div className="relative rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className={sectionCardHeaderRow}>
               <h2 className="text-base font-bold text-slate-800">Assigned Supervisors</h2>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{supervisors.length} record(s)</span>
-                <button type="button" onClick={() => { setAddReportPersonId(""); setAddReportMethod(""); setShowAddSupervisor(true); }} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions
+                count={draftSupervisors.length}
+                addTitle="Add supervisor"
+                onAdd={() => { setAddReportPersonId(""); setAddReportMethod(""); setShowAddSupervisor(true); }}
+              />
             </div>
-            {supervisors.length === 0 ? (
+            {draftSupervisors.length === 0 ? (
               <div className="px-6 py-8 text-center text-sm text-slate-400">No supervisors assigned.</div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3 w-8"></th>
-                      <th className="px-4 py-3">Name</th>
+                      <th className="px-4 py-3 pl-6">Name</th>
                       <th className="px-4 py-3">Reporting Method</th>
                       <th className="px-4 py-3 text-right"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {supervisors.map((s) => (
+                    {supervisorsPager.pageItems.map((s) => (
                       <tr key={s.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3"><input type="checkbox" className="rounded border-slate-300" /></td>
-                        <td className="px-4 py-3 font-medium text-slate-700">{s.fullName}</td>
-                        <td className="px-4 py-3 text-slate-600">{s.reportingMethod}</td>
+                        <td className="px-4 py-3 pl-6 font-medium text-slate-700">{s.fullName}</td>
+                        <td className="px-4 py-3">
+                          <FormSelect
+                            value={s.reportingMethod}
+                            onValueChange={(value) => updateDraftSupervisorMethod(s.id, value)}
+                            options={REPORTING_METHOD_ROW_OPTIONS}
+                          />
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button type="button" onClick={() => removeSupervisor(s.id)} className="text-slate-400 transition hover:text-red-600" title="Remove">
+                            <button type="button" onClick={() => void removeSupervisorDraft(s.id)} className="text-slate-400 transition hover:text-red-600" title="Remove">
                               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
                           </div>
@@ -5003,6 +5957,8 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={supervisorsPager.page} totalPages={supervisorsPager.totalPages} totalCount={supervisorsPager.totalCount} pageSize={supervisorsPager.pageSize} onPageChange={supervisorsPager.setPage} />
+            </>
             )}
           </div>
 
@@ -5010,35 +5966,39 @@ export default function EmployeeDetailPage() {
           <div className="relative rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className={sectionCardHeaderRow}>
               <h2 className="text-base font-bold text-slate-800">Assigned Subordinates</h2>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{subordinates.length} record(s)</span>
-                <button type="button" onClick={() => { setAddReportPersonId(""); setAddReportMethod(""); setShowAddSubordinate(true); }} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions
+                count={draftSubordinates.length}
+                addTitle="Add subordinate"
+                onAdd={() => { setAddReportPersonId(""); setAddReportMethod(""); setShowAddSubordinate(true); }}
+              />
             </div>
-            {subordinates.length === 0 ? (
+            {draftSubordinates.length === 0 ? (
               <div className="px-6 py-8 text-center text-sm text-slate-400">No subordinates assigned.</div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3 w-8"></th>
-                      <th className="px-4 py-3">Name</th>
+                      <th className="px-4 py-3 pl-6">Name</th>
                       <th className="px-4 py-3">Reporting Method</th>
                       <th className="px-4 py-3 text-right"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {subordinates.map((s) => (
+                    {subordinatesPager.pageItems.map((s) => (
                       <tr key={s.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3"><input type="checkbox" className="rounded border-slate-300" /></td>
-                        <td className="px-4 py-3 font-medium text-slate-700">{s.fullName}</td>
-                        <td className="px-4 py-3 text-slate-600">{s.reportingMethod}</td>
+                        <td className="px-4 py-3 pl-6 font-medium text-slate-700">{s.fullName}</td>
+                        <td className="px-4 py-3">
+                          <FormSelect
+                            value={s.reportingMethod}
+                            onValueChange={(value) => updateDraftSubordinateMethod(s.id, value)}
+                            options={REPORTING_METHOD_ROW_OPTIONS}
+                          />
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button type="button" onClick={() => removeSubordinate(s.id)} className="text-slate-400 transition hover:text-red-600" title="Remove">
+                            <button type="button" onClick={() => void removeSubordinateDraft(s.id)} className="text-slate-400 transition hover:text-red-600" title="Remove">
                               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
                           </div>
@@ -5048,7 +6008,20 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={subordinatesPager.page} totalPages={subordinatesPager.totalPages} totalCount={subordinatesPager.totalCount} pageSize={subordinatesPager.pageSize} onPageChange={subordinatesPager.setPage} />
+            </>
             )}
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => void saveReportingLines()}
+              disabled={!reportingDirty || reportingSaving}
+              className="rounded-full bg-green-500 px-8 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50"
+            >
+              {reportingSaving ? "Saving..." : "Save"}
+            </button>
           </div>
         </div>
       )}
@@ -5142,7 +6115,13 @@ export default function EmployeeDetailPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Issued By</label>
-                  <FormSelect value={immIssuedBy} onValueChange={setImmIssuedBy} options={IMM_ISSUER_OPTIONS} placeholder="-- Select --" />
+                  <CountryAutocompleteInput
+                    name="immIssuedBy"
+                    value={immIssuedBy}
+                    onChange={setImmIssuedBy}
+                    className={inputClass}
+                    placeholder="Type to search country…"
+                  />
                 </div>
               </div>
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-3">
@@ -5183,16 +6162,12 @@ export default function EmployeeDetailPage() {
                 <SectionIcon path="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" color="bg-rose-500" />
                 <h2 className="text-base font-bold text-slate-800">Immigration Documents</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{immigrations.length} record(s)</span>
-                <button type="button" onClick={() => openImmModal()} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={immigrations.length} onAdd={() => openImmModal()} addTitle="Add immigration record" />
             </div>
             {immigrations.length === 0 ? (
               <div className="px-6 py-8 text-center text-sm text-slate-400">No immigration documents added.</div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
@@ -5207,7 +6182,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {immigrations.map((imm) => (
+                    {immigrationsPager.pageItems.map((imm) => (
                       <tr key={imm.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{imm.documentType}</td>
                         <td className="px-4 py-3 text-slate-600">{imm.number}</td>
@@ -5230,6 +6205,8 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={immigrationsPager.page} totalPages={immigrationsPager.totalPages} totalCount={immigrationsPager.totalCount} pageSize={immigrationsPager.pageSize} onPageChange={immigrationsPager.setPage} />
+            </>
             )}
           </div>
 
@@ -5265,16 +6242,12 @@ export default function EmployeeDetailPage() {
                 <SectionIcon path="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" color="bg-cyan-500" />
                 <h2 className="text-base font-bold text-slate-800">Attached Documents</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{immDocs.length} record(s)</span>
-                <button type="button" onClick={openImmDocModal} className={sectionHeaderAddBtn}>
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                </button>
-              </div>
+              <SectionRecordHeaderActions count={immDocs.length} onAdd={openImmDocModal} addTitle="Add immigration document" />
             </div>
             {immDocs.length === 0 ? (
               <div className="px-6 py-8 text-center text-sm text-slate-400">No documents uploaded.</div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
@@ -5287,7 +6260,7 @@ export default function EmployeeDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {immDocs.map((doc) => (
+                    {immDocsPager.pageItems.map((doc) => (
                       <tr key={doc.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-6 py-3 font-medium text-slate-700">{doc.fileName}</td>
                         <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{doc.description ?? "—"}</td>
@@ -5308,6 +6281,8 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
+              <TablePagination page={immDocsPager.page} totalPages={immDocsPager.totalPages} totalCount={immDocsPager.totalCount} pageSize={immDocsPager.pageSize} onPageChange={immDocsPager.setPage} />
+            </>
             )}
           </div>
         </div>

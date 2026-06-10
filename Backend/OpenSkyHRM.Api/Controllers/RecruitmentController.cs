@@ -5,8 +5,12 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.Common;
+using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.DTOs.Recruitment;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
 
 using OpenSkyHRM.Api.Filters;
@@ -20,7 +24,15 @@ namespace OpenSkyHRM.Api.Controllers;
 public class RecruitmentController : ControllerBase
 {
     private readonly IRecruitmentService _svc;
-    public RecruitmentController(IRecruitmentService svc) => _svc = svc;
+    private readonly IEmployeeService _employeeService;
+    private readonly AppDbContext _db;
+
+    public RecruitmentController(IRecruitmentService svc, IEmployeeService employeeService, AppDbContext db)
+    {
+        _svc = svc;
+        _employeeService = employeeService;
+        _db = db;
+    }
 
     // ── Requisitions ─────────────────────────────────────────────
 
@@ -117,7 +129,10 @@ public class RecruitmentController : ControllerBase
 
     [HttpPost("candidates")]
     public async Task<IActionResult> CreateCandidate([FromBody] CreateCandidateDto dto)
-        => Ok(await _svc.CreateCandidateAsync(dto));
+    {
+        try { return Ok(await _svc.CreateCandidateAsync(dto)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     /// <summary>Public-style apply with PDF resume: saves candidate then stores file at wwwroot/uploads/candidates/{id}/resume.pdf.</summary>
     [AllowAnonymous]
@@ -155,6 +170,17 @@ public class RecruitmentController : ControllerBase
             ? "Public careers link"
             : (string.IsNullOrWhiteSpace(source) ? "Direct" : source.Trim());
 
+        try
+        {
+            InputValidators.ValidatePersonName(firstName, "First name");
+            InputValidators.ValidatePersonName(lastName, "Last name");
+            InputValidators.ValidatePhone(phone, "Phone", required: true);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
         var dto = new CreateCandidateDto
         {
             FirstName = firstName?.Trim() ?? "",
@@ -167,7 +193,15 @@ public class RecruitmentController : ControllerBase
             Notes = notes,
         };
 
-        var created = await _svc.CreateCandidateAsync(dto);
+        CandidateDto created;
+        try
+        {
+            created = await _svc.CreateCandidateAsync(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         var dir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", created.Id.ToString());
         Directory.CreateDirectory(dir);
@@ -183,6 +217,114 @@ public class RecruitmentController : ControllerBase
             candidate = refreshed ?? (object)created,
             emailNotification,
         });
+    }
+
+    /// <summary>Candidate self-service: find application by job + email.</summary>
+    [AllowAnonymous]
+    [HttpGet("public/applications/lookup")]
+    public async Task<IActionResult> LookupPublicApplication(
+        [FromQuery] Guid requisitionId,
+        [FromQuery] string email)
+    {
+        var app = await _svc.LookupPublicApplicationAsync(requisitionId, email);
+        return app == null
+            ? NotFound(new { message = "No application found for this email on this job." })
+            : Ok(app);
+    }
+
+    /// <summary>Candidate self-service: view application (email must match).</summary>
+    [AllowAnonymous]
+    [HttpGet("public/applications/{id:guid}")]
+    public async Task<IActionResult> GetPublicApplication(Guid id, [FromQuery] string email)
+    {
+        var app = await _svc.GetPublicApplicationAsync(id, email);
+        return app == null
+            ? NotFound(new { message = "Application not found or email does not match." })
+            : Ok(app);
+    }
+
+    /// <summary>Candidate self-service: update application details (optional new resume PDF).</summary>
+    [AllowAnonymous]
+    [HttpPut("public/applications/{id:guid}")]
+    [RequestSizeLimit(15 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 15 * 1024 * 1024)]
+    public async Task<IActionResult> UpdatePublicApplication(
+        Guid id,
+        [FromForm] string email,
+        [FromForm] string firstName,
+        [FromForm] string lastName,
+        [FromForm] string phone,
+        IFormFile? resume,
+        [FromServices] IWebHostEnvironment env)
+    {
+        try
+        {
+            InputValidators.ValidatePersonName(firstName, "First name");
+            InputValidators.ValidatePersonName(lastName, "Last name");
+            InputValidators.ValidatePhone(phone, "Phone", required: true);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
+        string? resumeFileName = null;
+        if (resume != null && resume.Length > 0)
+        {
+            var ext = Path.GetExtension(resume.FileName).ToLowerInvariant();
+            if (resume.ContentType != "application/pdf" && ext != ".pdf")
+                return BadRequest(new { message = "Resume must be a PDF file." });
+            resumeFileName = resume.FileName;
+        }
+
+        try
+        {
+            var updated = await _svc.UpdatePublicApplicationAsync(
+                id,
+                email,
+                firstName?.Trim() ?? "",
+                lastName?.Trim() ?? "",
+                phone?.Trim() ?? "",
+                resumeFileName);
+
+            if (resume != null && resume.Length > 0)
+            {
+                var dir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", id.ToString());
+                Directory.CreateDirectory(dir);
+                var path = Path.Combine(dir, "resume.pdf");
+                await using var fs = System.IO.File.Create(path);
+                await resume.CopyToAsync(fs);
+            }
+
+            return Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [AllowAnonymous]
+    [HttpGet("public/applications/{id:guid}/resume")]
+    public async Task<IActionResult> DownloadPublicApplicationResume(
+        Guid id,
+        [FromQuery] string email,
+        [FromServices] IWebHostEnvironment env)
+    {
+        var app = await _svc.GetPublicApplicationAsync(id, email);
+        if (app == null || !app.HasUploadedResume)
+            return NotFound();
+
+        var path = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", id.ToString(), "resume.pdf");
+        if (!System.IO.File.Exists(path))
+            return NotFound();
+
+        var download = string.IsNullOrWhiteSpace(app.ResumeFileName) ? "resume.pdf" : Path.GetFileName(app.ResumeFileName);
+        if (string.IsNullOrWhiteSpace(download) || download.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            download = "resume.pdf";
+
+        var bytes = await System.IO.File.ReadAllBytesAsync(path);
+        return File(bytes, "application/pdf", download);
     }
 
     [HttpGet("candidates/{id:guid}/resume")]
@@ -218,6 +360,13 @@ public class RecruitmentController : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("candidates/{id}/evaluation-notes")]
+    public async Task<IActionResult> AddEvaluationNote(Guid id, [FromBody] AddEvaluationNoteDto dto)
+    {
+        var performedBy = User.Identity?.Name;
+        return Ok(await _svc.AddEvaluationNoteAsync(id, dto.Note, performedBy));
+    }
+
     [HttpPut("candidates/{id}/stage")]
     public async Task<IActionResult> ChangeStage(Guid id, [FromBody] ChangeStagetDto dto)
         => Ok(await _svc.ChangeCandidateStageAsync(id, dto.Stage));
@@ -226,17 +375,73 @@ public class RecruitmentController : ControllerBase
     public async Task<IActionResult> RejectCandidate(Guid id, [FromBody] RejectCandidateDto dto)
         => Ok(await _svc.RejectCandidateAsync(id, dto.Reason));
 
-    [HttpPost("candidates/{id}/hire")]
-    public async Task<IActionResult> HireCandidate(Guid id, [FromBody] HireCandidateRequest? req,
-        [FromServices] IEmployeeTaskService employeeTaskService)
+    [HttpPost("candidates/{id}/reinterview")]
+    public async Task<IActionResult> ReopenCandidateForInterview(Guid id)
     {
         try
         {
-            var hire = await _svc.HireCandidateAsync(id);
-            var runOnboarding = req?.OnboardingTemplateId is not null && hire.CreatedNewEmployee;
+            return Ok(await _svc.ReopenCandidateForInterviewAsync(id));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("candidates/{id}/hire")]
+    public async Task<IActionResult> HireCandidate(Guid id, [FromBody] HireCandidateRequestDto req,
+        [FromServices] IEmployeeTaskService employeeTaskService)
+    {
+        if (req?.Employee == null)
+            return BadRequest(new { message = "Employee details are required before converting a candidate." });
+
+        var dto = req.Employee;
+        var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
+        if (licenseErr != null) return licenseErr;
+
+        EmployeeDto created;
+        try
+        {
+            created = await _employeeService.CreateAsync(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = EmployeeSaveExceptionMapper.Map(ex) });
+        }
+
+        if (dto.CreateLogin != null)
+        {
+            var login = dto.CreateLogin;
+            if (await _db.Users.AnyAsync(u => u.Username == login.Username && !u.IsDeleted))
+                return BadRequest(new { message = $"Username '{login.Username}' already exists." });
+
+            var user = new User
+            {
+                Username = login.Username,
+                Email = created.Email,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(login.Password),
+                IsActive = login.IsActive,
+                EmployeeId = created.Id,
+            };
+
+            foreach (var roleId in login.RoleIds)
+                user.UserRoles.Add(new UserRole { RoleId = roleId });
+
+            _db.Users.Add(user);
+            await _db.SaveChangesAsync();
+        }
+
+        try
+        {
+            var hire = await _svc.LinkCandidateToEmployeeAsync(id, created.Id);
+            var runOnboarding = dto.WithOnboarding && dto.OnboardingTemplateId.HasValue;
             if (runOnboarding)
                 await employeeTaskService.CreateTasksFromTemplateAsync(
-                    hire.EmployeeId, req!.OnboardingTemplateId!.Value, "Onboarding");
+                    hire.EmployeeId, dto.OnboardingTemplateId!.Value, "Onboarding");
 
             return Ok(new { employeeId = hire.EmployeeId, onboardingStarted = runOnboarding });
         }
@@ -246,9 +451,11 @@ public class RecruitmentController : ControllerBase
         }
     }
 
-    public class HireCandidateRequest
+    private static IActionResult? LicenseDateValidationProblem(DateTime? issue, DateTime? expiry)
     {
-        public Guid? OnboardingTemplateId { get; set; }
+        if (issue.HasValue && expiry.HasValue && expiry.Value < issue.Value)
+            return new BadRequestObjectResult(new { message = "License expiry date cannot be before issue date." });
+        return null;
     }
 
     // ── Interviews ───────────────────────────────────────────────
@@ -283,6 +490,10 @@ public class RecruitmentController : ControllerBase
     public async Task<IActionResult> GetUpcomingInterviews()
         => Ok(await _svc.GetUpcomingInterviewsAsync());
 
+    [HttpGet("interviews/history")]
+    public async Task<IActionResult> GetInterviewHistory([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+        => Ok(await _svc.GetInterviewHistoryAsync(page, pageSize));
+
     // ── Scorecards ───────────────────────────────────────────────
 
     [HttpGet("interviews/{id}/scorecard")]
@@ -298,9 +509,41 @@ public class RecruitmentController : ControllerBase
 
     // ── Offers ───────────────────────────────────────────────────
 
+    [HttpGet("offers/history")]
+    public async Task<IActionResult> GetOfferHistory([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+        => Ok(await _svc.GetOfferHistoryAsync(page, pageSize));
+
+    [HttpGet("offers/{id:guid}")]
+    public async Task<IActionResult> GetOffer(Guid id)
+    {
+        var offer = await _svc.GetOfferByIdAsync(id);
+        return offer == null ? NotFound() : Ok(offer);
+    }
+
+    [HttpGet("offers/letter-template")]
+    public async Task<IActionResult> GetOfferLetterTemplate()
+        => Ok(new { html = await _svc.GetOfferLetterTemplateHtmlAsync() });
+
+    [HttpPost("offers/letter-preview")]
+    public async Task<IActionResult> PreviewOfferLetter([FromBody] PreviewOfferLetterDto dto)
+        => Ok(new { html = await _svc.PreviewOfferLetterAsync(dto) });
+
     [HttpPost("offers")]
     public async Task<IActionResult> CreateOffer([FromBody] CreateOfferDto dto)
-        => Ok(await _svc.CreateOfferAsync(dto));
+    {
+        try { return Ok(await _svc.CreateOfferAsync(dto)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (DbUpdateException ex)
+        {
+            var inner = ex.InnerException?.Message ?? ex.Message;
+            if (inner.Contains("duplicate", StringComparison.OrdinalIgnoreCase)
+                || inner.Contains("unique", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "This candidate already has an offer. Edit the existing offer or withdraw it before creating a new one." });
+            }
+            throw;
+        }
+    }
 
     [HttpPut("offers/{id}")]
     public async Task<IActionResult> UpdateOffer(Guid id, [FromBody] UpdateOfferDto dto)
@@ -331,6 +574,13 @@ public class RecruitmentController : ControllerBase
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
+    [HttpPut("offers/{id}/letter")]
+    public async Task<IActionResult> UpdateOfferLetter(Guid id, [FromBody] UpdateOfferLetterDto dto)
+    {
+        try { return Ok(await _svc.UpdateOfferLetterAsync(id, dto.LetterHtml)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
     [HttpPost("offers/{id}/send-email")]
     public async Task<IActionResult> SendOfferEmail(Guid id, [FromServices] IEmailService emailService)
     {
@@ -346,7 +596,8 @@ public class RecruitmentController : ControllerBase
             offer.SalaryOffered,
             offer.Currency ?? "LKR",
             offer.JoiningDate,
-            offer.Remarks);
+            offer.Remarks,
+            offer.LetterHtml);
 
         return Ok(new { message = "Offer email sent successfully.", emailConfigured = await emailService.IsConfiguredAsync() });
     }

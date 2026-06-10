@@ -110,6 +110,7 @@ public class EmployeeAttachmentsController : ControllerBase
         var description = FirstFormValue(form, "description", "Description");
         var attachmentTypeIdRaw = FirstFormValue(form, "attachmentTypeId", "AttachmentTypeId");
         var attachmentTypeCodeRaw = FirstFormValue(form, "attachmentTypeCode", "AttachmentTypeCode");
+        var attachmentTypeNameRaw = FirstFormValue(form, "attachmentTypeName", "AttachmentTypeName");
         var expiryDate = FirstFormValue(form, "expiryDate", "ExpiryDate");
 
         if (file is null || file.Length == 0)
@@ -118,7 +119,9 @@ public class EmployeeAttachmentsController : ControllerBase
         if (file.Length > 10 * 1024 * 1024)
             return BadRequest(new { error = "File size must be less than 10 MB." });
 
-        if (string.IsNullOrWhiteSpace(attachmentTypeIdRaw) && string.IsNullOrWhiteSpace(attachmentTypeCodeRaw))
+        if (string.IsNullOrWhiteSpace(attachmentTypeIdRaw)
+            && string.IsNullOrWhiteSpace(attachmentTypeCodeRaw)
+            && string.IsNullOrWhiteSpace(attachmentTypeNameRaw))
             return BadRequest(new { error = "Attachment type is required." });
 
         Guid? resolvedTypeId = null;
@@ -153,8 +156,23 @@ public class EmployeeAttachmentsController : ControllerBase
             }
         }
 
+        if (resolvedTypeId is null && !string.IsNullOrWhiteSpace(attachmentTypeNameRaw))
+        {
+            var name = attachmentTypeNameRaw.Trim();
+            var rowByName = await _db.EmployeeAttachmentTypes
+                .AsNoTracking()
+                .Where(t => t.Name.ToLower() == name.ToLower())
+                .Select(t => new { t.Id, t.IsActive })
+                .FirstOrDefaultAsync();
+            if (rowByName is not null)
+            {
+                resolvedTypeId = rowByName.Id;
+                resolvedActive = rowByName.IsActive;
+            }
+        }
+
         if (resolvedTypeId is null)
-            return BadRequest(new { error = "Unknown attachment type. Refresh the page and choose a type from the list." });
+            return BadRequest(new { error = "Unknown attachment type. Enter a type from the list or type a new one and try again." });
 
         if (resolvedActive != true)
             return BadRequest(new { error = "This attachment type is inactive. Choose another type or ask an admin to activate it." });

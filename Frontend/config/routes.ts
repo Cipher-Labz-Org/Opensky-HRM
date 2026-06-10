@@ -7,6 +7,8 @@
 export const ROUTES = {
   // Marketing
   home: "/",
+  login: "/login",
+  forgotPassword: "/forgot-password",
   pricing: "/pricing",
   contact: "/contact",
 

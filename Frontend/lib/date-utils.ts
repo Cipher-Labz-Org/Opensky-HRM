@@ -39,6 +39,52 @@ export function formatBusinessTime(value: string | null | undefined): string {
   });
 }
 
+const businessDateTimeFmt: Intl.DateTimeFormatOptions = {
+  timeZone: BUSINESS_TIME_ZONE,
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: true,
+};
+
+/** Date + time for API values: UTC instants (…Z) → Sri Lanka; wall times (no Z) → as stored. */
+export function formatBusinessDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const trimmed = value.trim();
+
+  if (hasExplicitOffset(trimmed)) {
+    const d = new Date(trimmed);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString("en-LK", businessDateTimeFmt);
+  }
+
+  const wall = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (wall) {
+    const d = new Date(
+      Number(wall[1]),
+      Number(wall[2]) - 1,
+      Number(wall[3]),
+      Number(wall[4]),
+      Number(wall[5]),
+    );
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString("en-LK", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  }
+
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-LK", businessDateTimeFmt);
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const trimmed = value.trim();
@@ -55,6 +101,10 @@ export function formatDateTime(value: string | null | undefined): string {
       minute: "2-digit",
       hour12: true,
     });
+  }
+
+  if (trimmed.includes("T")) {
+    return formatBusinessDateTime(trimmed);
   }
 
   return d.toLocaleString("en-LK", {

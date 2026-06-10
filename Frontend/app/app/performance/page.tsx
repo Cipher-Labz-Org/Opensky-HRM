@@ -1,10 +1,12 @@
 "use client";
 
+import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField } from "@/components/ui";
+import { DatePickerField, TablePagination } from "@/components/ui";
+import { useClientPagination } from "@/lib/use-client-pagination";
 import { FormSelect } from "@/components/ui/FormSelect";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
@@ -57,6 +59,7 @@ export default function PerformancePage() {
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [cycleAppraisals, setCycleAppraisals] = useState<AppraisalDto[]>([]);
+  const cycleAppraisalsPager = useClientPagination(cycleAppraisals);
 
   // Modals
   const [showScaleModal, setShowScaleModal] = useState(false);
@@ -161,14 +164,14 @@ export default function PerformancePage() {
       if (editScaleId) await apiFetch(`/api/appraisal/rating-scales/${editScaleId}`, { method: "PUT", body: JSON.stringify(payload) });
       else await apiFetch("/api/appraisal/rating-scales", { method: "POST", body: JSON.stringify(payload) });
       setShowScaleModal(false); loadScales();
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    } catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
     setSaving(false);
   }
 
   async function deleteScale(id: string) {
-    if (!confirm("Delete this rating scale?")) return;
+    if (!(await appConfirm("Delete this rating scale?"))) return;
     try { await apiFetch(`/api/appraisal/rating-scales/${id}`, { method: "DELETE" }); loadScales(); }
-    catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
   }
 
   // ── Category CRUD ─────────────────────────────────────────────
@@ -183,7 +186,7 @@ export default function PerformancePage() {
       if (editCatId) await apiFetch(`/api/appraisal/competency-categories/${editCatId}`, { method: "PUT", body: JSON.stringify(payload) });
       else await apiFetch("/api/appraisal/competency-categories", { method: "POST", body: JSON.stringify(payload) });
       setShowCategoryModal(false); loadCategories();
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    } catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
     setSaving(false);
   }
 
@@ -199,12 +202,12 @@ export default function PerformancePage() {
       if (editCompId) await apiFetch(`/api/appraisal/competencies/${editCompId}`, { method: "PUT", body: JSON.stringify(payload) });
       else await apiFetch("/api/appraisal/competencies", { method: "POST", body: JSON.stringify(payload) });
       setShowCompetencyModal(false); loadCategories();
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    } catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
     setSaving(false);
   }
 
   async function deleteCompetency(id: string) {
-    if (!confirm("Delete this competency?")) return;
+    if (!(await appConfirm("Delete this competency?"))) return;
     await apiFetch(`/api/appraisal/competencies/${id}`, { method: "DELETE" }).catch(() => {});
     loadCategories();
   }
@@ -230,14 +233,14 @@ export default function PerformancePage() {
       if (editTplId) await apiFetch(`/api/appraisal/templates/${editTplId}`, { method: "PUT", body: JSON.stringify(payload) });
       else await apiFetch("/api/appraisal/templates", { method: "POST", body: JSON.stringify(payload) });
       setShowTemplateModal(false); loadTemplates();
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    } catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
     setSaving(false);
   }
 
   async function deleteTemplate(id: string) {
-    if (!confirm("Delete this template?")) return;
+    if (!(await appConfirm("Delete this template?"))) return;
     try { await apiFetch(`/api/appraisal/templates/${id}`, { method: "DELETE" }); loadTemplates(); }
-    catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
   }
 
   // ── Cycle CRUD ────────────────────────────────────────────────
@@ -273,26 +276,26 @@ export default function PerformancePage() {
       if (editCycleId) await apiFetch(`/api/appraisal/cycles/${editCycleId}`, { method: "PUT", body: JSON.stringify(payload) });
       else await apiFetch("/api/appraisal/cycles", { method: "POST", body: JSON.stringify(payload) });
       setShowCycleModal(false); loadCycles();
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    } catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
     setSaving(false);
   }
 
   async function activateCycle(id: string) {
-    if (!confirm("Activate this cycle? Appraisals will be created for all active employees.")) return;
+    if (!(await appConfirm("Activate this cycle? Appraisals will be created for all active employees."))) return;
     try { await apiFetch(`/api/appraisal/cycles/${id}/activate`, { method: "POST" }); loadCycles(); setSelectedCycleId(id); }
-    catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
   }
 
   async function advanceCycle(id: string) {
-    if (!confirm("Advance this cycle to the next phase?")) return;
+    if (!(await appConfirm("Advance this cycle to the next phase?"))) return;
     try { await apiFetch(`/api/appraisal/cycles/${id}/advance`, { method: "POST" }); loadCycles(); setSelectedCycleId(id); }
-    catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
   }
 
   async function deleteCycle(id: string) {
-    if (!confirm("Delete this cycle?")) return;
+    if (!(await appConfirm("Delete this cycle?"))) return;
     try { await apiFetch(`/api/appraisal/cycles/${id}`, { method: "DELETE" }); loadCycles(); if (selectedCycleId === id) setSelectedCycleId(null); }
-    catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    catch (e) { await appAlert(e instanceof Error ? e.message : "Failed"); }
   }
 
   // ── All competencies flat list for template builder ──────────
@@ -661,7 +664,7 @@ export default function PerformancePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {cycleAppraisals.map((a) => {
+                      {cycleAppraisalsPager.pageItems.map((a) => {
                         const selfR = a.reviewers.find((r) => r.reviewerType === "Self");
                         const mgrR = a.reviewers.find((r) => r.reviewerType === "Manager");
                         return (
@@ -696,6 +699,7 @@ export default function PerformancePage() {
                     </tbody>
                   </table>
                 </div>
+                <TablePagination page={cycleAppraisalsPager.page} totalPages={cycleAppraisalsPager.totalPages} totalCount={cycleAppraisalsPager.totalCount} pageSize={cycleAppraisalsPager.pageSize} onPageChange={cycleAppraisalsPager.setPage} />
                 {cycleAppraisals.length === 0 && (
                   <div className="py-12 text-center text-sm text-slate-400">
                     No appraisals in this cycle yet. Activate the cycle to generate them.

@@ -24,6 +24,24 @@
   min-height: unset;
 }
 
+.opensky-time-picker__col {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.opensky-time-picker__col::-webkit-scrollbar {
+  width: 6px;
+}
+.opensky-time-picker__col::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+.opensky-time-picker button:hover:not(:disabled),
+.opensky-time-picker button:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  filter: none;
+}
+
 :root {
   /* OpenSky logo–aligned palette (SKY blue #2E7BBF, OPEN red #ED1C24, neutral gray) */
   --bg: #f5f7fa;

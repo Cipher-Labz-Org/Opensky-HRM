@@ -6,6 +6,7 @@ using System.Threading;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using OpenSkyHRM.Api.Infrastructure;
@@ -77,6 +78,18 @@ builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddApplication();
 
+// --- Data Protection ---
+// Persist the key ring to a folder that travels with the app instead of the
+// per-user DPAPI store. Under IIS the app-pool identity often has no loaded
+// user profile, so the default DPAPI-protected keys cannot be read/created and
+// the app fails to start (CryptographicException). A stable file location keeps
+// keys working regardless of the hosting identity.
+var dataProtectionKeysPath = Path.Combine(builder.Environment.ContentRootPath, "keys");
+Directory.CreateDirectory(dataProtectionKeysPath);
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
+    .SetApplicationName("OpenSkyHRM");
+
 // --- JWT Authentication ---
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "OpenSkyHRM-Default-Key-256bit-ChangeMe!!";
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "OpenSkyHRM";
@@ -108,7 +121,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(o =>
     {
         o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-        o.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+        // Do not camelCase dictionary keys — report row keys and analytics group labels must match display names.
         o.JsonSerializerOptions.Converters.Add(new ApiDateTimeJsonConverter());
     });
 
@@ -144,10 +157,10 @@ catch (Exception ex)
 
 if (dbAvailable)
 {
-    var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? connStr;
-    await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, builder.Configuration);
     try
     {
+        var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? connStr;
+        await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, builder.Configuration);
         builder.Services.AddHangfire(config =>
             config.UsePostgreSqlStorage(hangfireConn, new PostgreSqlStorageOptions
             {
@@ -205,6 +218,24 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var ex = feature?.Error;
+        if (ex != null)
+            Console.WriteLine($"ERROR: Unhandled exception: {ex}");
+
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+        var message = app.Environment.IsDevelopment() && ex != null
+            ? ex.Message
+            : "An internal server error occurred.";
+        await context.Response.WriteAsJsonAsync(new { message, database = dbAvailable });
+    });
+});
+
 // Helpful when interview/offer/recruitment application emails show SkippedNotConfigured in Email delivery log.
 {
     var cfg = builder.Configuration;
@@ -236,6 +267,18 @@ if (dbAvailable)
     catch (Exception ex)
     {
         Console.WriteLine($"WARNING: Database migration failed: {ex.Message}");
+    }
+
+    // Default roles (Admin, HR Manager, Supervisor, Employee) — every tenant DB.
+    try
+    {
+        using var rolesScope = app.Services.CreateScope();
+        var rolesDb = rolesScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await SecurityRolesSeeder.EnsureAsync(rolesDb);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Default security roles could not be ensured: {ex.Message}");
     }
 
     // Seed default Admin user into Users (credentials in AdminBootstrapSeeder — not appsettings).
@@ -273,12 +316,16 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await LicensingSeeder.EnsureAsync(db);
+        await PayrollSeeder.EnsureStatutoryFormulasAsync(db);
+        if (app.Environment.IsDevelopment())
+            await PayrollSeeder.EnsureDemoSalary100kAsync(db);
         await OpenSkyHRM.Persistence.Seeders.EmployeeLifecycleTemplateSeeder.EnsureAsync(db);
         await db.SaveChangesAsync();
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureCatalogLeaveTypesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchCasualLeaveMonthlyEveryYearAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureShopOfficeSickLeaveRuleAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LearningSeeder.EnsureCatalogAsync(db);
     }
     catch (Exception ex)
     {

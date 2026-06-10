@@ -1,4 +1,5 @@
 /** @type {import('next').NextConfig} */
+
 function apiUpstreamBase() {
   const url =
     process.env.API_URL?.trim() ||
@@ -9,28 +10,33 @@ function apiUpstreamBase() {
 
 const nextConfig = {
   reactStrictMode: true,
-  // Vercel expects the default ".next" output unless project settings override it.
-  // Keep ".dist" for local workflows to avoid churn with existing local caches.
   distDir: process.env.VERCEL ? ".next" : ".dist",
   transpilePackages: ["jspdf", "jspdf-autotable"],
   async rewrites() {
     const base = apiUpstreamBase();
-    return [
-      // Local dev: browser calls same-origin `/hrm-backend/...` → Kestrel
-      {
-        source: "/hrm-backend/:path*",
-        destination: `${base}/:path*`,
-      },
-      // Production / Vercel: `/api/*` and static uploads proxied to backend
-      {
-        source: "/api/:path*",
-        destination: `${base}/api/:path*`,
-      },
-      {
-        source: "/uploads/:path*",
-        destination: `${base}/uploads/:path*`,
-      },
-    ];
+
+    return {
+      // Tenant domains (mbkh.openskyhrm.com, gamma.openskyhrm.com) call their IIS
+      // backends DIRECTLY from the browser via getApiBaseUrl() — no Vercel proxy needed.
+      // beforeFiles tenant rewrites were removed: Vercel cannot proxy to private IPs
+      // (DNS_HOSTNAME_RESOLVED_PRIVATE) and the direct-call approach bypasses that entirely.
+      afterFiles: [
+        {
+          source: "/hrm-backend/:path*",
+          destination: `${base}/:path*`,
+        },
+      ],
+      fallback: [
+        {
+          source: "/api/:path*",
+          destination: `${base}/api/:path*`,
+        },
+        {
+          source: "/uploads/:path*",
+          destination: `${base}/uploads/:path*`,
+        },
+      ],
+    };
   },
   async redirects() {
     return [

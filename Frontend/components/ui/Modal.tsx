@@ -30,7 +30,7 @@ export function Modal({ open, onClose, title, children, wide }: ModalProps) {
       }}
     >
       <div
-        className={`relative w-full overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-[0_24px_80px_-24px_rgba(15,23,42,0.45)] ${wide ? "max-w-2xl" : "max-w-lg"}`}
+        className={`relative w-full overflow-visible rounded-3xl border border-slate-200/90 bg-white shadow-[0_24px_80px_-24px_rgba(15,23,42,0.45)] ${wide ? "max-w-2xl" : "max-w-lg"}`}
       >
         <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-blue-100/40 blur-2xl" />
         <div className="pointer-events-none absolute -bottom-16 left-1/4 h-40 w-40 rounded-full bg-sky-100/35 blur-2xl" />

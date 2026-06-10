@@ -1,12 +1,14 @@
 "use client";
 
+import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { FormSelect, type FormSelectOption } from "@/components/ui";
+import { FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
+import { useApplyFilter } from "@/lib/use-apply-filter";
 
 interface UserItem {
   id: string;
@@ -82,17 +84,26 @@ export default function UserManagementPage() {
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
+  const searchFilter = useApplyFilter();
   const [filterRole, setFilterRole] = useState("");
   const [filterStatus, setFilterStatus] = useState<"" | "active" | "disabled">("");
   const [activeSection, setActiveSection] = useState<"users" | "roles">("users");
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 20;
 
   async function loadData() {
     setLoading(true);
     setLoadError("");
     try {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (searchFilter.applied) params.set("search", searchFilter.applied);
+      if (filterRole) params.set("role", filterRole);
+      if (filterStatus === "active") params.set("isActive", "true");
+      if (filterStatus === "disabled") params.set("isActive", "false");
+
       const [u, r, e, loc, bu, gr, jt] = await Promise.all([
-        apiFetch<UserItem[]>("/api/user"),
+        apiFetch<{ items: UserItem[]; totalCount: number }>(`/api/user?${params}`),
         apiFetch<RoleItem[]>("/api/auth/roles"),
         apiFetch<{ items: EmpLookup[] }>("/api/employees?pageSize=500"),
         apiFetch<OrgLocation[]>("/api/organization/locations").catch(() => [] as OrgLocation[]),
@@ -100,7 +111,8 @@ export default function UserManagementPage() {
         apiFetch<OrgGrade[]>("/api/organization/grades").catch(() => [] as OrgGrade[]),
         apiFetch<OrgLocation[]>("/api/organization/job-titles").catch(() => [] as OrgLocation[]),
       ]);
-      setUsers(u);
+      setUsers(u.items ?? []);
+      setTotalCount(u.totalCount ?? 0);
       setRoles(r);
       setEmployees(e.items || []);
       setLocations(loc);
@@ -113,7 +125,7 @@ export default function UserManagementPage() {
     setLoading(false);
   }
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { void loadData(); }, [page, searchFilter.applied, filterRole, filterStatus]);
 
   function openCreate() {
     setEditUser(null);
@@ -209,27 +221,27 @@ export default function UserManagementPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Are you sure you want to delete this user?")) return;
+    if (!(await appConfirm("Are you sure you want to delete this user?"))) return;
     try {
       await apiFetch(`/api/user/${id}`, { method: "DELETE" });
       await loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete user");
+      await appAlert(err instanceof Error ? err.message : "Failed to delete user");
     }
   }
 
   async function handleResetPassword(id: string) {
-    if (!confirm("Reset this user’s password? You will be asked to enter the new password next.")) return;
-    const newPw = prompt("Enter new password:");
+    if (!(await appConfirm("Reset this user’s password? You will be asked to enter the new password next."))) return;
+    const newPw = await appPrompt("Enter the new password for this user account.", { title: "New Password", confirmLabel: "Save Password" });
     if (!newPw) return;
     try {
       await apiFetch(`/api/user/${id}/reset-password`, {
         method: "POST",
         body: JSON.stringify({ newPassword: newPw }),
       });
-      alert("Password reset successfully.");
+      await appAlert("Password reset successfully.");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to reset password");
+      await appAlert(err instanceof Error ? err.message : "Failed to reset password");
     }
   }
 
@@ -239,19 +251,7 @@ export default function UserManagementPage() {
     );
   }
 
-  const filteredUsers = users.filter((u) => {
-    if (search) {
-      const q = search.toLowerCase();
-      const match = u.username.toLowerCase().includes(q)
-        || u.email.toLowerCase().includes(q)
-        || (u.employeeName && u.employeeName.toLowerCase().includes(q));
-      if (!match) return false;
-    }
-    if (filterRole && !u.roles.includes(filterRole)) return false;
-    if (filterStatus === "active" && !u.isActive) return false;
-    if (filterStatus === "disabled" && u.isActive) return false;
-    return true;
-  });
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const filterRoleOptions = useMemo<FormSelectOption[]>(
     () => [{ value: "", label: "All Roles" }, ...roles.map((r) => ({ value: r.name, label: r.name }))],
@@ -414,9 +414,15 @@ export default function UserManagementPage() {
               <div className="relative flex-1 min-w-[200px]">
                 <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
                 <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by username, email, or employee name..."
+                  value={searchFilter.input}
+                  onChange={(e) => searchFilter.setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      searchFilter.apply();
+                      setPage(1);
+                    }
+                  }}
+                  placeholder="Search username, email, or name… (Enter)"
                   className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
                 />
               </div>
@@ -424,7 +430,7 @@ export default function UserManagementPage() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Role</span>
                 <FormSelect
                   value={filterRole}
-                  onValueChange={setFilterRole}
+                  onValueChange={(v) => { setFilterRole(v); setPage(1); }}
                   options={filterRoleOptions}
                   placeholder="All Roles"
                 />
@@ -433,21 +439,21 @@ export default function UserManagementPage() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
                 <FormSelect
                   value={filterStatus}
-                  onValueChange={(v) => setFilterStatus(v as "" | "active" | "disabled")}
+                  onValueChange={(v) => { setFilterStatus(v as "" | "active" | "disabled"); setPage(1); }}
                   options={filterStatusOptions}
                   placeholder="All Status"
                 />
               </div>
-              {(search || filterRole || filterStatus) && (
+              {(searchFilter.hasApplied || filterRole || filterStatus) && (
                 <button
                   type="button"
-                  onClick={() => { setSearch(""); setFilterRole(""); setFilterStatus(""); }}
+                  onClick={() => { searchFilter.clear(); setFilterRole(""); setFilterStatus(""); setPage(1); }}
                   className="rounded-lg px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-white hover:text-slate-800"
                 >
                   Clear filters
                 </button>
               )}
-              <span className="text-xs text-slate-400">{filteredUsers.length} of {users.length}</span>
+              <span className="text-xs text-slate-400">{totalCount} user(s)</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -465,7 +471,7 @@ export default function UserManagementPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredUsers.map((u) => (
+                  {users.map((u) => (
                     <tr key={u.id} className="border-b border-slate-50 transition hover:bg-slate-50/70">
                       <td className="px-6 py-3 font-medium text-slate-800">{u.username}</td>
                       <td className="px-6 py-3 text-slate-600">{u.email}</td>
@@ -526,12 +532,19 @@ export default function UserManagementPage() {
                       </td>
                     </tr>
                   ))}
-                  {filteredUsers.length === 0 && (
+                  {users.length === 0 && (
                     <tr><td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-400">{users.length === 0 ? "No users found." : "No users match your search."}</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              page={page}
+              totalPages={totalPages}
+              totalCount={totalCount}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+            />
           </div>
         )}
 
@@ -806,6 +819,11 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   const [permissions, setPermissions] = useState<Record<string, Record<string, { enabled: boolean; scope: string }>>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [showCreateRole, setShowCreateRole] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [newRoleCode, setNewRoleCode] = useState("");
+  const [newRoleDescription, setNewRoleDescription] = useState("");
+  const [creatingRole, setCreatingRole] = useState(false);
 
   useEffect(() => {
     apiFetch<{ module: string; label: string }[]>("/api/auth/roles/available-modules")
@@ -854,6 +872,35 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
     }));
   }
 
+  async function handleCreateRole() {
+    const name = newRoleName.trim();
+    if (!name) {
+      setError("Role name is required.");
+      return;
+    }
+    setError("");
+    setCreatingRole(true);
+    try {
+      const created = await apiFetch<RoleItem>("/api/auth/roles", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          code: newRoleCode.trim() || undefined,
+          description: newRoleDescription.trim() || undefined,
+        }),
+      });
+      setShowCreateRole(false);
+      setNewRoleName("");
+      setNewRoleCode("");
+      setNewRoleDescription("");
+      await onSaved();
+      setSelectedRoleId(created.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create role");
+    }
+    setCreatingRole(false);
+  }
+
   async function handleSave() {
     if (!selectedRoleId) return;
     setError("");
@@ -884,7 +931,20 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
       </div>
       <div className="flex flex-col lg:flex-row min-h-[400px]">
         <div className="w-full lg:w-56 border-b lg:border-b-0 lg:border-r border-slate-100 p-4">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Select Role</p>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Select Role</p>
+            <Button
+              type="button"
+              variant="secondary"
+              className="!h-8 !min-h-8 px-2.5 text-xs"
+              onClick={() => {
+                setError("");
+                setShowCreateRole(true);
+              }}
+            >
+              + New role
+            </Button>
+          </div>
           <div className="space-y-1">
             {roles.map((r) => (
               <button
@@ -961,6 +1021,62 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
           )}
         </div>
       </div>
+
+      {showCreateRole && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <h3 className="text-base font-semibold text-slate-800">Create new role</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Code is auto-generated from the name if left blank (e.g. Payroll Clerk → PAYROLL_CLERK).
+            </p>
+            {error && (
+              <div className="mt-3 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800">
+                {error}
+              </div>
+            )}
+            <div className="mt-4 space-y-3">
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">Role name *</span>
+                <input
+                  type="text"
+                  value={newRoleName}
+                  onChange={(e) => setNewRoleName(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="e.g. Payroll Clerk"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">Code (optional)</span>
+                <input
+                  type="text"
+                  value={newRoleCode}
+                  onChange={(e) => setNewRoleCode(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="e.g. PAYROLL_CLERK"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">Description</span>
+                <input
+                  type="text"
+                  value={newRoleDescription}
+                  onChange={(e) => setNewRoleDescription(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Optional"
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setShowCreateRole(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleCreateRole} disabled={creatingRole}>
+                {creatingRole ? "Creating…" : "Create role"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

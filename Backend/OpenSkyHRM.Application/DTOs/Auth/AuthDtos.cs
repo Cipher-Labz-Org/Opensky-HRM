@@ -49,6 +49,24 @@ public class ChangePasswordDto
     public string NewPassword { get; set; } = string.Empty;
 }
 
+public class ForgotPasswordVerifyDto
+{
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+}
+
+public class ForgotPasswordVerifyResponseDto
+{
+    public string ResetToken { get; set; } = string.Empty;
+    public DateTime ExpiresAt { get; set; }
+}
+
+public class ForgotPasswordResetDto
+{
+    public string ResetToken { get; set; } = string.Empty;
+    public string NewPassword { get; set; } = string.Empty;
+}
+
 public class CreateUserDto
 {
     public string Username { get; set; } = string.Empty;
@@ -111,6 +129,13 @@ public class SecurityRoleDto
 public class UpdateRolePermissionsDto
 {
     public List<PermissionDto> Permissions { get; set; } = new();
+}
+
+public class CreateRoleDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Code { get; set; }
+    public string? Description { get; set; }
 }
 
 public class AvailableModuleDto

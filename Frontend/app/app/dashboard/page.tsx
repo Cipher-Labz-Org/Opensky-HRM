@@ -1,9 +1,10 @@
 "use client";
 
+import { appAlert } from "@/components/ui/appDialogs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
-import { formatDateTime } from "@/lib/date-utils";
+import { formatBusinessDateTime } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
@@ -156,7 +157,7 @@ export default function DashboardPage() {
       await apiFetch(`/api/offboarding/tasks/${taskId}/complete`, { method: "POST" });
       setMyTasks((prev) => prev.filter((t) => t.id !== taskId));
     } catch {
-      alert("Failed to complete task");
+      await appAlert("Failed to complete task");
     }
     setCompleting(null);
   }
@@ -314,7 +315,7 @@ export default function DashboardPage() {
       <AppTopbar title="Command Center" />
 
       <div id="dashboard-birthdays" className="mb-6 scroll-mt-28">
-        <BirthdaysCompanyNoticesWidget scrollAnchorHref={`${ROUTES.dashboard}#dashboard-birthdays`} />
+        <BirthdaysCompanyNoticesWidget />
       </div>
 
       {myTasks.length > 0 && (
@@ -507,7 +508,7 @@ export default function DashboardPage() {
               No recent leave requests or recruitment activities returned yet.
             </p>
           ) : (
-            <div className="space-y-2.5">
+            <div className="max-h-[min(320px,50vh)] space-y-2.5 overflow-y-auto pr-1">
               {timelineItems.map((ev, i) => {
                 const isLeave = ev.title.toLowerCase().includes("leave");
                 return (
@@ -516,7 +517,7 @@ export default function DashboardPage() {
                     className="opensky-dashboard-timeline-row group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5"
                   >
                     <div className="pt-0.5 text-[11px] font-medium text-slate-500">
-                      {formatDateTime(ev.at)}
+                      {formatBusinessDateTime(ev.at)}
                     </div>
                     <div className="min-w-0">
                       <div className="mb-0.5 flex items-center gap-2">

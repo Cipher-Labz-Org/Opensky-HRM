@@ -27,6 +27,15 @@ public interface IRecruitmentService
     Task<PagedResult<CandidateDto>> GetCandidatesAsync(int page = 1, int pageSize = 50, Guid? requisitionId = null, string? stage = null, string? search = null);
     Task<CandidateDetailDto?> GetCandidateByIdAsync(Guid id);
     Task<CandidateDto> CreateCandidateAsync(CreateCandidateDto dto);
+    Task<PublicCandidateApplicationDto?> GetPublicApplicationAsync(Guid candidateId, string email);
+    Task<PublicCandidateApplicationDto?> LookupPublicApplicationAsync(Guid requisitionId, string email);
+    Task<PublicCandidateApplicationDto> UpdatePublicApplicationAsync(
+        Guid candidateId,
+        string email,
+        string firstName,
+        string lastName,
+        string phone,
+        string? resumeFileName = null);
 
     /// <summary>After a public/job-board application, emails the configured inbox via SendGrid/SMTP. Errors are logged; does not throw.</summary>
     Task<JobApplicationEmailNotificationResultDto> NotifyJobApplicationSubmittedAsync(Guid candidateId);
@@ -34,7 +43,9 @@ public interface IRecruitmentService
     Task DeleteCandidateAsync(Guid id);
     Task<CandidateDto> ChangeCandidateStageAsync(Guid id, string stage);
     Task<CandidateDto> RejectCandidateAsync(Guid id, string reason);
-    Task<HireCandidateResult> HireCandidateAsync(Guid id);
+    Task<CandidateDto> ReopenCandidateForInterviewAsync(Guid id);
+    Task<HireCandidateResult> LinkCandidateToEmployeeAsync(Guid candidateId, Guid employeeId);
+    Task<CandidateActivityDto> AddEvaluationNoteAsync(Guid candidateId, string note, string? performedBy);
 
     // Interviews
     Task<List<InterviewDto>> GetInterviewsForCandidateAsync(Guid candidateId);
@@ -43,6 +54,7 @@ public interface IRecruitmentService
     Task DeleteInterviewAsync(Guid id);
     Task<InterviewDto> CompleteInterviewAsync(Guid id, CompleteInterviewDto dto);
     Task<List<InterviewDto>> GetUpcomingInterviewsAsync();
+    Task<List<InterviewDto>> GetInterviewHistoryAsync(int page = 1, int pageSize = 50);
 
     // Scorecards
     Task<List<InterviewScorecardDto>> GetScorecardAsync(Guid interviewId);
@@ -55,6 +67,11 @@ public interface IRecruitmentService
     Task<OfferDto> AcceptOfferAsync(Guid id);
     Task<OfferDto> RejectOfferAsync(Guid id, string? reason);
     Task<OfferEmailInfoDto?> GetOfferWithCandidateAsync(Guid offerId);
+    Task<string> GetOfferLetterTemplateHtmlAsync();
+    Task<string> PreviewOfferLetterAsync(PreviewOfferLetterDto dto);
+    Task<OfferDto> UpdateOfferLetterAsync(Guid offerId, string? letterHtml);
+    Task<List<OfferHistoryDto>> GetOfferHistoryAsync(int page = 1, int pageSize = 50);
+    Task<OfferDto?> GetOfferByIdAsync(Guid id);
 
     // Dashboard & Pipeline
     Task<RecruitmentDashboardDto> GetDashboardAsync();

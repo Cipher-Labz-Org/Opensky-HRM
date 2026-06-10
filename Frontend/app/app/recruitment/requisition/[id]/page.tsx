@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
+import { CandidateJobApplicationPanel } from "@/components/recruitment/CandidateJobApplicationPanel";
 import { formatDate } from "@/lib/date-utils";
 import { ROUTES } from "@/config/routes";
 import { APP_NAME } from "@/config/constants";
@@ -41,11 +42,6 @@ interface RequisitionDetail {
   positionId?: string;
   candidateCount: number;
   applicationNotificationEmail?: string;
-}
-
-interface ApplyWithResumeApiResponse {
-  candidate: Record<string, unknown>;
-  emailNotification?: { status: string; message?: string | null };
 }
 
 /** Header + footer gradient (aligned with interview scheduled card). */
@@ -143,17 +139,7 @@ export default function RequisitionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [applyFirst, setApplyFirst] = useState("");
-  const [applyLast, setApplyLast] = useState("");
-  const [applyEmail, setApplyEmail] = useState("");
-  const [applyPhoneLocal, setApplyPhoneLocal] = useState("");
-  const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [resumeDrag, setResumeDrag] = useState(false);
-  const [applySubmitting, setApplySubmitting] = useState(false);
-  const [applyMessage, setApplyMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [shareOrigin, setShareOrigin] = useState("");
-
-  const resumeInputId = useId();
 
   useEffect(() => {
     setShareOrigin(typeof window !== "undefined" ? window.location.origin : "");
@@ -182,87 +168,6 @@ export default function RequisitionDetailPage() {
       .then(setEmploymentTypes)
       .catch(() => setEmploymentTypes([]));
   }, []);
-
-  const pickResume = useCallback((file: File | null) => {
-    if (!file) {
-      setResumeFile(null);
-      return;
-    }
-    const ok = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    if (!ok) {
-      setApplyMessage({ ok: false, text: "Please upload a PDF file for your resume." });
-      return;
-    }
-    setResumeFile(file);
-    setApplyMessage(null);
-  }, []);
-
-  const submitApplication = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!req) return;
-    setApplyMessage(null);
-    if (!resumeFile) {
-      setApplyMessage({ ok: false, text: "Please upload your resume as a PDF." });
-      return;
-    }
-    if (!applyFirst.trim() || !applyLast.trim() || !applyEmail.trim() || !applyPhoneLocal.trim()) {
-      setApplyMessage({ ok: false, text: "Please fill in all required fields." });
-      return;
-    }
-    const digits = applyPhoneLocal.replace(/\D/g, "");
-    if (digits.length < 8) {
-      setApplyMessage({ ok: false, text: "Enter a valid phone number (digits after +94)." });
-      return;
-    }
-    const fullPhone = `+94${digits}`;
-    setApplySubmitting(true);
-    try {
-      const fd = new FormData();
-      fd.set("firstName", applyFirst.trim());
-      fd.set("lastName", applyLast.trim());
-      fd.set("email", applyEmail.trim());
-      fd.set("phone", fullPhone);
-      fd.set("requisitionId", req.id);
-      fd.set("source", "Direct");
-      fd.set("resume", resumeFile, resumeFile.name);
-      const applyRes = await apiFetch<ApplyWithResumeApiResponse | Record<string, unknown>>(
-        `/api/recruitment/candidates/apply`,
-        { method: "POST", body: fd }
-      );
-      let hrEmailNote = "";
-      if (applyRes && typeof applyRes === "object" && "emailNotification" in applyRes) {
-        const en = (applyRes as ApplyWithResumeApiResponse).emailNotification;
-        if (en && en.status !== "sent") {
-          hrEmailNote =
-            en.message?.trim() ||
-            (en.status === "skipped_no_email_provider"
-              ? "HR email was not sent: configure SendGrid:ApiKey (or SMTP) on the API server."
-              : en.status === "skipped_no_inbox"
-                ? "HR email was not sent: set the requisition’s application notification email or Recruitment:ApplicationNotificationEmail."
-                : `HR notification status: ${en.status}.`);
-        }
-      }
-      setApplyMessage({
-        ok: true,
-        text:
-          "Application submitted. The hiring team will review your details." +
-          (hrEmailNote ? `\n\n${hrEmailNote}` : ""),
-      });
-      setApplyFirst("");
-      setApplyLast("");
-      setApplyEmail("");
-      setApplyPhoneLocal("");
-      setResumeFile(null);
-      await load();
-    } catch (err) {
-      setApplyMessage({
-        ok: false,
-        text: err instanceof Error ? err.message : "Could not submit application. Try again or contact HR.",
-      });
-    } finally {
-      setApplySubmitting(false);
-    }
-  };
 
   const careersPublicUrl = shareOrigin ? `${shareOrigin}/careers/requisition/${id}` : "";
 
@@ -439,133 +344,13 @@ export default function RequisitionDetailPage() {
             )}
           </div>
 
-          {/* 2 — Apply for this job (candidate-style form) */}
-          <div className="px-6 py-8 sm:px-10 sm:py-10">
-            <h3 className="text-center text-xl font-semibold tracking-tight text-slate-900">Apply for this job</h3>
-            <p className="mt-1 text-center text-sm text-slate-500">Submit your details for {req.title}</p>
-
-            <form onSubmit={submitApplication} className="mx-auto mt-8 max-w-lg">
-              <div className="space-y-6">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-800">
-                    Resume/CV <span className="text-red-500">*</span>
-                  </label>
-                  <input id={resumeInputId} type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(e) => pickResume(e.target.files?.[0] ?? null)} />
-                  <label
-                    htmlFor={resumeInputId}
-                    onDragOver={(ev) => {
-                      ev.preventDefault();
-                      setResumeDrag(true);
-                    }}
-                    onDragLeave={() => setResumeDrag(false)}
-                    onDrop={(ev) => {
-                      ev.preventDefault();
-                      setResumeDrag(false);
-                      const f = ev.dataTransfer.files?.[0];
-                      if (f) pickResume(f);
-                    }}
-                    className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition ${
-                      resumeDrag ? "border-blue-500 bg-blue-50/50" : "border-slate-300 bg-slate-50/80 hover:border-slate-400"
-                    }`}
-                  >
-                    <svg className="mb-3 h-10 w-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                    </svg>
-                    <span className="text-sm font-medium text-slate-800">
-                      Click or drag file to this area to upload your Resume.
-                    </span>
-                    <span className="mt-1 text-xs text-slate-500">Please make sure to upload a PDF.</span>
-                    {resumeFile ? (
-                      <span className="mt-2 font-mono text-sm text-blue-700">{resumeFile.name}</span>
-                    ) : null}
-                  </label>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1.5 block text-sm font-medium text-slate-800">
-                      First name <span className="text-red-500">*</span>
-                    </span>
-                    <input
-                      value={applyFirst}
-                      onChange={(e) => setApplyFirst(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                      autoComplete="given-name"
-                      required
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 block text-sm font-medium text-slate-800">
-                      Last name <span className="text-red-500">*</span>
-                    </span>
-                    <input
-                      value={applyLast}
-                      onChange={(e) => setApplyLast(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                      autoComplete="family-name"
-                      required
-                    />
-                  </label>
-                </div>
-
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-slate-800">
-                    Email <span className="text-red-500">*</span>
-                  </span>
-                  <input
-                    type="email"
-                    value={applyEmail}
-                    onChange={(e) => setApplyEmail(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                    autoComplete="email"
-                    required
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-slate-800">
-                    Phone number <span className="text-red-500">*</span>
-                  </span>
-                  <div className="flex rounded-lg border border-slate-200 bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
-                    <span className="flex shrink-0 items-center gap-1.5 border-r border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
-                      <span className="text-lg leading-none" title="Sri Lanka">
-                        🇱🇰
-                      </span>
-                      +94
-                    </span>
-                    <input
-                      value={applyPhoneLocal}
-                      onChange={(e) => setApplyPhoneLocal(e.target.value)}
-                      placeholder="77 123 4567"
-                      className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-sm text-slate-900 outline-none"
-                      autoComplete="tel-national"
-                      required
-                    />
-                  </div>
-                  <p className="mt-1.5 text-xs text-slate-500">The hiring team may use this number to contact you about this job.</p>
-                </label>
-
-                {applyMessage ? (
-                  <p
-                    className={`whitespace-pre-line text-sm ${applyMessage.ok ? "text-emerald-700" : "text-red-600"}`}
-                    role="status"
-                  >
-                    {applyMessage.text}
-                  </p>
-                ) : null}
-
-                <div className="pt-2">
-                  <Button type="submit" className="w-full py-3 text-base font-semibold" disabled={applySubmitting}>
-                    {applySubmitting ? "Submitting…" : "Submit Application"}
-                  </Button>
-                  <p className="mt-3 text-center text-[11px] leading-relaxed text-slate-500 sm:text-xs">
-                    By clicking &quot;Submit Application&quot;, you agree to receive job application updates from {APP_NAME} via email
-                    and/or SMS where applicable. Message frequency may vary. Contact HR to update preferences.
-                  </p>
-                </div>
-              </div>
-            </form>
-          </div>
+          <CandidateJobApplicationPanel
+            requisitionId={req.id}
+            requisitionTitle={req.title}
+            applySource="Direct"
+            fetchFn={apiFetch}
+            onSubmitted={() => void load()}
+          />
 
           <footer className={`${gradientBarClass} rounded-b-xl sm:rounded-b-2xl !py-6 text-center`}>
             <p className="text-xs font-medium text-white/95 sm:text-sm">
