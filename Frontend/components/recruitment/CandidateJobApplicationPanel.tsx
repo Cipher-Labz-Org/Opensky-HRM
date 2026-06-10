@@ -313,7 +313,7 @@ export function CandidateJobApplicationPanel({
           <Button type="button" variant="secondary" onClick={() => setMode("lookup")}>
             Already applied?
           </Button>
-        ) : mode !== "apply" ? (
+        ) : (
           <Button
             type="button"
             variant="secondary"
@@ -325,7 +325,7 @@ export function CandidateJobApplicationPanel({
           >
             New application
           </Button>
-        ) : null}
+        )}
       </div>
 
       {mode === "lookup" ? (
