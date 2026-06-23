@@ -158,22 +158,31 @@ const CATEGORY_COLORS: Record<string, string> = {
   recruitment: "bg-pink-500", performance: "bg-orange-500", organization: "bg-cyan-500", compliance: "bg-red-500",
 };
 
+function escapeCsvCell(value: string): string {
+  const normalized = value.replace(/\r?\n/g, " ");
+  if (/[",\r\n]/.test(normalized)) return `"${normalized.replace(/"/g, "\"\"")}"`;
+  return normalized;
+}
+
 function exportToExcel(result: ReportResult) {
-  const BOM = "\uFEFF";
-  const header = result.columns.join("\t");
-  const body = result.rows.map(row =>
-    result.columns.map(c => {
-      const v = getReportCell(row, c);
-      if (v === null || v === undefined) return "";
-      return String(v).replace(/\t/g, " ").replace(/\n/g, " ");
-    }).join("\t")
-  ).join("\n");
-  const tsv = BOM + header + "\n" + body;
-  const blob = new Blob([tsv], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const header = result.columns.map((c) => escapeCsvCell(c)).join(",");
+  const body = result.rows
+    .map((row) =>
+      result.columns
+        .map((c) => {
+          const v = getReportCell(row, c);
+          if (v === null || v === undefined) return "";
+          return escapeCsvCell(String(v));
+        })
+        .join(",")
+    )
+    .join("\r\n");
+  const csv = `\uFEFF${header}\r\n${body}`;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${result.reportName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xls`;
+  a.download = `${result.reportName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

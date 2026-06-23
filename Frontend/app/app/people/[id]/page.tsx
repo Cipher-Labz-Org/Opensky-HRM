@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, type FormEvent } fro
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, CountryAutocompleteInput, NationalityAutocompleteInput, OptionsAutocompleteInput, ListAutocompleteInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, CountryAutocompleteInput, NationalityAutocompleteInput, ListAutocompleteInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { isValidPhone, isValidNic, isValidDrivingLicense, PHONE_VALIDATION_MESSAGE, NIC_VALIDATION_MESSAGE, DRIVING_LICENSE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { inferStateFromDistrict } from "@/lib/geo-regions";
@@ -1045,7 +1045,7 @@ export default function EmployeeDetailPage() {
   const [showAttachModal, setShowAttachModal] = useState(false);
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const [attachDesc, setAttachDesc] = useState("");
-  const [attachTypeName, setAttachTypeName] = useState("");
+  const [attachTypeId, setAttachTypeId] = useState("");
   const [attachExpiry, setAttachExpiry] = useState("");
   const [attachmentTypeMasters, setAttachmentTypeMasters] = useState<AttachmentTypeItem[]>([]);
   const attachFileRef = useRef<HTMLInputElement>(null);
@@ -1222,12 +1222,12 @@ export default function EmployeeDetailPage() {
     setPdNameWithInitials(parts.join(" "));
   }, [pdFirstName, pdMiddleName, pdLastName]);
 
-  const attachmentTypeCatalogNames = useMemo(
+  const addAttachmentTypeOptions = useMemo(
     () =>
       [...attachmentTypeMasters]
         .filter((t) => t.isActive)
         .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name))
-        .map((t) => t.name),
+        .map((t) => ({ value: t.id, label: t.name })),
     [attachmentTypeMasters],
   );
 
@@ -1529,57 +1529,27 @@ export default function EmployeeDetailPage() {
     } catch { /* ignore */ }
   }
 
-  async function ensureAttachmentTypeId(typeName: string): Promise<{ id: string; code?: string }> {
-    const trimmed = typeName.trim();
-    if (!trimmed) throw new Error("Attachment type is required.");
-
-    const existing = attachmentTypeMasters.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
-    if (existing) {
-      if (!existing.isActive) throw new Error("This attachment type is inactive. Choose another or ask an admin.");
-      return { id: existing.id, code: existing.code };
-    }
-
-    let code = trimmed
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, "_")
-      .replace(/^_|_$/g, "")
-      .slice(0, 32) || "CUSTOM";
-    let suffix = 0;
-    while (attachmentTypeMasters.some((t) => t.code === code) && suffix < 8) {
-      suffix += 1;
-      code = `${trimmed.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24) || "CUSTOM"}_${suffix}`;
-    }
-
-    const created = await apiFetch<AttachmentTypeItem>("/api/employees/profile-attachment-types", {
-      method: "POST",
-      body: JSON.stringify({
-        name: trimmed,
-        code,
-        isActive: true,
-        sortOrder: attachmentTypeMasters.length,
-      }),
-    });
-    setAttachmentTypeMasters((prev) => [...prev, created]);
-    return { id: created.id, code: created.code };
-  }
-
   async function uploadAttachment() {
     if (!attachFile) {
       await appAlert("Please choose a file to upload.");
       return;
     }
-    if (!attachTypeName.trim()) {
-      await appAlert("Please enter or select an attachment type.");
+    if (!attachTypeId) {
+      await appAlert("Please select an attachment type.");
+      return;
+    }
+    const type = attachmentTypeMasters.find((t) => t.id === attachTypeId);
+    if (!type?.isActive) {
+      await appAlert("Please select a valid attachment type.");
       return;
     }
     setAttachUploading(true);
     try {
-      const { id: typeId, code: typeCode } = await ensureAttachmentTypeId(attachTypeName);
       const fd = new FormData();
       fd.append("file", attachFile, attachFile.name);
-      fd.append("attachmentTypeId", typeId);
-      if (typeCode) fd.append("attachmentTypeCode", typeCode);
-      fd.append("attachmentTypeName", attachTypeName.trim());
+      fd.append("attachmentTypeId", type.id);
+      if (type.code) fd.append("attachmentTypeCode", type.code);
+      fd.append("attachmentTypeName", type.name);
       if (attachDesc.trim()) fd.append("description", attachDesc.trim());
       if (attachExpiry.trim()) fd.append("expiryDate", attachExpiry.trim());
       const res = await fetch(`${API_BASE_URL}/api/employees/${id}/attachments`, {
@@ -1612,7 +1582,7 @@ export default function EmployeeDetailPage() {
       setShowAttachModal(false);
       setAttachFile(null);
       setAttachDesc("");
-      setAttachTypeName("");
+      setAttachTypeId("");
       setAttachExpiry("");
     } catch (err) {
       await appAlert(err instanceof Error ? err.message : "Upload failed");
@@ -3830,7 +3800,7 @@ export default function EmployeeDetailPage() {
         </form>
 
         {/* ── Add Attachment Modal ── */}
-        <Modal open={showAttachModal} onClose={() => { setShowAttachModal(false); setAttachFile(null); setAttachDesc(""); setAttachTypeName(""); setAttachExpiry(""); }} title="">
+        <Modal open={showAttachModal} onClose={() => { setShowAttachModal(false); setAttachFile(null); setAttachDesc(""); setAttachTypeId(""); setAttachExpiry(""); }} title="">
           <div>
             <h3 className="text-lg font-semibold text-slate-700">Add Attachment</h3>
             <div className="mt-3 border-t border-slate-200 pt-4">
@@ -3870,14 +3840,19 @@ export default function EmployeeDetailPage() {
               <label className="mb-1 block text-sm font-semibold text-slate-600">
                 Attachment type<span className="text-blue-500">*</span>
               </label>
-              <ListAutocompleteInput
-                name="attachTypeName"
-                value={attachTypeName}
-                onChange={setAttachTypeName}
-                options={attachmentTypeCatalogNames}
-                placeholder="Type or choose attachment type"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              <FormSelect
+                value={attachTypeId}
+                onValueChange={setAttachTypeId}
+                options={addAttachmentTypeOptions}
+                placeholder="-- Select attachment type --"
+                clearable={false}
+                required
               />
+              {addAttachmentTypeOptions.length === 0 && (
+                <p className="mt-1.5 text-xs text-amber-700">
+                  No attachment types configured. Add them in Settings → Profile attachment types.
+                </p>
+              )}
             </div>
             <div className="mt-4">
               <label className="mb-1 block text-sm font-semibold text-slate-600">Expiry date</label>
@@ -3903,7 +3878,7 @@ export default function EmployeeDetailPage() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => { setShowAttachModal(false); setAttachFile(null); setAttachDesc(""); setAttachTypeName(""); setAttachExpiry(""); }}
+                    onClick={() => { setShowAttachModal(false); setAttachFile(null); setAttachDesc(""); setAttachTypeId(""); setAttachExpiry(""); }}
                     className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
                   >
                     Cancel
@@ -3911,7 +3886,7 @@ export default function EmployeeDetailPage() {
                   <button
                     type="button"
                     onClick={uploadAttachment}
-                    disabled={!attachFile || !attachTypeName.trim() || attachUploading}
+                    disabled={!attachFile || !attachTypeId || attachUploading}
                     className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50"
                   >
                     {attachUploading ? "Saving..." : "Save"}
@@ -3964,7 +3939,7 @@ export default function EmployeeDetailPage() {
               onAdd={() => {
                 setAttachFile(null);
                 setAttachDesc("");
-                setAttachTypeName("");
+                setAttachTypeId("");
                 setAttachExpiry("");
                 setShowAttachModal(true);
                 apiFetch<AttachmentTypeItem[]>("/api/employees/profile-attachment-types")
@@ -4007,12 +3982,14 @@ export default function EmployeeDetailPage() {
                       </td>
                       <td className="max-w-0 px-3 py-2.5 align-middle text-slate-600">
                         {editingAttach === att.id ? (
-                          <OptionsAutocompleteInput
+                          <FormSelect
                             value={editAttachTypeId}
-                            onChange={setEditAttachTypeId}
-                            className="!min-h-0 w-full max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs shadow-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/30"
-                            placeholder="Type to search…"
+                            onValueChange={setEditAttachTypeId}
                             options={editAttachmentTypeOptions}
+                            placeholder="-- Select --"
+                            clearable={false}
+                            className="!h-8 min-w-0 text-xs"
+                            tone="slate"
                           />
                         ) : (
                           <span className="block truncate" title={att.attachmentTypeName ?? undefined}>
