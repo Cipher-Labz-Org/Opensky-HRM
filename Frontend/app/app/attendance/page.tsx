@@ -45,6 +45,7 @@ interface AttendanceDailySummary {
 
 const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 const inputClass = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20";
+const filterControlClass = `${inputClass} h-[42px]`;
 
 // ──────────────────────────── Shared types ────────────────────────────
 
@@ -101,6 +102,142 @@ interface EmployeeLookup {
   locationName: string | null;
 }
 
+interface OrgLookup {
+  id: string;
+  name: string;
+}
+
+const ATTENDANCE_STATUS_OPTIONS: FormSelectOption[] = [
+  { value: "", label: "All statuses" },
+  { value: "Present", label: "Present" },
+  { value: "Late", label: "Late" },
+  { value: "Absent", label: "Absent" },
+  { value: "HalfDay", label: "Half Day" },
+  { value: "On Leave", label: "On Leave" },
+];
+
+const ATTENDANCE_SOURCE_OPTIONS: FormSelectOption[] = [
+  { value: "", label: "All sources" },
+  { value: "Biometric", label: "Biometric" },
+  { value: "Web", label: "Web" },
+  { value: "Mobile", label: "Mobile" },
+  { value: "Manual", label: "Manual" },
+  { value: "System", label: "System" },
+];
+
+type AttendanceSortKey =
+  | "employee"
+  | "date"
+  | "punchIn"
+  | "punchOut"
+  | "hours"
+  | "status"
+  | "source"
+  | "shift";
+
+function AttendanceSortHeader({
+  label,
+  sortKey,
+  activeKey,
+  asc,
+  onSort,
+  className = "",
+}: {
+  label: string;
+  sortKey: AttendanceSortKey;
+  activeKey: AttendanceSortKey;
+  asc: boolean;
+  onSort: (k: AttendanceSortKey) => void;
+  className?: string;
+}) {
+  const active = activeKey === sortKey;
+  return (
+    <th className={`px-3 py-2.5 text-left font-semibold text-slate-600 first:pl-4 ${className}`.trim()}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex max-w-full items-center gap-1 rounded px-0.5 py-0.5 -mx-0.5 text-left transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/50"
+      >
+        <span className="min-w-0">{label}</span>
+        {active && (
+          <span className="shrink-0 text-slate-400" aria-hidden>
+            {asc ? (
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+              </svg>
+            ) : (
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            )}
+          </span>
+        )}
+      </button>
+    </th>
+  );
+}
+
+function defaultSortAscForKey(key: AttendanceSortKey): boolean {
+  return key === "employee" || key === "status" || key === "source" || key === "shift";
+}
+
+function toApiSortKey(key: AttendanceSortKey): string {
+  switch (key) {
+    case "punchIn":
+      return "punchin";
+    case "punchOut":
+      return "punchout";
+    default:
+      return key;
+  }
+}
+
+function sortAttendanceRecords(
+  records: AttendanceRecord[],
+  key: AttendanceSortKey,
+  asc: boolean
+): AttendanceRecord[] {
+  if (records.length <= 1) return records;
+
+  const dir = asc ? 1 : -1;
+  return [...records].sort((a, b) => {
+    let cmp = 0;
+    switch (key) {
+      case "employee":
+        cmp = a.employeeName.localeCompare(b.employeeName, undefined, { sensitivity: "base" });
+        break;
+      case "date":
+        cmp = a.date.localeCompare(b.date);
+        break;
+      case "punchIn":
+        cmp = (a.punchIn ?? "").localeCompare(b.punchIn ?? "");
+        break;
+      case "punchOut":
+        cmp = (a.punchOut ?? "").localeCompare(b.punchOut ?? "");
+        break;
+      case "hours":
+        cmp = (a.workedHours ?? -1) - (b.workedHours ?? -1);
+        break;
+      case "status":
+        cmp = a.status.localeCompare(b.status, undefined, { sensitivity: "base" });
+        break;
+      case "source":
+        cmp = (a.source ?? "").localeCompare(b.source ?? "", undefined, { sensitivity: "base" });
+        break;
+      case "shift":
+        cmp = (a.shiftName ?? "").localeCompare(b.shiftName ?? "", undefined, { sensitivity: "base" });
+        break;
+    }
+    if (cmp === 0) {
+      cmp = a.date.localeCompare(b.date);
+      if (cmp === 0) {
+        cmp = a.employeeName.localeCompare(b.employeeName, undefined, { sensitivity: "base" });
+      }
+    }
+    return cmp * dir;
+  });
+}
+
 function timeSpanToInput(value: string): string {
   if (!value) return "";
   const part = value.split(":").slice(0, 2).join(":");
@@ -150,10 +287,7 @@ export default function AttendancePage() {
 
   return (
     <>
-      <AppTopbar
-        title="Time & Attendance"
-        subtitle="Shift patterns, rosters, mobile/web punch, biometrics integration, overtime, and anomaly detection."
-      />
+      <AppTopbar title="Time & Attendance" />
 
       <div className="mt-6 mb-6 flex flex-wrap items-center gap-2">
         {PAGE_TABS.map((t) => (
@@ -198,6 +332,50 @@ export default function AttendancePage() {
   );
 }
 
+function emptyAttendanceSummary(): AttendanceSummary {
+  return { totalPresent: 0, totalAbsent: 0, totalLate: 0, totalNoPunch: 0, averageWorkHours: 0 };
+}
+
+function summaryFromDailyRow(row: AttendanceDailySummary, averageWorkHours = 0): AttendanceSummary {
+  return {
+    totalPresent: row.totalPresent,
+    totalAbsent: row.totalAbsent,
+    totalLate: row.totalLate,
+    totalNoPunch: row.totalNoPunch,
+    averageWorkHours,
+  };
+}
+
+function averageWorkedHours(items: AttendanceRecord[]): number {
+  const hours = items
+    .map((r) => r.workedHours)
+    .filter((h): h is number => h != null && Number.isFinite(h));
+  if (hours.length === 0) return 0;
+  return hours.reduce((sum, h) => sum + h, 0) / hours.length;
+}
+
+async function loadTodaySummary(
+  today: string,
+  dailySummaries: AttendanceDailySummary[],
+): Promise<AttendanceSummary> {
+  try {
+    return await apiFetch<AttendanceSummary>(`/api/attendance/summary?from=${today}&to=${today}`);
+  } catch {
+    const dayRow = dailySummaries.find((s) => s.date.split("T")[0] === today);
+    let hoursSource: AttendanceRecord[] = [];
+    try {
+      const res = await apiFetch<{ items: AttendanceRecord[] }>(
+        `/api/attendance?pageSize=100&from=${today}&to=${today}`
+      );
+      hoursSource = res.items ?? [];
+    } catch {
+      /* optional — KPI counts still come from daily summary */
+    }
+    const avg = averageWorkedHours(hoursSource);
+    return dayRow ? summaryFromDailyRow(dayRow, avg) : emptyAttendanceSummary();
+  }
+}
+
 // ──────────────────────────── Dashboard ────────────────────────────
 
 function DashboardTab({
@@ -208,6 +386,7 @@ function DashboardTab({
   onLogAttendance: () => void;
 }) {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [summary, setSummary] = useState<AttendanceSummary | null>(null);
   const [weekActivity, setWeekActivity] = useState<{ label: string; count: number }[]>([]);
   const [recentRows, setRecentRows] = useState<
@@ -218,16 +397,17 @@ function DashboardTab({
     let cancelled = false;
     async function load() {
       setLoading(true);
+      setLoadError(null);
       const today = todayLocalIso();
       const weekFrom = todayLocalIso(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
       try {
-        const [todaySummary, dailySummaries, recentRes] = await Promise.all([
-          apiFetch<AttendanceSummary>(`/api/attendance/summary?from=${today}&to=${today}`).catch(() => null),
+        const [dailySummaries, recentRes] = await Promise.all([
           apiFetch<AttendanceDailySummary[]>(`/api/attendance/summary/daily?from=${weekFrom}&to=${today}`).catch(() => []),
           apiFetch<{ items: AttendanceRecord[] }>(`/api/attendance?pageSize=8&from=${today}&to=${today}`).catch(() => ({
             items: [] as AttendanceRecord[],
           })),
         ]);
+        const todaySummary = await loadTodaySummary(today, dailySummaries ?? []);
         if (cancelled) return;
         setSummary(todaySummary);
         const byDate = new Map(
@@ -255,6 +435,11 @@ function DashboardTab({
             })
             .slice(0, 8)
         );
+      } catch (e) {
+        if (!cancelled) {
+          setSummary(null);
+          setLoadError(e instanceof Error ? e.message : "Unable to load attendance summary.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -284,38 +469,32 @@ function DashboardTab({
       summary.averageWorkHours != null && Number.isFinite(summary.averageWorkHours)
         ? summary.averageWorkHours.toFixed(1)
         : "—";
-    const denom = Math.max(1, summary.totalPresent + summary.totalAbsent);
-    const presentRate = Math.round((summary.totalPresent / denom) * 100);
     return [
       {
         label: "Present (incl. late)",
         value: formatInt(summary.totalPresent),
-        sub: `${presentRate}% of present + absent records today`,
       },
       {
         label: "Late arrivals",
         value: formatInt(summary.totalLate),
-        sub: "Marked late for today’s window",
       },
       {
         label: "Absent",
         value: formatInt(summary.totalAbsent),
-        sub: "No check-in for scheduled work",
       },
       {
         label: "Avg. work hours",
         value: avg,
-        sub: "Mean recorded hours where punches exist",
       },
     ];
   }, [summary]);
 
-  const quickLinks: { tab: PageTab; title: string; sub: string }[] = [
-    { tab: "shifts", title: "Shifts", sub: "Shift patterns and timings" },
-    { tab: "roster", title: "Roster", sub: "Assignments and coverage" },
-    { tab: "attendance", title: "Attendance log", sub: "Punch history and corrections" },
-    { tab: "devices", title: "Devices", sub: "Biometric and integration endpoints" },
-    { tab: "ot-nopay", title: "OT / No-pay", sub: "Overtime and unpaid time rules" },
+  const quickLinks: { tab: PageTab; title: string }[] = [
+    { tab: "shifts", title: "Shifts" },
+    { tab: "roster", title: "Roster" },
+    { tab: "attendance", title: "Attendance log" },
+    { tab: "devices", title: "Devices" },
+    { tab: "ot-nopay", title: "OT / No-pay" },
   ];
 
   const timelineItems = useMemo(
@@ -341,7 +520,7 @@ function DashboardTab({
   if (!summary) {
     return (
       <p className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-sm text-slate-500 shadow-sm">
-        Unable to load attendance summary. Check your connection and Attendance module access.
+        {loadError ?? "Unable to load attendance summary. Check your connection and Attendance module access."}
       </p>
     );
   }
@@ -364,16 +543,13 @@ function DashboardTab({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Check-in volume</h3>
-            <span className="text-xs text-slate-500">Last 7 days</span>
           </div>
           <WeeklyActivityBars data={weekActivity} />
-          <p className="mt-2 text-[11px] text-slate-500">Daily count of present + late records from the attendance summary API.</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Today’s mix</h3>
-            <span className="text-xs text-slate-500">By status</span>
           </div>
           {statusBars.every((x) => x.value === 0) ? (
             <p className="py-8 text-center text-sm text-slate-500">No attendance rows for today yet.</p>
@@ -385,7 +561,6 @@ function DashboardTab({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Status distribution</h3>
-            <span className="text-xs text-slate-500">Today</span>
           </div>
           {donutValues.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">No distribution data.</p>
@@ -395,37 +570,11 @@ function DashboardTab({
         </div>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-slate-800">Capture channels</h3>
-          <span className="text-xs text-slate-500">Supported</span>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {[
-            ["Biometric devices", "Fingerprint / face terminals"],
-            ["Mobile geo-punch", "Field and remote workers"],
-            ["Web punch", "Desk and back office"],
-          ].map(([t, s]) => (
-            <div
-              key={t}
-              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 text-slate-700"
-            >
-              <div>
-                <div className="font-semibold text-slate-800">{t}</div>
-                <div className="text-xs text-slate-500">{s}</div>
-              </div>
-              <span className="shrink-0 text-emerald-600">✓</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-base font-semibold text-slate-900">Recent punches</h3>
-              <p className="text-xs text-slate-500">Latest activity for today (where available)</p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
@@ -469,7 +618,6 @@ function DashboardTab({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
-            <p className="text-xs text-slate-500">Jump to time and attendance workflows</p>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
             {quickLinks.map((link) => (
@@ -492,11 +640,6 @@ function DashboardTab({
           </div>
         </div>
       </div>
-
-      <p className="footer-note">
-        Summary and charts use today’s date in your browser timezone. Weekly bars call the attendance summary API per day;
-        open Attendance for filtered history and exports.
-      </p>
     </>
   );
 }
@@ -538,6 +681,16 @@ function AttendanceListTab() {
   const employeeSearchFilter = useApplyFilter();
   const [filterFrom, setFilterFrom] = useState(() => todayLocalIso());
   const [filterTo, setFilterTo] = useState(() => todayLocalIso());
+  const [filterDepartmentId, setFilterDepartmentId] = useState("");
+  const [filterLocationId, setFilterLocationId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterSource, setFilterSource] = useState("");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [sortBy, setSortBy] = useState<AttendanceSortKey>("date");
+  const [sortAsc, setSortAsc] = useState(false);
+  const [departments, setDepartments] = useState<OrgLookup[]>([]);
+  const [locations, setLocations] = useState<OrgLookup[]>([]);
+  const [lookupsLoaded, setLookupsLoaded] = useState(false);
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
   const [employeesLoaded, setEmployeesLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -557,6 +710,43 @@ function AttendanceListTab() {
     [employees]
   );
 
+  const departmentOptions = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All departments" }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
+    [departments]
+  );
+
+  const locationOptions = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All locations" }, ...locations.map((l) => ({ value: l.id, label: l.name }))],
+    [locations]
+  );
+
+  const advancedFilterCount = useMemo(
+    () => [filterDepartmentId, filterLocationId, filterStatus, filterSource].filter(Boolean).length,
+    [filterDepartmentId, filterLocationId, filterStatus, filterSource]
+  );
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(totalCount / pageSize)),
+    [totalCount, pageSize]
+  );
+
+  const displayRecords = useMemo(
+    () => sortAttendanceRecords(records, sortBy, sortAsc),
+    [records, sortBy, sortAsc]
+  );
+
+  const loadLookups = useCallback(() => {
+    if (lookupsLoaded) return;
+    Promise.all([
+      apiFetch<OrgLookup[]>("/api/organization/departments").catch(() => []),
+      apiFetch<OrgLookup[]>("/api/organization/locations").catch(() => []),
+    ]).then(([depts, locs]) => {
+      setDepartments(depts ?? []);
+      setLocations(locs ?? []);
+      setLookupsLoaded(true);
+    });
+  }, [lookupsLoaded]);
+
   const loadEmployees = useCallback(() => {
     if (employeesLoaded) return;
     apiFetch<{ items: EmployeeLookup[] }>("/api/employees?pageSize=200")
@@ -568,15 +758,24 @@ function AttendanceListTab() {
   }, [employeesLoaded]);
 
   const load = useCallback(
-    (options?: { silent?: boolean }) => {
+    (options?: { silent?: boolean; sortKey?: AttendanceSortKey; sortAscending?: boolean; pageNum?: number }) => {
       const silent = options?.silent ?? false;
+      const activeSortBy = options?.sortKey ?? sortBy;
+      const activeSortAsc = options?.sortAscending ?? sortAsc;
+      const activePage = options?.pageNum ?? page;
       if (silent) setRefreshing(true);
       else setLoading(true);
       setError(null);
-      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      const params = new URLSearchParams({ page: String(activePage), pageSize: String(pageSize) });
       if (filterEmployee) params.set("employeeId", filterEmployee);
       if (filterFrom) params.set("from", filterFrom);
       if (filterTo) params.set("to", filterTo);
+      if (filterDepartmentId) params.set("departmentId", filterDepartmentId);
+      if (filterLocationId) params.set("locationId", filterLocationId);
+      if (filterStatus) params.set("status", filterStatus);
+      if (filterSource) params.set("source", filterSource);
+      params.set("sortBy", toApiSortKey(activeSortBy));
+      params.set("sortDir", activeSortAsc ? "asc" : "desc");
       apiFetch<{ items: AttendanceRecord[]; totalCount: number }>(`/api/attendance?${params}`)
         .then((r) => {
           setRecords(r.items ?? []);
@@ -589,12 +788,16 @@ function AttendanceListTab() {
           else setLoading(false);
         });
     },
-    [page, filterEmployee, filterFrom, filterTo]
+    [page, filterEmployee, filterFrom, filterTo, filterDepartmentId, filterLocationId, filterStatus, filterSource, sortBy, sortAsc]
   );
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   useEffect(() => {
     const timer = window.setInterval(() => load({ silent: true }), 30_000);
@@ -635,8 +838,6 @@ function AttendanceListTab() {
     }
   }
 
-  const totalPages = Math.ceil(totalCount / pageSize);
-
   function applyEmployeeFilter() {
     const q = employeeSearchFilter.apply().toLowerCase();
     if (!q) {
@@ -655,56 +856,159 @@ function AttendanceListTab() {
     ? employeeOptions.find((opt) => opt.id === filterEmployee)?.label
     : null;
 
+  function clearAllFilters() {
+    employeeSearchFilter.clear();
+    setFilterEmployee("");
+    setFilterFrom("");
+    setFilterTo("");
+    setFilterDepartmentId("");
+    setFilterLocationId("");
+    setFilterStatus("");
+    setFilterSource("");
+    setSortBy("date");
+    setSortAsc(false);
+    setPage(1);
+  }
+
+  function handleSortColumn(key: AttendanceSortKey) {
+    const nextAsc = sortBy === key ? !sortAsc : defaultSortAscForKey(key);
+    setSortBy(key);
+    setSortAsc(nextAsc);
+    setPage(1);
+  }
+
+  function toggleAdvancedFilters() {
+    setShowAdvancedFilters((open) => {
+      if (!open) loadLookups();
+      return !open;
+    });
+  }
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className={labelClass}>Employee</label>
-          <input
-            value={employeeSearchFilter.input}
-            onFocus={loadEmployees}
-            onChange={(e) => employeeSearchFilter.setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") applyEmployeeFilter();
-            }}
-            list="attendance-employee-filter-options"
-            placeholder="Name or code… (Enter)"
-            className={`${inputClass} w-56`}
-          />
-          <datalist id="attendance-employee-filter-options">
-            {employeeOptions.map((opt) => (
-              <option key={opt.id} value={opt.label} />
-            ))}
-          </datalist>
-          {activeEmployeeLabel && (
-            <p className="mt-1 text-xs text-slate-500">
-              Filtering: <span className="font-medium text-slate-700">{activeEmployeeLabel}</span>
-            </p>
-          )}
+    <div className="space-y-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="w-56 shrink-0">
+            <label className={labelClass}>Employee</label>
+            <input
+              value={employeeSearchFilter.input}
+              onFocus={loadEmployees}
+              onChange={(e) => employeeSearchFilter.setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyEmployeeFilter();
+              }}
+              list="attendance-employee-filter-options"
+              placeholder="Name or code… (Enter)"
+              className={`${filterControlClass} w-full`}
+            />
+            <datalist id="attendance-employee-filter-options">
+              {employeeOptions.map((opt) => (
+                <option key={opt.id} value={opt.label} />
+              ))}
+            </datalist>
+          </div>
+          <div className="w-40 shrink-0">
+            <label className={labelClass}>From</label>
+            <DatePickerField value={filterFrom} onChange={(v) => { setFilterFrom(v); setPage(1); }} className={`${filterControlClass} w-full rounded-lg py-0`} />
+          </div>
+          <div className="w-40 shrink-0">
+            <label className={labelClass}>To</label>
+            <DatePickerField value={filterTo} onChange={(v) => { setFilterTo(v); setPage(1); }} className={`${filterControlClass} w-full rounded-lg py-0`} />
+          </div>
+          <button
+            type="button"
+            onClick={toggleAdvancedFilters}
+            className={`relative flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-lg border transition ${
+              showAdvancedFilters || advancedFilterCount > 0
+                ? "border-blue-400 bg-blue-50 text-blue-600"
+                : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600"
+            }`}
+            title={showAdvancedFilters ? "Hide advanced filters" : "Advanced filters"}
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+            {advancedFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
+                {advancedFilterCount}
+              </span>
+            )}
+          </button>
+          <Button variant="secondary" className="shrink-0" onClick={clearAllFilters}>Clear</Button>
+          <Button variant="secondary" className="shrink-0" onClick={() => load()} disabled={loading || refreshing}>
+            Refresh
+          </Button>
         </div>
-        <div>
-          <label className={labelClass}>From</label>
-          <DatePickerField value={filterFrom} onChange={(v) => { setFilterFrom(v); setPage(1); }} className={`${inputClass} w-40`} />
-        </div>
-        <div>
-          <label className={labelClass}>To</label>
-          <DatePickerField value={filterTo} onChange={(v) => { setFilterTo(v); setPage(1); }} className={`${inputClass} w-40`} />
-        </div>
-        <Button variant="secondary" onClick={() => { employeeSearchFilter.clear(); setFilterEmployee(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}>Clear</Button>
-        <Button variant="secondary" onClick={() => load()} disabled={loading || refreshing}>
-          Refresh
-        </Button>
-        <div className="ml-auto flex items-center gap-3">
+
+        <div className="flex flex-wrap items-center gap-3 lg:justify-end">
           {lastRefreshedAt && (
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-slate-400 whitespace-nowrap">
               Updated {lastRefreshedAt.toLocaleTimeString("en-LK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               {refreshing ? " · syncing…" : " · auto 30s"}
             </span>
           )}
-          <Button onClick={() => setShowCreate(true)}>+ Log Attendance</Button>
+          <Button className="shrink-0" onClick={() => setShowCreate(true)}>+ Log Attendance</Button>
         </div>
       </div>
-      <p className="text-xs text-slate-500 -mt-2">
+
+      {activeEmployeeLabel && (
+        <p className="text-xs text-slate-500">
+          Filtering: <span className="font-medium text-slate-700">{activeEmployeeLabel}</span>
+        </p>
+      )}
+
+      {showAdvancedFilters && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Advanced filters</p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="min-w-0">
+              <label className={labelClass}>Department</label>
+              <FormSelect
+                value={filterDepartmentId}
+                onValueChange={(v) => { setFilterDepartmentId(v); setPage(1); }}
+                options={departmentOptions}
+                placeholder="All departments"
+                className="w-full rounded-lg"
+                tone="slate"
+              />
+            </div>
+            <div className="min-w-0">
+              <label className={labelClass}>Location</label>
+              <FormSelect
+                value={filterLocationId}
+                onValueChange={(v) => { setFilterLocationId(v); setPage(1); }}
+                options={locationOptions}
+                placeholder="All locations"
+                className="w-full rounded-lg"
+                tone="slate"
+              />
+            </div>
+            <div className="min-w-0">
+              <label className={labelClass}>Status</label>
+              <FormSelect
+                value={filterStatus}
+                onValueChange={(v) => { setFilterStatus(v); setPage(1); }}
+                options={ATTENDANCE_STATUS_OPTIONS}
+                placeholder="All statuses"
+                className="w-full rounded-lg"
+                tone="slate"
+              />
+            </div>
+            <div className="min-w-0">
+              <label className={labelClass}>Source</label>
+              <FormSelect
+                value={filterSource}
+                onValueChange={(v) => { setFilterSource(v); setPage(1); }}
+                options={ATTENDANCE_SOURCE_OPTIONS}
+                placeholder="All sources"
+                className="w-full rounded-lg"
+                tone="slate"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+      <p className="text-xs text-slate-500">
         Biometric rows show earliest punch as <strong>Punch In</strong> and latest as <strong>Punch Out</strong> for the day. New device punches can take up to a minute to appear.
       </p>
 
@@ -717,14 +1021,14 @@ function AttendanceListTab() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-left">
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Employee</th>
-                <th className="px-3 py-2.5 font-semibold text-slate-600">Date</th>
-                <th className="px-3 py-2.5 font-semibold text-slate-600">Punch In</th>
-                <th className="px-3 py-2.5 font-semibold text-slate-600">Punch Out</th>
-                <th className="px-3 py-2.5 font-semibold text-slate-600">Hours</th>
-                <th className="px-3 py-2.5 font-semibold text-slate-600">Status</th>
-                <th className="px-3 py-2.5 font-semibold text-slate-600">Source</th>
-                <th className="px-3 py-2.5 font-semibold text-slate-600">Shift</th>
+                <AttendanceSortHeader label="Employee" sortKey="employee" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} className="pl-4" />
+                <AttendanceSortHeader label="Date" sortKey="date" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                <AttendanceSortHeader label="Punch In" sortKey="punchIn" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                <AttendanceSortHeader label="Punch Out" sortKey="punchOut" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                <AttendanceSortHeader label="Hours" sortKey="hours" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                <AttendanceSortHeader label="Status" sortKey="status" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                <AttendanceSortHeader label="Source" sortKey="source" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                <AttendanceSortHeader label="Shift" sortKey="shift" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
                 <th className="px-3 py-2.5 font-semibold text-slate-600">Flags</th>
                 <th className="px-3 py-2.5 font-semibold text-slate-600">Actions</th>
               </tr>
@@ -732,7 +1036,7 @@ function AttendanceListTab() {
             <tbody className={`divide-y divide-slate-100 ${refreshing ? "opacity-80" : ""}`}>
               {loading && <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-400">Loading...</td></tr>}
               {!loading && records.length === 0 && <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-400">No attendance records found.</td></tr>}
-              {!loading && records.map((r) => (
+              {!loading && displayRecords.map((r) => (
                 <tr key={r.id && r.id !== "00000000-0000-0000-0000-000000000000" ? String(r.id) : `${r.employeeId}-${r.date}`} className="hover:bg-slate-50/50">
                   <td className="px-4 py-2.5 font-medium text-slate-700">
                     {r.employeeName}
@@ -773,15 +1077,14 @@ function AttendanceListTab() {
             </tbody>
           </table>
         </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3">
-            <span className="text-xs text-slate-500">Page {page} of {totalPages} ({totalCount} records)</span>
-            <div className="flex gap-2">
-              <Button variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-              <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
-            </div>
-          </div>
-        )}
+        <TablePagination
+          page={page}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          alwaysShow
+        />
       </div>
 
       <Modal open={editModal} onClose={() => setEditModal(false)} title="Edit Attendance Record">
@@ -1519,8 +1822,7 @@ function ShiftsTab() {
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <h4 className="mb-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Applicable Days</h4>
-            <p className="mb-3 text-xs text-slate-500">Select which days this shift applies. Optionally set custom start/end times per day (e.g. 7h or 4h); leave blank to use default times above.</p>
+            <h4 className="mb-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Applicable Days</h4>
             <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
               <table className="w-full min-w-[420px] text-sm">
                 <thead>
@@ -1980,7 +2282,6 @@ function RosterTab() {
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div className="border-b border-slate-100 px-6 py-4">
             <h2 className="text-[15px] font-bold text-slate-700">Roster templates</h2>
-            <p className="mt-1 text-xs text-slate-500">Default times, hours per day, optional link to a shift pattern.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2048,7 +2349,6 @@ function RosterTab() {
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div className="border-b border-slate-100 px-6 py-4">
             <h2 className="text-[15px] font-bold text-slate-700">Roster assignments</h2>
-            <p className="mt-1 text-xs text-slate-500">Date ranges must not overlap for the same employee.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2099,24 +2399,20 @@ function RosterTab() {
               <option value="">None</option>
               {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
             </select>
-            <p className="mt-1 text-xs text-slate-500">When set, start/end times and work hours are taken from the shift.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelClass}>{tplShiftId ? "Default start" : "Default start *"}</label>
               <input type="time" value={tplStart} onChange={(e) => setTplStart(e.target.value)} readOnly={!!tplShiftId} className={inputClass} />
-              {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
             </div>
             <div>
               <label className={labelClass}>{tplShiftId ? "Default end" : "Default end *"}</label>
               <input type="time" value={tplEnd} onChange={(e) => setTplEnd(e.target.value)} readOnly={!!tplShiftId} className={inputClass} />
-              {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
             </div>
           </div>
           <div>
             <label className={labelClass}>Work hours per day</label>
             <input type="number" min={0} step={0.25} value={tplHours} onChange={(e) => setTplHours(Number(e.target.value) || 0)} readOnly={!!tplShiftId} className={inputClass} />
-            {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-600"><input name="isActive" type="checkbox" defaultChecked={editingTpl?.isActive ?? true} className="h-4 w-4 rounded border-slate-300" /> Active</label>
           <div className="flex justify-end gap-3 pt-2">

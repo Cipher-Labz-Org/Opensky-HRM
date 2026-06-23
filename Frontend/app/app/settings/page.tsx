@@ -9,6 +9,7 @@ import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal";
 import { apiFetch } from "@/lib/api";
+import { getSystemSetting } from "@/lib/system-settings";
 import { API_BASE_URL } from "@/config/constants";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
@@ -93,25 +94,30 @@ export default function SettingsPage() {
     );
   }, [editBU, editGrades, editJobs, editLocations, editStatuses, editEmpStatuses, editSkills, editAttachmentTypes]);
 
+  function applySystemSettings(settings: Record<string, string>) {
+    const autoGen = getSystemSetting(settings, "EmployeeCodeAutoGenerate");
+    if (autoGen !== undefined) setCodeAutoGen(autoGen !== "false");
+    const length = getSystemSetting(settings, "EmployeeCodeLength");
+    if (length !== undefined) setCodeLength(length);
+    const prefix = getSystemSetting(settings, "EmployeeCodePrefix");
+    if (prefix !== undefined) setCodePrefix(prefix);
+    setCompanyLogoUrl(getSystemSetting(settings, "CompanyLogoUrl") ?? "");
+    setCompanyName(getSystemSetting(settings, "CompanyName") ?? "");
+    setCompanyAddress1(getSystemSetting(settings, "CompanyAddress1") ?? "");
+    setCompanyAddress2(getSystemSetting(settings, "CompanyAddress2") ?? "");
+    setCompanyCity(getSystemSetting(settings, "CompanyCity") ?? "");
+    setCompanyState(getSystemSetting(settings, "CompanyState") ?? "");
+    setCompanyCountry(getSystemSetting(settings, "CompanyCountry") ?? "");
+    setCompanyPostalCode(getSystemSetting(settings, "CompanyPostalCode") ?? "");
+    setCompanyPhone(getSystemSetting(settings, "CompanyPhone") ?? "");
+    setCompanyEmail(getSystemSetting(settings, "CompanyEmail") ?? "");
+    setCompanyWebsite(getSystemSetting(settings, "CompanyWebsite") ?? "");
+    setCompanyRegNo(getSystemSetting(settings, "CompanyRegNo") ?? "");
+  }
+
   useEffect(() => {
     apiFetch<Record<string, string>>("/api/system-settings")
-      .then((settings) => {
-        if (settings.EmployeeCodeAutoGenerate) setCodeAutoGen(settings.EmployeeCodeAutoGenerate !== "false");
-        if (settings.EmployeeCodeLength) setCodeLength(settings.EmployeeCodeLength);
-        if (settings.EmployeeCodePrefix) setCodePrefix(settings.EmployeeCodePrefix);
-        if (settings.CompanyLogoUrl) setCompanyLogoUrl(settings.CompanyLogoUrl);
-        if (settings.CompanyName) setCompanyName(settings.CompanyName);
-        if (settings.CompanyAddress1) setCompanyAddress1(settings.CompanyAddress1);
-        if (settings.CompanyAddress2) setCompanyAddress2(settings.CompanyAddress2);
-        if (settings.CompanyCity) setCompanyCity(settings.CompanyCity);
-        if (settings.CompanyState) setCompanyState(settings.CompanyState);
-        if (settings.CompanyCountry) setCompanyCountry(settings.CompanyCountry);
-        if (settings.CompanyPostalCode) setCompanyPostalCode(settings.CompanyPostalCode);
-        if (settings.CompanyPhone) setCompanyPhone(settings.CompanyPhone);
-        if (settings.CompanyEmail) setCompanyEmail(settings.CompanyEmail);
-        if (settings.CompanyWebsite) setCompanyWebsite(settings.CompanyWebsite);
-        if (settings.CompanyRegNo) setCompanyRegNo(settings.CompanyRegNo);
-      })
+      .then(applySystemSettings)
       .catch(() => {});
   }, []);
 
@@ -175,6 +181,8 @@ export default function SettingsPage() {
         apiFetch("/api/system-settings/CompanyWebsite", { method: "PUT", body: JSON.stringify({ value: companyWebsite }) }),
         apiFetch("/api/system-settings/CompanyRegNo", { method: "PUT", body: JSON.stringify({ value: companyRegNo }) }),
       ]);
+      const settings = await apiFetch<Record<string, string>>("/api/system-settings");
+      applySystemSettings(settings);
       setCompanyMsg("Company details saved successfully");
       setTimeout(() => setCompanyMsg(""), 3000);
     } catch {
@@ -248,20 +256,17 @@ export default function SettingsPage() {
       {
         label: "Master data records",
         value: formatInt(totalMasterRecords),
-        sub: "BU, grades, jobs, locations, lookups…",
       },
       {
         label: "Leave approval depth",
         value: approvalLevels === 2 ? "2 levels" : "1 level",
-        sub: "Supervisor chain configuration",
       },
       {
         label: "Employee code mode",
         value: codeAutoGen ? "Auto" : "Manual",
-        sub: codeAutoGen ? `Preview ${codePreview}` : "Codes entered when creating employees",
       },
     ],
-    [totalMasterRecords, approvalLevels, codeAutoGen, codePreview]
+    [totalMasterRecords, approvalLevels, codeAutoGen]
   );
 
   const masterDataDistributionBars = useMemo(() => {
@@ -302,10 +307,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <AppTopbar
-        title="Policy, Security & Configuration"
-        subtitle="Workflow engine, role-based access, localization, statutory rules, and platform administration."
-      />
+      <AppTopbar title="Policy, Security & Configuration" />
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
         <div>
@@ -352,14 +354,12 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Master data footprint</h3>
-            <span className="text-xs text-slate-500">By list size</span>
           </div>
           <HorizontalCompareBars items={masterDataDistributionBars} />
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Catalog mix</h3>
-            <span className="text-xs text-slate-500">Top dimensions</span>
           </div>
           {masterDataDonut.some((d) => d.value > 0) ? (
             <DonutMixChart values={masterDataDonut} />
@@ -467,7 +467,6 @@ export default function SettingsPage() {
         <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="text-base font-semibold text-slate-900">Company logo</h3>
-            <p className="mt-0.5 text-sm text-slate-500">Upload once — it appears on the sign-in page.</p>
           </div>
         </div>
 
@@ -487,7 +486,6 @@ export default function SettingsPage() {
                   </svg>
                 </div>
                 <p className="text-sm font-medium text-slate-600">No logo yet</p>
-                <p className="max-w-[220px] text-xs leading-relaxed text-slate-400">PNG, JPG, SVG or WebP · max 5 MB · 200×200px or larger recommended</p>
               </div>
             )}
           </div>
@@ -538,53 +536,45 @@ export default function SettingsPage() {
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Company Name *</label>
               <input value={companyName} onChange={(e) => setCompanyName(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                placeholder="e.g. OpenSky Solutions (Pvt) Ltd" />
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Registration No.</label>
               <input value={companyRegNo} onChange={(e) => setCompanyRegNo(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                placeholder="e.g. PV 12345" />
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Address Line 1</label>
             <input value={companyAddress1} onChange={(e) => setCompanyAddress1(e.target.value)}
-              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              placeholder="Street address" />
+              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Address Line 2</label>
             <input value={companyAddress2} onChange={(e) => setCompanyAddress2(e.target.value)}
-              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              placeholder="Suite, building, floor (optional)" />
+              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">City</label>
               <input value={companyCity} onChange={(e) => setCompanyCity(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                placeholder="Colombo" />
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">State / Province</label>
               <input value={companyState} onChange={(e) => setCompanyState(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                placeholder="Western Province" />
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Postal Code</label>
               <input value={companyPostalCode} onChange={(e) => setCompanyPostalCode(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                placeholder="00100" />
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Country</label>
             <input value={companyCountry} onChange={(e) => setCompanyCountry(e.target.value)}
-              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              placeholder="Sri Lanka" />
+              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
@@ -595,15 +585,12 @@ export default function SettingsPage() {
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Email</label>
               <input value={companyEmail} onChange={(e) => setCompanyEmail(e.target.value)} type="email"
-                pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. info@company.com)"
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                placeholder="info@company.com" />
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Website</label>
               <input value={companyWebsite} onChange={(e) => setCompanyWebsite(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                placeholder="https://www.company.com" />
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
           </div>
           <div className="flex items-center justify-end gap-3 pt-1">

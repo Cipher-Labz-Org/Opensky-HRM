@@ -13,6 +13,15 @@ public class CustomerDataResetSqlBuilderTests
     }
 
     [Fact]
+    public void TransactionTruncateSql_WithCascade_ForPostgresForeignKeys()
+    {
+        var sql = CustomerDataResetSqlBuilder.BuildTransactionTruncateSql(
+            new[] { "PayStatements", "PayrollBatches" },
+            cascade: true);
+        Assert.Contains("TRUNCATE TABLE \"PayStatements\", \"PayrollBatches\" RESTART IDENTITY CASCADE;", sql);
+    }
+
+    [Fact]
     public void PurgeMatrix_DoesNotInclude_LicensingOrUsers_MasterData()
     {
         var tables = CustomerTransactionPurgeMatrix.TransactionTables;
