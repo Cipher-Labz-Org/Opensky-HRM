@@ -26,4 +26,12 @@
     <UserSecretsId>93e97f3f-42ae-4d3a-9d1e-303b8fdb8708</UserSecretsId>
   </PropertyGroup>
 
+  <!-- Example and dev settings stay in source for provisioning; never copy to IIS publish output. -->
+  <ItemGroup>
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+    <Content Update="appsettings.Local.example.json" CopyToPublishDirectory="Never" />
+    <Content Update="appsettings.Email.example.json" CopyToPublishDirectory="Never" />
+    <Content Update="appsettings.Production.*.example.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
 </Project>
