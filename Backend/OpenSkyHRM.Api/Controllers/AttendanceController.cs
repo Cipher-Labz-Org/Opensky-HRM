@@ -31,12 +31,19 @@ public class AttendanceController : ControllerBase
         [FromQuery] int pageSize = 20,
         [FromQuery] Guid? employeeId = null,
         [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null)
+        [FromQuery] DateTime? to = null,
+        [FromQuery] Guid? departmentId = null,
+        [FromQuery] Guid? locationId = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? source = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null)
     {
         if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
             return Forbid();
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        return Ok(await _attendanceService.GetAttendanceAsync(page, pageSize, employeeId, from, to, allowedIds));
+        return Ok(await _attendanceService.GetAttendanceAsync(
+            page, pageSize, employeeId, from, to, allowedIds, departmentId, locationId, status, source, sortBy, sortDir));
     }
 
     [HttpGet("summary")]

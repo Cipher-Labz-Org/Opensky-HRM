@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { TablePagination } from "@/components/ui";
 import { CreateEmployeeModal } from "@/components/forms/CreateEmployeeModal";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
@@ -127,6 +128,7 @@ const employmentTypeLabels: Record<string, string> = {
   PartTimeContract: "Part-Time Contract", PartTimeInternship: "Part-Time Internship", PartTimePermanent: "Part-Time Permanent",
 };
 const employmentTypeOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
+const PEOPLE_PAGE_SIZE = 10;
 
 export default function PeoplePage() {
   const router = useRouter();
@@ -138,7 +140,11 @@ export default function PeoplePage() {
   const [showFilters, setShowFilters] = useState(false);
   const [quickSearch, setQuickSearch] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchSuggestions, setSearchSuggestions] = useState<Employee[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionTotal, setSuggestionTotal] = useState(0);
   const searchRef = useRef<HTMLDivElement>(null);
+  const suggestDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(emptyFilters);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -195,7 +201,7 @@ export default function PeoplePage() {
     setLoading(true);
     const params = new URLSearchParams();
     params.set("page", String(p));
-    params.set("pageSize", "10");
+    params.set("pageSize", String(PEOPLE_PAGE_SIZE));
     params.set("sortBy", sortKey);
     params.set("sortDir", asc ? "asc" : "desc");
     if (f.search) params.set("search", f.search);
@@ -226,10 +232,17 @@ export default function PeoplePage() {
   }, [appliedFilters, page, activeOnly, sortBy, sortAsc, loadEmployees]);
 
   function handleQuickSearch() {
-    const next = { ...emptyFilters, search: quickSearch.trim() };
+    const term = quickSearch.trim();
+    if (!term) {
+      setAppliedFilters(emptyFilters);
+      setFilters(emptyFilters);
+      setPage(1);
+      setShowSuggestions(false);
+      return;
+    }
+    const next = { ...emptyFilters, search: term };
     setFilters(next);
     setAppliedFilters(next);
-    setQuickSearch("");
     setPage(1);
     setShowSuggestions(false);
   }
@@ -261,9 +274,39 @@ export default function PeoplePage() {
 
   const activeFilterCount = Object.values(appliedFilters).filter(Boolean).length;
 
-  const suggestions = quickSearch.trim().length >= 1
-    ? managers.filter((m) => m.name.toLowerCase().includes(quickSearch.toLowerCase())).slice(0, 8)
-    : [];
+  useEffect(() => {
+    if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
+    const q = quickSearch.trim();
+    if (q.length < 1) {
+      setSearchSuggestions([]);
+      setSuggestionTotal(0);
+      setSuggestionsLoading(false);
+      return;
+    }
+    setSuggestionsLoading(true);
+    suggestDebounceRef.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          pageSize: "8",
+          search: q,
+          excludeTerminated: activeOnly ? "true" : "false",
+        });
+        const r = await apiFetch<{ items: Employee[]; totalCount: number }>(
+          `/api/employees?${params.toString()}`
+        );
+        setSearchSuggestions(r.items);
+        setSuggestionTotal(r.totalCount);
+      } catch {
+        setSearchSuggestions([]);
+        setSuggestionTotal(0);
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 280);
+    return () => {
+      if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
+    };
+  }, [quickSearch, activeOnly]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -382,41 +425,52 @@ export default function PeoplePage() {
             <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            {showSuggestions && suggestions.length > 0 && (
+            {showSuggestions && quickSearch.trim().length >= 1 && (
               <div className="absolute left-0 top-full z-50 mt-1 w-[320px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Suggestions</div>
-                {suggestions.map((s) => {
-                  const emp = employees.find((e) => e.id === s.id);
-                  const initials = s.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
-                  const idx = s.name.toLowerCase().indexOf(quickSearch.toLowerCase());
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  {suggestionsLoading ? "Searching…" : "Suggestions"}
+                </div>
+                {!suggestionsLoading && searchSuggestions.length === 0 && (
+                  <div className="px-3 py-3 text-[12px] text-slate-500">
+                    No employees found{activeOnly ? " (active only)" : ""}.
+                    {activeOnly && (
+                      <span className="mt-1 block text-[11px] text-slate-400">
+                        Enable &quot;Include terminated / inactive employees&quot; in filters to widen results.
+                      </span>
+                    )}
+                  </div>
+                )}
+                {searchSuggestions.map((emp) => {
+                  const initials = emp.fullName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+                  const idx = emp.fullName.toLowerCase().indexOf(quickSearch.toLowerCase());
                   return (
                     <button
-                      key={s.id}
+                      key={emp.id}
                       className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-blue-50/60"
-                      onClick={() => { setShowSuggestions(false); router.push(`/app/people/${s.id}`); }}
+                      onClick={() => { setShowSuggestions(false); router.push(`/app/people/${emp.id}`); }}
                     >
-                      {emp?.profileImageUrl ? (
-                        <img src={`${API_BASE_URL}${emp.profileImageUrl}`} alt={s.name} className="h-7 w-7 rounded-full object-cover ring-1 ring-slate-200" />
+                      {emp.profileImageUrl ? (
+                        <img src={`${API_BASE_URL}${emp.profileImageUrl}`} alt={emp.fullName} className="h-7 w-7 rounded-full object-cover ring-1 ring-slate-200" />
                       ) : (
                         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-blue-50 ring-1 ring-slate-200 text-[9px] font-semibold text-slate-500">{initials}</div>
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[12px] font-medium text-slate-800">
                           {idx >= 0 ? (
-                            <>{s.name.slice(0, idx)}<span className="bg-yellow-100 text-yellow-800">{s.name.slice(idx, idx + quickSearch.length)}</span>{s.name.slice(idx + quickSearch.length)}</>
-                          ) : s.name}
+                            <>{emp.fullName.slice(0, idx)}<span className="bg-yellow-100 text-yellow-800">{emp.fullName.slice(idx, idx + quickSearch.length)}</span>{emp.fullName.slice(idx + quickSearch.length)}</>
+                          ) : emp.fullName}
                         </div>
-                        {emp && <div className="truncate text-[10px] text-slate-400">{emp.employeeCode}{emp.departmentName ? ` · ${emp.departmentName}` : ""}{emp.jobTitleName ? ` · ${emp.jobTitleName}` : ""}</div>}
+                        <div className="truncate text-[10px] text-slate-400">{emp.employeeCode}{emp.departmentName ? ` · ${emp.departmentName}` : ""}{emp.jobTitleName ? ` · ${emp.jobTitleName}` : ""}</div>
                       </div>
                     </button>
                   );
                 })}
-                {quickSearch.trim().length >= 1 && managers.filter((m) => m.name.toLowerCase().includes(quickSearch.toLowerCase())).length > 8 && (
+                {!suggestionsLoading && suggestionTotal > searchSuggestions.length && (
                   <button
                     className="flex w-full items-center justify-center gap-1 border-t border-slate-100 py-2 text-[11px] font-medium text-blue-600 transition hover:bg-blue-50/40"
                     onClick={() => { setShowSuggestions(false); handleQuickSearch(); }}
                   >
-                    Show all results
+                    Show all {suggestionTotal} results
                     <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                   </button>
                 )}
@@ -668,25 +722,13 @@ export default function PeoplePage() {
                 </tbody>
               </table>
             </div>
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 border-t border-slate-100 py-3">
-                <button
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                  className="rounded-lg border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-30"
-                >
-                  Previous
-                </button>
-                <span className="text-[11px] tabular-nums text-slate-400">Page {page} of {totalPages}</span>
-                <button
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                  className="rounded-lg border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-30"
-                >
-                  Next
-                </button>
-              </div>
-            )}
+            <TablePagination
+              page={page}
+              totalPages={totalPages}
+              totalCount={totalEmployees}
+              pageSize={PEOPLE_PAGE_SIZE}
+              onPageChange={setPage}
+            />
           </>
         )}
       </div>

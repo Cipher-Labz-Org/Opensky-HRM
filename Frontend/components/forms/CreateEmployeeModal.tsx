@@ -9,6 +9,7 @@ import { PersonNameInput, PhoneInput } from "@/components/ui";
 import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { apiFetch } from "@/lib/api";
+import { getSystemSetting } from "@/lib/system-settings";
 
 interface Lookup {
   id: string;
@@ -137,7 +138,7 @@ export function CreateEmployeeModal({
       const ess = (fetchedRoles as RoleLookup[]).find((r) => r.code === "EMPLOYEE");
       if (ess) setEssRoleId(ess.id);
 
-      const isAuto = (settings as Record<string, string>).EmployeeCodeAutoGenerate !== "false";
+      const isAuto = getSystemSetting(settings as Record<string, string>, "EmployeeCodeAutoGenerate") !== "false";
       setAutoGenerate(isAuto);
       if (isAuto) {
         apiFetch<{ code: string }>("/api/system-settings/next-employee-code")

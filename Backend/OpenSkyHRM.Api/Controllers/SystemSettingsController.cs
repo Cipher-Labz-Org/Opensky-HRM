@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.Interfaces;
@@ -21,7 +22,9 @@ public class SystemSettingsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        return Ok(await _service.GetAllAsync());
+        // Preserve setting keys (e.g. CompanyName); global JsonOptions camelCase dictionary keys.
+        var settings = await _service.GetAllAsync();
+        return new JsonResult(settings, new JsonSerializerOptions { DictionaryKeyPolicy = null });
     }
 
     /// <summary>Must be registered before the literal route so "email-delivery-logs" is not handled as a setting key (404).</summary>

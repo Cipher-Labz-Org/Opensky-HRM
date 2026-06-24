@@ -84,7 +84,7 @@ TRUNCATE TABLE
   "AnalyticsSnapshotCaches",
   "AuditLogs",
   "OutboundEmailLogs"
-RESTART IDENTITY;
+RESTART IDENTITY CASCADE;
 
 -- Clear employees last (DELETE works with FK constraints; TRUNCATE would require truncating Users too).
 DELETE FROM "Employees";

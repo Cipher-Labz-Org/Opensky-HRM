@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.Interfaces;
@@ -13,6 +14,15 @@ namespace OpenSkyHRM.Api.Controllers;
 [Route("api/[controller]")]
 public class ReportsController : ControllerBase
 {
+    /// <summary>
+    /// Report rows use display-name dictionary keys (e.g. "Employee Code"); disable dictionary key camelCase.
+    /// </summary>
+    private static readonly JsonSerializerOptions ReportJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DictionaryKeyPolicy = null,
+    };
+
     private readonly IReportService _reportService;
     public ReportsController(IReportService reportService) { _reportService = reportService; }
 
@@ -23,7 +33,7 @@ public class ReportsController : ControllerBase
     public async Task<IActionResult> RunReport(string category, string reportKey, [FromQuery] Dictionary<string, string>? filters = null)
     {
         var result = await _reportService.RunReportAsync(category, reportKey, filters);
-        return Ok(result);
+        return new JsonResult(result, ReportJsonOptions);
     }
 
     [HttpGet("{category}/{reportKey}/csv")]

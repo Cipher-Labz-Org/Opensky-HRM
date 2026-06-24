@@ -20,7 +20,9 @@ public class AttendanceService : IAttendanceService
     public async Task<PagedResult<AttendanceRecordDto>> GetAttendanceAsync(
         int page = 1, int pageSize = 20, Guid? employeeId = null,
         DateTime? fromDate = null, DateTime? toDate = null,
-        IReadOnlyList<Guid>? allowedEmployeeIds = null)
+        IReadOnlyList<Guid>? allowedEmployeeIds = null,
+        Guid? departmentId = null, Guid? locationId = null, string? status = null, string? source = null,
+        string? sortBy = null, string? sortDir = null)
     {
         var today = DateTime.Now.Date;
         var from = fromDate?.Date ?? today;
@@ -32,6 +34,13 @@ public class AttendanceService : IAttendanceService
 
         var spanDays = (to - from).TotalDays + 1;
         var includeOnLeave = spanDays <= 7;
+        var statusFilter = string.IsNullOrWhiteSpace(status) ? null : status.Trim();
+        var sourceFilter = string.IsNullOrWhiteSpace(source) ? null : source.Trim();
+        var onLeaveStatusOnly = statusFilter != null
+            && statusFilter.Equals("On Leave", StringComparison.OrdinalIgnoreCase);
+        var includeLeaveOnlyRows = includeOnLeave
+            && (statusFilter == null || onLeaveStatusOnly)
+            && (sourceFilter == null || sourceFilter.Equals("System", StringComparison.OrdinalIgnoreCase));
 
         var query = _db.Set<AttendanceRecord>()
             .AsNoTracking()
@@ -42,26 +51,28 @@ public class AttendanceService : IAttendanceService
             query = query.Where(a => a.EmployeeId == employeeId.Value);
         if (allowedEmployeeIds != null)
             query = query.Where(a => allowedEmployeeIds.Contains(a.EmployeeId));
+        query = ApplyAttendanceRecordFilters(query, departmentId, locationId, statusFilter, sourceFilter, onLeaveStatusOnly);
 
         if (includeOnLeave)
         {
             var rawItems = await query
-                .OrderByDescending(a => a.Date).ThenBy(a => a.Employee!.FirstName)
                 .ToListAsync();
 
             var recordsSet = rawItems.Select(a => (a.EmployeeId, a.Date)).ToHashSet();
             var employeeIdsFromRecords = rawItems.Select(r => r.EmployeeId).Distinct().ToList();
             var rosterAssignments = await LoadRosterAssignmentsAsync(employeeIdsFromRecords);
             var onLeaveSet = await GetApprovedLeaveDatesAsync(employeeIdsFromRecords, from, to);
-            var realDtos = rawItems.Select(a => MapToDto(a, rosterAssignments, onLeaveSet.Contains((a.EmployeeId, a.Date)))).ToList();
+            var realDtos = rawItems
+                .Select(a => MapToDto(a, rosterAssignments, onLeaveSet.Contains((a.EmployeeId, a.Date))))
+                .Where(dto => MatchesAttendanceDtoFilters(dto, statusFilter, sourceFilter))
+                .ToList();
 
-            var leaveOnlySet = await GetLeaveOnlyDatesAsync(from, to, employeeId, allowedEmployeeIds, recordsSet);
+            var leaveOnlySet = includeLeaveOnlyRows
+                ? await GetLeaveOnlyDatesAsync(from, to, employeeId, allowedEmployeeIds, recordsSet, departmentId, locationId)
+                : new HashSet<(Guid EmployeeId, DateTime Date)>();
             var syntheticDtos = await BuildLeaveOnlyDtosAsync(leaveOnlySet);
 
-            var combined = realDtos.Concat(syntheticDtos)
-                .OrderByDescending(x => x.Date)
-                .ThenBy(x => x.EmployeeName)
-                .ToList();
+            var combined = SortAttendanceDtos(realDtos.Concat(syntheticDtos).ToList(), sortBy, sortDir);
 
             var items = combined
                 .Skip((page - 1) * pageSize)
@@ -78,8 +89,7 @@ public class AttendanceService : IAttendanceService
         }
 
         var attendanceTotal = await query.CountAsync();
-        var pageItems = await query
-            .OrderByDescending(a => a.Date).ThenBy(a => a.Employee!.FirstName)
+        var pageItems = await ApplyAttendanceListSort(query, sortBy, sortDir)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();
@@ -87,17 +97,140 @@ public class AttendanceService : IAttendanceService
         var pageEmployeeIds = pageItems.Select(r => r.EmployeeId).Distinct().ToList();
         var pageRosters = await LoadRosterAssignmentsAsync(pageEmployeeIds);
         var pageOnLeave = await GetApprovedLeaveDatesAsync(pageEmployeeIds, from, to);
-        var dtos = pageItems
-            .Select(a => MapToDto(a, pageRosters, pageOnLeave.Contains((a.EmployeeId, a.Date))))
-            .ToList();
+        var dtos = SortAttendanceDtos(
+            pageItems
+                .Select(a => MapToDto(a, pageRosters, pageOnLeave.Contains((a.EmployeeId, a.Date))))
+                .Where(dto => MatchesAttendanceDtoFilters(dto, statusFilter, sourceFilter))
+                .ToList(),
+            sortBy,
+            sortDir);
 
         return new PagedResult<AttendanceRecordDto>
         {
             Items = dtos,
-            TotalCount = attendanceTotal,
             Page = page,
             PageSize = pageSize,
+            TotalCount = attendanceTotal,
         };
+    }
+
+    private static IQueryable<AttendanceRecord> ApplyAttendanceRecordFilters(
+        IQueryable<AttendanceRecord> query,
+        Guid? departmentId,
+        Guid? locationId,
+        string? statusFilter,
+        string? sourceFilter,
+        bool onLeaveStatusOnly)
+    {
+        if (departmentId.HasValue)
+            query = query.Where(a => a.Employee.DepartmentId == departmentId.Value);
+        if (locationId.HasValue)
+            query = query.Where(a => a.Employee.LocationId == locationId.Value);
+        if (sourceFilter != null && !sourceFilter.Equals("System", StringComparison.OrdinalIgnoreCase))
+            query = query.Where(a => a.Source == sourceFilter);
+        if (statusFilter != null && !onLeaveStatusOnly)
+            query = query.Where(a => a.Status == statusFilter);
+        if (onLeaveStatusOnly)
+            query = query.Where(a => false);
+        return query;
+    }
+
+    private static bool MatchesAttendanceDtoFilters(AttendanceRecordDto dto, string? statusFilter, string? sourceFilter)
+    {
+        if (statusFilter != null && !dto.Status.Equals(statusFilter, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (sourceFilter != null && !string.Equals(dto.Source, sourceFilter, StringComparison.OrdinalIgnoreCase))
+            return false;
+        return true;
+    }
+
+    private static string NormalizeSortKey(string? sortBy)
+    {
+        var key = (sortBy ?? "date").Trim().ToLowerInvariant();
+        return key switch
+        {
+            "employeename" => "employee",
+            "workedhours" or "worked_hours" => "hours",
+            "punch_in" => "punchin",
+            "punch_out" => "punchout",
+            _ => key,
+        };
+    }
+
+    private static IQueryable<AttendanceRecord> ApplyAttendanceListSort(
+        IQueryable<AttendanceRecord> query, string? sortBy, string? sortDir)
+    {
+        var key = NormalizeSortKey(sortBy);
+        var asc = string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
+
+        return key switch
+        {
+            "employee" => asc
+                ? query.OrderBy(a => a.Employee.LastName).ThenBy(a => a.Employee.FirstName).ThenByDescending(a => a.Date)
+                : query.OrderByDescending(a => a.Employee.LastName).ThenByDescending(a => a.Employee.FirstName).ThenByDescending(a => a.Date),
+            "punchin" => asc
+                ? query.OrderBy(a => a.PunchIn).ThenByDescending(a => a.Date)
+                : query.OrderByDescending(a => a.PunchIn).ThenByDescending(a => a.Date),
+            "punchout" => asc
+                ? query.OrderBy(a => a.PunchOut).ThenByDescending(a => a.Date)
+                : query.OrderByDescending(a => a.PunchOut).ThenByDescending(a => a.Date),
+            "hours" => asc
+                ? query.OrderBy(a => a.WorkedHours).ThenByDescending(a => a.Date)
+                : query.OrderByDescending(a => a.WorkedHours).ThenByDescending(a => a.Date),
+            "status" => asc
+                ? query.OrderBy(a => a.Status).ThenByDescending(a => a.Date)
+                : query.OrderByDescending(a => a.Status).ThenByDescending(a => a.Date),
+            "source" => asc
+                ? query.OrderBy(a => a.Source ?? "").ThenByDescending(a => a.Date)
+                : query.OrderByDescending(a => a.Source ?? "").ThenByDescending(a => a.Date),
+            "shift" => asc
+                ? query.OrderBy(a => a.Employee.ShiftPattern != null ? a.Employee.ShiftPattern.Name : "").ThenByDescending(a => a.Date)
+                : query.OrderByDescending(a => a.Employee.ShiftPattern != null ? a.Employee.ShiftPattern.Name : "").ThenByDescending(a => a.Date),
+            "date" => asc
+                ? query.OrderBy(a => a.Date).ThenBy(a => a.Employee!.FirstName)
+                : query.OrderByDescending(a => a.Date).ThenBy(a => a.Employee!.FirstName),
+            _ => query.OrderByDescending(a => a.Date).ThenBy(a => a.Employee!.FirstName),
+        };
+    }
+
+    private static List<AttendanceRecordDto> SortAttendanceDtos(
+        List<AttendanceRecordDto> items, string? sortBy, string? sortDir)
+    {
+        if (items.Count <= 1) return items;
+
+        var key = NormalizeSortKey(sortBy);
+        var asc = string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
+
+        IEnumerable<AttendanceRecordDto> ordered = key switch
+        {
+            "employee" => asc
+                ? items.OrderBy(x => x.EmployeeName, StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.Date)
+                : items.OrderByDescending(x => x.EmployeeName, StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.Date),
+            "punchin" => asc
+                ? items.OrderBy(x => x.PunchIn).ThenByDescending(x => x.Date)
+                : items.OrderByDescending(x => x.PunchIn).ThenByDescending(x => x.Date),
+            "punchout" => asc
+                ? items.OrderBy(x => x.PunchOut).ThenByDescending(x => x.Date)
+                : items.OrderByDescending(x => x.PunchOut).ThenByDescending(x => x.Date),
+            "hours" => asc
+                ? items.OrderBy(x => x.WorkedHours).ThenByDescending(x => x.Date)
+                : items.OrderByDescending(x => x.WorkedHours).ThenByDescending(x => x.Date),
+            "status" => asc
+                ? items.OrderBy(x => x.Status, StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.Date)
+                : items.OrderByDescending(x => x.Status, StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.Date),
+            "source" => asc
+                ? items.OrderBy(x => x.Source ?? "", StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.Date)
+                : items.OrderByDescending(x => x.Source ?? "", StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.Date),
+            "shift" => asc
+                ? items.OrderBy(x => x.ShiftName ?? "", StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.Date)
+                : items.OrderByDescending(x => x.ShiftName ?? "", StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.Date),
+            "date" => asc
+                ? items.OrderBy(x => x.Date).ThenBy(x => x.EmployeeName, StringComparer.OrdinalIgnoreCase)
+                : items.OrderByDescending(x => x.Date).ThenBy(x => x.EmployeeName, StringComparer.OrdinalIgnoreCase),
+            _ => items.OrderByDescending(x => x.Date).ThenBy(x => x.EmployeeName, StringComparer.OrdinalIgnoreCase),
+        };
+
+        return ordered.ToList();
     }
 
     private async Task<List<RosterAssignment>> LoadRosterAssignmentsAsync(List<Guid> employeeIds)
@@ -116,7 +249,8 @@ public class AttendanceService : IAttendanceService
     /// </summary>
     private async Task<HashSet<(Guid EmployeeId, DateTime Date)>> GetLeaveOnlyDatesAsync(
         DateTime from, DateTime to, Guid? employeeId, IReadOnlyList<Guid>? allowedEmployeeIds,
-        HashSet<(Guid EmployeeId, DateTime Date)> recordsSet)
+        HashSet<(Guid EmployeeId, DateTime Date)> recordsSet,
+        Guid? departmentId = null, Guid? locationId = null)
     {
         var leaveQuery = _db.Set<LeaveRequest>()
             .Where(lr => lr.Status == ApprovalStatus.Approved
@@ -127,6 +261,16 @@ public class AttendanceService : IAttendanceService
             leaveQuery = leaveQuery.Where(lr => lr.EmployeeId == employeeId.Value);
         if (allowedEmployeeIds != null)
             leaveQuery = leaveQuery.Where(lr => allowedEmployeeIds.Contains(lr.EmployeeId));
+        if (departmentId.HasValue || locationId.HasValue)
+        {
+            var employeeQuery = _db.Employees.AsNoTracking().Where(e => !e.IsDeleted);
+            if (departmentId.HasValue)
+                employeeQuery = employeeQuery.Where(e => e.DepartmentId == departmentId.Value);
+            if (locationId.HasValue)
+                employeeQuery = employeeQuery.Where(e => e.LocationId == locationId.Value);
+            var filteredEmployeeIds = await employeeQuery.Select(e => e.Id).ToListAsync();
+            leaveQuery = leaveQuery.Where(lr => filteredEmployeeIds.Contains(lr.EmployeeId));
+        }
 
         var leaves = await leaveQuery
             .Select(lr => new { lr.EmployeeId, lr.StartDate, lr.EndDate })
@@ -195,28 +339,20 @@ public class AttendanceService : IAttendanceService
     {
         var query = BuildAttendanceQuery(from.Date, to.Date, employeeId, allowedEmployeeIds);
 
-        var agg = await query
-            .GroupBy(_ => 1)
-            .Select(g => new AttendanceSummaryDto
-            {
-                TotalPresent = g.Count(r => r.Status == "Present" || r.Status == "Late"),
-                TotalAbsent = g.Count(r => r.Status == "Absent"),
-                TotalLate = g.Count(r => r.Status == "Late"),
-                TotalNoPunch = g.Count(r => r.PunchIn == null),
-                AverageWorkHours = 0,
-            })
-            .FirstOrDefaultAsync();
+        var summary = new AttendanceSummaryDto
+        {
+            TotalPresent = await query.CountAsync(r => r.Status == "Present" || r.Status == "Late"),
+            TotalAbsent = await query.CountAsync(r => r.Status == "Absent"),
+            TotalLate = await query.CountAsync(r => r.Status == "Late"),
+            TotalNoPunch = await query.CountAsync(r => r.PunchIn == null),
+        };
 
-        if (agg == null)
-            return new AttendanceSummaryDto();
+        var hoursQuery = query.Where(r => r.WorkedHours.HasValue).Select(r => r.WorkedHours!.Value);
+        summary.AverageWorkHours = await hoursQuery.AnyAsync()
+            ? await hoursQuery.AverageAsync()
+            : 0;
 
-        agg.AverageWorkHours = await query
-            .Where(r => r.WorkedHours.HasValue)
-            .Select(r => r.WorkedHours!.Value)
-            .DefaultIfEmpty(0)
-            .AverageAsync();
-
-        return agg;
+        return summary;
     }
 
     public async Task<IReadOnlyList<AttendanceDailySummaryDto>> GetDailySummariesAsync(
@@ -645,7 +781,7 @@ public class AttendanceService : IAttendanceService
                     }
                     if (a.PunchOut.HasValue && shift.Session2EndTime.HasValue)
                     {
-                        var s2End = a.Date.Date + shift.Session2EndTime.Value;
+                        var s2End = ShiftAttendanceCalculator.ResolveSession2EndDateTime(shift, a.Date);
                         if (a.PunchOut.Value < s2End.AddMinutes(-shift.EarlyDepartureGraceMinutes))
                         {
                             isEarlyDeparture = true;
@@ -709,21 +845,8 @@ public class AttendanceService : IAttendanceService
         };
     }
 
-    private ShiftPattern? ResolveShiftPattern(Employee emp, List<RosterAssignment> rosters, DateTime date)
-    {
-        var roster = rosters
-            .Where(ra => ra.EmployeeId == emp.Id && ra.EffectiveFrom <= date && (ra.EffectiveTo == null || ra.EffectiveTo >= date))
-            .OrderByDescending(ra => ra.EffectiveFrom)
-            .FirstOrDefault();
-
-        if (roster?.RosterTemplate?.DefaultShiftPattern != null)
-            return roster.RosterTemplate.DefaultShiftPattern;
-
-        if (emp.ShiftPattern != null)
-            return emp.ShiftPattern;
-
-        return null;
-    }
+    private ShiftPattern? ResolveShiftPattern(Employee emp, List<RosterAssignment> rosters, DateTime date) =>
+        ShiftAttendanceCalculator.ResolveShiftPattern(emp, rosters, date);
 
     private (TimeSpan? start, TimeSpan? end, decimal hoursPerDay) GetExpectedShift(Employee emp, List<RosterAssignment> rosters, DateTime date)
     {
@@ -761,54 +884,6 @@ public class AttendanceService : IAttendanceService
     }
 
     private static (bool applies, TimeSpan? start, TimeSpan? end, decimal hours) GetShiftTimesForDate(
-        ShiftPattern shift, DateTime date, TimeSpan defaultStart, TimeSpan defaultEnd, decimal? defaultHours)
-    {
-        var day = date.DayOfWeek;
-        var applies = day switch
-        {
-            DayOfWeek.Monday => shift.AppliesOnMonday,
-            DayOfWeek.Tuesday => shift.AppliesOnTuesday,
-            DayOfWeek.Wednesday => shift.AppliesOnWednesday,
-            DayOfWeek.Thursday => shift.AppliesOnThursday,
-            DayOfWeek.Friday => shift.AppliesOnFriday,
-            DayOfWeek.Saturday => shift.AppliesOnSaturday,
-            DayOfWeek.Sunday => shift.AppliesOnSunday,
-            _ => false
-        };
-        if (!applies)
-            return (false, defaultStart, defaultEnd, 0);
-
-        TimeSpan? dayStart = day switch
-        {
-            DayOfWeek.Monday => shift.MondayStartTime,
-            DayOfWeek.Tuesday => shift.TuesdayStartTime,
-            DayOfWeek.Wednesday => shift.WednesdayStartTime,
-            DayOfWeek.Thursday => shift.ThursdayStartTime,
-            DayOfWeek.Friday => shift.FridayStartTime,
-            DayOfWeek.Saturday => shift.SaturdayStartTime,
-            DayOfWeek.Sunday => shift.SundayStartTime,
-            _ => null
-        };
-        TimeSpan? dayEnd = day switch
-        {
-            DayOfWeek.Monday => shift.MondayEndTime,
-            DayOfWeek.Tuesday => shift.TuesdayEndTime,
-            DayOfWeek.Wednesday => shift.WednesdayEndTime,
-            DayOfWeek.Thursday => shift.ThursdayEndTime,
-            DayOfWeek.Friday => shift.FridayEndTime,
-            DayOfWeek.Saturday => shift.SaturdayEndTime,
-            DayOfWeek.Sunday => shift.SundayEndTime,
-            _ => null
-        };
-
-        if (dayStart.HasValue && dayEnd.HasValue)
-        {
-            var hours = (decimal)(dayEnd.Value - dayStart.Value).TotalHours - shift.BreakHours;
-            return (true, dayStart, dayEnd, Math.Max(0, hours));
-        }
-        if (defaultHours.HasValue)
-            return (true, defaultStart, defaultEnd, defaultHours.Value);
-        var fullHours = (decimal)(defaultEnd - defaultStart).TotalHours - shift.BreakHours;
-        return (true, defaultStart, defaultEnd, Math.Max(0, fullHours));
-    }
+        ShiftPattern shift, DateTime date, TimeSpan defaultStart, TimeSpan defaultEnd, decimal? defaultHours) =>
+        ShiftAttendanceCalculator.GetShiftTimesForDate(shift, date, defaultStart, defaultEnd, defaultHours);
 }

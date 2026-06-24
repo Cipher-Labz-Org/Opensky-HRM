@@ -6,6 +6,7 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { CreateDepartmentModal } from "@/components/forms/CreateDepartmentModal";
 import { apiFetch } from "@/lib/api";
+import { getSystemSetting } from "@/lib/system-settings";
 import { CompanyOrgHierarchy, type OrgChartBusinessUnit } from "./CompanyOrgHierarchy";
 import { EmployeeHierarchyChart, type ReportingHierarchyNode } from "./EmployeeHierarchyChart";
 import { type OrgChartDepartment } from "./DepartmentOrgChart";
@@ -58,7 +59,7 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
       ]);
       setDepartments(Array.isArray(depts) ? depts : []);
       setPositions(Array.isArray(pos) ? pos : []);
-      setCompanyName(typeof settings.CompanyName === "string" ? settings.CompanyName : "");
+      setCompanyName(getSystemSetting(settings, "CompanyName") ?? "");
       setBusinessUnits(
         Array.isArray(bus)
           ? bus.map((b) => ({ id: b.id, name: b.name, code: b.code, isActive: b.isActive !== false }))
@@ -176,35 +177,28 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
       : tab === "reporting"
         ? "Reporting hierarchy"
         : "Organization & position management";
-  const subtitle =
-    tab === "chart"
-      ? "Company structure by business units and departments."
-      : tab === "reporting"
-        ? "Supervisor-based hierarchy from employee reporting lines."
-        : "Legal entities, business units, departments, locations, and positions.";
 
   const activeBuCount = useMemo(() => businessUnits.filter((b) => b.isActive).length, [businessUnits]);
 
   const kpiStats = useMemo(
     () => [
-      { label: "Departments", value: departments.length, sub: "In directory" },
-      { label: "Positions", value: positions.length, sub: "Registry records" },
-      { label: "Business units", value: activeBuCount, sub: `${businessUnits.length} configured` },
-      { label: "Reporting trees", value: reportingHierarchy.length, sub: "Supervisor hierarchy roots" },
+      { label: "Departments", value: departments.length },
+      { label: "Positions", value: positions.length },
+      { label: "Business units", value: activeBuCount },
+      { label: "Reporting trees", value: reportingHierarchy.length },
     ],
-    [departments.length, positions.length, activeBuCount, businessUnits.length, reportingHierarchy.length]
+    [departments.length, positions.length, activeBuCount, reportingHierarchy.length]
   );
 
   return (
     <>
-      <AppTopbar title={title} subtitle={subtitle} />
+      <AppTopbar title={title} />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {kpiStats.map((k) => (
           <div key={k.label} className={kpiTileClass}>
             <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{k.label}</div>
             <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{k.value}</div>
-            <div className="mt-2 text-xs text-slate-600">{k.sub}</div>
           </div>
         ))}
       </div>

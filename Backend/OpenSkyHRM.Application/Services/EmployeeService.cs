@@ -46,12 +46,17 @@ public class EmployeeService : IEmployeeService
     {
         var key = (sortBy ?? "employeeCode").Trim().ToLowerInvariant();
         var asc = !string.Equals(sortDir, "desc", StringComparison.OrdinalIgnoreCase);
+        var sortByEmployeeCode = key is "employeecode" or "employeeid" or "code" or "id";
+
+        // Strict employee-code order (length then value) so numeric IDs sort 2, 10, 100, 1001 correctly.
+        if (sortByEmployeeCode)
+            return OrderByEmployeeCode(query, asc);
 
         var candidateEmployeeIds = _db.Candidates
             .Where(c => c.EmployeeId != null)
             .Select(c => c.EmployeeId!.Value);
 
-        // Only new hires converted from recruitment stay at the top until profile setup is complete.
+        // For other columns, keep incomplete recruitment profiles visible at the top.
         IOrderedQueryable<Employee> ordered = query.OrderByDescending(e =>
             candidateEmployeeIds.Contains(e.Id)
             && ((!e.IsTopOfHierarchy && !_db.EmployeeSupervisors.Any(s =>
@@ -78,8 +83,15 @@ public class EmployeeService : IEmployeeService
             "supervisor" or "manager" => asc
                 ? ordered.ThenBy(e => e.Manager != null ? e.Manager.LastName : "").ThenBy(e => e.Manager != null ? e.Manager.FirstName : "")
                 : ordered.ThenByDescending(e => e.Manager != null ? e.Manager.LastName : "").ThenByDescending(e => e.Manager != null ? e.Manager.FirstName : ""),
-            _ => asc ? ordered.ThenBy(e => e.EmployeeCode) : ordered.ThenByDescending(e => e.EmployeeCode),
+            _ => OrderByEmployeeCode(query, asc),
         };
+    }
+
+    private static IOrderedQueryable<Employee> OrderByEmployeeCode(IQueryable<Employee> query, bool asc)
+    {
+        return asc
+            ? query.OrderBy(e => e.EmployeeCode.Length).ThenBy(e => e.EmployeeCode)
+            : query.OrderByDescending(e => e.EmployeeCode.Length).ThenByDescending(e => e.EmployeeCode);
     }
 
     private async Task<HashSet<Guid>> GetCandidateLinkedEmployeeIdsAsync(IEnumerable<Guid> employeeIds)
@@ -126,13 +138,16 @@ public class EmployeeService : IEmployeeService
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.ToLower();
+            var term = search.Trim().ToLower();
             query = query.Where(e =>
                 e.FirstName.ToLower().Contains(term) ||
                 e.LastName.ToLower().Contains(term) ||
                 (e.MiddleName != null && e.MiddleName.ToLower().Contains(term)) ||
+                (e.FirstName + " " + e.LastName).ToLower().Contains(term) ||
+                (e.MiddleName != null && (e.FirstName + " " + e.MiddleName + " " + e.LastName).ToLower().Contains(term)) ||
                 e.EmployeeCode.ToLower().Contains(term) ||
-                e.Email.ToLower().Contains(term));
+                e.Email.ToLower().Contains(term) ||
+                (e.OtherEmail != null && e.OtherEmail.ToLower().Contains(term)));
         }
 
         if (departmentId.HasValue)
