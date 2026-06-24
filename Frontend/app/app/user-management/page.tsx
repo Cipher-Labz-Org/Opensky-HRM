@@ -4,7 +4,8 @@ import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { FormSelect, TablePagination, FormErrorAlert, type FormSelectOption } from "@/components/ui";
+import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
@@ -34,13 +35,6 @@ interface RoleItem {
   permissions?: { module: string; action: string; scope: string }[];
 }
 
-interface EmpLookup {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-}
-
 interface OrgLocation {
   id: string;
   name: string;
@@ -58,7 +52,6 @@ export default function UserManagementPage() {
   const { isAdmin } = useAuth();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [roles, setRoles] = useState<RoleItem[]>([]);
-  const [employees, setEmployees] = useState<EmpLookup[]>([]);
   const [locations, setLocations] = useState<OrgLocation[]>([]);
   const [businessUnits, setBusinessUnits] = useState<OrgLocation[]>([]);
   const [grades, setGrades] = useState<OrgGrade[]>([]);
@@ -71,6 +64,7 @@ export default function UserManagementPage() {
   const [buPickerKey, setBuPickerKey] = useState(0);
   const [gradePickerKey, setGradePickerKey] = useState(0);
   const [jobTitlePickerKey, setJobTitlePickerKey] = useState(0);
+  const [rolePickerKey, setRolePickerKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -102,10 +96,9 @@ export default function UserManagementPage() {
       if (filterStatus === "active") params.set("isActive", "true");
       if (filterStatus === "disabled") params.set("isActive", "false");
 
-      const [u, r, e, loc, bu, gr, jt] = await Promise.all([
+      const [u, r, loc, bu, gr, jt] = await Promise.all([
         apiFetch<{ items: UserItem[]; totalCount: number }>(`/api/user?${params}`),
         apiFetch<RoleItem[]>("/api/auth/roles"),
-        apiFetch<{ items: EmpLookup[] }>("/api/employees?pageSize=500"),
         apiFetch<OrgLocation[]>("/api/organization/locations").catch(() => [] as OrgLocation[]),
         apiFetch<OrgLocation[]>("/api/organization/business-units").catch(() => [] as OrgLocation[]),
         apiFetch<OrgGrade[]>("/api/organization/grades").catch(() => [] as OrgGrade[]),
@@ -114,7 +107,6 @@ export default function UserManagementPage() {
       setUsers(u.items ?? []);
       setTotalCount(u.totalCount ?? 0);
       setRoles(r);
-      setEmployees(e.items || []);
       setLocations(loc);
       setBusinessUnits(bu);
       setGrades(gr);
@@ -143,6 +135,7 @@ export default function UserManagementPage() {
     setBuPickerKey((k) => k + 1);
     setGradePickerKey((k) => k + 1);
     setJobTitlePickerKey((k) => k + 1);
+    setRolePickerKey((k) => k + 1);
     setError("");
     setShowModal(true);
   }
@@ -164,6 +157,7 @@ export default function UserManagementPage() {
     setBuPickerKey((k) => k + 1);
     setGradePickerKey((k) => k + 1);
     setJobTitlePickerKey((k) => k + 1);
+    setRolePickerKey((k) => k + 1);
     setError("");
     setShowModal(true);
   }
@@ -245,12 +239,6 @@ export default function UserManagementPage() {
     }
   }
 
-  function toggleRole(roleId: string) {
-    setSelectedRoles((prev) =>
-      prev.includes(roleId) ? prev.filter((r) => r !== roleId) : [...prev, roleId]
-    );
-  }
-
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const filterRoleOptions = useMemo<FormSelectOption[]>(
@@ -267,17 +255,6 @@ export default function UserManagementPage() {
     []
   );
 
-  const employeeFormOptions = useMemo<FormSelectOption[]>(
-    () => [
-      { value: "", label: "— None —" },
-      ...employees.map((emp) => ({
-        value: emp.id,
-        label: `${emp.firstName} ${emp.lastName}`.trim() || emp.email || emp.id,
-      })),
-    ],
-    [employees]
-  );
-
   const accountStatusOptions = useMemo<FormSelectOption[]>(
     () => [
       { value: "active", label: "Active" },
@@ -285,6 +262,14 @@ export default function UserManagementPage() {
     ],
     []
   );
+
+  const roleAddOptions = useMemo<FormSelectOption[]>(() => {
+    const remaining = roles.filter((r) => !selectedRoles.includes(r.id));
+    if (remaining.length === 0) {
+      return [{ value: "", label: roles.length ? "All roles added" : "— None available —" }];
+    }
+    return [{ value: "", label: "Add role…" }, ...remaining.map((r) => ({ value: r.id, label: r.name }))];
+  }, [roles, selectedRoles]);
 
   const locationAddOptions = useMemo<FormSelectOption[]>(() => {
     const remaining = locations.filter((loc) => !selectedLocationIds.includes(loc.id));
@@ -555,9 +540,11 @@ export default function UserManagementPage() {
           <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <h3 className="mb-4 text-lg font-semibold text-slate-900">{editUser ? "Edit user" : "Create user"}</h3>
 
-            {error && (
-              <div className="mb-3 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800">{error}</div>
-            )}
+            <FormErrorAlert
+              message={error}
+              onDismiss={() => setError("")}
+              className="mb-3 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800"
+            />
 
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -582,11 +569,10 @@ export default function UserManagementPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className={labelClass}>Link to Employee</label>
-                  <FormSelect
+                  <EmployeeSearchCombobox
                     value={employeeId}
-                    onValueChange={setEmployeeId}
-                    options={employeeFormOptions}
-                    placeholder="— None —"
+                    placeholder="Type name or employee code…"
+                    onPick={(emp) => setEmployeeId(emp?.id ?? "")}
                   />
                 </div>
                 <div>
@@ -602,22 +588,33 @@ export default function UserManagementPage() {
 
               <div>
                 <label className={labelClass}>Roles *</label>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {roles.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => toggleRole(r.id)}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                        selectedRoles.includes(r.id)
-                          ? "border-indigo-400 bg-indigo-50 text-indigo-800"
-                          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
-                      }`}
-                    >
-                      {r.name}
-                    </button>
-                  ))}
-                </div>
+                <FormSelect
+                  key={rolePickerKey}
+                  value=""
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    setSelectedRoles((p) => (p.includes(v) ? p : [...p, v]));
+                    setRolePickerKey((k) => k + 1);
+                  }}
+                  options={roleAddOptions}
+                  placeholder="Add role…"
+                  disabled={roles.length === 0}
+                />
+                {selectedRoles.length > 0 && (
+                  <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                    {selectedRoles.map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setSelectedRoles((prev) => prev.filter((x) => x !== id))}
+                        className="rounded-full border border-indigo-400 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-800 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-900"
+                        title="Click to remove"
+                      >
+                        {roles.find((r) => r.id === id)?.name ?? id} ×
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -967,9 +964,11 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
             <p className="text-sm text-slate-400 py-8">Select a role to configure its permissions.</p>
           ) : (
             <>
-              {error && (
-                <div className="mb-4 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800">{error}</div>
-              )}
+              <FormErrorAlert
+                message={error}
+                onDismiss={() => setError("")}
+                className="mb-4 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800"
+              />
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -1029,11 +1028,11 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
             <p className="mt-1 text-xs text-slate-500">
               Code is auto-generated from the name if left blank (e.g. Payroll Clerk → PAYROLL_CLERK).
             </p>
-            {error && (
-              <div className="mt-3 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800">
-                {error}
-              </div>
-            )}
+            <FormErrorAlert
+              message={error}
+              onDismiss={() => setError("")}
+              className="mt-3 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800"
+            />
             <div className="mt-4 space-y-3">
               <label className="block text-sm">
                 <span className="font-medium text-slate-700">Role name *</span>

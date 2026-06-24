@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Api.Filters;
+using OpenSkyHRM.Api.Helpers;
 
 namespace OpenSkyHRM.Api.Controllers;
 
@@ -35,6 +36,15 @@ public class ReportsController : ControllerBase
             sb.AppendLine(string.Join(",", result.Columns.Select(c => EscapeCsv(row.TryGetValue(c, out var v) ? v?.ToString() ?? "" : ""))));
         var bytes = Encoding.UTF8.GetBytes(sb.ToString());
         return File(bytes, "text/csv", $"{result.ReportName.Replace(" ", "_")}_{DateTime.UtcNow:yyyyMMdd}.csv");
+    }
+
+    [HttpGet("{category}/{reportKey}/xlsx")]
+    public async Task<IActionResult> ExportXlsx(string category, string reportKey, [FromQuery] Dictionary<string, string>? filters = null)
+    {
+        var result = await _reportService.RunReportAsync(category, reportKey, filters);
+        var bytes = ReportExcelExport.BuildWorkbook(result);
+        var filename = $"{result.ReportName.Replace(" ", "_")}_{DateTime.UtcNow:yyyy-MM-dd}.xlsx";
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename);
     }
 
     private static string EscapeCsv(string val)

@@ -118,6 +118,7 @@ public class AppDbContext : DbContext
     public DbSet<UserAssignedJobTitle> UserAssignedJobTitles => Set<UserAssignedJobTitle>();
     public DbSet<CompanyCalendar> CompanyCalendars => Set<CompanyCalendar>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<EmployeeLifecycleEvent> EmployeeLifecycleEvents => Set<EmployeeLifecycleEvent>();
     public DbSet<OutboundEmailLog> OutboundEmailLogs => Set<OutboundEmailLog>();
     public DbSet<NotificationConfig> NotificationConfigs => Set<NotificationConfig>();
     public DbSet<IntegrationConfig> IntegrationConfigs => Set<IntegrationConfig>();
@@ -172,7 +173,17 @@ public class AppDbContext : DbContext
         foreach (var entry in ChangeTracker.Entries<BaseEntity>())
         {
             if (entry.State == EntityState.Added)
-                entry.Entity.CreatedAt = now;
+            {
+                if (entry.Entity is OutboundEmailLog emailLog)
+                {
+                    emailLog.CreatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
+                    emailLog.CreatedAtIsUtc = true;
+                }
+                else
+                {
+                    entry.Entity.CreatedAt = now;
+                }
+            }
 
             if (entry.State == EntityState.Modified)
                 entry.Entity.UpdatedAt = now;

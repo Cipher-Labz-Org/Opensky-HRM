@@ -28,3 +28,24 @@ export function joinDateTime(date: string, time: string): string {
   const tm = time && /^\d{2}:\d{2}$/.test(time) ? time : "00:00";
   return `${date}T${tm}`;
 }
+
+/** When from moves past to, bump to to match (ISO YYYY-MM-DD strings). */
+export function applyFromDateInRange(nextFrom: string, currentTo: string): { from: string; to: string } {
+  if (nextFrom && currentTo && nextFrom > currentTo) {
+    return { from: nextFrom, to: nextFrom };
+  }
+  return { from: nextFrom, to: currentTo };
+}
+
+/** When to moves before from, bump from to match. */
+export function applyToDateInRange(currentFrom: string, nextTo: string): { from: string; to: string } {
+  if (nextTo && currentFrom && nextTo < currentFrom) {
+    return { from: nextTo, to: nextTo };
+  }
+  return { from: currentFrom, to: nextTo };
+}
+
+export function isValidIsoDateRange(from: string, to: string): boolean {
+  if (!from || !to) return true;
+  return from <= to;
+}

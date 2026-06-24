@@ -325,6 +325,13 @@ if (dbAvailable)
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchCasualLeaveMonthlyEveryYearAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureShopOfficeSickLeaveRuleAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureMercantileHolidaysAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsurePoyaHolidaysAsync(db);
+        foreach (var year in new[] { 2024, 2025, 2026, 2027 })
+        {
+            await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureCountryHolidaysForYearAsync(
+                db, year, OpenSkyHRM.Domain.Entities.HolidayCountryCodes.LK);
+        }
         await OpenSkyHRM.Persistence.Seeders.LearningSeeder.EnsureCatalogAsync(db);
     }
     catch (Exception ex)

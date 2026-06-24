@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
+import { appConfirm } from "@/components/ui/appDialogs";
+import { TemplateMergeExportPanel } from "@/components/settings/TemplateMergeExportPanel";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 
 export interface TemplateListItem {
   id: string;
@@ -55,6 +58,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
   const [tplSaving, setTplSaving] = useState(false);
   const [tplPreview, setTplPreview] = useState(false);
   const [bannerError, setBannerError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   function reloadList() {
     setBannerError("");
@@ -132,13 +136,29 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
     }
   }
 
+  async function deleteTemplate(tpl: TemplateListItem) {
+    if (!tpl.id || tpl.id === "undefined") return;
+    if (!(await appConfirm(`Delete "${tpl.name}"? This cannot be undone.`, { confirmLabel: "Delete" }))) return;
+    setDeletingId(tpl.id);
+    setBannerError("");
+    try {
+      await apiFetch(`/api/documenttemplates/${tpl.id}`, { method: "DELETE" });
+      setTemplates((prev) => prev.filter((t) => t.id !== tpl.id));
+      if (editingTemplate?.id === tpl.id) setEditingTemplate(null);
+    } catch (e: unknown) {
+      setBannerError(e instanceof Error ? e.message : "Failed to delete template");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <>
-      {bannerError && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
-          {bannerError}
-        </div>
-      )}
+      <FormErrorAlert
+        message={bannerError}
+        onDismiss={() => setBannerError(null)}
+        className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+      />
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="section-title">
           <h3>Transactional email templates</h3>
@@ -160,13 +180,23 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
                     <strong className="text-sm font-semibold text-slate-900">{tpl.name}</strong>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => openTemplateEditor(tpl)}
-                  className="text-sm font-medium text-blue-600 hover:underline"
-                >
-                  Edit
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openTemplateEditor(tpl)}
+                    className="text-sm font-medium text-blue-600 hover:underline"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteTemplate(tpl)}
+                    disabled={deletingId === tpl.id}
+                    className="text-sm font-medium text-rose-600 hover:underline disabled:opacity-50"
+                  >
+                    {deletingId === tpl.id ? "Deleting…" : "Delete"}
+                  </button>
+                </div>
               </div>
             ))
           )}
@@ -206,13 +236,16 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
                   <span className="text-sm text-slate-600">Active</span>
                 </label>
                 <button type="button" onClick={() => setTplPreview(!tplPreview)} className="ml-auto text-sm font-medium text-blue-600 hover:underline">
-                  {tplPreview ? "Edit HTML" : "Preview"}
+                  {tplPreview ? "Edit HTML" : "Preview & fill"}
                 </button>
               </div>
               {tplPreview ? (
-                <div className="rounded-lg border border-slate-200 bg-white p-4 max-h-[400px] overflow-auto">
-                  <div dangerouslySetInnerHTML={{ __html: tplHtml }} />
-                </div>
+                <TemplateMergeExportPanel
+                  html={tplHtml}
+                  subject={tplSubject}
+                  documentTitle={tplName || editingTemplate.name}
+                  filenameBase={tplName || editingTemplate.templateKey}
+                />
               ) : (
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">HTML body</label>

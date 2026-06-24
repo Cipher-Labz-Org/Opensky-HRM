@@ -8,6 +8,7 @@ using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Api.Filters;
+using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
@@ -165,23 +166,11 @@ public class LeaveController : ControllerBase
         var request = await _db.Set<Domain.Entities.LeaveRequest>().FindAsync(id);
         if (request is null) return NotFound();
 
-        var scope = LeaveAccessHelper.ResolveScope(User, "Update");
-        if (scope == "All")
+        if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2)
         {
-            // Admin can approve at any level
-        }
-        else if (request.CurrentApprovalLevel == 1)
-        {
-            if (!await LeaveAccessHelper.CanAccessEmployeeLeaveAsync(User, _db, request.EmployeeId, "Update"))
+            var responsibleId = await _leaveService.GetResponsibleApproverEmployeeIdAsync(id);
+            if (!responsibleId.HasValue || responsibleId.Value != approverId.Value)
                 return Forbid();
-        }
-        else if (request.CurrentApprovalLevel == 2)
-        {
-            var l1SupervisorId = await LeaveAccessHelper.GetDirectSupervisorIdAsync(_db, request.Level1ApproverId!.Value);
-            if (l1SupervisorId.HasValue && l1SupervisorId.Value != approverId.Value)
-                return Forbid(); // L2 must be supervisor of L1; only they (or admin) can approve
-            if (!l1SupervisorId.HasValue && scope != "All")
-                return Forbid(); // L1 has no supervisor; only admin can approve L2 (fallback)
         }
 
         var result = await _leaveService.ApproveLeaveRequestAsync(id, approverId.Value, dto);
@@ -197,22 +186,10 @@ public class LeaveController : ControllerBase
         var request = await _db.Set<Domain.Entities.LeaveRequest>().FindAsync(id);
         if (request is null) return NotFound();
 
-        var scope = LeaveAccessHelper.ResolveScope(User, "Update");
-        if (scope == "All")
+        if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2)
         {
-            // Admin can reject at any level
-        }
-        else if (request.CurrentApprovalLevel == 1)
-        {
-            if (!await LeaveAccessHelper.CanAccessEmployeeLeaveAsync(User, _db, request.EmployeeId, "Update"))
-                return Forbid();
-        }
-        else if (request.CurrentApprovalLevel == 2)
-        {
-            var l1SupervisorId = await LeaveAccessHelper.GetDirectSupervisorIdAsync(_db, request.Level1ApproverId!.Value);
-            if (l1SupervisorId.HasValue && l1SupervisorId.Value != approverId.Value)
-                return Forbid();
-            if (!l1SupervisorId.HasValue && scope != "All")
+            var responsibleId = await _leaveService.GetResponsibleApproverEmployeeIdAsync(id);
+            if (!responsibleId.HasValue || responsibleId.Value != approverId.Value)
                 return Forbid();
         }
 
@@ -427,8 +404,20 @@ public class LeaveController : ControllerBase
     // ───── Holidays ─────
 
     [HttpGet("holidays")]
-    public async Task<IActionResult> GetHolidays([FromQuery] int year)
-        => Ok(await _leaveService.GetHolidaysAsync(year));
+    public async Task<IActionResult> GetHolidays([FromQuery] int year, [FromQuery] string? country = null)
+        => Ok(await _leaveService.GetHolidaysAsync(year, country));
+
+    [HttpGet("holidays/locale")]
+    public async Task<IActionResult> GetHolidayLocale()
+        => Ok(await _leaveService.GetHolidayLocaleSettingsAsync());
+
+    [HttpPut("holidays/locale")]
+    public async Task<IActionResult> SetHolidayLocale([FromBody] UpdateHolidayLocaleSettingsDto dto)
+    {
+        if (LeaveAccessHelper.ResolveScope(User, "Update") != "All")
+            return Forbid();
+        return Ok(await _leaveService.SetHolidayLocaleSettingsAsync(dto));
+    }
 
     [HttpPost("holidays")]
     public async Task<IActionResult> CreateHoliday([FromBody] CreateHolidayDto dto)
@@ -538,11 +527,11 @@ public class LeaveController : ControllerBase
     // ───── Calendar ─────
 
     [HttpGet("calendar")]
-    public async Task<IActionResult> GetCalendar([FromQuery] int month, [FromQuery] int year)
+    public async Task<IActionResult> GetCalendar([FromQuery] int month, [FromQuery] int year, [FromQuery] Guid? departmentId = null)
     {
         if (LeaveAccessHelper.ResolveScope(User, "Read") != "All")
             return Forbid();
-        return Ok(await _leaveService.GetCalendarAsync(month, year));
+        return Ok(await _leaveService.GetCalendarAsync(month, year, departmentId));
     }
 
     private static DateTime? ResolveAsOfDate(int year, int? asOfMonth)

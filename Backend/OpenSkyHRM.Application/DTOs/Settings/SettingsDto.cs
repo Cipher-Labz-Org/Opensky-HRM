@@ -34,6 +34,8 @@ public class OutboundEmailLogDto
 {
     public Guid Id { get; set; }
     public DateTime CreatedAt { get; set; }
+    /// <summary>CreatedAt converted to Sri Lanka (Asia/Colombo) for display: yyyy-MM-dd HH:mm:ss.</summary>
+    public string CreatedAtColombo { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
     public string RecipientEmail { get; set; } = string.Empty;
     public string? RecipientName { get; set; }

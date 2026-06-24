@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
@@ -84,7 +85,7 @@ export function CreatePayrollBatchModal({ open, onClose, onCreated }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Create Payroll Batch">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+        <FormErrorAlert message={error} onDismiss={() => setError("")} />
         <div><label className={labelClass}>Process Type *</label>
           <FormSelect
             value={processType}

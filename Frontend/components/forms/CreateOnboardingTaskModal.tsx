@@ -3,6 +3,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { DatePickerField } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
@@ -49,7 +50,7 @@ export function CreateOnboardingTaskModal({ open, onClose, onCreated }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Create Onboarding Task">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+        <FormErrorAlert message={error} onDismiss={() => setError("")} />
         <div><label className={labelClass}>Employee *</label>
           <select name="employeeId" required className={inputClass}>
             <option value="">Select employee...</option>

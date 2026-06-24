@@ -589,7 +589,7 @@ public class RecruitmentController : ControllerBase
         if (!string.Equals(offer.Status, "Approved", StringComparison.OrdinalIgnoreCase))
             return BadRequest(new { message = "Offer must be approved before it can be emailed to the candidate." });
 
-        await emailService.SendOfferEmailAsync(
+        var pdfBytes = await emailService.SendOfferEmailAsync(
             offer.CandidateEmail,
             offer.CandidateName,
             offer.PositionTitle ?? offer.RequisitionTitle ?? "Open Position",
@@ -599,7 +599,10 @@ public class RecruitmentController : ControllerBase
             offer.Remarks,
             offer.LetterHtml);
 
-        return Ok(new { message = "Offer email sent successfully.", emailConfigured = await emailService.IsConfiguredAsync() });
+        if (pdfBytes != null)
+            await _svc.SaveOfferLetterPdfAsync(id, pdfBytes);
+
+        return Ok(new { message = "Offer email sent successfully with PDF attachment.", emailConfigured = await emailService.IsConfiguredAsync() });
     }
 
     // ── Dashboard & Pipeline ─────────────────────────────────────

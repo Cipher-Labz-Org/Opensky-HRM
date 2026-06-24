@@ -74,12 +74,12 @@ public class RosterController : ControllerBase
     }
 
     [HttpDelete("templates/{id:guid}")]
-    public async Task<IActionResult> DeleteTemplate(Guid id)
+    public async Task<IActionResult> DeleteTemplate(Guid id, [FromQuery] bool deleteAssignments = false)
     {
         if (!await CanManageRosterAsync()) return Forbid();
         try
         {
-            var deleted = await _rosterService.DeleteTemplateAsync(id);
+            var deleted = await _rosterService.DeleteTemplateAsync(id, deleteAssignments);
             return deleted ? NoContent() : NotFound();
         }
         catch (InvalidOperationException ex)

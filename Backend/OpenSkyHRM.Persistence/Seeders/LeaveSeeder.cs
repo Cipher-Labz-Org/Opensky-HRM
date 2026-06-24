@@ -23,10 +23,10 @@ public static class LeaveSeeder
 
             var holidays = new[]
             {
-                new Holiday { Name = "New Year's Day", Date = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Year = 2026 },
-                new Holiday { Name = "Independence Day", Date = new DateTime(2026, 2, 4, 0, 0, 0, DateTimeKind.Utc), Year = 2026 },
-                new Holiday { Name = "May Day", Date = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc), Year = 2026 },
-                new Holiday { Name = "Christmas Day", Date = new DateTime(2026, 12, 25, 0, 0, 0, DateTimeKind.Utc), Year = 2026 },
+                new Holiday { Name = "New Year's Day", Date = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), Year = 2026, CountryCode = HolidayCountryCodes.LK },
+                new Holiday { Name = "Independence Day", Date = new DateTime(2026, 2, 4, 0, 0, 0, DateTimeKind.Utc), Year = 2026, CountryCode = HolidayCountryCodes.LK },
+                new Holiday { Name = "May Day", Date = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc), Year = 2026, CountryCode = HolidayCountryCodes.LK },
+                new Holiday { Name = "Christmas Day", Date = new DateTime(2026, 12, 25, 0, 0, 0, DateTimeKind.Utc), Year = 2026, CountryCode = HolidayCountryCodes.LK },
             };
 
             context.Holidays.AddRange(holidays);
@@ -74,6 +74,189 @@ public static class LeaveSeeder
 
             await context.SaveChangesAsync();
         }
+    }
+
+    /// <summary>
+    /// Ensures statutory mercantile holidays exist for all catalog years (idempotent).
+    /// </summary>
+    public static async Task EnsureMercantileHolidaysAsync(AppDbContext context)
+    {
+        foreach (var year in MercantileHolidayCatalog.SupportedYears)
+            await EnsureMercantileHolidaysForYearAsync(context, year);
+    }
+
+    /// <summary>
+    /// Adds missing Shop &amp; Office mercantile holidays for the given year.
+    /// Existing holidays on the same date (except Restricted) are marked Mercantile.
+    /// </summary>
+    public static async Task EnsureMercantileHolidaysForYearAsync(AppDbContext context, int year)
+    {
+        var catalog = MercantileHolidayCatalog.ForYear(year);
+        if (catalog.Count == 0)
+            return;
+
+        const string country = HolidayCountryCodes.LK;
+        var existing = await context.Holidays
+            .Where(h => !h.IsDeleted && h.Year == year && h.CountryCode == country)
+            .ToListAsync();
+
+        var changed = false;
+        foreach (var (name, date) in catalog)
+        {
+            var onDate = existing.FirstOrDefault(h => h.Date.Date == date.Date);
+            if (onDate != null)
+            {
+                if (onDate.Kind == HolidayKinds.Restricted)
+                    continue;
+                if (onDate.Kind != HolidayKinds.Mercantile)
+                {
+                    onDate.Kind = HolidayKinds.Mercantile;
+                    onDate.IsRestricted = false;
+                    changed = true;
+                }
+                continue;
+            }
+
+            if (existing.Any(h => string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            context.Holidays.Add(new Holiday
+            {
+                Name = name,
+                Date = date,
+                Year = year,
+                CountryCode = country,
+                Kind = HolidayKinds.Mercantile,
+                IsRestricted = false,
+                Description = "Statutory mercantile holiday (Shop & Office Employees Act)",
+            });
+            changed = true;
+        }
+
+        if (changed)
+            await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Ensures full moon Poya holidays exist for all catalog years (idempotent).
+    /// </summary>
+    public static async Task EnsurePoyaHolidaysAsync(AppDbContext context)
+    {
+        foreach (var year in PoyaHolidayCatalog.SupportedYears)
+            await EnsurePoyaHolidaysForYearAsync(context, year);
+    }
+
+    /// <summary>
+    /// Adds missing Poya days for the given year. Skips dates that already have a holiday entry.
+    /// </summary>
+    public static async Task EnsurePoyaHolidaysForYearAsync(AppDbContext context, int year)
+    {
+        var catalog = PoyaHolidayCatalog.ForYear(year);
+        if (catalog.Count == 0)
+            return;
+
+        const string country = HolidayCountryCodes.LK;
+        var existing = await context.Holidays
+            .Where(h => !h.IsDeleted && h.Year == year && h.CountryCode == country)
+            .ToListAsync();
+
+        var changed = false;
+        foreach (var (name, date) in catalog)
+        {
+            var onDate = existing.FirstOrDefault(h => h.Date.Date == date.Date);
+            if (onDate is not null)
+            {
+                if (onDate.Kind == HolidayKinds.Restricted)
+                    continue;
+
+                var isPoyaName = string.Equals(onDate.Name, name, StringComparison.OrdinalIgnoreCase)
+                    || onDate.Name.Contains("Full Moon Poya", StringComparison.OrdinalIgnoreCase);
+                if (isPoyaName && onDate.Kind != HolidayKinds.Poya)
+                {
+                    onDate.Kind = HolidayKinds.Poya;
+                    changed = true;
+                }
+
+                continue;
+            }
+
+            if (existing.Any(h => string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            context.Holidays.Add(new Holiday
+            {
+                Name = name,
+                Date = date,
+                Year = year,
+                CountryCode = country,
+                Kind = HolidayKinds.Poya,
+                IsRestricted = false,
+                Description = "Full moon Poya day (auto)",
+            });
+            changed = true;
+        }
+
+        if (changed)
+            await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Ensures statutory and public holidays for the selected country and year (idempotent).
+    /// </summary>
+    public static async Task EnsureCountryHolidaysForYearAsync(AppDbContext context, int year, string countryCode)
+    {
+        countryCode = HolidayCountryCodes.Normalize(countryCode);
+        if (countryCode == HolidayCountryCodes.LK)
+        {
+            await EnsureMercantileHolidaysForYearAsync(context, year);
+            await EnsurePoyaHolidaysForYearAsync(context, year);
+            return;
+        }
+
+        await EnsureInternationalPublicHolidaysForCountryYearAsync(context, year, countryCode);
+    }
+
+    /// <summary>
+    /// Adds national public holidays for US, GB, IN, AU.
+    /// </summary>
+    public static async Task EnsureInternationalPublicHolidaysForCountryYearAsync(
+        AppDbContext context, int year, string countryCode)
+    {
+        countryCode = HolidayCountryCodes.Normalize(countryCode);
+        if (countryCode == HolidayCountryCodes.LK)
+            return;
+
+        var catalog = InternationalPublicHolidayCatalog.ForCountryYear(countryCode, year);
+        if (catalog.Count == 0)
+            return;
+
+        var existing = await context.Holidays
+            .Where(h => !h.IsDeleted && h.Year == year && h.CountryCode == countryCode)
+            .ToListAsync();
+
+        var changed = false;
+        foreach (var (name, date) in catalog)
+        {
+            if (existing.Any(h => h.Date.Date == date.Date))
+                continue;
+            if (existing.Any(h => string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            context.Holidays.Add(new Holiday
+            {
+                Name = name,
+                Date = date,
+                Year = year,
+                CountryCode = countryCode,
+                Kind = HolidayKinds.Public,
+                IsRestricted = false,
+                Description = $"National public holiday ({countryCode}, auto)",
+            });
+            changed = true;
+        }
+
+        if (changed)
+            await context.SaveChangesAsync();
     }
 
     /// <summary>Ensures Sick Leave has a Shop &amp; Office display rule (for DBs created before this rule existed).</summary>

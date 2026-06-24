@@ -70,6 +70,7 @@ public interface IRecruitmentService
     Task<string> GetOfferLetterTemplateHtmlAsync();
     Task<string> PreviewOfferLetterAsync(PreviewOfferLetterDto dto);
     Task<OfferDto> UpdateOfferLetterAsync(Guid offerId, string? letterHtml);
+    Task SaveOfferLetterPdfAsync(Guid offerId, byte[] pdfBytes);
     Task<List<OfferHistoryDto>> GetOfferHistoryAsync(int page = 1, int pageSize = 50);
     Task<OfferDto?> GetOfferByIdAsync(Guid id);
 

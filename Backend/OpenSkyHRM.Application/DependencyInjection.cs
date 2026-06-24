@@ -14,6 +14,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ILicensingService, LicensingService>();
         services.AddScoped<IEmployeeService, EmployeeService>();
+        services.AddScoped<IEmployeeLifecycleService, EmployeeLifecycleService>();
         services.AddScoped<IOrganizationService, OrganizationService>();
         services.AddScoped<ILeaveService, LeaveService>();
         services.AddScoped<ILeaveEntitlementService, LeaveEntitlementService>();
@@ -41,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<ISystemSettingService, SystemSettingService>();
         services.AddScoped<IAnalyticsService, AnalyticsService>();
         services.AddScoped<IReportService, ReportService>();
+        services.AddSingleton<IHtmlToPdfService, PuppeteerHtmlToPdfService>();
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<IEmailDeliveryLogWriter, EmailDeliveryLogService>();
         services.AddScoped<ICustomerDataResetService, CustomerDataResetService>();
