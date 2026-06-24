@@ -1,7 +1,10 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Settings;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
+using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Application.Services;
@@ -9,7 +12,13 @@ namespace OpenSkyHRM.Application.Services;
 public class SettingsService : ISettingsService
 {
     private readonly AppDbContext _db;
-    public SettingsService(AppDbContext db) { _db = db; }
+    private readonly IBusinessClock _clock;
+
+    public SettingsService(AppDbContext db, IBusinessClock clock)
+    {
+        _db = db;
+        _clock = clock;
+    }
 
     public async Task<List<SecurityRoleDto>> GetRolesAsync()
     {
@@ -47,26 +56,40 @@ public class SettingsService : ISettingsService
             query = query.Where(x => x.Status == status);
 
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(x => x.CreatedAt)
+        var rows = await query.OrderByDescending(x => x.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(x => new OutboundEmailLogDto
-            {
-                Id = x.Id,
-                CreatedAt = x.CreatedAt,
-                Category = x.Category,
-                RecipientEmail = x.RecipientEmail,
-                RecipientName = x.RecipientName,
-                Subject = x.Subject,
-                Status = x.Status,
-                Provider = x.Provider,
-                HttpStatusCode = x.HttpStatusCode,
-                FromEmail = x.FromEmail,
-                ErrorDetail = x.ErrorDetail,
-            })
             .ToListAsync();
 
+        // Legacy rows store CreatedAt as Sri Lanka wall clock; new rows (CreatedAtIsUtc) store UTC.
+        var items = rows.Select(x => new OutboundEmailLogDto
+        {
+            Id = x.Id,
+            CreatedAt = x.CreatedAt,
+            CreatedAtColombo = FormatEmailLogCreatedAtColombo(x),
+            Category = x.Category,
+            RecipientEmail = x.RecipientEmail,
+            RecipientName = x.RecipientName,
+            Subject = x.Subject,
+            Status = x.Status,
+            Provider = x.Provider,
+            HttpStatusCode = x.HttpStatusCode,
+            FromEmail = x.FromEmail,
+            ErrorDetail = x.ErrorDetail,
+        }).ToList();
+
         return new PagedResult<OutboundEmailLogDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
+    }
+
+    private string FormatEmailLogCreatedAtColombo(OutboundEmailLog row)
+    {
+        if (row.CreatedAtIsUtc)
+        {
+            return _clock.ToBusinessLocal(DateTime.SpecifyKind(row.CreatedAt, DateTimeKind.Utc))
+                .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        }
+
+        return row.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     }
 
     public async Task<List<WorkflowDto>> GetWorkflowsAsync()

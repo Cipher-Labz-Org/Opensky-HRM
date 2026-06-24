@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { formatColomboLogDateTime } from "@/lib/date-utils";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { FormSelect, type FormSelectOption } from "@/components/ui";
+import { FormSelect, TablePagination, FormErrorAlert, type FormSelectOption } from "@/components/ui";
 
 export interface OutboundEmailLogRow {
   id: string;
   createdAt: string;
+  createdAtColombo?: string;
   category: string;
   recipientEmail: string;
   recipientName: string | null;
@@ -57,7 +59,7 @@ export function EmailDeliveryLogContent({ onSnapshotChange }: EmailDeliveryLogCo
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("");
-  const pageSize = 25;
+  const pageSize = 10;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,7 +91,7 @@ export function EmailDeliveryLogContent({ onSnapshotChange }: EmailDeliveryLogCo
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
         <div className="flex min-w-0 flex-col gap-1.5 sm:min-w-[14rem]">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
           <FormSelect
@@ -102,25 +104,30 @@ export function EmailDeliveryLogContent({ onSnapshotChange }: EmailDeliveryLogCo
             placeholder="All statuses"
           />
         </div>
-        <Button type="button" variant="secondary" onClick={() => load()} disabled={loading}>
+        <Button type="button" variant="secondary" onClick={() => load()} disabled={loading} className="shrink-0">
           Refresh
         </Button>
         {data != null && (
-          <span className="text-sm text-slate-500">
+          <span className="flex h-[42px] shrink-0 items-center text-sm text-slate-500">
             {data.totalCount} record{data.totalCount === 1 ? "" : "s"}
           </span>
         )}
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
-      )}
+      <FormErrorAlert
+        message={error}
+        onDismiss={() => setError("")}
+        className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+      />
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-3 py-3">Time (UTC)</th>
+              <th className="px-3 py-3">
+                <div>Time (Colombo)</div>
+                <div className="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400">SLST · UTC+5:30</div>
+              </th>
               <th className="px-3 py-3">Category</th>
               <th className="px-3 py-3">Recipient</th>
               <th className="px-3 py-3">Subject</th>
@@ -150,7 +157,7 @@ export function EmailDeliveryLogContent({ onSnapshotChange }: EmailDeliveryLogCo
               data?.items.map((row) => (
                 <tr key={row.id} className="hover:bg-slate-50/80">
                   <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs text-slate-600">
-                    {new Date(row.createdAt).toISOString().replace("T", " ").slice(0, 19)}
+                    {formatColomboLogDateTime(row.createdAtColombo ?? row.createdAt)}
                   </td>
                   <td className="px-3 py-2.5 text-slate-800">{row.category}</td>
                   <td className="max-w-[200px] px-3 py-2.5">
@@ -187,28 +194,17 @@ export function EmailDeliveryLogContent({ onSnapshotChange }: EmailDeliveryLogCo
               ))}
           </tbody>
         </table>
+        {data != null && (
+          <TablePagination
+            page={page}
+            totalPages={totalPages}
+            totalCount={data.totalCount}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            alwaysShow
+          />
+        )}
       </div>
-
-      {data && data.totalCount > pageSize && (
-        <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
-          <span>
-            Page {data.page} of {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <Button type="button" variant="secondary" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
-              Previous
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
     </>
   );
 }

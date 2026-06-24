@@ -525,7 +525,7 @@ export default function CandidateDetailPage() {
       await load();
       setTab("offer");
       if (sendRes.emailConfigured) {
-        await appAlert(`Offer saved and emailed to ${candidateEmail}.`);
+        await appAlert(`Offer saved and emailed to ${candidateEmail} with a PDF attachment.`);
       } else {
         await appAlert(
           "Offer saved and approved. Email was not sent because outbound email is not configured on the server. Set up SMTP or SendGrid, then use Share with candidate.",
@@ -956,7 +956,7 @@ export default function CandidateDetailPage() {
                         </Button>
                       </>
                     )}
-                    {emailSent && <span className="text-sm text-green-600 font-medium">Offer email sent to {c.email}</span>}
+                    {emailSent && <span className="text-sm text-green-600 font-medium">Offer PDF emailed to {c.email}</span>}
                   </div>
                 )}
 

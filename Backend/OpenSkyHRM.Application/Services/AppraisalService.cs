@@ -27,10 +27,13 @@ public class AppraisalService : IAppraisalService
 
     public async Task<RatingScaleDto> CreateRatingScaleAsync(CreateRatingScaleDto dto)
     {
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Rating scale description is required.");
+
         var entity = new RatingScale
         {
             Name = dto.Name,
-            Description = dto.Description,
+            Description = dto.Description!.Trim(),
             IsDefault = dto.IsDefault,
         };
         foreach (var item in dto.Items)
@@ -49,8 +52,11 @@ public class AppraisalService : IAppraisalService
         var entity = await _db.RatingScales.Include(s => s.Items).FirstOrDefaultAsync(s => s.Id == id);
         if (entity is null) return null;
 
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Rating scale description is required.");
+
         entity.Name = dto.Name;
-        entity.Description = dto.Description;
+        entity.Description = dto.Description!.Trim();
         entity.IsDefault = dto.IsDefault;
 
         _db.RatingScaleItems.RemoveRange(entity.Items);
@@ -111,7 +117,10 @@ public class AppraisalService : IAppraisalService
 
     public async Task<CompetencyCategoryDto> CreateCompetencyCategoryAsync(CreateCompetencyCategoryDto dto)
     {
-        var entity = new CompetencyCategory { Name = dto.Name, Description = dto.Description, SortOrder = dto.SortOrder };
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Competency category description is required.");
+
+        var entity = new CompetencyCategory { Name = dto.Name, Description = dto.Description.Trim(), SortOrder = dto.SortOrder };
         _db.CompetencyCategories.Add(entity);
         await _db.SaveChangesAsync();
         return new CompetencyCategoryDto { Id = entity.Id, Name = entity.Name, Description = entity.Description, SortOrder = entity.SortOrder };
@@ -121,7 +130,10 @@ public class AppraisalService : IAppraisalService
     {
         var entity = await _db.CompetencyCategories.FindAsync(id);
         if (entity is null) return null;
-        entity.Name = dto.Name; entity.Description = dto.Description; entity.SortOrder = dto.SortOrder;
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Competency category description is required.");
+
+        entity.Name = dto.Name; entity.Description = dto.Description.Trim(); entity.SortOrder = dto.SortOrder;
         await _db.SaveChangesAsync();
         return new CompetencyCategoryDto { Id = entity.Id, Name = entity.Name, Description = entity.Description, SortOrder = entity.SortOrder };
     }
@@ -137,7 +149,10 @@ public class AppraisalService : IAppraisalService
 
     public async Task<CompetencyDto> CreateCompetencyAsync(CreateCompetencyDto dto)
     {
-        var entity = new Competency { Name = dto.Name, Description = dto.Description, SortOrder = dto.SortOrder, CategoryId = dto.CategoryId };
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Competency description is required.");
+
+        var entity = new Competency { Name = dto.Name, Description = dto.Description.Trim(), SortOrder = dto.SortOrder, CategoryId = dto.CategoryId };
         _db.Competencies.Add(entity);
         await _db.SaveChangesAsync();
         var cat = await _db.CompetencyCategories.FindAsync(dto.CategoryId);
@@ -148,7 +163,10 @@ public class AppraisalService : IAppraisalService
     {
         var entity = await _db.Competencies.FindAsync(id);
         if (entity is null) return null;
-        entity.Name = dto.Name; entity.Description = dto.Description; entity.SortOrder = dto.SortOrder; entity.CategoryId = dto.CategoryId;
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Competency description is required.");
+
+        entity.Name = dto.Name; entity.Description = dto.Description.Trim(); entity.SortOrder = dto.SortOrder; entity.CategoryId = dto.CategoryId;
         await _db.SaveChangesAsync();
         var cat = await _db.CompetencyCategories.FindAsync(dto.CategoryId);
         return new CompetencyDto { Id = entity.Id, Name = entity.Name, Description = entity.Description, SortOrder = entity.SortOrder, CategoryId = dto.CategoryId, CategoryName = cat?.Name };
@@ -190,7 +208,10 @@ public class AppraisalService : IAppraisalService
 
     public async Task<AppraisalTemplateDto> CreateTemplateAsync(CreateAppraisalTemplateDto dto)
     {
-        var entity = new AppraisalTemplate { Name = dto.Name, Description = dto.Description, RatingScaleId = dto.RatingScaleId };
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Appraisal template description is required.");
+
+        var entity = new AppraisalTemplate { Name = dto.Name, Description = dto.Description.Trim(), RatingScaleId = dto.RatingScaleId };
         foreach (var sec in dto.Sections)
         {
             var section = new AppraisalTemplateSection { Name = sec.Name, Description = sec.Description, Weight = sec.Weight, SortOrder = sec.SortOrder };
@@ -211,7 +232,10 @@ public class AppraisalService : IAppraisalService
             .FirstOrDefaultAsync(t => t.Id == id);
         if (entity is null) return null;
 
-        entity.Name = dto.Name; entity.Description = dto.Description; entity.RatingScaleId = dto.RatingScaleId;
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Appraisal template description is required.");
+
+        entity.Name = dto.Name; entity.Description = dto.Description.Trim(); entity.RatingScaleId = dto.RatingScaleId;
 
         foreach (var s in entity.Sections.ToList())
         {
@@ -284,9 +308,12 @@ public class AppraisalService : IAppraisalService
 
     public async Task<AppraisalCycleDto> CreateCycleAsync(CreateAppraisalCycleDto dto)
     {
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Appraisal cycle description is required.");
+
         var entity = new AppraisalCycle
         {
-            Name = dto.Name, Description = dto.Description, CycleType = dto.CycleType,
+            Name = dto.Name, Description = dto.Description.Trim(), CycleType = dto.CycleType,
             StartDate = dto.StartDate, EndDate = dto.EndDate,
             IncludeSelfAssessment = dto.IncludeSelfAssessment, IncludeManagerReview = dto.IncludeManagerReview,
             IncludePeerReview = dto.IncludePeerReview, IncludeDirectReportReview = dto.IncludeDirectReportReview,
@@ -307,8 +334,10 @@ public class AppraisalService : IAppraisalService
         var entity = await _db.AppraisalCycles.FindAsync(id);
         if (entity is null) return null;
         if (entity.Phase != "Draft") throw new InvalidOperationException("Can only edit cycles in Draft phase.");
+        if (string.IsNullOrWhiteSpace(dto.Description))
+            throw new InvalidOperationException("Appraisal cycle description is required.");
 
-        entity.Name = dto.Name; entity.Description = dto.Description; entity.CycleType = dto.CycleType;
+        entity.Name = dto.Name; entity.Description = dto.Description.Trim(); entity.CycleType = dto.CycleType;
         entity.StartDate = dto.StartDate; entity.EndDate = dto.EndDate;
         entity.IncludeSelfAssessment = dto.IncludeSelfAssessment; entity.IncludeManagerReview = dto.IncludeManagerReview;
         entity.IncludePeerReview = dto.IncludePeerReview; entity.IncludeDirectReportReview = dto.IncludeDirectReportReview;

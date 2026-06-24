@@ -6,10 +6,12 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { FormSelect } from "@/components/ui/FormSelect";
 import { DatePickerField } from "@/components/ui";
+import { applyFromDateInRange, applyToDateInRange } from "@/lib/datePickerIso";
 import { formatDateTime } from "@/lib/date-utils";
 import { formatInt } from "@/lib/workspace-charts";
 import { getReportIconPaths } from "@/lib/report-icons";
 import { useApplyFilter } from "@/lib/use-apply-filter";
+import { getApiBaseUrl } from "@/config/constants";
 
 interface ReportItem {
   key: string;
@@ -158,32 +160,38 @@ const CATEGORY_COLORS: Record<string, string> = {
   recruitment: "bg-pink-500", performance: "bg-orange-500", organization: "bg-cyan-500", compliance: "bg-red-500",
 };
 
-function escapeCsvCell(value: string): string {
-  const normalized = value.replace(/\r?\n/g, " ");
-  if (/[",\r\n]/.test(normalized)) return `"${normalized.replace(/"/g, "\"\"")}"`;
-  return normalized;
-}
+async function exportReportToExcel(
+  category: string,
+  reportKey: string,
+  params: Record<string, string>,
+  fallbackFilename: string,
+) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+  const qs = new URLSearchParams(params).toString();
+  const path = `/api/reports/${category}/${reportKey}/xlsx${qs ? `?${qs}` : ""}`;
 
-function exportToExcel(result: ReportResult) {
-  const header = result.columns.map((c) => escapeCsvCell(c)).join(",");
-  const body = result.rows
-    .map((row) =>
-      result.columns
-        .map((c) => {
-          const v = getReportCell(row, c);
-          if (v === null || v === undefined) return "";
-          return escapeCsvCell(String(v));
-        })
-        .join(",")
-    )
-    .join("\r\n");
-  const csv = `\uFEFF${header}\r\n${body}`;
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  let res: Response;
+  try {
+    res = await fetch(`${getApiBaseUrl()}${path}`, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch {
+    throw new Error("Cannot reach the API. Ensure the backend is running.");
+  }
+
+  if (!res.ok) {
+    throw new Error((await res.text().catch(() => "")) || `Export failed (${res.status})`);
+  }
+
+  const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${result.reportName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = fallbackFilename;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -258,6 +266,18 @@ export default function ReportsPage() {
     setFilterYear(params.year ?? "");
     setFilterMonth(params.month ?? "");
     setFilterDate(params.date ?? "");
+  }
+
+  function onReportFromChange(v: string) {
+    const { from, to } = applyFromDateInRange(v, filterTo);
+    setFilterFrom(from);
+    setFilterTo(to);
+  }
+
+  function onReportToChange(v: string) {
+    const { from, to } = applyToDateInRange(filterFrom, v);
+    setFilterFrom(from);
+    setFilterTo(to);
   }
 
   function collectParamsFromForm(item: ReportItem | null | undefined): Record<string, string> {
@@ -590,7 +610,14 @@ export default function ReportsPage() {
                   <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                 </div>
                 <button
-                  onClick={() => exportToExcel(result)}
+                  onClick={() => {
+                    if (!selectedCategory || !selectedReport || !result) return;
+                    const params = collectParamsFromForm(activeReportDef);
+                    const filename = `${result.reportName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                    void exportReportToExcel(selectedCategory, selectedReport, params, filename).catch(() => {
+                      /* ignore */
+                    });
+                  }}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
@@ -637,11 +664,11 @@ export default function ReportsPage() {
                 <>
                   <div>
                     <label className="mb-1 block text-[10px] font-medium text-slate-500">From</label>
-                    <DatePickerField value={filterFrom} onChange={setFilterFrom} />
+                    <DatePickerField value={filterFrom} onChange={onReportFromChange} max={filterTo || undefined} />
                   </div>
                   <div>
                     <label className="mb-1 block text-[10px] font-medium text-slate-500">To</label>
-                    <DatePickerField value={filterTo} onChange={setFilterTo} />
+                    <DatePickerField value={filterTo} onChange={onReportToChange} min={filterFrom || undefined} />
                   </div>
                 </>
               )}

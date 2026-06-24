@@ -52,7 +52,7 @@ public class ChangePasswordDto
 public class ForgotPasswordVerifyDto
 {
     public string EmployeeCode { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
+    public string EmployeeName { get; set; } = string.Empty;
 }
 
 public class ForgotPasswordVerifyResponseDto

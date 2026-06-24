@@ -7,6 +7,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { ROUTES } from "@/config/routes";
 import { API_BASE_URL } from "@/config/constants";
 import { contextualHelpGuideHref } from "@/lib/help-topics";
+import { HeaderCalendarPopover } from "@/components/navigation/HeaderCalendarPopover";
 import { apiFetch } from "@/lib/api";
 
 const iconStroke = 1.75;
@@ -260,19 +261,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
       role="banner"
     >
       <div className="flex items-center gap-0.5 sm:gap-1">
-        <Link
-          href={ROUTES.leave}
-          className={iconBtn}
-          title="Leave & calendar"
-          aria-label="Leave and team calendar"
-        >
-          <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={iconStroke} viewBox="0 0 24 24" aria-hidden>
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-            <line x1="16" y1="2" x2="16" y2="6" />
-            <line x1="8" y1="2" x2="8" y2="6" />
-            <line x1="3" y1="10" x2="21" y2="10" />
-          </svg>
-        </Link>
+        <HeaderCalendarPopover iconBtnClass={iconBtn} iconStroke={iconStroke} />
 
         <Popover.Root open={notifOpen} onOpenChange={setNotifOpen}>
           <Popover.Trigger asChild>

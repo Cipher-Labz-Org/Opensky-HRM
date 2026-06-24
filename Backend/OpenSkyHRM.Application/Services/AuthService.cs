@@ -112,17 +112,17 @@ public class AuthService : IAuthService
     public async Task<ForgotPasswordVerifyResponseDto> VerifyForgotPasswordAsync(ForgotPasswordVerifyDto dto)
     {
         var employeeCode = (dto.EmployeeCode ?? "").Trim();
-        var emailLower = (dto.Email ?? "").Trim().ToLowerInvariant();
+        var employeeName = NormalizePersonName(dto.EmployeeName ?? "");
 
-        if (string.IsNullOrEmpty(employeeCode) || string.IsNullOrEmpty(emailLower))
-            throw new UnauthorizedAccessException("Employee number and email do not match our records.");
+        if (string.IsNullOrEmpty(employeeCode) || string.IsNullOrEmpty(employeeName))
+            throw new UnauthorizedAccessException("Employee number and name do not match our records.");
 
-        var user = await FindUserForForgotPasswordAsync(employeeCode, emailLower);
+        var user = await FindUserForForgotPasswordAsync(employeeCode, employeeName);
         if (user == null)
-            throw new UnauthorizedAccessException("Employee number and email do not match our records.");
+            throw new UnauthorizedAccessException("Employee number and name do not match our records.");
 
         if (!user.IsActive)
-            throw new UnauthorizedAccessException("Employee number and email do not match our records.");
+            throw new UnauthorizedAccessException("Employee number and name do not match our records.");
 
         var (token, expiresAt) = GeneratePasswordResetJwt(user.Id);
         return new ForgotPasswordVerifyResponseDto
@@ -511,20 +511,34 @@ public class AuthService : IAuthService
         return string.IsNullOrEmpty(code) ? "ROLE" : code;
     }
 
-    private async Task<User?> FindUserForForgotPasswordAsync(string employeeCode, string emailLower)
+    private async Task<User?> FindUserForForgotPasswordAsync(string employeeCode, string employeeNameNormalized)
     {
         var codeLower = employeeCode.ToLowerInvariant();
-        return await _db.Users
+        var candidates = await _db.Users
             .Include(u => u.Employee)
-            .FirstOrDefaultAsync(u =>
+            .Where(u =>
                 !u.IsDeleted &&
                 u.Employee != null &&
                 !u.Employee.IsDeleted &&
-                u.Employee.EmployeeCode.ToLower() == codeLower &&
-                (
-                    (u.Email != null && u.Email.ToLower() == emailLower) ||
-                    (u.Employee.Email != null && u.Employee.Email.ToLower() == emailLower)
-                ));
+                u.Employee.EmployeeCode.ToLower() == codeLower)
+            .ToListAsync();
+
+        return candidates.FirstOrDefault(u => EmployeeNameMatches(u.Employee!, employeeNameNormalized));
+    }
+
+    private static bool EmployeeNameMatches(Employee employee, string employeeNameNormalized)
+    {
+        if (NormalizePersonName(employee.FullName) == employeeNameNormalized)
+            return true;
+
+        var withoutMiddle = NormalizePersonName($"{employee.FirstName} {employee.LastName}");
+        return withoutMiddle == employeeNameNormalized;
+    }
+
+    private static string NormalizePersonName(string name)
+    {
+        return string.Join(' ',
+            name.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
     private (string token, DateTime expiresAt) GeneratePasswordResetJwt(Guid userId)

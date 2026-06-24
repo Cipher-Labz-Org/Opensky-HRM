@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { apiFetch } from "@/lib/api";
 
 interface Props { open: boolean; onClose: () => void; onCreated?: () => void }
@@ -22,7 +23,7 @@ export function CreateRoleModal({ open, onClose, onCreated }: Props) {
       description: fd.get("description") || null,
     };
     try {
-      await apiFetch("/api/settings/roles", { method: "POST", body: JSON.stringify(payload) });
+      await apiFetch("/api/auth/roles", { method: "POST", body: JSON.stringify(payload) });
       onCreated?.();
       onClose();
     } catch (err: unknown) {
@@ -38,7 +39,7 @@ export function CreateRoleModal({ open, onClose, onCreated }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Create Security Role">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+        <FormErrorAlert message={error} onDismiss={() => setError("")} />
         <div><label className={labelClass}>Role Name *</label><input name="name" required className={inputClass} placeholder="HR Manager" /></div>
         <div><label className={labelClass}>Code *</label><input name="code" required className={inputClass} placeholder="HR_MGR" /></div>
         <div><label className={labelClass}>Description</label><textarea name="description" rows={2} className={inputClass} placeholder="Role permissions scope..." /></div>

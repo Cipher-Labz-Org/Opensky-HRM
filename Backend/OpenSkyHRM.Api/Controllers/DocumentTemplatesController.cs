@@ -113,6 +113,17 @@ public class DocumentTemplatesController : ControllerBase
         return Ok(new TemplateDto(t.Id, t.Name, t.TemplateKey, t.Subject, t.HtmlContent, t.IsActive));
     }
 
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var t = await _db.DocumentTemplates.FindAsync(id);
+        if (t is null || t.IsDeleted) return NotFound();
+        t.IsDeleted = true;
+        t.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
     private static string FormatAddress(params string?[] parts)
     {
         return string.Join(", ", parts.Where(p => !string.IsNullOrWhiteSpace(p)));

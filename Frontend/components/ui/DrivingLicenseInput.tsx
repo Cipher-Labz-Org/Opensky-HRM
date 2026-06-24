@@ -14,6 +14,7 @@ import {
   isValidDrivingLicense,
   sanitizeDrivingLicenseInput,
 } from "@/lib/input-validation";
+import { FieldValidationHint } from "@/components/ui/FieldValidationHint";
 
 const INVALID_CLASS =
   "border-red-300 focus:border-red-400 focus:ring-red-200/20";
@@ -119,9 +120,11 @@ export const DrivingLicenseInput = forwardRef<HTMLInputElement, DrivingLicenseIn
           {...props}
         />
         {showError ? (
-          <p className="mt-1 text-xs font-medium text-red-600">
-            {DRIVING_LICENSE_VALIDATION_MESSAGE}
-          </p>
+          <FieldValidationHint
+            show={showError}
+            message={DRIVING_LICENSE_VALIDATION_MESSAGE}
+            depKey={effectiveValue}
+          />
         ) : null}
       </div>
     );

@@ -3,7 +3,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, PasswordVisibilityToggle } from "@/components/ui";
+import { DatePickerField, PasswordVisibilityToggle, FormErrorAlert } from "@/components/ui";
 import { FormSelect } from "@/components/ui/FormSelect";
 import { PersonNameInput, PhoneInput } from "@/components/ui";
 import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
@@ -289,11 +289,7 @@ export function CreateEmployeeModal({
   return (
     <Modal open={open} onClose={onClose} title={title} wide>
       <form key={formKey} onSubmit={handleSubmit} className="space-y-4">
-        {error && (
-          <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
-            {error}
-          </div>
-        )}
+        <FormErrorAlert message={error} onDismiss={() => setError("")} />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>

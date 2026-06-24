@@ -9,6 +9,7 @@ using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Seeders;
 
 namespace OpenSkyHRM.Application.Services;
 
@@ -22,19 +23,22 @@ public class LeaveService : ILeaveService
     private readonly ILogger<LeaveService> _logger;
     private readonly ISystemSettingService _systemSettings;
     private readonly IBusinessClock _clock;
+    private readonly ILeaveEntitlementService _entitlementService;
 
     public LeaveService(
         AppDbContext db,
         IEmailService emailService,
         ILogger<LeaveService> logger,
         ISystemSettingService systemSettings,
-        IBusinessClock clock)
+        IBusinessClock clock,
+        ILeaveEntitlementService entitlementService)
     {
         _db = db;
         _emailService = emailService;
         _logger = logger;
         _systemSettings = systemSettings;
         _clock = clock;
+        _entitlementService = entitlementService;
     }
 
     // ───── Dashboard ─────
@@ -58,7 +62,7 @@ public class LeaveService : ILeaveService
         foreach (var r in recentEntities)
         {
             var dto = MapToDto(r);
-            dto.ResponsibleUserName = await GetResponsibleUserNameAsync(r);
+            await SetResponsibleFieldsAsync(dto, r);
             recent.Add(dto);
         }
 
@@ -97,11 +101,17 @@ public class LeaveService : ILeaveService
         if (employeeId.HasValue)
             query = query.Where(r => r.EmployeeId == employeeId.Value);
 
-        if (fromDate.HasValue)
-            query = query.Where(r => r.StartDate >= fromDate.Value);
+        var rangeFrom = fromDate?.Date;
+        var rangeTo = toDate?.Date;
+        if (rangeFrom.HasValue && rangeTo.HasValue && rangeTo.Value < rangeFrom.Value)
+            (rangeFrom, rangeTo) = (rangeTo, rangeFrom);
 
-        if (toDate.HasValue)
-            query = query.Where(r => r.EndDate <= toDate.Value);
+        if (rangeFrom.HasValue && rangeTo.HasValue)
+            query = query.Where(r => r.StartDate.Date <= rangeTo.Value && r.EndDate.Date >= rangeFrom.Value);
+        else if (rangeFrom.HasValue)
+            query = query.Where(r => r.EndDate.Date >= rangeFrom.Value);
+        else if (rangeTo.HasValue)
+            query = query.Where(r => r.StartDate.Date <= rangeTo.Value);
 
         var total = await query.CountAsync();
 
@@ -115,7 +125,7 @@ public class LeaveService : ILeaveService
         foreach (var r in entities)
         {
             var dto = MapToDto(r);
-            dto.ResponsibleUserName = await GetResponsibleUserNameAsync(r);
+            await SetResponsibleFieldsAsync(dto, r);
             items.Add(dto);
         }
 
@@ -144,6 +154,12 @@ public class LeaveService : ILeaveService
                 r.StartDate <= dto.EndDate && r.EndDate >= dto.StartDate);
         if (hasOverlap)
             throw new InvalidOperationException("Leave already exists for one or more of the selected dates. Please choose different dates.");
+
+        var today = _clock.Now.Date;
+        if (dto.StartDate.Date < today || dto.EndDate.Date < today)
+            throw new InvalidOperationException("Leave cannot be applied for past dates.");
+        if (dto.EndDate.Date < dto.StartDate.Date)
+            throw new InvalidOperationException("End date cannot be before start date.");
 
         var leaveType = await _db.Set<LeaveType>().AsNoTracking().FirstOrDefaultAsync(lt => lt.Id == dto.LeaveTypeId && !lt.IsDeleted);
         if (leaveType is null)
@@ -425,8 +441,15 @@ public class LeaveService : ILeaveService
             .FirstOrDefaultAsync(x => x.Id == id);
         if (r is null) return null;
         var dto = MapToDto(r);
-        dto.ResponsibleUserName = await GetResponsibleUserNameAsync(r);
+        await SetResponsibleFieldsAsync(dto, r);
         return dto;
+    }
+
+    public async Task<Guid?> GetResponsibleApproverEmployeeIdAsync(Guid leaveRequestId)
+    {
+        var r = await _db.Set<LeaveRequest>().FindAsync(leaveRequestId);
+        if (r is null) return null;
+        return await GetResponsibleEmployeeIdAsync(r);
     }
 
     private static LeaveRequestDto MapToDto(LeaveRequest r) => new()
@@ -453,22 +476,38 @@ public class LeaveService : ILeaveService
         MedicalCertificateUrl = r.MedicalCertificateUrl,
     };
 
+    private async Task SetResponsibleFieldsAsync(LeaveRequestDto dto, LeaveRequest r)
+    {
+        dto.ResponsibleEmployeeId = await GetResponsibleEmployeeIdAsync(r);
+        dto.ResponsibleUserName = await GetResponsibleUserNameAsync(r);
+    }
+
+    private async Task<Guid?> GetResponsibleEmployeeIdAsync(LeaveRequest r)
+    {
+        if (r.Status == ApprovalStatus.Approved)
+        {
+            if (r.Level2ApproverId.HasValue) return r.Level2ApproverId;
+            if (r.Level1ApproverId.HasValue) return r.Level1ApproverId;
+            return r.ApproverId;
+        }
+        if (r.Status == ApprovalStatus.Rejected)
+            return r.ApproverId;
+        if (r.Status == ApprovalStatus.Pending)
+            return await GetDirectSupervisorIdAsync(r.EmployeeId);
+        if (r.Status == ApprovalStatus.PendingLevel2 && r.Level1ApproverId.HasValue)
+            return await GetDirectSupervisorIdAsync(r.Level1ApproverId.Value);
+        return null;
+    }
+
     private async Task<string?> GetResponsibleUserNameAsync(LeaveRequest r)
     {
         if (r.Status == ApprovalStatus.Approved)
             return r.Level2Approver != null ? r.Level2Approver.FirstName + " " + r.Level2Approver.LastName : r.Level1Approver != null ? r.Level1Approver.FirstName + " " + r.Level1Approver.LastName : r.Approver != null ? r.Approver.FirstName + " " + r.Approver.LastName : null;
         if (r.Status == ApprovalStatus.Rejected)
             return r.Approver != null ? r.Approver.FirstName + " " + r.Approver.LastName : null;
-        if (r.Status == ApprovalStatus.Pending)
+        if (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2)
         {
-            var supervisorId = await GetDirectSupervisorIdAsync(r.EmployeeId);
-            if (!supervisorId.HasValue) return null;
-            var emp = await _db.Employees.FindAsync(supervisorId.Value);
-            return emp != null ? emp.FirstName + " " + emp.LastName : null;
-        }
-        if (r.Status == ApprovalStatus.PendingLevel2 && r.Level1ApproverId.HasValue)
-        {
-            var supervisorId = await GetDirectSupervisorIdAsync(r.Level1ApproverId.Value);
+            var supervisorId = await GetResponsibleEmployeeIdAsync(r);
             if (!supervisorId.HasValue) return null;
             var emp = await _db.Employees.FindAsync(supervisorId.Value);
             return emp != null ? emp.FirstName + " " + emp.LastName : null;
@@ -639,16 +678,40 @@ public class LeaveService : ILeaveService
     {
         var yearStart = new DateTime(year, 1, 1);
         var yearEnd = new DateTime(year, 12, 31);
-        var list = await _db.Set<LeaveBalance>()
+        var list = await QueryEmployeeBalancesForYearAsync(employeeId, yearStart, yearEnd);
+
+        if (list.Count == 0 && await _db.Employees.AnyAsync(e => e.Id == employeeId && !e.IsDeleted))
+        {
+            var hasRules = await _db.LeaveEntitlementRules.AnyAsync(r => r.IsActive && !r.IsDeleted);
+            if (hasRules)
+            {
+                try
+                {
+                    await _entitlementService.CalculateAndApplyAsync(employeeId, year);
+                    list = await QueryEmployeeBalancesForYearAsync(employeeId, yearStart, yearEnd);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Auto leave balance calculation failed for employee {EmployeeId}, year {Year}", employeeId, year);
+                }
+            }
+        }
+
+        var av = await GetCarryForwardAvailabilityMonthsAsync();
+        var asOf = (asOfDate ?? _clock.Now).Date;
+        await ForfeitExpiredCarryOnTrackedBalancesAsync(list, asOf, av);
+        return list.Select(b => MapLeaveBalanceToDto(b, av, asOf)).ToList();
+    }
+
+    private async Task<List<LeaveBalance>> QueryEmployeeBalancesForYearAsync(Guid employeeId, DateTime yearStart, DateTime yearEnd)
+    {
+        var year = yearStart.Year;
+        return await _db.Set<LeaveBalance>()
             .Include(b => b.LeaveType)
             .Where(b => b.EmployeeId == employeeId && (
                 (b.PeriodStart == null && b.Year == year) ||
                 (b.PeriodStart != null && b.PeriodEnd != null && b.PeriodStart <= yearEnd && b.PeriodEnd >= yearStart)))
             .ToListAsync();
-        var av = await GetCarryForwardAvailabilityMonthsAsync();
-        var asOf = (asOfDate ?? _clock.Now).Date;
-        await ForfeitExpiredCarryOnTrackedBalancesAsync(list, asOf, av);
-        return list.Select(b => MapLeaveBalanceToDto(b, av, asOf)).ToList();
     }
 
     public async Task<List<LeaveBalanceSummaryDto>> GetBalanceSummaryAsync(int year, DateTime? asOfDate = null)
@@ -1067,32 +1130,132 @@ public class LeaveService : ILeaveService
 
     // ───── Holidays ─────
 
-    public async Task<List<HolidayDto>> GetHolidaysAsync(int year)
+    public async Task<HolidayLocaleSettingsDto> GetHolidayLocaleSettingsAsync()
     {
+        var country = await ResolveHolidayCountryCodeAsync(null);
+        var timeZone = await ResolveHolidayTimeZoneIdAsync(null);
+        return BuildHolidayLocaleSettingsDto(country, timeZone);
+    }
+
+    public async Task<HolidayLocaleSettingsDto> SetHolidayLocaleSettingsAsync(UpdateHolidayLocaleSettingsDto dto)
+    {
+        var country = HolidayCountryCodes.Normalize(dto.CountryCode);
+        var timeZone = NormalizeHolidayTimeZoneId(dto.TimeZoneId);
+        await _systemSettings.SetAsync(HolidayLocaleCatalog.CountrySettingKey, country);
+        await _systemSettings.SetAsync(HolidayLocaleCatalog.TimeZoneSettingKey, timeZone);
+
+        foreach (var year in new[] { 2024, 2025, 2026, 2027 })
+            await LeaveSeeder.EnsureCountryHolidaysForYearAsync(_db, year, country);
+
+        return BuildHolidayLocaleSettingsDto(country, timeZone);
+    }
+
+    public async Task<List<HolidayDto>> GetHolidaysAsync(int year, string? countryCode = null)
+    {
+        var country = await ResolveHolidayCountryCodeAsync(countryCode);
+        await LeaveSeeder.EnsureCountryHolidaysForYearAsync(_db, year, country);
+
         return await _db.Set<Holiday>()
-            .Where(h => h.Year == year)
+            .Where(h => h.Year == year && h.CountryCode == country)
             .OrderBy(h => h.Date)
-            .Select(h => new HolidayDto { Id = h.Id, Name = h.Name, Date = h.Date, IsRestricted = h.IsRestricted, Description = h.Description, Year = h.Year })
+            .Select(h => new HolidayDto
+            {
+                Id = h.Id,
+                Name = h.Name,
+                Date = h.Date,
+                Kind = h.Kind,
+                IsRestricted = h.IsRestricted,
+                Description = h.Description,
+                Year = h.Year,
+                CountryCode = h.CountryCode,
+            })
             .ToListAsync();
     }
 
     public async Task<HolidayDto> CreateHolidayAsync(CreateHolidayDto dto)
     {
-        var holiday = new Holiday { Name = dto.Name, Date = dto.Date, IsRestricted = dto.IsRestricted, Description = dto.Description, Year = dto.Year };
+        var kind = HolidayKinds.Normalize(dto.Kind, dto.IsRestricted);
+        var country = await ResolveHolidayCountryCodeAsync(null);
+        var holiday = new Holiday
+        {
+            Name = dto.Name,
+            Date = dto.Date,
+            Kind = kind,
+            IsRestricted = kind == HolidayKinds.Restricted,
+            Description = dto.Description,
+            Year = dto.Year,
+            CountryCode = country,
+        };
         _db.Set<Holiday>().Add(holiday);
         await _db.SaveChangesAsync();
-        return new HolidayDto { Id = holiday.Id, Name = holiday.Name, Date = holiday.Date, IsRestricted = holiday.IsRestricted, Description = holiday.Description, Year = holiday.Year };
+        return MapHolidayDto(holiday);
     }
 
     public async Task<HolidayDto?> UpdateHolidayAsync(Guid id, UpdateHolidayDto dto)
     {
         var entity = await _db.Set<Holiday>().FindAsync(id);
         if (entity is null) return null;
-        entity.Name = dto.Name; entity.Date = dto.Date; entity.IsRestricted = dto.IsRestricted;
-        entity.Description = dto.Description; entity.Year = dto.Year;
+        var kind = HolidayKinds.Normalize(dto.Kind, dto.IsRestricted);
+        entity.Name = dto.Name;
+        entity.Date = dto.Date;
+        entity.Kind = kind;
+        entity.IsRestricted = kind == HolidayKinds.Restricted;
+        entity.Description = dto.Description;
+        entity.Year = dto.Year;
         await _db.SaveChangesAsync();
-        return new HolidayDto { Id = entity.Id, Name = entity.Name, Date = entity.Date, IsRestricted = entity.IsRestricted, Description = entity.Description, Year = entity.Year };
+        return MapHolidayDto(entity);
     }
+
+    private static HolidayDto MapHolidayDto(Holiday holiday) =>
+        new()
+        {
+            Id = holiday.Id,
+            Name = holiday.Name,
+            Date = holiday.Date,
+            Kind = HolidayKinds.Normalize(holiday.Kind, holiday.IsRestricted),
+            IsRestricted = holiday.IsRestricted,
+            Description = holiday.Description,
+            Year = holiday.Year,
+            CountryCode = holiday.CountryCode,
+        };
+
+    private async Task<string> ResolveHolidayCountryCodeAsync(string? countryCode)
+    {
+        if (!string.IsNullOrWhiteSpace(countryCode))
+            return HolidayCountryCodes.Normalize(countryCode);
+        var stored = await _systemSettings.GetAsync(HolidayLocaleCatalog.CountrySettingKey);
+        return HolidayCountryCodes.Normalize(stored ?? HolidayLocaleCatalog.DefaultCountryCode);
+    }
+
+    private async Task<string> ResolveHolidayTimeZoneIdAsync(string? timeZoneId)
+    {
+        if (!string.IsNullOrWhiteSpace(timeZoneId))
+            return NormalizeHolidayTimeZoneId(timeZoneId);
+        var stored = await _systemSettings.GetAsync(HolidayLocaleCatalog.TimeZoneSettingKey);
+        return NormalizeHolidayTimeZoneId(stored ?? HolidayLocaleCatalog.DefaultTimeZoneId);
+    }
+
+    private static string NormalizeHolidayTimeZoneId(string? timeZoneId)
+    {
+        if (string.IsNullOrWhiteSpace(timeZoneId))
+            return HolidayLocaleCatalog.DefaultTimeZoneId;
+        var match = HolidayLocaleCatalog.TimeZones.FirstOrDefault(t =>
+            string.Equals(t.Id, timeZoneId.Trim(), StringComparison.OrdinalIgnoreCase));
+        return match?.Id ?? HolidayLocaleCatalog.DefaultTimeZoneId;
+    }
+
+    private static HolidayLocaleSettingsDto BuildHolidayLocaleSettingsDto(string countryCode, string timeZoneId) =>
+        new()
+        {
+            CountryCode = countryCode,
+            TimeZoneId = timeZoneId,
+            Countries = HolidayLocaleCatalog.Countries
+                .Select(c => new HolidayLocaleOptionDto { Code = c.Code, Label = c.Label })
+                .ToList(),
+            TimeZones = HolidayLocaleCatalog.TimeZones
+                .Select(t => new HolidayTimeZoneOptionDto { Id = t.Id, Label = t.Label, CountryCode = t.CountryCode })
+                .ToList(),
+        };
 
     public async Task<bool> DeleteHolidayAsync(Guid id)
     {
@@ -1105,15 +1268,19 @@ public class LeaveService : ILeaveService
 
     // ───── Calendar ─────
 
-    public async Task<List<CalendarDayDto>> GetCalendarAsync(int month, int year)
+    public async Task<List<CalendarDayDto>> GetCalendarAsync(int month, int year, Guid? departmentId = null)
     {
         var start = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
         var end = start.AddMonths(1);
 
-        var requests = await _db.Set<LeaveRequest>()
+        var query = _db.Set<LeaveRequest>()
             .Include(r => r.Employee).Include(r => r.LeaveType)
-            .Where(r => r.Status == ApprovalStatus.Approved && r.StartDate < end && r.EndDate >= start)
-            .ToListAsync();
+            .Where(r => r.Status == ApprovalStatus.Approved && r.StartDate < end && r.EndDate >= start);
+
+        if (departmentId.HasValue)
+            query = query.Where(r => r.Employee.DepartmentId == departmentId.Value);
+
+        var requests = await query.ToListAsync();
 
         var days = new Dictionary<DateTime, CalendarDayDto>();
         foreach (var r in requests)

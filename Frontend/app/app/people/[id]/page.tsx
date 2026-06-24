@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, type FormEvent } fro
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, CountryAutocompleteInput, NationalityAutocompleteInput, ListAutocompleteInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, CountryAutocompleteInput, NationalityAutocompleteInput, OptionsAutocompleteInput, ListAutocompleteInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, FlashMessageBanner, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { isValidPhone, isValidNic, isValidDrivingLicense, PHONE_VALIDATION_MESSAGE, NIC_VALIDATION_MESSAGE, DRIVING_LICENSE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { inferStateFromDistrict } from "@/lib/geo-regions";
@@ -405,164 +405,19 @@ function formatTenureSpan(joinDateIso: string, endDateIso?: string | null): stri
   return parts.join(", ");
 }
 
-/** Canonical ladder: Intern → … → Director (template duration bands). */
-const CAREER_STEPS = [
-  {
-    id: "intern",
-    label: "Intern",
-    durationBand: "Duration: 3–6 months",
-  },
-  {
-    id: "junior",
-    label: "Junior",
-    durationBand: "Duration: 6–12 months",
-  },
-  {
-    id: "mid",
-    label: "Mid-Level",
-    durationBand: "Duration: 18–36 months",
-  },
-  {
-    id: "senior",
-    label: "Senior",
-    durationBand: "Duration: 24–48 months",
-  },
-  {
-    id: "team_lead",
-    label: "Team Lead",
-    durationBand: "Duration: 12–24 months",
-  },
-  {
-    id: "manager",
-    label: "Manager",
-    durationBand: "Duration: 24–60 months",
-  },
-  {
-    id: "director",
-    label: "Director",
-    durationBand: "Duration: Varies by organization",
-  },
-] as const;
-
-interface CareerPathRow {
+interface EmployeeLifecycleEventRow {
   id: string;
-  ladderLabel: string;
-  displayTitle: string;
-  monthRange: string;
-  yearRange: string;
-  actualTenure: string;
-  durationBand: string;
-  isCurrent: boolean;
+  eventType: string;
+  eventTypeLabel: string;
+  eventDate: string;
+  title: string;
+  summary: string | null;
+  isCurrentRole: boolean;
 }
 
-function parseLocalDay(iso: string): Date {
-  const [y, m, d] = iso.split("T")[0].split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function toLocalIsoDate(d: Date): string {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${mo}-${day}`;
-}
-
-function formatMonthYearLocal(d: Date): string {
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-}
-
-function formatYearLocal(d: Date): string {
-  return String(d.getFullYear());
-}
-
-function segmentRangeLocal(join: Date, end: Date, n: number, k: number): [Date, Date] {
-  const j = join.getTime();
-  const e = end.getTime();
-  const span = Math.max(0, e - j);
-  const start = new Date(j + (span * k) / n);
-  if (k === n - 1) return [start, new Date(end)];
-  const segEnd = new Date(j + (span * (k + 1)) / n);
-  return [start, segEnd];
-}
-
-function inferCareerLevelFromGrade(gradeName: string | null | undefined): number | null {
-  if (!gradeName?.trim()) return null;
-  const g = gradeName.toLowerCase();
-  if (/\b(intern|trainee|l\s*0|level\s*0)\b/i.test(g)) return 0;
-  if (/\b(junior|l\s*1|level\s*1|graduate)\b/i.test(g)) return 1;
-  if (/\b(mid|l\s*2|level\s*2|intermediate)\b/i.test(g)) return 2;
-  if (/\b(senior|l\s*3|level\s*3)\b/i.test(g)) return 3;
-  if (/\b(team\s*lead|l\s*4|level\s*4)\b/i.test(g)) return 4;
-  if (/\b(manager|l\s*5|level\s*5|head\s+of)\b/i.test(g)) return 5;
-  if (/\b(director|l\s*6|level\s*6|vp|vice\s*president|chief)\b/i.test(g)) return 6;
-  return null;
-}
-
-function inferCareerLevelFromKeywords(
-  jobTitle: string | null | undefined,
-  positionTitle: string | null | undefined,
-  gradeName: string | null | undefined,
-): number {
-  const t = `${jobTitle ?? ""} ${positionTitle ?? ""} ${gradeName ?? ""}`.toLowerCase();
-  if (!t.trim()) return 2;
-  const ordered: { level: number; pats: RegExp[] }[] = [
-    {
-      level: 6,
-      pats: [/\bdirector\b/, /\bvice\s*president\b/, /\bvp\b/, /\bchief\b/, /\bceo\b/, /\bcto\b/, /\bcfo\b/, /\bcoo\b/, /\bexecutive\b/],
-    },
-    {
-      level: 5,
-      pats: [/\bmanager\b/, /\bpeople\s+manager\b/, /\bengineering\s+manager\b/, /\bhead\s+of\b/],
-    },
-    { level: 4, pats: [/\bteam\s+lead\b/, /\bsquad\s+lead\b/, /\bchapter\s+lead\b/, /\btech\s+lead\b/] },
-    { level: 3, pats: [/\bsenior\b/, /\bsr\.?\b/, /\bprincipal\b/, /\bstaff\s+engineer\b/, /\barchitect\b/] },
-    { level: 2, pats: [/\bmid-level\b/, /\bmid\s+level\b/, /\bintermediate\b/] },
-    { level: 1, pats: [/\bjunior\b/, /\bjr\.?\b/, /\bgraduate\b/, /\bentry[-\s]?level\b/, /\bassociate\b/] },
-    { level: 0, pats: [/\bintern\b/, /\btrainee\b/, /\bapprentice\b/] },
-  ];
-  for (const { level, pats } of ordered) {
-    if (pats.some((p) => p.test(t))) return level;
-  }
-  const g = inferCareerLevelFromGrade(gradeName);
-  return g ?? 2;
-}
-
-function buildCareerProgressionRows(emp: EmployeeDetail): CareerPathRow[] {
-  const join = parseLocalDay(emp.joinDate);
-  const end = emp.terminationDate ? parseLocalDay(emp.terminationDate) : new Date();
-  if (Number.isNaN(join.getTime()) || Number.isNaN(end.getTime()) || end < join) return [];
-
-  const level = Math.min(
-    6,
-    Math.max(0, inferCareerLevelFromKeywords(emp.jobTitleName, emp.positionTitle, emp.gradeName)),
-  );
-  const n = level + 1;
-  const rows: CareerPathRow[] = [];
-
-  for (let k = n - 1; k >= 0; k--) {
-    const step = CAREER_STEPS[k];
-    const [a, b] = segmentRangeLocal(join, end, n, k);
-    const isCurrent = k === level;
-    const displayTitle = isCurrent ? (emp.jobTitleName ?? emp.positionTitle ?? step.label) : step.label;
-    const ya = formatYearLocal(a);
-    const yb = formatYearLocal(b);
-    const yearRange = ya === yb ? ya : `${ya} – ${yb}`;
-    const monthRange = `${formatMonthYearLocal(a)} – ${formatMonthYearLocal(b)}`;
-    const actualTenure = formatTenureSpan(toLocalIsoDate(a), toLocalIsoDate(b));
-
-    rows.push({
-      id: `career-${step.id}-${k}`,
-      ladderLabel: step.label,
-      displayTitle,
-      monthRange,
-      yearRange,
-      actualTenure,
-      durationBand: step.durationBand,
-      isCurrent,
-    });
-  }
-  return rows;
+interface EmployeeLifecycleTimeline {
+  milestones: EmployeeLifecycleEventRow[];
+  roleHistory: EmployeeLifecycleEventRow[];
 }
 
 function buildEmployeePutPayload(
@@ -822,20 +677,28 @@ const VISIBLE_TAB_COUNT = 3;
 const PRIMARY_TABS = PAGE_TABS.slice(0, VISIBLE_TAB_COUNT);
 const OVERFLOW_TABS = PAGE_TABS.slice(VISIBLE_TAB_COUNT);
 
-type QualificationsSubTab = "qualifications" | "education" | "skills" | "training" | "matrix" | "certifications" | "languages";
-const QUALIFICATIONS_SUB_TABS: { key: QualificationsSubTab; label: string }[] = [
-  { key: "qualifications", label: "Qualifications" },
-  { key: "education", label: "Education" },
-  { key: "skills", label: "Skills" },
-  { key: "training", label: "Training" },
-  { key: "matrix", label: "Matrix" },
-  { key: "certifications", label: "Certs" },
-  { key: "languages", label: "Languages" },
-];
 const qualificationsPanelShellClass =
-  "w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm";
+  "w-full space-y-3 overflow-hidden rounded-xl border border-slate-200 bg-white p-2 shadow-sm sm:space-y-3.5 sm:p-3";
+const qualificationsSectionClass =
+  "overflow-hidden rounded-md border border-slate-200/90 bg-white";
+const qualificationsSectionHeaderRow =
+  "flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/80 px-2.5 py-1.5 sm:px-3";
+const qualificationsSectionTitleClass = "text-xs font-semibold text-slate-800 sm:text-sm";
+const qualificationsEmptyClass =
+  "mx-2 mb-2 mt-1.5 rounded border border-dashed border-slate-200 bg-slate-50/60 px-2 py-2.5 text-center text-[11px] text-slate-400 sm:mx-2.5";
 const qualificationsTableScrollClass =
-  "max-h-[min(52vh,520px)] overflow-auto [scrollbar-width:thin] [scrollbar-color:rgb(203_213_225)_rgb(241_245_249)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100";
+  "mx-2 mb-2 mt-1.5 h-28 overflow-x-auto overflow-y-scroll rounded border border-slate-200 bg-white [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgb(71_85_105)_rgb(226_232_240)] sm:mx-2.5 sm:h-32 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-slate-500 [&::-webkit-scrollbar-thumb]:hover:bg-slate-600 [&::-webkit-scrollbar-track]:rounded [&::-webkit-scrollbar-track]:bg-slate-200/80";
+const qualificationsTableClass = "w-full min-w-[32rem] border-collapse text-left text-xs sm:text-sm";
+const qualificationsTheadClass = "sticky top-0 z-10 bg-slate-100";
+const qualificationsHeadRowClass =
+  "border-b border-slate-200 text-[10px] font-bold uppercase tracking-wide text-slate-600 sm:text-[11px]";
+const qualificationsBodyRowClass =
+  "border-b border-slate-200/80 bg-white transition hover:bg-sky-50/60 even:bg-slate-50/70";
+const qualificationsThClass = "whitespace-nowrap px-2.5 py-2 first:pl-3 last:pr-3 sm:px-3 sm:first:pl-4";
+const qualificationsTdClass = "px-2.5 py-2 text-slate-700 first:pl-3 last:pr-3 sm:px-3 sm:first:pl-4";
+const qualificationsTdPrimaryClass =
+  "px-2.5 py-2 font-semibold text-slate-800 first:pl-3 sm:px-3 sm:first:pl-4";
+const qualificationsPagerClass = "mx-2 mb-1.5 border-t-0 px-1 pt-0 sm:mx-2.5";
 
 /** Short MIME / content-type label for tables; full value in tooltip when truncated or mapped. */
 function attachmentMimeLabel(contentType: string | null | undefined): { label: string; title?: string } {
@@ -889,13 +752,13 @@ const SECTION_ICON_GLASS: Record<string, { shell: string; ink: string }> = {
   "bg-rose-500": { shell: "border-rose-200/55 bg-rose-500/12", ink: "text-rose-600" },
 };
 
-function SectionIcon({ path, color }: { path: string; color: string }) {
+function SectionIcon({ path, color, compact = false }: { path: string; color: string; compact?: boolean }) {
   const g = SECTION_ICON_GLASS[color] ?? SECTION_ICON_GLASS["bg-indigo-500"];
   return (
     <div
-      className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border shadow-sm backdrop-blur-md ring-1 ring-inset ring-white/70 ${g.shell}`}
+      className={`grid shrink-0 place-items-center rounded-lg border shadow-sm backdrop-blur-md ring-1 ring-inset ring-white/70 ${compact ? "h-6 w-6 rounded-md" : "h-8 w-8 rounded-xl"} ${g.shell}`}
     >
-      <svg className={`h-[18px] w-[18px] ${g.ink}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+      <svg className={`${compact ? "h-3.5 w-3.5" : "h-[18px] w-[18px]"} ${g.ink}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d={path} />
       </svg>
     </div>
@@ -960,7 +823,6 @@ export default function EmployeeDetailPage() {
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [pageTab, setPageTab] = useState<PageTab>("profile");
-  const [qualificationsSubTab, setQualificationsSubTab] = useState<QualificationsSubTab>("qualifications");
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
@@ -969,8 +831,13 @@ export default function EmployeeDetailPage() {
 
   const flashSuccessMsg = useCallback((text: string) => {
     setMsg({ type: "ok", text });
-    setTimeout(() => setMsg(null), 3000);
   }, []);
+
+  useEffect(() => {
+    if (!showIdValidationErrors) return;
+    const timer = window.setTimeout(() => setShowIdValidationErrors(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [showIdValidationErrors, msg?.text]);
 
   const [pdFirstName, setPdFirstName] = useState("");
   const [pdMiddleName, setPdMiddleName] = useState("");
@@ -1029,6 +896,8 @@ export default function EmployeeDetailPage() {
   const [pendingLifecycleErr, setPendingLifecycleErr] = useState<string | null>(null);
   const [pendingOnboarding, setPendingOnboarding] = useState<PendingLifecycleTaskRow[]>([]);
   const [pendingOffboarding, setPendingOffboarding] = useState<PendingLifecycleTaskRow[]>([]);
+  const [lifecycleTimeline, setLifecycleTimeline] = useState<EmployeeLifecycleTimeline | null>(null);
+  const [lifecycleLoading, setLifecycleLoading] = useState(false);
 
   const leaveBalanceYear = new Date().getFullYear();
   const [leaveBalanceRows, setLeaveBalanceRows] = useState<LeaveBalanceWidgetRow[]>([]);
@@ -1410,7 +1279,25 @@ export default function EmployeeDetailPage() {
     finally { setLoading(false); }
   }, [id, syncReportingDraft]);
 
+  const loadLifecycleTimeline = useCallback(async () => {
+    if (!id) return;
+    setLifecycleLoading(true);
+    try {
+      const timeline = await apiFetch<EmployeeLifecycleTimeline>(`/api/employees/${id}/lifecycle-timeline`);
+      setLifecycleTimeline(timeline);
+    } catch {
+      setLifecycleTimeline({ milestones: [], roleHistory: [] });
+    } finally {
+      setLifecycleLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!id || !visibleWidgets.includes("lifecycle")) return;
+    void loadLifecycleTimeline();
+  }, [id, visibleWidgets, loadLifecycleTimeline]);
 
   useEffect(() => {
     if (pageTab !== "profile" || !emp || typeof window === "undefined") return;
@@ -2823,7 +2710,6 @@ export default function EmployeeDetailPage() {
       setPhotoFile(null);
       setPhotoPreview(null);
       setMsg({ type: "ok", text: "Profile photo updated." });
-      setTimeout(() => setMsg(null), 3000);
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : "Unknown error";
       setMsg({ type: "err", text: `Failed to upload photo: ${detail}` });
@@ -2848,7 +2734,6 @@ export default function EmployeeDetailPage() {
       setEpfNumber(updated.epfNumber ?? "");
       setEtfNumber(updated.etfNumber ?? "");
       setMsg({ type: "ok", text: "EPF / ETF details saved." });
-      setTimeout(() => setMsg(null), 3000);
     } catch (err) {
       setMsg({ type: "err", text: err instanceof Error ? err.message : "Failed to save EPF / ETF details." });
     } finally {
@@ -2985,8 +2870,8 @@ export default function EmployeeDetailPage() {
     try {
       const updated = await apiFetch<EmployeeDetail>(`/api/employees/${id}`, { method: "PUT", body: JSON.stringify(payload) });
       setEmp(updated);
+      void loadLifecycleTimeline();
       setMsg({ type: "ok", text: "Updated successfully." });
-      setTimeout(() => setMsg(null), 3000);
     } catch (err: unknown) { setMsg({ type: "err", text: err instanceof Error ? err.message : "Failed to save." }); }
     finally { setSaving(false); }
   }
@@ -2999,7 +2884,8 @@ export default function EmployeeDetailPage() {
   };
   const fmtDateDisplay = formatDate;
 
-  const careerPathRows = useMemo(() => (emp ? buildCareerProgressionRows(emp) : []), [emp]);
+  const lifecycleMilestones = lifecycleTimeline?.milestones ?? [];
+  const lifecycleRoleHistory = lifecycleTimeline?.roleHistory ?? [];
 
   const jobEmploymentTypeOptions = useMemo(
     () => employmentTypeOptionsFromCatalog(employmentTypes),
@@ -3068,7 +2954,7 @@ export default function EmployeeDetailPage() {
 
   function renderEmployeeLifecycleMain(employee: EmployeeDetail) {
     return (
-      <>
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex flex-col gap-4 md:flex-row md:items-start">
           <div className="flex w-full shrink-0 flex-col items-center border-b border-slate-100 pb-4 text-center md:w-[160px] md:border-b-0 md:border-r md:border-slate-100 md:pb-0 md:pr-4">
             <div className="grid h-[88px] w-[88px] place-items-center rounded-full border-4 border-sky-100 bg-gradient-to-br from-sky-400 to-blue-600 text-2xl font-extrabold text-white shadow-md shadow-sky-500/20">
@@ -3100,94 +2986,73 @@ export default function EmployeeDetailPage() {
                 <SectionIcon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" color="bg-sky-500" />
                 Lifecycle milestones
               </h4>
+              {lifecycleLoading && (
+                <p className="text-xs text-slate-500">Loading lifecycle history…</p>
+              )}
               <ul className="space-y-0">
-                {(() => {
-                  const milestones = (
-                    [
-                      { label: "Joined organization", date: employee.joinDate },
-                      employee.probationEndDate ? { label: "Probation ends", date: employee.probationEndDate } : null,
-                      employee.dateOfPermanency ? { label: "Permanent / confirmed", date: employee.dateOfPermanency } : null,
-                      employee.terminationDate
-                        ? {
-                            label: "Separation",
-                            date: employee.terminationDate,
-                            sub:
-                              employee.terminationReason && employee.terminationReason.trim().length > 0
-                                ? employee.terminationReason.trim().length > 72
-                                  ? `${employee.terminationReason.trim().slice(0, 70)}…`
-                                  : employee.terminationReason.trim()
-                                : undefined,
-                          }
-                        : null,
-                    ] as ({ label: string; date: string; sub?: string } | null)[]
-                  )
-                    .filter((m): m is { label: string; date: string; sub?: string } => m != null)
-                    .sort(
-                      (a, b) =>
-                        new Date(a.date.split("T")[0]).getTime() - new Date(b.date.split("T")[0]).getTime(),
-                    );
-                  return milestones.map((m, idx) => (
-                    <li key={`${m.label}-${m.date}`} className="flex gap-3">
-                      <div className="flex w-4 shrink-0 flex-col items-center pt-1">
-                        <span className="h-2.5 w-2.5 rounded-full border-2 border-white bg-sky-500 shadow ring-1 ring-sky-200" />
-                        {idx < milestones.length - 1 && (
-                          <span className="mt-1 min-h-[2.25rem] w-0 flex-1 border-l-2 border-slate-200" aria-hidden />
-                        )}
+                {lifecycleMilestones.map((m, idx) => (
+                  <li key={m.id} className="flex gap-3">
+                    <div className="flex w-4 shrink-0 flex-col items-center pt-1">
+                      <span className="h-2.5 w-2.5 rounded-full border-2 border-white bg-sky-500 shadow ring-1 ring-sky-200" />
+                      {idx < lifecycleMilestones.length - 1 && (
+                        <span className="mt-1 min-h-[2.25rem] w-0 flex-1 border-l-2 border-slate-200" aria-hidden />
+                      )}
+                    </div>
+                    <div className={`min-w-0 flex-1 ${idx < lifecycleMilestones.length - 1 ? "pb-5" : ""}`}>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        {m.eventTypeLabel}
                       </div>
-                      <div className={`min-w-0 flex-1 ${idx < milestones.length - 1 ? "pb-5" : ""}`}>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                          {m.label}
-                        </div>
-                        <div className="text-sm font-semibold text-slate-800">{fmtDateDisplay(m.date)}</div>
-                        {m.sub && <p className="mt-0.5 text-xs leading-snug text-slate-500">{m.sub}</p>}
-                      </div>
-                    </li>
-                  ));
-                })()}
+                      <div className="text-sm font-semibold text-slate-800">{fmtDateDisplay(m.eventDate)}</div>
+                      {m.summary && <p className="mt-0.5 text-xs leading-snug text-slate-500">{m.summary}</p>}
+                    </div>
+                  </li>
+                ))}
+                {!lifecycleLoading && lifecycleMilestones.length === 0 && (
+                  <li className="text-xs text-slate-500">No milestones yet.</li>
+                )}
               </ul>
               <div className="mt-5 border-t border-slate-100 pt-4">
                 <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-slate-600">
                   <SectionIcon path="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" color="bg-violet-500" />
-                  Career progression
+                  Role &amp; org history
                 </h4>
                 <ul className="space-y-0">
-                  {careerPathRows.map((row, idx) => (
+                  {lifecycleRoleHistory.map((row, idx) => (
                     <li key={row.id} className="flex gap-3">
                       <div className="flex w-4 shrink-0 flex-col items-center pt-1">
                         <span
                           className={`h-2.5 w-2.5 rounded-full border-2 border-white shadow ring-1 ${
-                            row.isCurrent
+                            row.isCurrentRole
                               ? "bg-violet-600 ring-violet-200"
                               : "bg-violet-300 ring-violet-100"
                           }`}
                         />
-                        {idx < careerPathRows.length - 1 && (
+                        {idx < lifecycleRoleHistory.length - 1 && (
                           <span className="mt-1 min-h-[2.25rem] w-0 flex-1 border-l-2 border-slate-200" aria-hidden />
                         )}
                       </div>
-                      <div className={`min-w-0 flex-1 ${idx < careerPathRows.length - 1 ? "pb-5" : ""}`}>
+                      <div className={`min-w-0 flex-1 ${idx < lifecycleRoleHistory.length - 1 ? "pb-5" : ""}`}>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                            {row.ladderLabel}
+                            {row.eventTypeLabel}
                           </span>
-                          {row.isCurrent && (
+                          {row.isCurrentRole && (
                             <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-800">
-                              Current
+                              Latest
                             </span>
                           )}
                         </div>
-                        <div className="mt-0.5 text-[15px] font-semibold leading-snug text-slate-900">
-                          {row.displayTitle}
-                        </div>
-                        <div className="mt-1 text-base font-bold tracking-tight text-slate-800">{row.yearRange}</div>
-                        <div className="text-xs font-medium text-slate-600">{row.monthRange}</div>
-                        <div className="mt-0.5 text-[11px] text-slate-500">
-                          In seat: <span className="font-semibold text-slate-700">{row.actualTenure}</span>
-                        </div>
-                        <p className="mt-2 text-[11px] font-medium leading-snug text-slate-600">{row.durationBand}</p>
+                        <div className="mt-0.5 text-[15px] font-semibold leading-snug text-slate-900">{row.title}</div>
+                        <div className="mt-1 text-xs font-medium text-slate-600">{fmtDateDisplay(row.eventDate)}</div>
+                        {row.summary && (
+                          <p className="mt-1.5 text-[11px] leading-snug text-slate-600">{row.summary}</p>
+                        )}
                       </div>
                     </li>
                   ))}
+                  {!lifecycleLoading && lifecycleRoleHistory.length === 0 && (
+                    <li className="text-xs text-slate-500">No role or org changes yet.</li>
+                  )}
                 </ul>
               </div>
               <div className="mt-5 border-t border-slate-100 pt-4">
@@ -3208,10 +3073,9 @@ export default function EmployeeDetailPage() {
                         {employee.jobTitleDescription.trim()}
                       </p>
                     ) : (
-                      <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-                        No job title description yet. Add text under{" "}
-                        <span className="font-medium text-slate-600">Organization → Job titles</span> for this
-                        role.
+                      <p className="mt-1.5 text-xs text-slate-500">
+                        No description. Set under{" "}
+                        <span className="font-medium text-slate-600">Organization → Job titles</span>.
                       </p>
                     )}
                   </div>
@@ -3223,11 +3087,11 @@ export default function EmployeeDetailPage() {
         <button
           type="button"
           onClick={() => setPageTab("job")}
-          className="mt-4 w-full rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-600 transition hover:border-sky-300 hover:bg-sky-50/60 hover:text-sky-800"
+          className="mt-auto w-full rounded-lg border border-slate-200 py-2 pt-4 text-xs font-semibold text-slate-600 transition hover:border-sky-300 hover:bg-sky-50/60 hover:text-sky-800"
         >
           Open Job &amp; organization tab
         </button>
-      </>
+      </div>
     );
   }
 
@@ -3390,29 +3254,23 @@ export default function EmployeeDetailPage() {
         </div>
       </div>
 
-      {/* Toast */}
-      {msg && (
-        <div className={`mb-4 flex items-center gap-2 rounded-xl px-4 py-3 text-sm ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
-          <span className={`h-2 w-2 rounded-full ${msg.type === "ok" ? "bg-emerald-500" : "bg-red-500"}`} />
-          {msg.text}
-        </div>
-      )}
+      <FlashMessageBanner msg={msg} onClear={() => setMsg(null)} />
 
       {/* ══════════════════════════════════════════════════
           TAB: PROFILE — About card + Quick Access + widgets
          ══════════════════════════════════════════════════ */}
       {isProfileTab && (
-        <div className="grid items-start gap-5 lg:grid-cols-2">
-          {/* Left column stack: keeps Onboarding directly under About (avoids a tall empty grid cell beside Quick Access). */}
-          {(wOn("about") || (wOn("lifecycle") && !wOn("about")) || wOn("pendingLifecycleTasks")) && (
-            <div className="flex min-w-0 flex-col gap-3">
+        <div className="grid items-stretch gap-5 lg:grid-cols-2">
+          {/* Left column stack */}
+          {(wOn("about") || (wOn("lifecycle") && !wOn("about"))) && (
+            <div className="flex h-full min-w-0 flex-col gap-3">
           {/* ABOUT CARD */}
           {wOn("about") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className={sectionCardHeaderRowSm}>
                 <div className="flex items-center gap-2"><SectionIcon path="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" color="bg-slate-600" /><h2 className="text-[15px] font-bold text-slate-700">About</h2></div>
               </div>
-              <div className="p-4">
+              <div className="flex min-h-0 flex-1 flex-col p-4">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start">
                   {/* Avatar */}
                   <div className="flex w-[132px] shrink-0 flex-col items-center text-center sm:w-[148px]">
@@ -3472,9 +3330,9 @@ export default function EmployeeDetailPage() {
                 </div>
 
                 {wOn("lifecycle") && (
-                  <div className="mt-5 border-t border-slate-100 pt-4">
+                  <div className="mt-5 flex min-h-0 flex-1 flex-col border-t border-slate-100 pt-4">
                     {renderEmployeeLifecycleHeader()}
-                    <div className="pt-2">
+                    <div className="flex min-h-0 flex-1 flex-col pt-2">
                       {renderEmployeeLifecycleMain(emp)}
                     </div>
                   </div>
@@ -3485,103 +3343,19 @@ export default function EmployeeDetailPage() {
 
 
           {wOn("lifecycle") && !wOn("about") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
               {renderEmployeeLifecycleHeader()}
-              <div className="p-4">
+              <div className="flex min-h-0 flex-1 flex-col p-4">
                 {renderEmployeeLifecycleMain(emp)}
               </div>
             </div>
           )}
 
-          {/* ONBOARDING & OFFBOARDING — pending tasks for this employee (assigned user shown) */}
-          {wOn("pendingLifecycleTasks") && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className={sectionCardHeaderRowSm}>
-                <div className="flex items-center gap-2">
-                  <SectionIcon
-                    path="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
-                    color="bg-teal-600"
-                  />
-                  <h2 className="text-[15px] font-bold text-slate-700">Onboarding &amp; offboarding</h2>
-                </div>
-                <WidgetGear onRemove={() => removeWidget("pendingLifecycleTasks")} />
-              </div>
-              <div className="p-4">
-                {pendingLifecycleLoading && (
-                  <div className="flex justify-center py-8">
-                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-teal-200 border-t-teal-600" />
-                  </div>
-                )}
-                {!pendingLifecycleLoading && pendingLifecycleErr && (
-                  <p className="text-center text-xs text-amber-700">{pendingLifecycleErr}</p>
-                )}
-                {!pendingLifecycleLoading && !pendingLifecycleErr && (
-                  <div className="max-h-[min(52vh,420px)] space-y-5 overflow-y-auto pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin]">
-                    {(() => {
-                      const renderSection = (label: string, rows: PendingLifecycleTaskRow[]) => (
-                        <div>
-                          <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-1.5">
-                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</span>
-                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              {rows.length} pending
-                            </span>
-                          </div>
-                          {rows.length === 0 ? (
-                            <p className="text-xs text-slate-400">No pending tasks.</p>
-                          ) : (
-                            <ul className="space-y-2">
-                              {rows.map((t) => (
-                                <li
-                                  key={`${t.kind}-${t.id}`}
-                                  className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-xs shadow-sm"
-                                >
-                                  <div className="font-semibold text-slate-800">{t.title}</div>
-                                  {t.category ? (
-                                    <div className="mt-0.5 text-[11px] text-slate-500">{t.category}</div>
-                                  ) : null}
-                                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
-                                    <span>
-                                      <span className="text-slate-400">Assigned to:</span>{" "}
-                                      <span className="font-medium text-slate-700">
-                                        {t.assignedToUserName?.trim() || "—"}
-                                      </span>
-                                    </span>
-                                    {t.dueDate ? (
-                                      <span>
-                                        <span className="text-slate-400">Due:</span>{" "}
-                                        <span className="font-medium text-slate-700">{formatDate(t.dueDate)}</span>
-                                      </span>
-                                    ) : null}
-                                    {t.assignmentType ? (
-                                      <span className="text-slate-400">
-                                        Type: <span className="text-slate-600">{t.assignmentType}</span>
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      );
-                      return (
-                        <>
-                          {renderSection("Onboarding tasks", pendingOnboarding)}
-                          {renderSection("Offboarding tasks", pendingOffboarding)}
-                        </>
-                      );
-                    })()}
-                  </div>
-                )}
-              </div>
             </div>
           )}
 
-            </div>
-          )}
-
-          {(wOn("quickAccess") || wOn("birthdaysNotices")) && (
-            <div className="flex min-w-0 flex-col gap-5">
+          {(wOn("quickAccess") || wOn("birthdaysNotices") || wOn("pendingLifecycleTasks")) && (
+            <div className="flex h-full min-w-0 flex-col gap-5">
               {/* QUICK ACCESS */}
               {wOn("quickAccess") && (
                 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -3606,6 +3380,90 @@ export default function EmployeeDetailPage() {
               {wOn("birthdaysNotices") && (
                 <div id="birthdays-notices" className="min-w-0 scroll-mt-28">
                   <BirthdaysCompanyNoticesWidget />
+                </div>
+              )}
+
+              {wOn("pendingLifecycleTasks") && (
+                <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <div className={sectionCardHeaderRowSm}>
+                    <div className="flex items-center gap-2">
+                      <SectionIcon
+                        path="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+                        color="bg-teal-600"
+                      />
+                      <h2 className="text-[15px] font-bold text-slate-700">Onboarding &amp; offboarding</h2>
+                    </div>
+                    <WidgetGear onRemove={() => removeWidget("pendingLifecycleTasks")} />
+                  </div>
+                  <div className="p-4">
+                    {pendingLifecycleLoading && (
+                      <div className="flex justify-center py-8">
+                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-teal-200 border-t-teal-600" />
+                      </div>
+                    )}
+                    {!pendingLifecycleLoading && pendingLifecycleErr && (
+                      <p className="text-center text-xs text-amber-700">{pendingLifecycleErr}</p>
+                    )}
+                    {!pendingLifecycleLoading && !pendingLifecycleErr && (
+                      <div className="max-h-[min(52vh,420px)] space-y-5 overflow-y-auto pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin]">
+                        {(() => {
+                          const renderSection = (label: string, rows: PendingLifecycleTaskRow[]) => (
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 pb-1.5">
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</span>
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                                  {rows.length} pending
+                                </span>
+                                {rows.length === 0 ? (
+                                  <span className="text-xs text-slate-400">No pending tasks.</span>
+                                ) : null}
+                              </div>
+                              {rows.length > 0 ? (
+                                <ul className="space-y-2">
+                                  {rows.map((t) => (
+                                    <li
+                                      key={`${t.kind}-${t.id}`}
+                                      className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-xs shadow-sm"
+                                    >
+                                      <div className="font-semibold text-slate-800">{t.title}</div>
+                                      {t.category ? (
+                                        <div className="mt-0.5 text-[11px] text-slate-500">{t.category}</div>
+                                      ) : null}
+                                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                                        <span>
+                                          <span className="text-slate-400">Assigned to:</span>{" "}
+                                          <span className="font-medium text-slate-700">
+                                            {t.assignedToUserName?.trim() || "—"}
+                                          </span>
+                                        </span>
+                                        {t.dueDate ? (
+                                          <span>
+                                            <span className="text-slate-400">Due:</span>{" "}
+                                            <span className="font-medium text-slate-700">{formatDate(t.dueDate)}</span>
+                                          </span>
+                                        ) : null}
+                                        {t.assignmentType ? (
+                                          <span className="text-slate-400">
+                                            Type: <span className="text-slate-600">{t.assignmentType}</span>
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </div>
+                          );
+                          return (
+                            <>
+                              {renderSection("Onboarding tasks", pendingOnboarding)}
+                              {renderSection("Offboarding tasks", pendingOffboarding)}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -4727,6 +4585,7 @@ export default function EmployeeDetailPage() {
           TAB: QUALIFICATIONS
          ══════════════════════════════════════════════════ */}
       {pageTab === "qualifications" && (
+        <div className="space-y-6 pb-4">
         <>
           {/* Add / Edit Education Modal */}
           <Modal open={showEduModal} onClose={closeEduModal} title="">
@@ -4806,160 +4665,7 @@ export default function EmployeeDetailPage() {
             </div>
           </Modal>
 
-          <div className={qualificationsPanelShellClass}>
-            <div className="flex gap-1 overflow-x-auto border-b border-slate-200/55 bg-gradient-to-b from-white/90 via-slate-50/40 to-slate-100/20 px-3 py-2 [scrollbar-width:thin]">
-              {QUALIFICATIONS_SUB_TABS.map((tab) => {
-                const active = qualificationsSubTab === tab.key;
-                const count =
-                  tab.key === "qualifications"
-                    ? qualificationRecords.length
-                    : tab.key === "education"
-                      ? educationRecords.length
-                      : tab.key === "skills"
-                        ? skills.length
-                        : tab.key === "training"
-                          ? trainingRows.length
-                          : tab.key === "matrix"
-                            ? matrixRows.length
-                            : tab.key === "certifications"
-                              ? certRows.length
-                              : languages.length;
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setQualificationsSubTab(tab.key)}
-                    className={`shrink-0 rounded-full px-2.5 py-1.5 text-xs font-semibold transition sm:px-3 sm:text-sm ${
-                      active
-                        ? "border border-[#2B7DE9]/25 bg-white/65 text-[#1565C9] shadow-sm ring-1 ring-inset ring-white/70"
-                        : "border border-transparent text-slate-600 hover:bg-white/60 hover:text-slate-800"
-                    }`}
-                  >
-                    {tab.label}
-                    <span className="ml-1.5 tabular-nums text-slate-400">({count})</span>
-                  </button>
-                );
-              })}
-            </div>
-          {qualificationsSubTab === "qualifications" && (
-          <div>
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5">
-                <SectionIcon path="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" color="bg-emerald-600" />
-                <h2 className="text-base font-bold text-slate-800">Qualifications</h2>
-              </div>
-              <SectionRecordHeaderActions count={qualificationRecords.length} onAdd={() => openEduModal(undefined, "qualification")} addTitle="Add qualification" />
-            </div>
-            {qualificationRecords.length === 0 ? null : (
-              <>
-              <div className={qualificationsTableScrollClass}>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3">Qualification</th>
-                      <th className="px-4 py-3">Level</th>
-                      <th className="px-4 py-3">Institute</th>
-                      <th className="px-4 py-3">Major</th>
-                      <th className="px-4 py-3">Year</th>
-                      <th className="px-4 py-3">Period</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {qualificationRecordsPager.pageItems.map((edu) => (
-                      <tr key={`qual-${edu.id}`} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3 font-medium text-slate-800">{edu.qualificationName?.trim() || "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.level === "Other" ? "—" : edu.level}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.institute ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.major ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.year ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {formatDate(edu.startDate) || "—"}
-                          {" – "}
-                          {edu.endDate ? formatDate(edu.endDate) : "Present"}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button type="button" onClick={() => openEduModal(edu)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                            </button>
-                            <button type="button" onClick={() => deleteEducation(edu.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <TablePagination page={qualificationRecordsPager.page} totalPages={qualificationRecordsPager.totalPages} totalCount={qualificationRecordsPager.totalCount} pageSize={qualificationRecordsPager.pageSize} onPageChange={qualificationRecordsPager.setPage} />
-            </>
-            )}
-          </div>
-          )}
-
-          {qualificationsSubTab === "education" && (
-          <div>
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5">
-                <SectionIcon path="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222" color="bg-indigo-500" />
-                <h2 className="text-base font-bold text-slate-800">Education</h2>
-              </div>
-              <SectionRecordHeaderActions count={educationRecords.length} onAdd={() => openEduModal(undefined, "education")} addTitle="Add education" />
-            </div>
-            {educationRecords.length === 0 ? null : (
-              <>
-              <div className={qualificationsTableScrollClass}>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3">Level</th>
-                      <th className="px-4 py-3">Institute</th>
-                      <th className="px-4 py-3">Major</th>
-                      <th className="px-4 py-3">Year</th>
-                      <th className="px-4 py-3">GPA/Score</th>
-                      <th className="px-4 py-3">Period</th>
-                      <th className="px-4 py-3">Remark</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {educationRecordsPager.pageItems.map((edu) => (
-                      <tr key={edu.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3 font-medium text-slate-700">{edu.level}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.institute ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.major ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.year ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{edu.gpaScore ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {formatDate(edu.startDate) || "—"}
-                          {" – "}
-                          {edu.endDate ? formatDate(edu.endDate) : "Present"}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">{edu.remark ?? "—"}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button type="button" onClick={() => openEduModal(edu)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                            </button>
-                            <button type="button" onClick={() => deleteEducation(edu.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <TablePagination page={educationRecordsPager.page} totalPages={educationRecordsPager.totalPages} totalCount={educationRecordsPager.totalCount} pageSize={educationRecordsPager.pageSize} onPageChange={educationRecordsPager.setPage} />
-            </>
-            )}
-          </div>
-          )}
-
-          {/* ── Skills Section (separate from formal qualifications) ── */}
+          {/* ── Qualification modals ── */}
           <Modal open={showSkillModal} onClose={closeSkillModal} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">{editingSkill ? "Edit Skill" : "Add Skill"}</h3>
@@ -4999,53 +4705,6 @@ export default function EmployeeDetailPage() {
             </div>
           </Modal>
 
-          {qualificationsSubTab === "skills" && (
-          <div>
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5">
-                <SectionIcon path="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" color="bg-teal-500" />
-                <h2 className="text-base font-bold text-slate-800">Skills</h2>
-              </div>
-              <SectionRecordHeaderActions count={skills.length} onAdd={() => openSkillModal()} addTitle="Add skill" />
-            </div>
-            {skills.length === 0 ? null : (
-              <>
-              <div className={qualificationsTableScrollClass}>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3">Skill</th>
-                      <th className="px-4 py-3">Years of Experience</th>
-                      <th className="px-4 py-3">Comments</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {skillsPager.pageItems.map((sk) => (
-                      <tr key={sk.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3 font-medium text-slate-700">{sk.skill}</td>
-                        <td className="px-4 py-3 text-slate-600">{sk.yearsOfExperience ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{sk.comments ?? "—"}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button type="button" onClick={() => openSkillModal(sk)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                            </button>
-                            <button type="button" onClick={() => deleteSkill(sk.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <TablePagination page={skillsPager.page} totalPages={skillsPager.totalPages} totalCount={skillsPager.totalCount} pageSize={skillsPager.pageSize} onPageChange={skillsPager.setPage} />
-            </>
-            )}
-          </div>
-          )}
 
           <Modal open={showTrainAssignModal} onClose={closeTrainAssignModal} title="">
             <form onSubmit={saveTrainingAssign}>
@@ -5163,148 +4822,6 @@ export default function EmployeeDetailPage() {
             </div>
           </Modal>
 
-          {qualificationsSubTab === "training" && (
-          <div>
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5">
-                <SectionIcon path="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" color="bg-indigo-500" />
-                <h2 className="text-base font-bold text-indigo-700">Training assignments</h2>
-              </div>
-              <SectionRecordHeaderActions count={trainingRows.length} onAdd={() => void openTrainAssignModal()} addTitle="Assign training" />
-            </div>
-            {trainingRows.length === 0 ? null : (
-              <>
-              <div className={qualificationsTableScrollClass}>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3">Course</th>
-                      <th className="px-4 py-3">Code</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3">Due</th>
-                      <th className="px-4 py-3">Assigned</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trainingRowsPager.pageItems.map((t) => (
-                      <tr key={t.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3 font-medium text-slate-700">{t.courseTitle}</td>
-                        <td className="px-4 py-3 text-slate-600">{t.courseCode}</td>
-                        <td className="px-4 py-3 text-slate-600">{t.status}</td>
-                        <td className="px-4 py-3 text-slate-600">{formatDate(t.dueDate)}</td>
-                        <td className="px-4 py-3 text-slate-600">{formatDateTime(t.assignedAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <TablePagination page={trainingRowsPager.page} totalPages={trainingRowsPager.totalPages} totalCount={trainingRowsPager.totalCount} pageSize={trainingRowsPager.pageSize} onPageChange={trainingRowsPager.setPage} />
-            </>
-            )}
-          </div>
-          )}
-
-          {qualificationsSubTab === "matrix" && (
-          <div>
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5">
-                <SectionIcon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" color="bg-violet-500" />
-                <h2 className="text-base font-bold text-violet-800">Skill matrix (reference skills)</h2>
-              </div>
-              <SectionRecordHeaderActions count={matrixRows.length} onAdd={() => void openMatrixModal()} addTitle="Add skill matrix entry" />
-            </div>
-            {matrixRows.length === 0 ? null : (
-              <>
-              <div className={qualificationsTableScrollClass}>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3">Skill</th>
-                      <th className="px-4 py-3">Proficiency</th>
-                      <th className="px-4 py-3">Assessed</th>
-                      <th className="px-4 py-3">Notes</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {matrixRowsPager.pageItems.map((m) => (
-                      <tr key={m.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3 font-medium text-slate-700">{m.skillName}</td>
-                        <td className="px-4 py-3 text-slate-600">{m.proficiencyLevel}</td>
-                        <td className="px-4 py-3 text-slate-600">{formatDateTime(m.assessedAt)}</td>
-                        <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{m.notes ?? "—"}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button type="button" onClick={() => void openMatrixModal(m)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                            </button>
-                            <button type="button" onClick={() => void deleteMatrixEntry(m.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <TablePagination page={matrixRowsPager.page} totalPages={matrixRowsPager.totalPages} totalCount={matrixRowsPager.totalCount} pageSize={matrixRowsPager.pageSize} onPageChange={matrixRowsPager.setPage} />
-            </>
-            )}
-          </div>
-          )}
-
-          {qualificationsSubTab === "certifications" && (
-          <div>
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5">
-                <SectionIcon path="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" color="bg-amber-500" />
-                <h2 className="text-base font-bold text-amber-800">Certifications</h2>
-              </div>
-              <SectionRecordHeaderActions count={certRows.length} onAdd={() => void openCertModal()} addTitle="Add certification" />
-            </div>
-            {certRows.length === 0 ? null : (
-              <>
-              <div className={qualificationsTableScrollClass}>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3">Certification</th>
-                      <th className="px-4 py-3">Obtained</th>
-                      <th className="px-4 py-3">Expires</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {certRowsPager.pageItems.map((c) => (
-                      <tr key={c.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3 font-medium text-slate-700">{c.certificationName}</td>
-                        <td className="px-4 py-3 text-slate-600">{formatDate(c.obtainedDate)}</td>
-                        <td className="px-4 py-3 text-slate-600">{formatDate(c.expiryDate)}</td>
-                        <td className="px-4 py-3 text-slate-600">{c.status}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button type="button" onClick={() => void openCertModal(c)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                            </button>
-                            <button type="button" onClick={() => void deleteCertification(c.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <TablePagination page={certRowsPager.page} totalPages={certRowsPager.totalPages} totalCount={certRowsPager.totalCount} pageSize={certRowsPager.pageSize} onPageChange={certRowsPager.setPage} />
-            </>
-            )}
-          </div>
-          )}
-
-          {/* ── Languages Section ── */}
           <Modal open={showLangModal} onClose={closeLangModal} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">{editingLang ? "Edit Language" : "Add Language"}</h3>
@@ -5371,36 +4888,156 @@ export default function EmployeeDetailPage() {
             </div>
           </Modal>
 
-          {qualificationsSubTab === "languages" && (
-          <div>
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5">
-                <SectionIcon path="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" color="bg-orange-500" />
-                <h2 className="text-base font-bold text-slate-800">Languages</h2>
+          <div className={qualificationsPanelShellClass}>
+          <div className={qualificationsSectionClass}>
+            <div className={qualificationsSectionHeaderRow}>
+              <div className="flex min-w-0 items-center gap-2">
+                <SectionIcon path="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" color="bg-emerald-600" compact />
+                <h2 className={qualificationsSectionTitleClass}>Qualifications</h2>
               </div>
-              <SectionRecordHeaderActions count={languages.length} onAdd={() => openLangModal()} addTitle="Add language" />
+              <SectionRecordHeaderActions count={qualificationRecords.length} onAdd={() => openEduModal(undefined, "qualification")} addTitle="Add qualification" compact />
             </div>
-            {languages.length === 0 ? null : (
+            {qualificationRecords.length === 0 ? (
+              <div className={qualificationsEmptyClass}>No records yet</div>
+            ) : (
               <>
               <div className={qualificationsTableScrollClass}>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3">Language</th>
-                      <th className="px-4 py-3">Skill</th>
-                      <th className="px-4 py-3">Fluency Level</th>
-                      <th className="px-4 py-3">Comments</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
+                <table className={qualificationsTableClass}>
+                  <thead className={qualificationsTheadClass}>
+                    <tr className={qualificationsHeadRowClass}>
+                      <th className={qualificationsThClass}>Qualification</th>
+                      <th className={qualificationsThClass}>Level</th>
+                      <th className={qualificationsThClass}>Institute</th>
+                      <th className={qualificationsThClass}>Major</th>
+                      <th className={qualificationsThClass}>Year</th>
+                      <th className={qualificationsThClass}>Period</th>
+                      <th className={`${qualificationsThClass} text-right`}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {qualificationRecordsPager.pageItems.map((edu) => (
+                      <tr key={`qual-${edu.id}`} className={qualificationsBodyRowClass}>
+                        <td className={qualificationsTdPrimaryClass}>{edu.qualificationName?.trim() || "—"}</td>
+                        <td className={qualificationsTdClass}>{edu.level === "Other" ? "—" : edu.level}</td>
+                        <td className={qualificationsTdClass}>{edu.institute ?? "—"}</td>
+                        <td className={qualificationsTdClass}>{edu.major ?? "—"}</td>
+                        <td className={qualificationsTdClass}>{edu.year ?? "—"}</td>
+                        <td className={qualificationsTdClass}>
+                          {formatDate(edu.startDate) || "—"}
+                          {" – "}
+                          {edu.endDate ? formatDate(edu.endDate) : "Present"}
+                        </td>
+                        <td className={`${qualificationsTdClass} text-right`}>
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => openEduModal(edu)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => deleteEducation(edu.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination page={qualificationRecordsPager.page} totalPages={qualificationRecordsPager.totalPages} totalCount={qualificationRecordsPager.totalCount} pageSize={qualificationRecordsPager.pageSize} onPageChange={qualificationRecordsPager.setPage} className={qualificationsPagerClass} />
+            </>
+            )}
+          </div>
+
+          <div className={qualificationsSectionClass}>
+            <div className={qualificationsSectionHeaderRow}>
+              <div className="flex min-w-0 items-center gap-2">
+                <SectionIcon path="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222" color="bg-indigo-500" compact />
+                <h2 className={qualificationsSectionTitleClass}>Education</h2>
+              </div>
+              <SectionRecordHeaderActions count={educationRecords.length} onAdd={() => openEduModal(undefined, "education")} addTitle="Add education" compact />
+            </div>
+            {educationRecords.length === 0 ? (
+              <div className={qualificationsEmptyClass}>No records yet</div>
+            ) : (
+              <>
+              <div className={qualificationsTableScrollClass}>
+                <table className={qualificationsTableClass}>
+                  <thead className={qualificationsTheadClass}>
+                    <tr className={qualificationsHeadRowClass}>
+                      <th className={qualificationsThClass}>Level</th>
+                      <th className={qualificationsThClass}>Institute</th>
+                      <th className={qualificationsThClass}>Major</th>
+                      <th className={qualificationsThClass}>Year</th>
+                      <th className={qualificationsThClass}>GPA/Score</th>
+                      <th className={qualificationsThClass}>Period</th>
+                      <th className={qualificationsThClass}>Remark</th>
+                      <th className={`${qualificationsThClass} text-right`}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {educationRecordsPager.pageItems.map((edu) => (
+                      <tr key={edu.id} className={qualificationsBodyRowClass}>
+                        <td className={qualificationsTdPrimaryClass}>{edu.level}</td>
+                        <td className={qualificationsTdClass}>{edu.institute ?? "—"}</td>
+                        <td className={qualificationsTdClass}>{edu.major ?? "—"}</td>
+                        <td className={qualificationsTdClass}>{edu.year ?? "—"}</td>
+                        <td className={qualificationsTdClass}>{edu.gpaScore ?? "—"}</td>
+                        <td className={qualificationsTdClass}>
+                          {formatDate(edu.startDate) || "—"}
+                          {" – "}
+                          {edu.endDate ? formatDate(edu.endDate) : "Present"}
+                        </td>
+                        <td className={qualificationsTdClass}>{edu.remark ?? "—"}</td>
+                        <td className={`${qualificationsTdClass} text-right`}>
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => openEduModal(edu)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => deleteEducation(edu.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination page={educationRecordsPager.page} totalPages={educationRecordsPager.totalPages} totalCount={educationRecordsPager.totalCount} pageSize={educationRecordsPager.pageSize} onPageChange={educationRecordsPager.setPage} className={qualificationsPagerClass} />
+            </>
+            )}
+          </div>
+
+          <div className={qualificationsSectionClass}>
+            <div className={qualificationsSectionHeaderRow}>
+              <div className="flex min-w-0 items-center gap-2">
+                <SectionIcon path="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" color="bg-orange-500" compact />
+                <h2 className={qualificationsSectionTitleClass}>Languages</h2>
+              </div>
+              <SectionRecordHeaderActions count={languages.length} onAdd={() => openLangModal()} addTitle="Add language" compact />
+            </div>
+            {languages.length === 0 ? (
+              <div className={qualificationsEmptyClass}>No records yet</div>
+            ) : (
+              <>
+              <div className={qualificationsTableScrollClass}>
+                <table className={qualificationsTableClass}>
+                  <thead className={qualificationsTheadClass}>
+                    <tr className={qualificationsHeadRowClass}>
+                      <th className={qualificationsThClass}>Language</th>
+                      <th className={qualificationsThClass}>Skill</th>
+                      <th className={qualificationsThClass}>Fluency Level</th>
+                      <th className={qualificationsThClass}>Comments</th>
+                      <th className={`${qualificationsThClass} text-right`}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {languagesPager.pageItems.map((lang) => (
-                      <tr key={lang.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3 font-medium text-slate-700">{lang.language}</td>
-                        <td className="px-4 py-3 text-slate-600">{lang.skill}</td>
-                        <td className="px-4 py-3 text-slate-600">{lang.fluencyLevel}</td>
-                        <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{lang.comments ?? "—"}</td>
-                        <td className="px-4 py-3 text-right">
+                      <tr key={lang.id} className={qualificationsBodyRowClass}>
+                        <td className={qualificationsTdPrimaryClass}>{lang.language}</td>
+                        <td className={qualificationsTdClass}>{lang.skill}</td>
+                        <td className={qualificationsTdClass}>{lang.fluencyLevel}</td>
+                        <td className={`${qualificationsTdClass} max-w-xs truncate`}>{lang.comments ?? "—"}</td>
+                        <td className={`${qualificationsTdClass} text-right`}>
                           <div className="flex items-center justify-end gap-2">
                             <button type="button" onClick={() => openLangModal(lang)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
                               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
@@ -5415,13 +5052,202 @@ export default function EmployeeDetailPage() {
                   </tbody>
                 </table>
               </div>
-              <TablePagination page={languagesPager.page} totalPages={languagesPager.totalPages} totalCount={languagesPager.totalCount} pageSize={languagesPager.pageSize} onPageChange={languagesPager.setPage} />
+              <TablePagination page={languagesPager.page} totalPages={languagesPager.totalPages} totalCount={languagesPager.totalCount} pageSize={languagesPager.pageSize} onPageChange={languagesPager.setPage} className={qualificationsPagerClass} />
             </>
             )}
           </div>
-          )}
+
+          <div className={qualificationsSectionClass}>
+            <div className={qualificationsSectionHeaderRow}>
+              <div className="flex min-w-0 items-center gap-2">
+                <SectionIcon path="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" color="bg-amber-500" compact />
+                <h2 className="text-xs font-semibold text-amber-800 sm:text-sm">Certifications</h2>
+              </div>
+              <SectionRecordHeaderActions count={certRows.length} onAdd={() => void openCertModal()} addTitle="Add certification" compact />
+            </div>
+            {certRows.length === 0 ? (
+              <div className={qualificationsEmptyClass}>No records yet</div>
+            ) : (
+              <>
+              <div className={qualificationsTableScrollClass}>
+                <table className={qualificationsTableClass}>
+                  <thead className={qualificationsTheadClass}>
+                    <tr className={qualificationsHeadRowClass}>
+                      <th className={qualificationsThClass}>Certification</th>
+                      <th className={qualificationsThClass}>Obtained</th>
+                      <th className={qualificationsThClass}>Expires</th>
+                      <th className={qualificationsThClass}>Status</th>
+                      <th className={`${qualificationsThClass} text-right`}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {certRowsPager.pageItems.map((c) => (
+                      <tr key={c.id} className={qualificationsBodyRowClass}>
+                        <td className={qualificationsTdPrimaryClass}>{c.certificationName}</td>
+                        <td className={qualificationsTdClass}>{formatDate(c.obtainedDate)}</td>
+                        <td className={qualificationsTdClass}>{formatDate(c.expiryDate)}</td>
+                        <td className={qualificationsTdClass}>{c.status}</td>
+                        <td className={`${qualificationsTdClass} text-right`}>
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => void openCertModal(c)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => void deleteCertification(c.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination page={certRowsPager.page} totalPages={certRowsPager.totalPages} totalCount={certRowsPager.totalCount} pageSize={certRowsPager.pageSize} onPageChange={certRowsPager.setPage} className={qualificationsPagerClass} />
+            </>
+            )}
+          </div>
+
+          <div className={qualificationsSectionClass}>
+            <div className={qualificationsSectionHeaderRow}>
+              <div className="flex min-w-0 items-center gap-2">
+                <SectionIcon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" color="bg-violet-500" compact />
+                <h2 className="text-xs font-semibold text-violet-800 sm:text-sm">Skill matrix (reference skills)</h2>
+              </div>
+              <SectionRecordHeaderActions count={matrixRows.length} onAdd={() => void openMatrixModal()} addTitle="Add skill matrix entry" compact />
+            </div>
+            {matrixRows.length === 0 ? (
+              <div className={qualificationsEmptyClass}>No records yet</div>
+            ) : (
+              <>
+              <div className={qualificationsTableScrollClass}>
+                <table className={qualificationsTableClass}>
+                  <thead className={qualificationsTheadClass}>
+                    <tr className={qualificationsHeadRowClass}>
+                      <th className={qualificationsThClass}>Skill</th>
+                      <th className={qualificationsThClass}>Proficiency</th>
+                      <th className={qualificationsThClass}>Assessed</th>
+                      <th className={qualificationsThClass}>Notes</th>
+                      <th className={`${qualificationsThClass} text-right`}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrixRowsPager.pageItems.map((m) => (
+                      <tr key={m.id} className={qualificationsBodyRowClass}>
+                        <td className={qualificationsTdPrimaryClass}>{m.skillName}</td>
+                        <td className={qualificationsTdClass}>{m.proficiencyLevel}</td>
+                        <td className={qualificationsTdClass}>{formatDateTime(m.assessedAt)}</td>
+                        <td className={`${qualificationsTdClass} max-w-xs truncate`}>{m.notes ?? "—"}</td>
+                        <td className={`${qualificationsTdClass} text-right`}>
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => void openMatrixModal(m)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => void deleteMatrixEntry(m.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination page={matrixRowsPager.page} totalPages={matrixRowsPager.totalPages} totalCount={matrixRowsPager.totalCount} pageSize={matrixRowsPager.pageSize} onPageChange={matrixRowsPager.setPage} className={qualificationsPagerClass} />
+            </>
+            )}
+          </div>
+
+          <div className={qualificationsSectionClass}>
+            <div className={qualificationsSectionHeaderRow}>
+              <div className="flex min-w-0 items-center gap-2">
+                <SectionIcon path="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" color="bg-indigo-500" compact />
+                <h2 className="text-xs font-semibold text-indigo-700 sm:text-sm">Training assignments</h2>
+              </div>
+              <SectionRecordHeaderActions count={trainingRows.length} onAdd={() => void openTrainAssignModal()} addTitle="Assign training" compact />
+            </div>
+            {trainingRows.length === 0 ? (
+              <div className={qualificationsEmptyClass}>No records yet</div>
+            ) : (
+              <>
+              <div className={qualificationsTableScrollClass}>
+                <table className={qualificationsTableClass}>
+                  <thead className={qualificationsTheadClass}>
+                    <tr className={qualificationsHeadRowClass}>
+                      <th className={qualificationsThClass}>Course</th>
+                      <th className={qualificationsThClass}>Code</th>
+                      <th className={qualificationsThClass}>Status</th>
+                      <th className={qualificationsThClass}>Due</th>
+                      <th className={qualificationsThClass}>Assigned</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trainingRowsPager.pageItems.map((t) => (
+                      <tr key={t.id} className={qualificationsBodyRowClass}>
+                        <td className={qualificationsTdPrimaryClass}>{t.courseTitle}</td>
+                        <td className={qualificationsTdClass}>{t.courseCode}</td>
+                        <td className={qualificationsTdClass}>{t.status}</td>
+                        <td className={qualificationsTdClass}>{formatDate(t.dueDate)}</td>
+                        <td className={qualificationsTdClass}>{formatDateTime(t.assignedAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination page={trainingRowsPager.page} totalPages={trainingRowsPager.totalPages} totalCount={trainingRowsPager.totalCount} pageSize={trainingRowsPager.pageSize} onPageChange={trainingRowsPager.setPage} className={qualificationsPagerClass} />
+            </>
+            )}
+          </div>
+
+          <div className={qualificationsSectionClass}>
+            <div className={qualificationsSectionHeaderRow}>
+              <div className="flex min-w-0 items-center gap-2">
+                <SectionIcon path="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" color="bg-teal-500" compact />
+                <h2 className={qualificationsSectionTitleClass}>Skills</h2>
+              </div>
+              <SectionRecordHeaderActions count={skills.length} onAdd={() => openSkillModal()} addTitle="Add skill" compact />
+            </div>
+            {skills.length === 0 ? (
+              <div className={qualificationsEmptyClass}>No records yet</div>
+            ) : (
+              <>
+              <div className={qualificationsTableScrollClass}>
+                <table className={qualificationsTableClass}>
+                  <thead className={qualificationsTheadClass}>
+                    <tr className={qualificationsHeadRowClass}>
+                      <th className={qualificationsThClass}>Skill</th>
+                      <th className={qualificationsThClass}>Years of Experience</th>
+                      <th className={qualificationsThClass}>Comments</th>
+                      <th className={`${qualificationsThClass} text-right`}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {skillsPager.pageItems.map((sk) => (
+                      <tr key={sk.id} className={qualificationsBodyRowClass}>
+                        <td className={qualificationsTdPrimaryClass}>{sk.skill}</td>
+                        <td className={qualificationsTdClass}>{sk.yearsOfExperience ?? "—"}</td>
+                        <td className={`${qualificationsTdClass} max-w-xs truncate`}>{sk.comments ?? "—"}</td>
+                        <td className={`${qualificationsTdClass} text-right`}>
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => openSkillModal(sk)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => deleteSkill(sk.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination page={skillsPager.page} totalPages={skillsPager.totalPages} totalCount={skillsPager.totalCount} pageSize={skillsPager.pageSize} onPageChange={skillsPager.setPage} className={qualificationsPagerClass} />
+            </>
+            )}
+          </div>
         </div>
         </>
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════

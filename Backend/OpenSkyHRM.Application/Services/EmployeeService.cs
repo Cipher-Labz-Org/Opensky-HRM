@@ -15,12 +15,18 @@ public class EmployeeService : IEmployeeService
     private readonly AppDbContext _db;
     private readonly ISystemSettingService _settings;
     private readonly ILeaveEntitlementService _entitlementService;
+    private readonly IEmployeeLifecycleService _lifecycleService;
 
-    public EmployeeService(AppDbContext db, ISystemSettingService settings, ILeaveEntitlementService entitlementService)
+    public EmployeeService(
+        AppDbContext db,
+        ISystemSettingService settings,
+        ILeaveEntitlementService entitlementService,
+        IEmployeeLifecycleService lifecycleService)
     {
         _db = db;
         _settings = settings;
         _entitlementService = entitlementService;
+        _lifecycleService = lifecycleService;
     }
 
     /// <summary>Stable local-part for placeholder work email when none is provided (employee code is unique).</summary>
@@ -316,6 +322,8 @@ public class EmployeeService : IEmployeeService
         _db.Employees.Add(employee);
         await _db.SaveChangesAsync();
 
+        await _lifecycleService.RecordJoinedAsync(employee);
+
         try
         {
             var calendarYear = DateTime.UtcNow.Year;
@@ -349,6 +357,7 @@ public class EmployeeService : IEmployeeService
         var snapEmploymentType = employee.EmploymentType;
         var snapProbationEnd = employee.ProbationEndDate;
         var snapPermanency = employee.DateOfPermanency;
+        var lifecycleBefore = CopyLifecycleSnapshot(employee);
 
         await EmployeeUniqueness.ValidateEmailForUpdateAsync(_db, id, dto.Email);
 
@@ -413,6 +422,8 @@ public class EmployeeService : IEmployeeService
         employee.IsTopOfHierarchy = dto.IsTopOfHierarchy;
 
         await _db.SaveChangesAsync();
+
+        await _lifecycleService.RecordEmployeeUpdateAsync(lifecycleBefore, employee);
 
         var joinChanged = dto.JoinDate.HasValue && employee.JoinDate != snapJoin;
         var employmentChanged = !string.Equals(employee.EmploymentType, snapEmploymentType, StringComparison.Ordinal);
@@ -641,5 +652,24 @@ public class EmployeeService : IEmployeeService
         ShiftPatternId = e.ShiftPatternId,
         ShiftPatternName = e.ShiftPattern?.Name,
         ShiftPatternCode = e.ShiftPattern?.Code,
+    };
+
+    private static Employee CopyLifecycleSnapshot(Employee e) => new()
+    {
+        Id = e.Id,
+        JoinDate = e.JoinDate,
+        ProbationEndDate = e.ProbationEndDate,
+        DateOfPermanency = e.DateOfPermanency,
+        TerminationDate = e.TerminationDate,
+        TerminationReason = e.TerminationReason,
+        Status = e.Status,
+        EmploymentType = e.EmploymentType,
+        DepartmentId = e.DepartmentId,
+        BusinessUnitId = e.BusinessUnitId,
+        PositionId = e.PositionId,
+        LocationId = e.LocationId,
+        GradeId = e.GradeId,
+        JobTitleId = e.JobTitleId,
+        ManagerId = e.ManagerId,
     };
 }

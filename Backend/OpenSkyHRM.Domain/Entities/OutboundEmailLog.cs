@@ -23,4 +23,9 @@ public class OutboundEmailLog : BaseEntity
 
     /// <summary>Provider error body or exception message (truncated when stored).</summary>
     public string? ErrorDetail { get; set; }
+
+    /// <summary>
+    /// When true, <see cref="BaseEntity.CreatedAt"/> is UTC wall clock; when false (legacy rows), it is already Sri Lanka local time.
+    /// </summary>
+    public bool CreatedAtIsUtc { get; set; }
 }

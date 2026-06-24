@@ -4,6 +4,7 @@ import { appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { apiFetch } from "@/lib/api";
 
 interface Item {
@@ -210,9 +211,7 @@ export function MasterDataEditorModal({
 
   return (
     <Modal open={open} onClose={onClose} title={title} wide>
-      {error && (
-        <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
-      )}
+      <FormErrorAlert message={error} onDismiss={() => setError("")} className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600" />
 
       {!showAdd && !editingId && (
         <div className="mb-4">

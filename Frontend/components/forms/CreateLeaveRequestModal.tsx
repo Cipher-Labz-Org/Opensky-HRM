@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, useMemo, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField } from "@/components/ui";
+import { DatePickerField, FormErrorAlert } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
 
 interface Lookup { id: string; name: string }
 interface LeaveType { id: string; name: string; code: string; defaultDaysPerYear: number }
@@ -20,6 +21,10 @@ export function CreateLeaveRequestModal({ open, onClose, onCreated }: Props) {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const todayMinDate = useMemo(() => formatLocalDateToIso(new Date()), []);
+  const endMinDate = startDate && startDate > todayMinDate ? startDate : todayMinDate;
 
   useEffect(() => {
     if (!open) return;
@@ -38,8 +43,23 @@ export function CreateLeaveRequestModal({ open, onClose, onCreated }: Props) {
     setSubmitting(true);
 
     const fd = new FormData(e.currentTarget);
-    const start = fd.get("startDate") as string;
-    const end = fd.get("endDate") as string;
+    const start = startDate || (fd.get("startDate") as string);
+    const end = endDate || (fd.get("endDate") as string);
+    if (!start || !end) {
+      setError("Select both start and end dates.");
+      setSubmitting(false);
+      return;
+    }
+    if (start < todayMinDate || end < todayMinDate) {
+      setError("Leave cannot be applied for past dates.");
+      setSubmitting(false);
+      return;
+    }
+    if (end < start) {
+      setError("End date cannot be before start date.");
+      setSubmitting(false);
+      return;
+    }
     const diffMs = new Date(end).getTime() - new Date(start).getTime();
     const totalDays = Math.max(1, Math.ceil(diffMs / 86400000) + 1);
 
@@ -71,9 +91,7 @@ export function CreateLeaveRequestModal({ open, onClose, onCreated }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Create Leave Request">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && (
-          <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
-        )}
+        <FormErrorAlert message={error} onDismiss={() => setError("")} />
 
         <div>
           <label className={labelClass}>Employee *</label>
@@ -98,11 +116,28 @@ export function CreateLeaveRequestModal({ open, onClose, onCreated }: Props) {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={labelClass}>Start Date *</label>
-            <DatePickerField name="startDate" required className={inputClass} />
+            <DatePickerField
+              name="startDate"
+              required
+              value={startDate}
+              min={todayMinDate}
+              onChange={(iso) => {
+                setStartDate(iso);
+                if (iso && endDate && endDate < iso) setEndDate("");
+              }}
+              className={inputClass}
+            />
           </div>
           <div>
             <label className={labelClass}>End Date *</label>
-            <DatePickerField name="endDate" required className={inputClass} />
+            <DatePickerField
+              name="endDate"
+              required
+              value={endDate}
+              min={endMinDate}
+              onChange={setEndDate}
+              className={inputClass}
+            />
           </div>
         </div>
 
