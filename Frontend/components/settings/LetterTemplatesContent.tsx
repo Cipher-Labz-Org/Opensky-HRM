@@ -148,7 +148,7 @@ export function LetterTemplatesContent({ onTemplatesChange }: LetterTemplatesCon
     <>
       <FormErrorAlert
         message={bannerError}
-        onDismiss={() => setBannerError(null)}
+        onDismiss={() => setBannerError("")}
         className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
       />
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

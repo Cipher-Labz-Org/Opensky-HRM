@@ -26,7 +26,12 @@ export function FormErrorAlert({
     onDismiss();
   }, [onDismiss]);
 
-  useAutoDismiss(Boolean(message) && visible, dismiss, ERROR_ALERT_DISMISS_MS, message ?? undefined);
+  useAutoDismiss(
+    Boolean(message) && visible,
+    dismiss,
+    ERROR_ALERT_DISMISS_MS,
+    typeof message === "string" ? message : undefined,
+  );
 
   if (!message || !visible) return null;
 
