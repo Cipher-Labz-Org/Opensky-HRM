@@ -134,7 +134,7 @@ export default function EmailTemplatesPage() {
               <HorizontalCompareBars items={templateKeyBars} />
             ) : (
               <p className="py-10 text-center text-sm text-slate-500">
-                No Email_* templates yet. Seed the API or run migrations to populate defaults.
+                No email templates yet. Use <strong>Load defaults</strong> or <strong>Create template</strong> below.
               </p>
             )}
           </div>
