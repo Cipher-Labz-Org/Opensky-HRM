@@ -333,6 +333,8 @@ if (dbAvailable)
                 db, year, OpenSkyHRM.Domain.Entities.HolidayCountryCodes.LK);
         }
         await OpenSkyHRM.Persistence.Seeders.LearningSeeder.EnsureCatalogAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.TransactionalEmailTemplateSeeder.EnsureAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.DocumentTemplateSeeder.EnsureLetterPackAsync(db);
     }
     catch (Exception ex)
     {
