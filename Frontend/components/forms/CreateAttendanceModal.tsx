@@ -3,10 +3,11 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField } from "@/components/ui";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
+import { DatePickerField, FormSelect, TimePickerField, type FormSelectOption } from "@/components/ui";
+import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
-
-interface Lookup { id: string; name: string }
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
 
 interface Props {
   open: boolean;
@@ -14,33 +15,53 @@ interface Props {
   onCreated?: () => void;
 }
 
+const ATTENDANCE_TYPE_OPTIONS: FormSelectOption[] = [
+  { value: "Present", label: "Present" },
+  { value: "Absent", label: "Absent" },
+  { value: "Late", label: "Late" },
+  { value: "Half Day", label: "Half Day" },
+  { value: "On Leave", label: "On Leave" },
+];
+
 export function CreateAttendanceModal({ open, onClose, onCreated }: Props) {
-  const [employees, setEmployees] = useState<Lookup[]>([]);
+  const [formKey, setFormKey] = useState(0);
+  const [employeeId, setEmployeeId] = useState("");
+  const [attendanceType, setAttendanceType] = useState("Present");
+  const [punchInTime, setPunchInTime] = useState("");
+  const [punchOutTime, setPunchOutTime] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    apiFetch<{ items: { id: string; firstName: string; lastName: string }[] }>("/api/employees?pageSize=200")
-      .then((res) => setEmployees(res.items.map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}` }))));
+    setFormKey((k) => k + 1);
+    setEmployeeId("");
+    setAttendanceType("Present");
+    setPunchInTime("");
+    setPunchOutTime("");
+    setError("");
   }, [open]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
+
+    if (!employeeId) {
+      setError("Select an employee from the suggestions list.");
+      return;
+    }
+
     setSubmitting(true);
 
     const fd = new FormData(e.currentTarget);
     const dateStr = fd.get("date") as string;
-    const punchInTime = fd.get("punchInTime") as string;
-    const punchOutTime = fd.get("punchOutTime") as string;
 
     const payload = {
-      employeeId: fd.get("employeeId"),
+      employeeId,
       date: dateStr,
       punchIn: punchInTime ? `${dateStr}T${punchInTime}:00` : null,
       punchOut: punchOutTime ? `${dateStr}T${punchOutTime}:00` : null,
-      status: fd.get("status"),
+      status: attendanceType,
       remarks: fd.get("remarks") || null,
       source: "Web",
     };
@@ -63,40 +84,43 @@ export function CreateAttendanceModal({ open, onClose, onCreated }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Log Attendance Record">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+        <FormErrorAlert message={error} onDismiss={() => setError("")} />
 
         <div>
           <label className={labelClass}>Employee *</label>
-          <select name="employeeId" required className={inputClass}>
-            <option value="">Select employee...</option>
-            {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <EmployeeSearchCombobox
+            key={formKey}
+            value={employeeId}
+            placeholder="Type name or employee code…"
+            onPick={(emp) => setEmployeeId(emp?.id ?? "")}
+          />
+          <p className="mt-1 text-xs text-slate-500">Start typing to search; pick a name from the list.</p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className={labelClass}>Date *</label>
-            <DatePickerField name="date" required className={inputClass} />
+            <label className={labelClass}>Type *</label>
+            <FormSelect
+              value={attendanceType}
+              onValueChange={setAttendanceType}
+              options={ATTENDANCE_TYPE_OPTIONS}
+              placeholder="Select type…"
+            />
           </div>
           <div>
-            <label className={labelClass}>Status *</label>
-            <select name="status" required className={inputClass}>
-              <option value="Present">Present</option>
-              <option value="Absent">Absent</option>
-              <option value="Late">Late</option>
-              <option value="Half Day">Half Day</option>
-            </select>
+            <label className={labelClass}>Date *</label>
+            <DatePickerField name="date" required defaultValue={formatLocalDateToIso(new Date())} className={inputClass} />
           </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={labelClass}>Punch In</label>
-            <input name="punchInTime" type="time" className={inputClass} />
+            <TimePickerField value={punchInTime} onChange={setPunchInTime} placeholder="Select time" />
           </div>
           <div>
             <label className={labelClass}>Punch Out</label>
-            <input name="punchOutTime" type="time" className={inputClass} />
+            <TimePickerField value={punchOutTime} onChange={setPunchOutTime} placeholder="Select time" />
           </div>
         </div>
 

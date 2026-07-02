@@ -92,13 +92,20 @@ public class RosterService : IRosterService
         return await GetTemplateByIdAsync(id);
     }
 
-    public async Task<bool> DeleteTemplateAsync(Guid id)
+    public async Task<bool> DeleteTemplateAsync(Guid id, bool deleteAssignments = false)
     {
         var entity = await _db.Set<RosterTemplate>().FindAsync(id);
         if (entity is null) return false;
-        var inUse = await _db.Set<RosterAssignment>().AnyAsync(a => a.RosterTemplateId == id);
-        if (inUse)
-            throw new InvalidOperationException("Cannot delete roster template: it has assignments. Remove assignments first.");
+
+        if (deleteAssignments)
+        {
+            var linkedAssignments = await _db.Set<RosterAssignment>()
+                .Where(a => a.RosterTemplateId == id)
+                .ToListAsync();
+            foreach (var assignment in linkedAssignments)
+                assignment.IsDeleted = true;
+        }
+
         entity.IsDeleted = true;
         await _db.SaveChangesAsync();
         return true;
@@ -108,8 +115,6 @@ public class RosterService : IRosterService
     {
         var query = _db.Set<RosterAssignment>()
             .Include(a => a.Employee)
-            .Include(a => a.RosterTemplate)
-                .ThenInclude(rt => rt.DefaultShiftPattern)
             .AsQueryable();
 
         if (employeeId.HasValue)
@@ -131,14 +136,21 @@ public class RosterService : IRosterService
                 EmployeeName = a.Employee.FirstName + " " + a.Employee.LastName,
                 EmployeeCode = a.Employee.EmployeeCode,
                 RosterTemplateId = a.RosterTemplateId,
-                RosterTemplateName = a.RosterTemplate.Name,
+                RosterTemplateName = _db.Set<RosterTemplate>().IgnoreQueryFilters()
+                    .Where(rt => rt.Id == a.RosterTemplateId)
+                    .Select(rt => rt.Name)
+                    .FirstOrDefault() ?? "Deleted template",
                 EffectiveFrom = a.EffectiveFrom,
                 EffectiveTo = a.EffectiveTo,
                 Notes = a.Notes,
-                DefaultShiftPatternName = a.RosterTemplate.DefaultShiftPattern != null
-                    ? a.RosterTemplate.DefaultShiftPattern.Name
-                    : null,
-                WorkHoursPerDay = a.RosterTemplate.WorkHoursPerDay,
+                DefaultShiftPatternName = _db.Set<RosterTemplate>().IgnoreQueryFilters()
+                    .Where(rt => rt.Id == a.RosterTemplateId)
+                    .Select(rt => rt.DefaultShiftPattern != null ? rt.DefaultShiftPattern.Name : null)
+                    .FirstOrDefault(),
+                WorkHoursPerDay = _db.Set<RosterTemplate>().IgnoreQueryFilters()
+                    .Where(rt => rt.Id == a.RosterTemplateId)
+                    .Select(rt => (decimal?)rt.WorkHoursPerDay)
+                    .FirstOrDefault(),
             })
             .ToListAsync();
     }
@@ -147,10 +159,14 @@ public class RosterService : IRosterService
     {
         var a = await _db.Set<RosterAssignment>()
             .Include(x => x.Employee)
-            .Include(x => x.RosterTemplate)
-                .ThenInclude(rt => rt.DefaultShiftPattern)
             .FirstOrDefaultAsync(x => x.Id == id);
         if (a is null) return null;
+
+        var template = await _db.Set<RosterTemplate>()
+            .IgnoreQueryFilters()
+            .Include(rt => rt.DefaultShiftPattern)
+            .FirstOrDefaultAsync(rt => rt.Id == a.RosterTemplateId);
+
         return new RosterAssignmentDto
         {
             Id = a.Id,
@@ -158,12 +174,12 @@ public class RosterService : IRosterService
             EmployeeName = a.Employee.FirstName + " " + a.Employee.LastName,
             EmployeeCode = a.Employee.EmployeeCode,
             RosterTemplateId = a.RosterTemplateId,
-            RosterTemplateName = a.RosterTemplate.Name,
+            RosterTemplateName = template?.Name ?? "Deleted template",
             EffectiveFrom = a.EffectiveFrom,
             EffectiveTo = a.EffectiveTo,
             Notes = a.Notes,
-            DefaultShiftPatternName = a.RosterTemplate.DefaultShiftPattern?.Name,
-            WorkHoursPerDay = a.RosterTemplate.WorkHoursPerDay,
+            DefaultShiftPatternName = template?.DefaultShiftPattern?.Name,
+            WorkHoursPerDay = template?.WorkHoursPerDay,
         };
     }
 

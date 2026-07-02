@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, type FormEvent, type CSSProperties } from "react";
 import React from "react";
 import Link from "next/link";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { useAuth } from "../../contexts/auth-context";
 import { getAssetBaseUrl, resolveAuthApiPath } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
@@ -207,18 +208,11 @@ export function LoginLandingExperience() {
             </p>
 
             <form onSubmit={handleSubmit} className="mt-9">
-              {error && (
-                <div className="mb-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-                  <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-                    />
-                  </svg>
-                  {error}
-                </div>
-              )}
+              <FormErrorAlert
+                message={error}
+                onDismiss={() => setError("")}
+                className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+              />
 
               <div className="mb-7">
                 <div className="flex items-center gap-3 border-b border-[#add8e6] pb-2.5 transition-colors focus-within:border-[#1a92d5]">

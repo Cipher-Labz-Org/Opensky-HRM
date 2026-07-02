@@ -2,15 +2,17 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, useId, Fragment, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import {
   DonutMixChart,
   formatInt,
@@ -118,9 +120,126 @@ interface HolidayItem {
   id: string;
   name: string;
   date: string;
+  kind?: string;
   isRestricted: boolean;
   description: string | null;
   year: number;
+  countryCode?: string;
+}
+
+interface HolidayLocaleSettings {
+  countryCode: string;
+  timeZoneId: string;
+  countries: { code: string; label: string }[];
+  timeZones: { id: string; label: string; countryCode: string }[];
+}
+
+const HOLIDAY_KINDS = ["Public", "Mercantile", "Poya", "Restricted"] as const;
+type HolidayKind = (typeof HOLIDAY_KINDS)[number];
+const ALL_HOLIDAY_KINDS: HolidayKind[] = [...HOLIDAY_KINDS];
+
+function fmtHolidayWeekday(d: string, timeZone: string) {
+  const iso = d.split("T")[0];
+  const [y, m, day] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, day, 12)).toLocaleDateString(undefined, { weekday: "long", timeZone });
+}
+
+function fmtHolidayDateInZone(d: string, timeZone: string) {
+  const iso = d.split("T")[0];
+  const [y, m, day] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, day, 12)).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone,
+  });
+}
+
+function defaultTimeZoneForCountry(countryCode: string, timeZones: HolidayLocaleSettings["timeZones"]) {
+  const match = timeZones.find((t) => t.countryCode === countryCode);
+  return match?.id ?? "Asia/Colombo";
+}
+
+function holidayKindLabel(kind: HolidayKind): string {
+  switch (kind) {
+    case "Mercantile":
+      return "Mercantile holiday";
+    case "Poya":
+      return "Poya day";
+    case "Restricted":
+      return "Restricted";
+    default:
+      return "Public holiday";
+  }
+}
+
+const HOLIDAY_KIND_OPTIONS: FormSelectOption[] = HOLIDAY_KINDS.map((k) => ({ value: k, label: holidayKindLabel(k) }));
+
+function normalizeHolidayKind(item: Pick<HolidayItem, "kind" | "isRestricted">): HolidayKind {
+  const raw = item.kind?.trim();
+  if (raw === "Mercantile" || raw === "Poya" || raw === "Restricted" || raw === "Public") return raw;
+  return item.isRestricted ? "Restricted" : "Public";
+}
+
+function holidayKindStyles(kind: HolidayKind) {
+  switch (kind) {
+    case "Mercantile":
+      return {
+        ring: "ring-1 ring-inset ring-amber-200/80",
+        chip: "bg-amber-100 text-amber-800",
+        badge: "bg-amber-100/90 text-amber-800",
+        legendDot: "bg-amber-500",
+        legendChip: "bg-amber-100 text-amber-800",
+        listBorder: "border-amber-200/80",
+        listBg: "from-amber-50/60",
+        listTitle: "text-amber-800",
+        listDate: "text-amber-700",
+        listHover: "hover:bg-amber-100/60",
+        label: "Mercantile holiday",
+      };
+    case "Poya":
+      return {
+        ring: "ring-1 ring-inset ring-violet-200/80",
+        chip: "bg-violet-100 text-violet-800",
+        badge: "bg-violet-100/90 text-violet-800",
+        legendDot: "bg-violet-500",
+        legendChip: "bg-violet-100 text-violet-800",
+        listBorder: "border-violet-200/80",
+        listBg: "from-violet-50/60",
+        listTitle: "text-violet-800",
+        listDate: "text-violet-700",
+        listHover: "hover:bg-violet-100/60",
+        label: "Poya day",
+      };
+    case "Restricted":
+      return {
+        ring: "ring-1 ring-inset ring-rose-200/80",
+        chip: "bg-rose-100 text-rose-800",
+        badge: "bg-rose-100/90 text-rose-800",
+        legendDot: "bg-rose-500",
+        legendChip: "bg-rose-100 text-rose-800",
+        listBorder: "border-rose-200/80",
+        listBg: "from-rose-50/50",
+        listTitle: "text-rose-800",
+        listDate: "text-rose-700",
+        listHover: "hover:bg-rose-100/60",
+        label: "Restricted",
+      };
+    default:
+      return {
+        ring: "ring-1 ring-inset ring-emerald-200/80",
+        chip: "bg-emerald-100 text-emerald-800",
+        badge: "bg-emerald-100/90 text-emerald-800",
+        legendDot: "bg-emerald-500",
+        legendChip: "bg-emerald-100 text-emerald-800",
+        listBorder: "border-emerald-200/80",
+        listBg: "from-emerald-50/60",
+        listTitle: "text-emerald-800",
+        listDate: "text-emerald-700",
+        listHover: "hover:bg-emerald-100/60",
+        label: "Public holiday",
+      };
+  }
 }
 
 interface CalendarDay {
@@ -256,6 +375,261 @@ const SUPERVISOR_TABS: { key: PageTab; label: string }[] = [
 const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 const inputClass = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20";
 
+const LEAVE_YEAR_FORM_OPTIONS: FormSelectOption[] = [2024, 2025, 2026, 2027].map((y) => ({
+  value: String(y),
+  label: String(y),
+}));
+
+const AS_OF_MONTH_FORM_OPTIONS: FormSelectOption[] = [
+  { value: "1", label: "Jan" },
+  { value: "2", label: "Feb" },
+  { value: "3", label: "Mar" },
+  { value: "4", label: "Apr" },
+  { value: "5", label: "May" },
+  { value: "6", label: "Jun" },
+  { value: "7", label: "Jul" },
+  { value: "8", label: "Aug" },
+  { value: "9", label: "Sep" },
+  { value: "10", label: "Oct" },
+  { value: "11", label: "Nov" },
+  { value: "12", label: "Dec" },
+];
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+
+const DAY_NAMES_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function holidayIsoDate(h: HolidayItem): string {
+  return h.date.split("T")[0] ?? h.date;
+}
+
+function holidayMonthFromIso(h: HolidayItem): number {
+  return parseInt(holidayIsoDate(h).slice(5, 7), 10);
+}
+
+function holidayDayFromIso(h: HolidayItem): number {
+  return parseInt(holidayIsoDate(h).slice(8, 10), 10);
+}
+
+function HolidaysCalendarPanel({
+  year,
+  items,
+  onSelectHoliday,
+  onAddForDate,
+}: {
+  year: number;
+  items: HolidayItem[];
+  onSelectHoliday: (item: HolidayItem) => void;
+  onAddForDate: (isoDate: string) => void;
+}) {
+  const now = new Date();
+  const [month, setMonth] = useState(() => {
+    const n = new Date();
+    return n.getFullYear() === year ? n.getMonth() + 1 : 1;
+  });
+
+  useEffect(() => {
+    const n = new Date();
+    setMonth(n.getFullYear() === year ? n.getMonth() + 1 : 1);
+  }, [year]);
+
+  const holidayByDate = useMemo(() => {
+    const map = new Map<string, HolidayItem[]>();
+    for (const h of items) {
+      const iso = holidayIsoDate(h);
+      const list = map.get(iso) ?? [];
+      list.push(h);
+      map.set(iso, list);
+    }
+    return map;
+  }, [items]);
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  function prevMonth() {
+    if (month === 1) return;
+    setMonth((m) => m - 1);
+  }
+
+  function nextMonth() {
+    if (month === 12) return;
+    setMonth((m) => m + 1);
+  }
+
+  function isoForDay(day: number) {
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
+      <div className="border-b border-slate-100 bg-gradient-to-br from-white via-sky-50/20 to-emerald-50/20 px-5 py-4 sm:px-6">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={prevMonth}
+            disabled={month === 1}
+            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Prev
+          </button>
+          <div className="text-center">
+            <p className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">{MONTH_NAMES[month - 1]} {year}</p>
+            <p className="mt-0.5 text-xs text-slate-500">Click a day to add · click a holiday to edit</p>
+          </div>
+          <button
+            type="button"
+            onClick={nextMonth}
+            disabled={month === 12}
+            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+
+      <div className="grid shrink-0 grid-cols-7 border-b border-slate-100 bg-slate-50/80">
+        {DAY_NAMES_SHORT.map((dn) => (
+          <div key={dn} className="py-2.5 text-center text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            {dn}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid min-h-0 flex-1 grid-cols-7 auto-rows-fr">
+        {cells.map((day, idx) => {
+          if (!day) {
+            return <div key={`empty-${idx}`} className="min-h-[3.25rem] border-b border-r border-slate-100 bg-slate-50/40" />;
+          }
+
+          const iso = isoForDay(day);
+            const dayHolidays = holidayByDate.get(iso) ?? [];
+            const primaryHoliday = dayHolidays[0] ?? null;
+            const holidayKind = primaryHoliday ? normalizeHolidayKind(primaryHoliday) : null;
+            const styles = holidayKind ? holidayKindStyles(holidayKind) : null;
+            const isToday =
+            day === now.getDate() && month === now.getMonth() + 1 && year === now.getFullYear();
+          const isWeekend = idx % 7 === 0 || idx % 7 === 6;
+
+          return (
+            <button
+              key={iso}
+              type="button"
+              onClick={() => (primaryHoliday ? onSelectHoliday(primaryHoliday) : onAddForDate(iso))}
+              className={`min-h-[3.25rem] border-b border-r border-slate-100 p-1.5 text-left transition hover:bg-sky-50/50 ${
+                isWeekend ? "bg-slate-50/30" : "bg-white"
+              } ${styles?.ring ?? ""}`}
+            >
+              <div
+                className={`mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
+                  isToday ? "bg-[#2E7BBF] text-white" : "text-slate-600"
+                }`}
+              >
+                {day}
+              </div>
+              {dayHolidays.length > 0 ? (
+                <div className="space-y-0.5">
+                  {dayHolidays.slice(0, 2).map((holiday) => {
+                    const kind = normalizeHolidayKind(holiday);
+                    const chip = holidayKindStyles(kind).chip;
+                    return (
+                      <span
+                        key={holiday.id}
+                        className={`block truncate rounded-md px-1 py-0.5 text-[10px] font-semibold leading-tight ${chip}`}
+                        title={holiday.name}
+                      >
+                        {holiday.name}
+                      </span>
+                    );
+                  })}
+                  {dayHolidays.length > 2 ? (
+                    <span className="block px-1 text-[9px] font-medium text-slate-500">+{dayHolidays.length - 2} more</span>
+                  ) : null}
+                </div>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Legend</span>
+        {HOLIDAY_KINDS.map((kind) => {
+          const styles = holidayKindStyles(kind);
+          return (
+            <span key={kind} className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${styles.legendChip}`}>
+              <span className={`h-2 w-2 rounded-full ${styles.legendDot}`} aria-hidden />
+              {styles.label}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HolidaysSummaryLists({
+  year,
+  items,
+  onSelectHoliday,
+}: {
+  year: number;
+  items: HolidayItem[];
+  onSelectHoliday: (item: HolidayItem) => void;
+}) {
+  const grouped = useMemo(() => {
+    const buckets: Record<HolidayKind, HolidayItem[]> = { Public: [], Mercantile: [], Poya: [], Restricted: [] };
+    for (const item of items) {
+      buckets[normalizeHolidayKind(item)].push(item);
+    }
+    for (const kind of HOLIDAY_KINDS) {
+      buckets[kind].sort((a, b) => holidayIsoDate(a).localeCompare(holidayIsoDate(b)));
+    }
+    return buckets;
+  }, [items]);
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {HOLIDAY_KINDS.map((kind) => {
+        const styles = holidayKindStyles(kind);
+        const list = grouped[kind];
+        return (
+          <div key={kind} className={`rounded-xl border bg-gradient-to-br to-white p-3.5 ${styles.listBorder} ${styles.listBg}`}>
+            <h3 className={`text-xs font-bold uppercase tracking-wide ${styles.listTitle}`}>
+              {styles.label} ({list.length})
+            </h3>
+            <ul className="mt-2 max-h-36 space-y-1 overflow-y-auto text-xs">
+              {list.length === 0 ? (
+                <li className="text-slate-500">None for {year}.</li>
+              ) : (
+                list.map((h) => (
+                  <li key={h.id}>
+                    <button
+                      type="button"
+                      onClick={() => onSelectHoliday(h)}
+                      className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition ${styles.listHover}`}
+                    >
+                      <span className="font-medium text-slate-800">{h.name}</span>
+                      <span className={`shrink-0 tabular-nums ${styles.listDate}`}>{fmtDate(h.date)}</span>
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function fmtDate(d: string) {
   return formatDate(d);
 }
@@ -272,6 +646,7 @@ function CardHeader({ title, children }: { title: string; children?: React.React
 // ──────────────────────────── Page ────────────────────────────
 
 export default function LeavePage() {
+  const searchParams = useSearchParams();
   const { getLeaveReadScope, user, hasRole } = useAuth();
   const leaveScope = getLeaveReadScope();
   /** Full HR / admin leave workspace (all tabs). */
@@ -289,6 +664,13 @@ export default function LeavePage() {
   );
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "calendar" && isHrWideAccess) {
+      setPageTab("calendar");
+    }
+  }, [searchParams, isHrWideAccess]);
 
   useEffect(() => {
     const adminOnlyTabs: PageTab[] = ["dashboard", "balances", "carryForward", "assignLeaveType", "leaveTypes", "holidays", "calendar"];
@@ -680,6 +1062,8 @@ function DashboardTab({
 
 interface EmployeeLookup { id: string; firstName: string; lastName: string; profileImageUrl: string | null; employeeCode?: string }
 
+interface DepartmentLookup { id: string; name: string }
+
 /** Sparse fields from GET /api/employees?search= for coverage name suggestions */
 interface EmployeeSuggestHit {
   id: string;
@@ -700,6 +1084,8 @@ const BALANCE_COLORS = [
 
 function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: boolean; currentEmployeeId: string | null }) {
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
+  const [departments, setDepartments] = useState<DepartmentLookup[]>([]);
+  const [departmentFilterId, setDepartmentFilterId] = useState("");
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
   const [selectedEmpId, setSelectedEmpId] = useState(isEmployeeView && currentEmployeeId ? currentEmployeeId : "");
   const [balances, setBalances] = useState<BalanceItem[]>([]);
@@ -722,11 +1108,37 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   const [coverageLoading, setCoverageLoading] = useState(false);
   const [coverageHits, setCoverageHits] = useState<EmployeeSuggestHit[]>([]);
   const currentYear = new Date().getFullYear();
+  const todayMinDate = useMemo(() => formatLocalDateToIso(new Date()), []);
+
+  function onApplyStartDateChange(iso: string) {
+    setStartDate(iso);
+    if (iso && endDate && endDate < iso) setEndDate("");
+  }
+
+  function onApplyEndDateChange(iso: string) {
+    setEndDate(iso);
+  }
+
+  const applyEndMinDate = startDate && startDate > todayMinDate ? startDate : todayMinDate;
+  const applyDatesInvalid =
+    Boolean(startDate && endDate && (startDate < todayMinDate || endDate < todayMinDate || endDate < startDate));
 
   const catalogLeaveTypes = useMemo(
     () => [...leaveTypes].filter((t) => t.isActive).sort((a, b) => a.name.localeCompare(b.name)),
     [leaveTypes]
   );
+
+  const departmentFilterOptions = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All departments" }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
+    [departments],
+  );
+
+  function onDepartmentFilterChange(nextDepartmentId: string) {
+    setDepartmentFilterId(nextDepartmentId);
+    setSelectedEmpId("");
+    setSelectedTypeId("");
+    setMessage(null);
+  }
 
   /** Maternity only appears once HR has assigned a balance for that employee (same as catalog row). */
   const leaveTypesForApply = useMemo(() => {
@@ -828,9 +1240,13 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
           ? Promise.resolve([] as EmployeeLookup[])
           : apiFetch<{ items: EmployeeLookup[] }>("/api/employees?pageSize=200").then((r) => r.items ?? []),
       apiFetch<LeaveTypeItem[]>("/api/leave/types"),
-    ]).then(([empList, types]) => {
+      !isEmployeeView
+        ? apiFetch<DepartmentLookup[]>("/api/organization/departments").catch(() => [] as DepartmentLookup[])
+        : Promise.resolve([] as DepartmentLookup[]),
+    ]).then(([empList, types, deptList]) => {
       setEmployees(empList);
       setLeaveTypes(types);
+      setDepartments(deptList);
     });
   }, [isEmployeeView, currentEmployeeId]);
 
@@ -839,6 +1255,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     setLoadingBal(true);
     apiFetch<BalanceItem[]>(`/api/leave/balances/${selectedEmpId}?year=${currentYear}`)
       .then(setBalances)
+      .catch(() => setBalances([]))
       .finally(() => setLoadingBal(false));
   }, [selectedEmpId, currentYear]);
 
@@ -884,6 +1301,19 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     setMessage(null);
   }, []);
 
+  function resetApplyLeaveForm() {
+    setSelectedTypeId("");
+    setStartDate("");
+    setEndDate("");
+    setReason("");
+    setCoveragePerson("");
+    setCoverageHits([]);
+    setCoverageOpen(false);
+    setMedicalFile(null);
+    setMedicalDrag(false);
+    setMessage(null);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (missingBalance) {
@@ -905,6 +1335,18 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
         type: "err",
         text: `Insufficient leave balance. Available: ${selectedBalance.remaining} days, requested: ${totalDays} days.`,
       });
+      return;
+    }
+    if (!startDate || !endDate) {
+      setMessage({ type: "err", text: "Select both From and To dates." });
+      return;
+    }
+    if (startDate < todayMinDate || endDate < todayMinDate) {
+      setMessage({ type: "err", text: "Leave cannot be applied for past dates. Choose today or a future date." });
+      return;
+    }
+    if (endDate < startDate) {
+      setMessage({ type: "err", text: "To date cannot be before From date." });
       return;
     }
     const typeName = selectedLeaveType?.name ?? "leave";
@@ -981,10 +1423,20 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
           </p>
         </div>
         {!isEmployeeView && (
-          <div className="w-full shrink-0 sm:max-w-xs sm:min-w-[220px]">
+          <div className="flex w-full shrink-0 flex-col gap-2 sm:max-w-lg sm:flex-row sm:items-center">
+            <FormSelect
+              value={departmentFilterId}
+              onValueChange={onDepartmentFilterChange}
+              options={departmentFilterOptions}
+              className="w-full sm:w-44"
+              clearable={false}
+            />
             <EmployeeSearchCombobox
+              key={departmentFilterId || "all-departments"}
               value={selectedEmpId}
+              departmentId={departmentFilterId || undefined}
               placeholder="Type name or employee code…"
+              className="w-full sm:min-w-[220px] sm:flex-1"
               onPick={(emp) => {
                 setSelectedEmpId(emp?.id ?? "");
                 setSelectedTypeId("");
@@ -1116,8 +1568,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </ul>
                 {!loadingBal && balances.length === 0 && (
                   <p className="border-t border-slate-100 px-2.5 py-2 text-[10px] leading-snug text-slate-500">
-                    No balances loaded for {currentYear}. HR can assign balances or run{" "}
-                    <span className="font-medium">Recalculate Balances</span> (admin).
+                    No leave balances for {currentYear}. Check the employee join date and entitlement rules, or ask HR to assign balances manually.
                   </p>
                 )}
               </div>
@@ -1139,15 +1590,11 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
               onSubmit={handleSubmit}
               className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4 space-y-3"
             >
-              {message && (
-                <div
-                  className={`rounded-lg px-3 py-2 text-xs font-medium sm:text-sm ${
-                    message.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
-                  }`}
-                >
-                  {message.text}
-                </div>
-              )}
+              <FlashMessageBanner
+                msg={message}
+                onClear={() => setMessage(null)}
+                className=""
+              />
 
               {isNoPayLeave && selectedLeaveType && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-100 bg-gradient-to-r from-slate-50 to-slate-100/80 px-3 py-2">
@@ -1213,13 +1660,28 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className={applyLabel}>From *</label>
-                  <DatePickerField required value={startDate} onChange={setStartDate} className={applyInput} />
+                  <DatePickerField
+                    required
+                    value={startDate}
+                    min={todayMinDate}
+                    onChange={onApplyStartDateChange}
+                    className={applyInput}
+                  />
                 </div>
                 <div>
                   <label className={applyLabel}>To *</label>
-                  <DatePickerField required value={endDate} onChange={setEndDate} className={applyInput} />
+                  <DatePickerField
+                    required
+                    value={endDate}
+                    min={applyEndMinDate}
+                    onChange={onApplyEndDateChange}
+                    className={applyInput}
+                  />
                 </div>
               </div>
+              {applyDatesInvalid && (
+                <p className="text-xs text-red-600">Dates must be today or later, and To must be on or after From.</p>
+              )}
 
               {isSickLeave && (
                 <div>
@@ -1345,13 +1807,22 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </div>
               </div>
 
-              <div className="flex justify-end border-t border-slate-100 pt-2">
+              <div className="flex justify-end gap-2 border-t border-slate-100 pt-2">
+                <button
+                  type="button"
+                  onClick={resetApplyLeaveForm}
+                  disabled={submitting}
+                  className="inline-flex min-w-[8.5rem] items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
                 <button
                   type="submit"
                   disabled={
                     submitting ||
                     !startDate ||
                     !endDate ||
+                    applyDatesInvalid ||
                     exceedsBalance ||
                     missingBalance ||
                     (sickLeaveRequiresMedicalPdf && !medicalFile)
@@ -1471,17 +1942,23 @@ function BalancesTab() {
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className={labelClass}>Year</label>
-            <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={inputClass + " w-36 shadow-sm"}>
-              {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
+            <FormSelect
+              value={String(year)}
+              onValueChange={(v) => setYear(Number(v))}
+              options={LEAVE_YEAR_FORM_OPTIONS}
+              className="w-36"
+              clearable={false}
+            />
           </div>
           <div>
             <label className={labelClass}>As-of month</label>
-            <select value={asOfMonth} onChange={(e) => setAsOfMonth(Number(e.target.value))} className={inputClass + " w-32 shadow-sm"}>
-              {monthOptions.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
+            <FormSelect
+              value={String(asOfMonth)}
+              onValueChange={(v) => setAsOfMonth(Number(v))}
+              options={AS_OF_MONTH_FORM_OPTIONS}
+              className="w-32"
+              clearable={false}
+            />
           </div>
         </div>
         <div className="flex min-w-0 flex-1 flex-col items-stretch gap-3 sm:max-w-xl sm:flex-row sm:items-center sm:justify-end">
@@ -1659,7 +2136,7 @@ function BalancesTab() {
 
       <Modal open={!!editingBalance} onClose={() => setEditingBalance(null)} title={`Edit balance: ${editingBalance?.leaveTypeName ?? ""}`}>
         <form onSubmit={submitEditBalance} className="space-y-4">
-          {balanceError && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{balanceError}</div>}
+          <FormErrorAlert message={balanceError} onDismiss={() => setBalanceError(null)} className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" />
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className={labelClass}>Entitled (days)</label>
@@ -1724,10 +2201,7 @@ function AssignLeaveTypeTab() {
     [leaveTypes]
   );
 
-  const addYearFormOptions = useMemo<FormSelectOption[]>(
-    () => [2024, 2025, 2026, 2027].map((y) => ({ value: String(y), label: String(y) })),
-    []
-  );
+  const addYearFormOptions = LEAVE_YEAR_FORM_OPTIONS;
 
   useEffect(() => {
     setCatalogLoading(true);
@@ -1803,7 +2277,7 @@ function AssignLeaveTypeTab() {
           <p className="py-8 text-center text-sm text-slate-500">Loading employees and leave types…</p>
         ) : (
           <form onSubmit={handleSubmit} className="max-w-2xl space-y-4">
-            {formError && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</div>}
+            <FormErrorAlert message={formError} onDismiss={() => setFormError(null)} className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" />
             {successMsg && <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{successMsg}</div>}
           <div>
             <label className={labelClass}>Employee *</label>
@@ -1925,6 +2399,16 @@ function CarryForwardTab() {
   const [balanceLoading, setBalanceLoading] = useState(true);
   const headerIncludeRef = useRef<HTMLInputElement>(null);
 
+  const fromYearOptions = useMemo<FormSelectOption[]>(
+    () => [currentYear - 3, currentYear - 2, currentYear - 1, currentYear].map((y) => ({ value: String(y), label: String(y) })),
+    [currentYear],
+  );
+
+  const toYearOptions = useMemo<FormSelectOption[]>(
+    () => [currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((y) => ({ value: String(y), label: String(y) })),
+    [currentYear],
+  );
+
   useEffect(() => {
     setToYear(fromYear + 1);
   }, [fromYear]);
@@ -2032,19 +2516,23 @@ function CarryForwardTab() {
         <div className="mb-4 flex flex-wrap items-end gap-4">
           <div>
             <label className={labelClass}>From year (source)</label>
-            <select value={fromYear} onChange={(e) => setFromYear(Number(e.target.value))} className={inputClass + " w-32 shadow-sm"}>
-              {[currentYear - 3, currentYear - 2, currentYear - 1, currentYear].map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+            <FormSelect
+              value={String(fromYear)}
+              onValueChange={(v) => setFromYear(Number(v))}
+              options={fromYearOptions}
+              className="w-32"
+              clearable={false}
+            />
           </div>
           <div>
             <label className={labelClass}>To year (target)</label>
-            <select value={toYear} onChange={(e) => setToYear(Number(e.target.value))} className={inputClass + " w-32 shadow-sm"}>
-              {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+            <FormSelect
+              value={String(toYear)}
+              onValueChange={(v) => setToYear(Number(v))}
+              options={toYearOptions}
+              className="w-32"
+              clearable={false}
+            />
           </div>
           <Button onClick={handleRun} disabled={running || toYear !== fromYear + 1 || empLoading}>
             {running ? "Processing…" : "Run Carry Forward"}
@@ -2170,9 +2658,7 @@ function CarryForwardTab() {
           <TablePagination page={employeesPager.page} totalPages={employeesPager.totalPages} totalCount={employeesPager.totalCount} pageSize={employeesPager.pageSize} onPageChange={employeesPager.setPage} />
         </div>
 
-        {error && (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-        )}
+        <FormErrorAlert message={error} onDismiss={() => setError(null)} className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" />
         {result && (
           <div className="mt-4 space-y-2">
             <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900">
@@ -2283,7 +2769,7 @@ function LeaveTypesTab() {
                   Status
                 </th>
                 <th
-                  className="sticky top-0 z-10 w-28 border-b border-slate-200/90 bg-slate-100/95 py-3 pl-1 pr-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur sm:pr-3"
+                  className="sticky top-0 z-10 min-w-[9.5rem] border-b border-slate-200/90 bg-slate-100/95 py-3 pl-1 pr-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur sm:pr-3"
                   scope="col"
                 >
                   Actions
@@ -2323,8 +2809,8 @@ function LeaveTypesTab() {
                       <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">Inactive</span>
                     )}
                   </td>
-                  <td className="py-2.5 pl-1 pr-1 text-right sm:pr-2">
-                    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                  <td className="whitespace-nowrap py-2.5 pl-1 pr-1 text-right sm:pr-2">
+                    <div className="inline-flex flex-nowrap items-center justify-end gap-1.5">
                       <button
                         type="button"
                         onClick={() => openEdit(t)}
@@ -2459,6 +2945,15 @@ function mergeSickEntitlementRuleConfigJson(existing: string, next: { intro: str
   return JSON.stringify(base);
 }
 
+function parseSickEntitlementDaysInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  if (!/^\d+$/.test(trimmed)) return null;
+  const n = parseInt(trimmed, 10);
+  if (n < 0 || n > 366) return null;
+  return n;
+}
+
 function ShopOfficeSickNarrativeView({ intro, points }: { intro: string; points: string[] }) {
   return (
     <div className="ml-11 space-y-1.5 text-xs text-slate-600">
@@ -2515,7 +3010,7 @@ function SickNarrativeAdminBlock({
   const [editing, setEditing] = useState(false);
   const [intro, setIntro] = useState(initial.intro);
   const [points, setPoints] = useState<string[]>(() => [...initial.points]);
-  const [sickDays, setSickDays] = useState(initial.sickEntitlementDays);
+  const [sickDaysInput, setSickDaysInput] = useState(String(initial.sickEntitlementDays));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -2524,15 +3019,20 @@ function SickNarrativeAdminBlock({
     if (!editing) {
       setIntro(p.intro);
       setPoints([...p.points]);
-      setSickDays(p.sickEntitlementDays);
+      setSickDaysInput(String(p.sickEntitlementDays));
     }
   }, [rule?.id, rule?.ruleConfig, mode, editing]);
 
   async function save() {
     setErr(null);
+    const sickEntitlementDays = parseSickEntitlementDaysInput(sickDaysInput);
+    if (sickEntitlementDays === null) {
+      setErr("Enter sick entitlement days as a whole number from 0 to 366.");
+      return;
+    }
     setSaving(true);
     try {
-      const next = { intro, points, sickEntitlementDays: sickDays };
+      const next = { intro, points, sickEntitlementDays };
       const config = mergeSickEntitlementRuleConfigJson(rule?.ruleConfig ?? "{}", next);
       if (mode === "rule" && rule) {
         await apiFetch<{ ruleConfig: string }>(`/api/leave/entitlement-rules/${rule.id}`, { method: "PUT", body: JSON.stringify({ ruleConfig: config }) });
@@ -2563,7 +3063,7 @@ function SickNarrativeAdminBlock({
     const p = rule ? parseSickNarrativeFromRuleConfig(rule.ruleConfig) : parseSickNarrativeFromRuleConfig("{}");
     setIntro(p.intro);
     setPoints([...p.points]);
-    setSickDays(p.sickEntitlementDays);
+    setSickDaysInput(String(p.sickEntitlementDays));
     setEditing(false);
     setErr(null);
   }
@@ -2602,7 +3102,18 @@ function SickNarrativeAdminBlock({
           ))}
           <div>
             <label className={labelClass}>Sick entitlement days / year (used for balance accrual)</label>
-            <input type="number" min={0} max={366} value={sickDays} onChange={(e) => setSickDays(Number(e.target.value))} className={`${inputClass} max-w-[8rem]`} />
+            <input
+              type="text"
+              inputMode="numeric"
+              value={sickDaysInput}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "" || /^\d+$/.test(v)) setSickDaysInput(v);
+              }}
+              placeholder="e.g. 14"
+              className={`${inputClass} max-w-[8rem]`}
+              aria-label="Sick entitlement days per year"
+            />
           </div>
           <div className="flex flex-wrap justify-end gap-2 pt-1">
             <Button variant="secondary" type="button" onClick={cancelEdit} disabled={saving}>Cancel</Button>
@@ -2785,6 +3296,37 @@ function sortEntitlementRulesForDisplay(rules: EntitlementRule[]) {
   });
 }
 
+function parsePolicyDescription(desc: string | null): { intro: string; points: string[] } {
+  if (!desc?.trim()) return { intro: "", points: [""] };
+  try {
+    const o = JSON.parse(desc) as { intro?: string; points?: string[] };
+    if (typeof o === "object" && o !== null && (o.intro !== undefined || Array.isArray(o.points))) {
+      const raw = (o.points ?? []).map((p) => String(p ?? ""));
+      const points = raw.length > 0 ? raw : [""];
+      return { intro: String(o.intro ?? "").trim(), points };
+    }
+  } catch {
+    /* legacy plain-text description */
+  }
+  return { intro: desc.trim(), points: [""] };
+}
+
+function buildPolicyDescription(intro: string, points: string[]): string | null {
+  const trimmedIntro = intro.trim();
+  const trimmedPoints = points.map((p) => p.trim()).filter(Boolean);
+  if (!trimmedIntro && trimmedPoints.length === 0) return null;
+  return JSON.stringify({ intro: trimmedIntro, points: trimmedPoints });
+}
+
+function policyDescriptionPreview(desc: string | null): string {
+  const { intro, points } = parsePolicyDescription(desc);
+  const bullets = points.filter(Boolean);
+  if (intro && bullets.length > 0) return `${intro} · ${bullets.length} pointer${bullets.length === 1 ? "" : "s"}`;
+  if (intro) return intro;
+  if (bullets.length > 0) return bullets[0];
+  return "";
+}
+
 function PoliciesTab() {
   const { hasRole, user, isAdmin } = useAuth();
   const canEditCarryForwardSettings =
@@ -2799,6 +3341,8 @@ function PoliciesTab() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<PolicyItem | null>(null);
   const [saving, setSaving] = useState(false);
+  const [policyIntro, setPolicyIntro] = useState("");
+  const [policyPoints, setPolicyPoints] = useState<string[]>([""]);
   const [rules, setRules] = useState<EntitlementRule[]>([]);
   const [carrySettings, setCarrySettings] = useState<CarryForwardAvailability | null>(null);
 
@@ -2825,8 +3369,20 @@ function PoliciesTab() {
   useEffect(() => { load(); }, [load]);
   const policiesPager = useClientPagination(items);
 
-  function openAdd() { setEditing(null); setShowModal(true); }
-  function openEdit(item: PolicyItem) { setEditing(item); setShowModal(true); }
+  function openAdd() {
+    setEditing(null);
+    setPolicyIntro("");
+    setPolicyPoints([""]);
+    setShowModal(true);
+  }
+
+  function openEdit(item: PolicyItem) {
+    const parsed = parsePolicyDescription(item.description);
+    setEditing(item);
+    setPolicyIntro(parsed.intro);
+    setPolicyPoints(parsed.points.length > 0 ? parsed.points : [""]);
+    setShowModal(true);
+  }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -2834,7 +3390,7 @@ function PoliciesTab() {
     const fd = new FormData(e.currentTarget);
     const payload = {
       name: fd.get("name") as string,
-      description: fd.get("description") as string || null,
+      description: buildPolicyDescription(policyIntro, [...policyPoints]),
       maxDaysPerYear: Number(fd.get("maxDaysPerYear")),
       allowCarryForward: fd.get("allowCarryForward") === "on",
       maxCarryForwardDays: Number(fd.get("maxCarryForwardDays") || 0),
@@ -2881,7 +3437,12 @@ function PoliciesTab() {
               {items.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400">No policies defined.</td></tr>}
               {policiesPager.pageItems.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-50/50">
-                  <td className="px-6 py-3"><p className="font-medium text-slate-700">{p.name}</p>{p.description && <p className="text-xs text-slate-400">{p.description}</p>}</td>
+                  <td className="px-6 py-3">
+                    <p className="font-medium text-slate-700">{p.name}</p>
+                    {policyDescriptionPreview(p.description) ? (
+                      <p className="text-xs text-slate-400">{policyDescriptionPreview(p.description)}</p>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{p.leaveTypeName}</td>
                   <td className="px-4 py-3 text-slate-600">{p.maxDaysPerYear}</td>
                   <td className="px-4 py-3">{p.allowCarryForward ? <span className="text-green-600">Yes ({p.maxCarryForwardDays}d)</span> : <span className="text-slate-400">No</span>}</td>
@@ -2904,7 +3465,45 @@ function PoliciesTab() {
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Policy" : "Add Policy"}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><label className={labelClass}>Policy Name *</label><input name="name" required defaultValue={editing?.name ?? ""} className={inputClass} /></div>
-          <div><label className={labelClass}>Description</label><textarea name="description" rows={2} defaultValue={editing?.description ?? ""} className={inputClass} /></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Policy pointers</p>
+            <div>
+              <label className={labelClass}>Intro / lead line</label>
+              <textarea value={policyIntro} onChange={(e) => setPolicyIntro(e.target.value)} className={inputClass} rows={2} placeholder="Short summary shown above the bullet points" />
+            </div>
+            {policyPoints.map((point, i) => (
+              <div key={i}>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label className={labelClass}>Point {i + 1}</label>
+                  {policyPoints.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setPolicyPoints((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="text-xs font-medium text-red-600 hover:text-red-700"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+                <textarea
+                  value={point}
+                  onChange={(e) => {
+                    setPolicyPoints((prev) => prev.map((p, idx) => (idx === i ? e.target.value : p)));
+                  }}
+                  className={inputClass}
+                  rows={2}
+                  placeholder={`Policy pointer ${i + 1}`}
+                />
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPolicyPoints((prev) => [...prev, ""])}
+              className="text-sm font-medium text-blue-600 hover:text-blue-700"
+            >
+              + Add pointer
+            </button>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div><label className={labelClass}>Leave Type *</label>
               <select name="leaveTypeId" required defaultValue={editing?.leaveTypeId ?? ""} className={inputClass}>
@@ -3110,15 +3709,107 @@ function PoliciesTab() {
 function HolidaysTab() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [items, setItems] = useState<HolidayItem[]>([]);
+  const [locale, setLocale] = useState<HolidayLocaleSettings | null>(null);
+  const [countryCode, setCountryCode] = useState("LK");
+  const [timeZoneId, setTimeZoneId] = useState("Asia/Colombo");
+  const [selectedKinds, setSelectedKinds] = useState<HolidayKind[]>(() => [...ALL_HOLIDAY_KINDS]);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<HolidayItem | null>(null);
+  const [defaultDate, setDefaultDate] = useState("");
+  const [holidayKind, setHolidayKind] = useState<HolidayKind>("Public");
   const [saving, setSaving] = useState(false);
+  const [localeSaving, setLocaleSaving] = useState(false);
 
-  const load = useCallback(() => { apiFetch<HolidayItem[]>(`/api/leave/holidays?year=${year}`).then(setItems); }, [year]);
+  const countryLabel = locale?.countries.find((c) => c.code === countryCode)?.label ?? countryCode;
+
+  const loadLocale = useCallback(async () => {
+    const data = await apiFetch<HolidayLocaleSettings>("/api/leave/holidays/locale");
+    setLocale(data);
+    setCountryCode(data.countryCode);
+    setTimeZoneId(data.timeZoneId);
+  }, []);
+
+  const load = useCallback((targetCountry = countryCode) => {
+    apiFetch<HolidayItem[]>(
+      `/api/leave/holidays?year=${year}&country=${encodeURIComponent(targetCountry)}`,
+    ).then(setItems);
+  }, [year, countryCode]);
+
+  useEffect(() => { loadLocale(); }, [loadLocale]);
   useEffect(() => { load(); }, [load]);
 
-  function openAdd() { setEditing(null); setShowModal(true); }
-  function openEdit(item: HolidayItem) { setEditing(item); setShowModal(true); }
+  const countryOptions = useMemo<FormSelectOption[]>(
+    () => (locale?.countries ?? []).map((c) => ({ value: c.code, label: c.label })),
+    [locale],
+  );
+
+  const timeZoneOptions = useMemo<FormSelectOption[]>(
+    () => (locale?.timeZones ?? []).map((t) => ({ value: t.id, label: t.label })),
+    [locale],
+  );
+
+  const filteredItems = useMemo(() => {
+    if (selectedKinds.length === 0) return [];
+    if (selectedKinds.length === ALL_HOLIDAY_KINDS.length) return items;
+    const selected = new Set(selectedKinds);
+    return items.filter((h) => selected.has(normalizeHolidayKind(h)));
+  }, [items, selectedKinds]);
+
+  const selectedKindsLabel = useMemo(() => {
+    if (selectedKinds.length === 0) return "selected types";
+    if (selectedKinds.length === ALL_HOLIDAY_KINDS.length) return "";
+    return `${selectedKinds.map((k) => holidayKindLabel(k).toLowerCase()).join(", ")} `;
+  }, [selectedKinds]);
+
+  function toggleKindFilter(kind: HolidayKind) {
+    setSelectedKinds((prev) =>
+      prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind],
+    );
+  }
+
+  async function persistLocale(nextCountry: string, nextTimeZone: string) {
+    setLocaleSaving(true);
+    try {
+      const data = await apiFetch<HolidayLocaleSettings>("/api/leave/holidays/locale", {
+        method: "PUT",
+        body: JSON.stringify({ countryCode: nextCountry, timeZoneId: nextTimeZone }),
+      });
+      setLocale(data);
+      setCountryCode(data.countryCode);
+      setTimeZoneId(data.timeZoneId);
+      load(data.countryCode);
+    } catch {
+      /* ignore */
+    } finally {
+      setLocaleSaving(false);
+    }
+  }
+
+  async function handleCountryChange(nextCountry: string) {
+    const nextTimeZone = defaultTimeZoneForCountry(nextCountry, locale?.timeZones ?? []);
+    setCountryCode(nextCountry);
+    setTimeZoneId(nextTimeZone);
+    await persistLocale(nextCountry, nextTimeZone);
+  }
+
+  async function handleTimeZoneChange(nextTimeZone: string) {
+    setTimeZoneId(nextTimeZone);
+    await persistLocale(countryCode, nextTimeZone);
+  }
+
+  function openAdd(isoDate = "") {
+    setEditing(null);
+    setDefaultDate(isoDate);
+    setHolidayKind("Public");
+    setShowModal(true);
+  }
+
+  function openEdit(item: HolidayItem) {
+    setEditing(item);
+    setDefaultDate("");
+    setHolidayKind(normalizeHolidayKind(item));
+    setShowModal(true);
+  }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -3128,7 +3819,8 @@ function HolidaysTab() {
     const payload = {
       name: fd.get("name") as string,
       date: dateVal,
-      isRestricted: fd.get("isRestricted") === "on",
+      kind: holidayKind,
+      isRestricted: holidayKind === "Restricted",
       description: fd.get("description") as string || null,
       year: new Date(dateVal).getFullYear(),
     };
@@ -3151,51 +3843,132 @@ function HolidaysTab() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <label className={labelClass}>Year</label>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={inputClass + " w-36 shadow-sm"}>
-            {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
+      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 sm:p-5">
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className={labelClass}>Country</label>
+            <FormSelect
+              value={countryCode}
+              onValueChange={(v) => { void handleCountryChange(v); }}
+              options={countryOptions}
+              className="w-44"
+              clearable={false}
+              disabled={localeSaving || countryOptions.length === 0}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Timezone</label>
+            <FormSelect
+              value={timeZoneId}
+              onValueChange={(v) => { void handleTimeZoneChange(v); }}
+              options={timeZoneOptions}
+              className="min-w-[14rem]"
+              clearable={false}
+              disabled={localeSaving || timeZoneOptions.length === 0}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Year</label>
+            <FormSelect
+              value={String(year)}
+              onValueChange={(v) => setYear(Number(v))}
+              options={LEAVE_YEAR_FORM_OPTIONS}
+              className="w-36"
+              clearable={false}
+            />
+          </div>
+          <div className="ml-auto">
+            <Button onClick={() => openAdd()}>+ Add Holiday</Button>
+          </div>
         </div>
-        <Button onClick={openAdd}>+ Add Holiday</Button>
+
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className={labelClass}>Show holidays</p>
+            <div className="flex gap-3 text-xs">
+              <button
+                type="button"
+                onClick={() => setSelectedKinds([...ALL_HOLIDAY_KINDS])}
+                className="font-medium text-blue-600 hover:text-blue-700"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedKinds([])}
+                className="font-medium text-slate-500 hover:text-slate-700"
+              >
+                Clear all
+              </button>
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+            {HOLIDAY_KINDS.map((kind) => (
+              <label key={kind} className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedKinds.includes(kind)}
+                  onChange={() => toggleKindFilter(kind)}
+                  className="rounded border-slate-300 text-blue-600"
+                />
+                <span className="text-sm text-slate-700">{holidayKindLabel(kind)}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
-        <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
-          <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Company Holidays — {year}</h2>
-          <p className="mt-1 text-xs text-slate-500 sm:text-sm">Organization-wide dates, restricted days, and notes for leave planning.</p>
-                    </div>
-        <div className="max-h-[min(70vh,48rem)] overflow-x-auto overflow-y-auto">
-          <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
+      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+        <div className="flex h-[28rem] flex-col">
+          <HolidaysCalendarPanel
+            year={year}
+            items={filteredItems}
+            onSelectHoliday={openEdit}
+            onAddForDate={openAdd}
+          />
+        </div>
+
+        <div className="flex h-[28rem] flex-col">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
+            <div className="shrink-0 border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
+              <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Company Holidays — {year}</h2>
+              <p className="mt-1 text-xs text-slate-500 sm:text-sm">
+                {countryLabel} calendar ({timeZoneId}).{" "}
+                {countryCode === "LK"
+                  ? "Statutory mercantile and Poya days (2024–2027) are added automatically."
+                  : "National public holidays (2024–2027) are added automatically when you select this country."}
+              </p>
+            </div>
+            <div className="opensky-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-auto">
+              <table className="w-full border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
                 <th
-                  className="sticky top-0 z-10 min-w-[9rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
                   scope="col"
                 >
                   Holiday
                 </th>
                 <th
-                  className="sticky top-0 z-10 min-w-[8.5rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pl-2"
+                  className="sticky top-0 z-10 border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pl-2"
                   scope="col"
                 >
                   Date
                 </th>
                 <th
-                  className="sticky top-0 z-10 min-w-[6.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
                   scope="col"
                 >
                   Day
                 </th>
                 <th
-                  className="sticky top-0 z-10 min-w-[7rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
                   scope="col"
                 >
-                  Restricted
+                  Type
                 </th>
                 <th
-                  className="sticky top-0 z-10 min-w-[8rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
                   scope="col"
                 >
                   Note
@@ -3209,38 +3982,39 @@ function HolidaysTab() {
               </tr>
             </thead>
             <tbody>
-              {items.length === 0 && (
+              {filteredItems.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-16 text-center">
-                    <p className="text-sm text-slate-500">No holidays for <span className="font-semibold text-slate-700">{year}</span>.</p>
-                    <p className="mt-1 text-xs text-slate-400">Add dates your teams should treat as non-working or restricted.</p>
+                    <p className="text-sm text-slate-500">
+                      {selectedKinds.length === 0
+                        ? "Select at least one holiday type above to show dates."
+                        : `No ${selectedKindsLabel}holidays for ${countryLabel} in ${year}.`}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">Change country, year, or holiday type filters above.</p>
                   </td>
                 </tr>
               )}
-              {items.map((h) => {
-                const [yy, mo, da] = h.date.split("T")[0].split("-");
-                const dayName = new Date(+yy, +mo - 1, +da).toLocaleDateString(undefined, { weekday: "long" });
+              {filteredItems.map((h) => {
+                const dayName = fmtHolidayWeekday(h.date, timeZoneId);
+                const kind = normalizeHolidayKind(h);
+                const styles = holidayKindStyles(kind);
                 return (
                   <tr key={h.id} className="group border-b border-slate-100/90 transition hover:bg-sky-50/35">
                     <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-2 pr-2 font-medium text-slate-800 transition group-hover:border-sky-500/60 sm:pl-3 sm:pr-2">
                       {h.name}
                     </td>
                     <td
-                      className="min-w-[8.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pl-2 pr-2 sm:pl-3 sm:pr-2"
+                      className="border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pl-2 pr-2 sm:pl-3 sm:pr-2"
                     >
-                      <span className="text-base font-semibold tabular-nums text-emerald-900">{fmtDate(h.date)}</span>
+                      <span className="font-semibold tabular-nums text-emerald-900">{fmtHolidayDateInZone(h.date, timeZoneId)}</span>
                     </td>
                     <td className="px-2 py-2.5 sm:px-3">
                       <span className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-0.5 text-xs font-medium text-slate-700">{dayName}</span>
                     </td>
                     <td className="px-2 py-2.5 sm:px-3">
-                      {h.isRestricted ? (
-                        <span className="inline-flex rounded-full bg-rose-100/90 px-2.5 py-0.5 text-xs font-medium text-rose-800">Restricted</span>
-                      ) : (
-                        <span className="text-sm text-slate-400">No</span>
-                      )}
+                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${styles.badge}`}>{styles.label}</span>
                     </td>
-                    <td className="max-w-[12rem] px-2 py-2.5 text-xs text-slate-600 sm:px-3">
+                    <td className="max-w-[10rem] px-2 py-2.5 text-xs text-slate-600 sm:px-3">
                       <span className="line-clamp-2">{h.description?.trim() ? h.description : "—"}</span>
                     </td>
                     <td className="py-2.5 pl-1 pr-1 text-right sm:pr-2">
@@ -3266,15 +4040,36 @@ function HolidaysTab() {
               })}
             </tbody>
           </table>
+            </div>
+          </div>
         </div>
       </div>
+
+      <HolidaysSummaryLists year={year} items={filteredItems} onSelectHoliday={openEdit} />
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Holiday" : "Add Holiday"}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><label className={labelClass}>Holiday Name *</label><input name="name" required defaultValue={editing?.name ?? ""} className={inputClass} /></div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div><label className={labelClass}>Date *</label><DatePickerField key={editing?.id ?? "new"} name="date" required defaultValue={editing ? editing.date.substring(0, 10) : ""} className={inputClass} /></div>
-            <div className="flex items-center gap-2 pt-5"><input name="isRestricted" type="checkbox" defaultChecked={editing?.isRestricted ?? false} className="h-4 w-4 rounded border-slate-300" /><label className="text-sm text-slate-600">Restricted Date</label></div>
+            <div>
+              <label className={labelClass}>Date *</label>
+              <DatePickerField
+                key={editing?.id ?? `new-${defaultDate || "blank"}`}
+                name="date"
+                required
+                defaultValue={editing ? editing.date.substring(0, 10) : defaultDate}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Holiday type *</label>
+              <FormSelect
+                value={holidayKind}
+                onValueChange={(v) => setHolidayKind(v as HolidayKind)}
+                options={HOLIDAY_KIND_OPTIONS}
+                clearable={false}
+              />
+            </div>
           </div>
           <div><label className={labelClass}>Description</label><textarea name="description" rows={2} defaultValue={editing?.description ?? ""} className={inputClass} /></div>
           <div className="flex justify-end gap-3 pt-2">
@@ -3297,23 +4092,42 @@ function CalendarTab() {
   const [year, setYear] = useState(now.getFullYear());
   const [days, setDays] = useState<CalendarDay[]>([]);
   const [holidays, setHolidays] = useState<HolidayItem[]>([]);
+  const [countryCode, setCountryCode] = useState("LK");
   const [loading, setLoading] = useState(true);
+  const [departments, setDepartments] = useState<DepartmentLookup[]>([]);
+  const [departmentFilterId, setDepartmentFilterId] = useState("");
+
+  const departmentFilterOptions = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "All departments" }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
+    [departments],
+  );
+
+  useEffect(() => {
+    apiFetch<DepartmentLookup[]>("/api/organization/departments").then(setDepartments).catch(() => setDepartments([]));
+  }, []);
+
+  useEffect(() => {
+    apiFetch<HolidayLocaleSettings>("/api/leave/holidays/locale")
+      .then((locale) => setCountryCode(locale.countryCode))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     setLoading(true);
+    const deptQuery = departmentFilterId ? `&departmentId=${encodeURIComponent(departmentFilterId)}` : "";
     Promise.all([
-      apiFetch<CalendarDay[]>(`/api/leave/calendar?month=${month}&year=${year}`),
-      apiFetch<HolidayItem[]>(`/api/leave/holidays?year=${year}`),
+      apiFetch<CalendarDay[]>(`/api/leave/calendar?month=${month}&year=${year}${deptQuery}`),
+      apiFetch<HolidayItem[]>(`/api/leave/holidays?year=${year}&country=${encodeURIComponent(countryCode)}`),
     ]).then(([cal, hol]) => {
       setDays(cal);
-      setHolidays(hol.filter((h) => new Date(h.date).getMonth() + 1 === month));
+      setHolidays(hol.filter((h) => holidayMonthFromIso(h) === month));
     }).finally(() => setLoading(false));
-  }, [month, year]);
+  }, [month, year, countryCode, departmentFilterId]);
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
   const dayMap = new Map(days.map((d) => [new Date(d.date).getDate(), d]));
-  const holidayMap = new Map(holidays.map((h) => [new Date(h.date).getDate(), h]));
+  const holidayMap = new Map(holidays.map((h) => [holidayDayFromIso(h), h]));
 
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -3340,15 +4154,24 @@ function CalendarTab() {
 
   return (
     <div className="space-y-5">
-      {/* Month Navigation */}
-      <div className="flex items-center justify-between">
-        <button onClick={prevMonth} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200">
-          <svg className="h-4 w-4 inline mr-1" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>Prev
-        </button>
-        <h2 className="text-lg font-bold text-slate-800">{monthNames[month - 1]} {year}</h2>
-        <button onClick={nextMonth} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200">
-          Next<svg className="h-4 w-4 inline ml-1" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-        </button>
+      {/* Month navigation + department filter */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between gap-2 sm:justify-start">
+          <button onClick={prevMonth} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200">
+            <svg className="h-4 w-4 inline mr-1" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>Prev
+          </button>
+          <h2 className="text-lg font-bold text-slate-800">{monthNames[month - 1]} {year}</h2>
+          <button onClick={nextMonth} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200">
+            Next<svg className="h-4 w-4 inline ml-1" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+          </button>
+        </div>
+        <FormSelect
+          value={departmentFilterId}
+          onValueChange={setDepartmentFilterId}
+          options={departmentFilterOptions}
+          className="w-full sm:w-52"
+          clearable={false}
+        />
       </div>
 
       {loading ? (
@@ -3381,7 +4204,7 @@ function CalendarTab() {
                         {day}
                       </div>
                       {holiday && (
-                        <div className={`mb-0.5 rounded px-1 py-0.5 text-[10px] font-medium truncate ${holiday.isRestricted ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`} title={holiday.name}>
+                        <div className={`mb-0.5 rounded px-1 py-0.5 text-[10px] font-medium truncate ${holidayKindStyles(normalizeHolidayKind(holiday)).chip}`} title={holiday.name}>
                           {holiday.name}
                         </div>
                       )}
@@ -3409,8 +4232,12 @@ function CalendarTab() {
         {Object.entries(typeColors).map(([name, cls]) => (
           <span key={name} className={`rounded px-2 py-0.5 text-[10px] font-medium ${cls}`}>{name}</span>
         ))}
-        <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">Holiday</span>
-        <span className="rounded bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">Restricted</span>
+        {HOLIDAY_KINDS.map((kind) => {
+          const styles = holidayKindStyles(kind);
+          return (
+            <span key={kind} className={`rounded px-2 py-0.5 text-[10px] font-medium ${styles.legendChip}`}>{styles.label}</span>
+          );
+        })}
       </div>
     </div>
   );

@@ -85,6 +85,45 @@ export function formatBusinessDateTime(value: string | null | undefined): string
   return d.toLocaleString("en-LK", businessDateTimeFmt);
 }
 
+/** Parse API UTC instants; naive `…T…` values from audit logs are UTC wall clock (see ApiDateTimeJsonConverter). */
+function parseUtcApiInstant(value: string): Date {
+  if (hasExplicitOffset(value)) return new Date(value);
+  const match = value.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
+  if (match) return new Date(`${match[1]}Z`);
+  return new Date(value);
+}
+
+function formatInstantColomboWall(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+
+  const pick = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}:${pick("second")}`;
+}
+
+/** Log tables: `YYYY-MM-DD HH:mm:ss` in Sri Lanka (Colombo / SLST, UTC+5:30). */
+export function formatColomboLogDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const trimmed = value.trim();
+
+  // Pre-formatted server value (already Colombo wall clock).
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) return trimmed;
+
+  const d = hasExplicitOffset(trimmed) ? new Date(trimmed) : parseUtcApiInstant(trimmed);
+  if (Number.isNaN(d.getTime())) return "—";
+  return formatInstantColomboWall(d);
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const trimmed = value.trim();

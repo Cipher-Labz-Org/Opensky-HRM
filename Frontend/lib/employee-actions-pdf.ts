@@ -52,6 +52,8 @@ export type EmployeeActionPdfRecord = {
   effectiveDate: string;
   title: string;
   details: string;
+  warningFromDate?: string;
+  warningToDate?: string;
   createdAt: string;
   createdByUsername: string | null;
 };
@@ -74,7 +76,7 @@ export async function buildEmployeeActionsPdfBlob(records: ReadonlyArray<Employe
 
   autoTable(doc, {
     startY: 24,
-    head: [["Effective", "Employee", "Code", "Type", "Title", "Details", "Logged"]],
+    head: [["Effective", "Employee", "Code", "Type", "Title", "Details", "Warning period", "Logged"]],
     body: records.map((r) => [
       r.effectiveDate.split("T")[0] ?? r.effectiveDate,
       r.employeeName,
@@ -82,6 +84,9 @@ export async function buildEmployeeActionsPdfBlob(records: ReadonlyArray<Employe
       r.actionType,
       r.title,
       (r.details || "").replace(/\s+/g, " ").slice(0, 240),
+      r.actionType === "Warning" && r.warningFromDate && r.warningToDate
+        ? `${r.warningFromDate.split("T")[0]} – ${r.warningToDate.split("T")[0]}`
+        : "—",
       `${(r.createdAt || "").split("T")[0]}${r.createdByUsername ? ` @${r.createdByUsername}` : ""}`,
     ]),
     styles: { fontSize: 7, cellPadding: 1.2, overflow: "linebreak" },

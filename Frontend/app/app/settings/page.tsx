@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { PhoneInput } from "@/components/ui";
+import { PhoneInput, FlashMessageBanner, type FlashMessage } from "@/components/ui";
 import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal";
@@ -54,7 +54,7 @@ export default function SettingsPage() {
 
   const [companyLogoUrl, setCompanyLogoUrl] = useState("");
   const [logoUploading, setLogoUploading] = useState(false);
-  const [logoMsg, setLogoMsg] = useState("");
+  const [logoFlash, setLogoFlash] = useState<FlashMessage | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   const [companyName, setCompanyName] = useState("");
@@ -123,7 +123,7 @@ export default function SettingsPage() {
 
   async function handleLogoUpload(file: File) {
     setLogoUploading(true);
-    setLogoMsg("");
+    setLogoFlash(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -139,10 +139,9 @@ export default function SettingsPage() {
       }
       const data = await res.json();
       setCompanyLogoUrl(data.logoUrl);
-      setLogoMsg("Logo uploaded successfully");
-      setTimeout(() => setLogoMsg(""), 3000);
+      setLogoFlash({ type: "ok", text: "Logo uploaded successfully" });
     } catch (e: unknown) {
-      setLogoMsg(e instanceof Error ? e.message : "Upload failed");
+      setLogoFlash({ type: "err", text: e instanceof Error ? e.message : "Upload failed" });
     } finally {
       setLogoUploading(false);
     }
@@ -152,10 +151,9 @@ export default function SettingsPage() {
     try {
       await apiFetch("/api/system-settings/company-logo", { method: "DELETE" });
       setCompanyLogoUrl("");
-      setLogoMsg("Logo removed");
-      setTimeout(() => setLogoMsg(""), 3000);
+      setLogoFlash({ type: "ok", text: "Logo removed successfully" });
     } catch {
-      setLogoMsg("Failed to remove logo");
+      setLogoFlash({ type: "err", text: "Failed to remove logo" });
     }
   }
 
@@ -470,6 +468,8 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        <FlashMessageBanner msg={logoFlash} onClear={() => setLogoFlash(null)} className="mt-4" />
+
         <div className="mt-6 flex max-w-[280px] flex-col items-stretch gap-4">
           <div className="flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white/80 px-6 py-10 shadow-inner">
             {companyLogoUrl ? (
@@ -516,11 +516,6 @@ export default function SettingsPage() {
               >
                 Remove logo
               </button>
-            ) : null}
-            {logoMsg ? (
-              <p className={`text-center text-xs font-medium ${logoMsg.includes("success") || logoMsg.includes("removed") ? "text-green-600" : "text-red-500"}`}>
-                {logoMsg}
-              </p>
             ) : null}
           </div>
         </div>

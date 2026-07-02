@@ -13,6 +13,7 @@ public interface ILeaveService
     Task<LeaveRequestDto> CreateLeaveRequestAsync(CreateLeaveRequestDto dto, string? medicalCertificateUrl = null);
     Task<LeaveRequestDto?> ApproveLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto);
     Task<LeaveRequestDto?> RejectLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto);
+    Task<Guid?> GetResponsibleApproverEmployeeIdAsync(Guid leaveRequestId);
 
     // Leave Types
     Task<List<LeaveTypeDto>> GetLeaveTypesAsync();
@@ -36,11 +37,13 @@ public interface ILeaveService
     Task<CarryForwardAvailabilitySettingsDto> SetCarryForwardAvailabilitySettingsAsync(UpdateCarryForwardAvailabilitySettingsDto dto);
 
     // Holidays
-    Task<List<HolidayDto>> GetHolidaysAsync(int year);
+    Task<HolidayLocaleSettingsDto> GetHolidayLocaleSettingsAsync();
+    Task<HolidayLocaleSettingsDto> SetHolidayLocaleSettingsAsync(UpdateHolidayLocaleSettingsDto dto);
+    Task<List<HolidayDto>> GetHolidaysAsync(int year, string? countryCode = null);
     Task<HolidayDto> CreateHolidayAsync(CreateHolidayDto dto);
     Task<HolidayDto?> UpdateHolidayAsync(Guid id, UpdateHolidayDto dto);
     Task<bool> DeleteHolidayAsync(Guid id);
 
     // Calendar
-    Task<List<CalendarDayDto>> GetCalendarAsync(int month, int year);
+    Task<List<CalendarDayDto>> GetCalendarAsync(int month, int year, Guid? departmentId = null);
 }

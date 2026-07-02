@@ -9,7 +9,7 @@ import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } f
 import { API_BASE_URL } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 
@@ -1515,9 +1515,11 @@ function VariableEntryTab() {
         </div>
       )}
 
-      {msg && (
-        <div className={`rounded-lg px-4 py-2 text-sm ${msg.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{msg.text}</div>
-      )}
+      <FlashMessageBanner
+        msg={msg ? { type: msg.ok ? "ok" : "err", text: msg.text } : null}
+        onClear={() => setMsg(null)}
+        className=""
+      />
 
       {!selectedBatchId ? (
         <EmptyState text="Select a payroll batch to view batch entries" />

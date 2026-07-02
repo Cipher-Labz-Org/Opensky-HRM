@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Seeders;
+using System.Text.RegularExpressions;
 
 namespace OpenSkyHRM.Api.Controllers;
 
@@ -20,6 +22,50 @@ public class DocumentTemplatesController : ControllerBase
     public record TemplateDto(Guid Id, string Name, string TemplateKey, string? Subject, string HtmlContent, bool IsActive);
     public record TemplateListDto(Guid Id, string Name, string TemplateKey, bool IsActive);
     public record UpdateTemplateRequest(string Name, string? Subject, string HtmlContent, bool IsActive);
+    public record CreateTemplateRequest(string Name, string TemplateKey, string? Subject, string HtmlContent, bool IsActive = true);
+
+    [HttpPost("seed-defaults")]
+    public async Task<IActionResult> SeedDefaults()
+    {
+        await TransactionalEmailTemplateSeeder.EnsureAsync(_db);
+        await DocumentTemplateSeeder.EnsureLetterPackAsync(_db);
+        var templates = await _db.DocumentTemplates
+            .OrderBy(t => t.Name)
+            .Select(t => new TemplateListDto(t.Id, t.Name, t.TemplateKey, t.IsActive))
+            .ToListAsync();
+        return Ok(new { message = "Default templates loaded.", templates });
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> Create([FromBody] CreateTemplateRequest req)
+    {
+        var name = (req.Name ?? "").Trim();
+        if (string.IsNullOrEmpty(name))
+            return BadRequest(new { message = "Template name is required." });
+
+        var key = NormalizeEmailTemplateKey(req.TemplateKey);
+        if (string.IsNullOrEmpty(key))
+            return BadRequest(new { message = "Template key is required and must start with Email_." });
+
+        if (await _db.DocumentTemplates.AnyAsync(t => t.TemplateKey == key))
+            return Conflict(new { message = $"A template with key \"{key}\" already exists." });
+
+        var html = (req.HtmlContent ?? "").Trim();
+        if (string.IsNullOrEmpty(html))
+            return BadRequest(new { message = "HTML content is required." });
+
+        var template = new DocumentTemplate
+        {
+            Name = name,
+            TemplateKey = key,
+            Subject = string.IsNullOrWhiteSpace(req.Subject) ? null : req.Subject.Trim(),
+            HtmlContent = html,
+            IsActive = req.IsActive,
+        };
+        _db.DocumentTemplates.Add(template);
+        await _db.SaveChangesAsync();
+        return Ok(new TemplateDto(template.Id, template.Name, template.TemplateKey, template.Subject, template.HtmlContent, template.IsActive));
+    }
 
     [HttpGet]
     public async Task<IActionResult> GetAll()
@@ -113,8 +159,33 @@ public class DocumentTemplatesController : ControllerBase
         return Ok(new TemplateDto(t.Id, t.Name, t.TemplateKey, t.Subject, t.HtmlContent, t.IsActive));
     }
 
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var t = await _db.DocumentTemplates.FindAsync(id);
+        if (t is null || t.IsDeleted) return NotFound();
+        t.IsDeleted = true;
+        t.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
     private static string FormatAddress(params string?[] parts)
     {
         return string.Join(", ", parts.Where(p => !string.IsNullOrWhiteSpace(p)));
+    }
+
+    private static string NormalizeEmailTemplateKey(string raw)
+    {
+        var key = (raw ?? "").Trim();
+        if (string.IsNullOrEmpty(key))
+            return string.Empty;
+
+        if (!key.StartsWith("Email_", StringComparison.OrdinalIgnoreCase))
+            key = "Email_" + key;
+
+        key = Regex.Replace(key, @"[^A-Za-z0-9_]", "_");
+        key = Regex.Replace(key, @"_+", "_").Trim('_');
+        return key.StartsWith("Email_", StringComparison.OrdinalIgnoreCase) ? key : $"Email_{key}";
     }
 }

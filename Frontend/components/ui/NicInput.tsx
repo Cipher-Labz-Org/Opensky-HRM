@@ -14,6 +14,7 @@ import {
   NIC_VALIDATION_MESSAGE,
   sanitizeNicInput,
 } from "@/lib/input-validation";
+import { FieldValidationHint } from "@/components/ui/FieldValidationHint";
 
 const INVALID_CLASS =
   "border-red-300 focus:border-red-400 focus:ring-red-200/20";
@@ -114,7 +115,7 @@ export const NicInput = forwardRef<HTMLInputElement, NicInputProps>(function Nic
         {...props}
       />
       {showError ? (
-        <p className="mt-1 text-xs font-medium text-red-600">{NIC_VALIDATION_MESSAGE}</p>
+        <FieldValidationHint show={showError} message={NIC_VALIDATION_MESSAGE} depKey={effectiveValue} />
       ) : null}
     </div>
   );

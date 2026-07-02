@@ -1015,6 +1015,23 @@ public class RecruitmentService : IRecruitmentService
         return MapOffer(offer);
     }
 
+    public async Task SaveOfferLetterPdfAsync(Guid offerId, byte[] pdfBytes)
+    {
+        if (pdfBytes.Length == 0)
+            throw new InvalidOperationException("Offer letter PDF is empty.");
+
+        var offer = await _db.Offers.FirstOrDefaultAsync(o => o.Id == offerId)
+            ?? throw new InvalidOperationException("Offer not found.");
+
+        var dir = Path.Combine(_hostEnv.ContentRootPath, "wwwroot", "uploads", "offers", offerId.ToString());
+        Directory.CreateDirectory(dir);
+        var fileName = "offer-letter.pdf";
+        var physicalPath = Path.Combine(dir, fileName);
+        await File.WriteAllBytesAsync(physicalPath, pdfBytes);
+        offer.OfferLetterUrl = $"/uploads/offers/{offerId}/{fileName}";
+        await _db.SaveChangesAsync();
+    }
+
     public async Task<OfferDto> ApproveOfferAsync(Guid id)
     {
         var offer = await _db.Offers.FindAsync(id)

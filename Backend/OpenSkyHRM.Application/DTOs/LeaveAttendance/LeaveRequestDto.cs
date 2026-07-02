@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using OpenSkyHRM.Domain.Entities;
 
 namespace OpenSkyHRM.Application.DTOs.LeaveAttendance;
 
@@ -30,6 +31,8 @@ public class LeaveRequestDto
     public string? ApproverName { get; set; }
     /// <summary>Who is responsible: approver/rejector name, or who needs to approve for Pending states.</summary>
     public string? ResponsibleUserName { get; set; }
+    /// <summary>Employee ID of the responsible approver (for Pending / PendingLevel2).</summary>
+    public Guid? ResponsibleEmployeeId { get; set; }
 
     /// <summary>Relative URL to a stored medical certificate PDF, when applicable.</summary>
     public string? MedicalCertificateUrl { get; set; }
@@ -216,15 +219,18 @@ public class HolidayDto
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public DateTime Date { get; set; }
+    public string Kind { get; set; } = HolidayKinds.Public;
     public bool IsRestricted { get; set; }
     public string? Description { get; set; }
     public int Year { get; set; }
+    public string CountryCode { get; set; } = HolidayCountryCodes.LK;
 }
 
 public class CreateHolidayDto
 {
     public string Name { get; set; } = string.Empty;
     public DateTime Date { get; set; }
+    public string? Kind { get; set; }
     public bool IsRestricted { get; set; }
     public string? Description { get; set; }
     public int Year { get; set; }
@@ -234,9 +240,37 @@ public class UpdateHolidayDto
 {
     public string Name { get; set; } = string.Empty;
     public DateTime Date { get; set; }
+    public string? Kind { get; set; }
     public bool IsRestricted { get; set; }
     public string? Description { get; set; }
     public int Year { get; set; }
+}
+
+public class HolidayLocaleSettingsDto
+{
+    public string CountryCode { get; set; } = HolidayCountryCodes.LK;
+    public string TimeZoneId { get; set; } = "Asia/Colombo";
+    public List<HolidayLocaleOptionDto> Countries { get; set; } = new();
+    public List<HolidayTimeZoneOptionDto> TimeZones { get; set; } = new();
+}
+
+public class HolidayLocaleOptionDto
+{
+    public string Code { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+}
+
+public class HolidayTimeZoneOptionDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string CountryCode { get; set; } = string.Empty;
+}
+
+public class UpdateHolidayLocaleSettingsDto
+{
+    public string CountryCode { get; set; } = HolidayCountryCodes.LK;
+    public string TimeZoneId { get; set; } = "Asia/Colombo";
 }
 
 public class CalendarDayDto

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, FormErrorAlert, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { type EmploymentTypeCatalogItem, employmentTypeOptionsFromCatalog } from "@/lib/employment-types";
 import { getSuggestedSkillsForJob } from "@/lib/requisition-skills-by-job";
@@ -294,11 +294,11 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Create Requisition" wide>
       <form ref={formRef} key={formKey} onSubmit={handleSubmit} className="space-y-4">
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-            {error}
-          </div>
-        )}
+        <FormErrorAlert
+          message={error}
+          onDismiss={() => setError("")}
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        />
         <div>
           <label className={labelClass}>Title *</label>
           <input

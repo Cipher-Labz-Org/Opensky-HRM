@@ -32,7 +32,6 @@ interface AppraisalDto { id: string; status: string; finalRating: number | null;
 interface DashboardData { cycle: AppraisalCycle; totalEmployees: number; selfCompleted: number; managerCompleted: number; peerCompleted: number; fullyCompleted: number; acknowledged: number; ratingDistribution: { label: string; count: number }[]; departmentProgress: { department: string; total: number; completed: number; averageRating: number }[]; }
 
 type Tab = "dashboard" | "cycles" | "setup";
-type SetupTab = "scales" | "competencies" | "templates";
 
 const inputClass = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
 const labelClass = "mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide";
@@ -47,9 +46,14 @@ const PHASE_LABELS: Record<string, string> = {
   PeerReview: "Peer / 360 Review", Calibration: "Calibration", Acknowledgement: "Acknowledgement", Completed: "Completed",
 };
 
+const setupActionBtn = {
+  edit: "rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100",
+  delete: "rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100",
+  add: "rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-100",
+};
+
 export default function PerformancePage() {
   const [tab, setTab] = useState<Tab>("dashboard");
-  const [setupTab, setSetupTab] = useState<SetupTab>("scales");
 
   // Data
   const [cycles, setCycles] = useState<AppraisalCycle[]>([]);
@@ -158,8 +162,12 @@ export default function PerformancePage() {
   }
 
   async function saveScale() {
+    if (!scaleDesc.trim()) {
+      await appAlert("Description is required.");
+      return;
+    }
     setSaving(true);
-    const payload = { name: scaleName, description: scaleDesc || null, isDefault: scaleDefault, items: scaleItems.filter(i => i.label) };
+    const payload = { name: scaleName, description: scaleDesc.trim(), isDefault: scaleDefault, items: scaleItems.filter(i => i.label) };
     try {
       if (editScaleId) await apiFetch(`/api/appraisal/rating-scales/${editScaleId}`, { method: "PUT", body: JSON.stringify(payload) });
       else await apiFetch("/api/appraisal/rating-scales", { method: "POST", body: JSON.stringify(payload) });
@@ -180,8 +188,12 @@ export default function PerformancePage() {
   function openEditCategory(c: CompetencyCategory) { setEditCatId(c.id); setCatName(c.name); setCatDesc(c.description ?? ""); setCatSort(c.sortOrder); setShowCategoryModal(true); }
 
   async function saveCategory() {
+    if (!catDesc.trim()) {
+      await appAlert("Description is required.");
+      return;
+    }
     setSaving(true);
-    const payload = { name: catName, description: catDesc || null, sortOrder: catSort };
+    const payload = { name: catName, description: catDesc.trim(), sortOrder: catSort };
     try {
       if (editCatId) await apiFetch(`/api/appraisal/competency-categories/${editCatId}`, { method: "PUT", body: JSON.stringify(payload) });
       else await apiFetch("/api/appraisal/competency-categories", { method: "POST", body: JSON.stringify(payload) });
@@ -196,8 +208,12 @@ export default function PerformancePage() {
   function openEditCompetency(c: CompetencyDto) { setEditCompId(c.id); setCompName(c.name); setCompDesc(c.description ?? ""); setCompSort(c.sortOrder); setCompCatId(c.categoryId); setShowCompetencyModal(true); }
 
   async function saveCompetency() {
+    if (!compDesc.trim()) {
+      await appAlert("Description is required.");
+      return;
+    }
     setSaving(true);
-    const payload = { name: compName, description: compDesc || null, sortOrder: compSort, categoryId: compCatId };
+    const payload = { name: compName, description: compDesc.trim(), sortOrder: compSort, categoryId: compCatId };
     try {
       if (editCompId) await apiFetch(`/api/appraisal/competencies/${editCompId}`, { method: "PUT", body: JSON.stringify(payload) });
       else await apiFetch("/api/appraisal/competencies", { method: "POST", body: JSON.stringify(payload) });
@@ -227,8 +243,12 @@ export default function PerformancePage() {
   }
 
   async function saveTemplate() {
+    if (!tplDesc.trim()) {
+      await appAlert("Description is required.");
+      return;
+    }
     setSaving(true);
-    const payload = { name: tplName, description: tplDesc || null, ratingScaleId: tplScaleId, sections: tplSections.map(s => ({ ...s, description: s.description || null, items: s.items.map(i => ({ ...i, description: i.description || null, competencyId: i.competencyId || null })) })) };
+    const payload = { name: tplName, description: tplDesc.trim(), ratingScaleId: tplScaleId, sections: tplSections.map(s => ({ ...s, description: s.description || null, items: s.items.map(i => ({ ...i, description: i.description || null, competencyId: i.competencyId || null })) })) };
     try {
       if (editTplId) await apiFetch(`/api/appraisal/templates/${editTplId}`, { method: "PUT", body: JSON.stringify(payload) });
       else await apiFetch("/api/appraisal/templates", { method: "POST", body: JSON.stringify(payload) });
@@ -265,9 +285,13 @@ export default function PerformancePage() {
   }
 
   async function saveCycle() {
+    if (!cycleDesc.trim()) {
+      await appAlert("Description is required.");
+      return;
+    }
     setSaving(true);
     const payload = {
-      name: cycleName, description: cycleDesc || null, cycleType: cycleType, startDate: cycleStart, endDate: cycleEnd, templateId: cycleTplId,
+      name: cycleName, description: cycleDesc.trim(), cycleType: cycleType, startDate: cycleStart, endDate: cycleEnd, templateId: cycleTplId,
       includeSelfAssessment: cycleSelf, includeManagerReview: cycleMgr, includePeerReview: cyclePeer, includeDirectReportReview: cycleDr, includeExternalReview: cycleExt, includeGoals: cycleGoals,
       selfWeight: cycleSW, managerWeight: cycleMW, peerWeight: cyclePW, directReportWeight: cycleDW, externalWeight: cycleEW,
       selfDeadline: cycleSelfDl || null, managerDeadline: cycleMgrDl || null, peerDeadline: cyclePeerDl || null, completionDeadline: cycleCompDl || null,
@@ -397,28 +421,23 @@ export default function PerformancePage() {
     <>
       <AppTopbar title="Performance Appraisal" subtitle="360-degree performance appraisal management — cycles, templates, and reviews." />
 
-      <div className="mt-6 mb-6 flex flex-wrap gap-2">
+      <div className="mt-6 flex flex-col gap-2">
         {([["dashboard", "Dashboard"], ["cycles", "Appraisal Cycles"], ["setup", "Setup"]] as const).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${
-              tab === key
-                ? "border-slate-300 bg-white text-slate-900 shadow-sm"
-                : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+          <div key={key} className="space-y-3">
+            <button
+              type="button"
+              onClick={() => setTab(key)}
+              className={`w-full rounded-xl border px-3.5 py-2.5 text-left text-xs font-semibold transition sm:text-sm ${
+                tab === key
+                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                  : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+              }`}
+            >
+              {label}
+            </button>
 
-      {/* ═══════════════════════════════════════════════════════════
-          TAB: DASHBOARD
-         ═══════════════════════════════════════════════════════════ */}
-      {tab === "dashboard" && (
-        <div>
+            {tab === key && key === "dashboard" && (
+            <div className="pb-2">
           <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <label className="text-sm font-semibold text-slate-700">Cycle</label>
             <div className="min-w-[14rem] max-w-full flex-1 sm:max-w-md">
@@ -574,10 +593,7 @@ export default function PerformancePage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSetupTab("scales");
-                        setTab("setup");
-                      }}
+                      onClick={() => setTab("setup")}
                       className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -591,10 +607,7 @@ export default function PerformancePage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSetupTab("competencies");
-                        setTab("setup");
-                      }}
+                      onClick={() => setTab("setup")}
                       className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -608,10 +621,7 @@ export default function PerformancePage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSetupTab("templates");
-                        setTab("setup");
-                      }}
+                      onClick={() => setTab("setup")}
                       className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -714,188 +724,246 @@ export default function PerformancePage() {
               <p className="text-sm text-slate-400">No appraisal cycles created yet. Go to the Cycles tab to create one.</p>
             </div>
           )}
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          TAB: APPRAISAL CYCLES
-         ═══════════════════════════════════════════════════════════ */}
-      {tab === "cycles" && (
-        <div>
-          <div className="mb-4 flex justify-end"><Button onClick={openCreateCycle}>+ New Cycle</Button></div>
-          {cycles.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center"><p className="text-sm text-slate-400">No appraisal cycles. Create your first one.</p></div>
-          ) : (
-            <div className="space-y-3">
-              {cycles.map(c => {
-                const progress = c.totalAppraisals > 0 ? Math.round((c.completedAppraisals / c.totalAppraisals) * 100) : 0;
-                return (
-                  <div key={c.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-slate-800">{c.name}</span>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PHASE_COLORS[c.phase] ?? "bg-slate-100 text-slate-600"}`}>{PHASE_LABELS[c.phase] ?? c.phase}</span>
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">{c.cycleType}</span>
-                        </div>
-                        <p className="text-xs text-slate-400 mt-1">{formatDate(c.startDate)} — {formatDate(c.endDate)} &middot; {c.templateName} &middot; {c.totalAppraisals} employees</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {c.totalAppraisals > 0 && (
-                          <div className="w-24">
-                            <div className="text-[10px] text-slate-400 text-right mb-0.5">{progress}%</div>
-                            <div className="h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{ width: `${progress}%` }} /></div>
-                          </div>
-                        )}
-                        {c.phase === "Draft" && (
-                          <>
-                            <button onClick={() => activateCycle(c.id)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">Activate</button>
-                            <button onClick={() => openEditCycle(c)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"><svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg></button>
-                            <button onClick={() => deleteCycle(c.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"><svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg></button>
-                          </>
-                        )}
-                        {c.phase !== "Draft" && c.phase !== "Completed" && (
-                          <button onClick={() => advanceCycle(c.id)} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700">Advance Phase</button>
-                        )}
-                        <button onClick={() => { setSelectedCycleId(c.id); setTab("dashboard"); }} className="text-blue-600 hover:underline text-xs">Dashboard</button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
             </div>
-          )}
-        </div>
-      )}
+            )}
 
-      {/* ═══════════════════════════════════════════════════════════
-          TAB: SETUP
-         ═══════════════════════════════════════════════════════════ */}
-      {tab === "setup" && (
-        <div>
-          <div className="mb-6 flex flex-wrap gap-2">
-            {([["scales", "Rating Scales"], ["competencies", "Competencies"], ["templates", "Templates"]] as const).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setSetupTab(key)}
-                className={`rounded-xl border px-3.5 py-2 text-xs font-semibold transition sm:text-sm ${
-                  setupTab === key
-                    ? "border-slate-300 bg-white text-slate-900 shadow-sm"
-                    : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+            {tab === key && key === "cycles" && (
+        <section className="space-y-3 pb-2">
+          <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900">Appraisal Cycles</h2>
           </div>
+          <div className="flex justify-end">
+            <Button onClick={openCreateCycle}>+ New Cycle</Button>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-left">
+                    <th className="px-6 py-2.5 font-semibold text-slate-600">Name</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Description</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Type</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Phase</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Start</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">End</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Template</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Employees</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Progress</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {cycles.length === 0 && (
+                    <tr><td colSpan={10} className="px-6 py-8 text-center text-slate-400">No appraisal cycles. Create your first one.</td></tr>
+                  )}
+                  {cycles.map(c => {
+                    const progress = c.totalAppraisals > 0 ? Math.round((c.completedAppraisals / c.totalAppraisals) * 100) : 0;
+                    return (
+                      <tr key={c.id} className="hover:bg-slate-50/50 align-top">
+                        <td className="px-6 py-3 font-medium text-slate-700">{c.name}</td>
+                        <td className="px-4 py-3 text-slate-600 max-w-xs">{c.description ?? "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{c.cycleType}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${PHASE_COLORS[c.phase] ?? "bg-slate-100 text-slate-600"}`}>
+                            {PHASE_LABELS[c.phase] ?? c.phase}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{formatDate(c.startDate)}</td>
+                        <td className="px-4 py-3 text-slate-600">{formatDate(c.endDate)}</td>
+                        <td className="px-4 py-3 text-slate-600">{c.templateName ?? "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{c.totalAppraisals}</td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {c.totalAppraisals > 0 ? `${progress}%` : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-2">
+                            {c.phase === "Draft" && (
+                              <>
+                                <button type="button" onClick={() => activateCycle(c.id)} className={setupActionBtn.add}>Activate</button>
+                                <button type="button" onClick={() => openEditCycle(c)} className={setupActionBtn.edit}>Edit</button>
+                                <button type="button" onClick={() => deleteCycle(c.id)} className={setupActionBtn.delete}>Delete</button>
+                              </>
+                            )}
+                            {c.phase !== "Draft" && c.phase !== "Completed" && (
+                              <button type="button" onClick={() => advanceCycle(c.id)} className="rounded bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100">Advance</button>
+                            )}
+                            <button type="button" onClick={() => { setSelectedCycleId(c.id); setTab("dashboard"); }} className="rounded bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">Dashboard</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+            )}
 
+            {tab === key && key === "setup" && (
+        <div className="space-y-8 pb-2">
+          <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900">Setup</h2>
+          </div>
           {/* Rating Scales */}
-          {setupTab === "scales" && (
-            <div>
-              <div className="mb-4 flex justify-end"><Button onClick={openCreateScale}>+ New Scale</Button></div>
-              <div className="space-y-3">
-                {scales.map(s => (
-                  <div key={s.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-800">{s.name}</span>
-                        {s.isDefault && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">Default</span>}
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => openEditScale(s)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"><svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg></button>
-                        <button onClick={() => deleteScale(s.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"><svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      {s.items.map(i => (
-                        <div key={i.id} className="flex items-center gap-1.5 rounded-lg border border-slate-100 px-2.5 py-1.5">
-                          <div className="h-3 w-3 rounded-full" style={{ backgroundColor: i.color ?? "#94a3b8" }} />
-                          <span className="text-xs font-medium text-slate-700">{i.value}. {i.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {scales.length === 0 && <div className="py-12 text-center text-sm text-slate-400">No rating scales defined yet.</div>}
+          <section className="space-y-3">
+            <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">Rating Scales</h2>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={openCreateScale}>+ New Scale</Button>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-left">
+                      <th className="px-6 py-2.5 font-semibold text-slate-600">Name</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Description</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Levels</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Default</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {scales.length === 0 && (
+                      <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-400">No rating scales defined yet.</td></tr>
+                    )}
+                    {scales.map(s => (
+                      <tr key={s.id} className="hover:bg-slate-50/50">
+                        <td className="px-6 py-3 font-medium text-slate-700">{s.name}</td>
+                        <td className="px-4 py-3 text-slate-600 max-w-xs">{s.description ?? "—"}</td>
+                        <td className="px-4 py-3">
+                          {s.items.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {s.items.map(i => (
+                                <span key={i.id} className="inline-flex items-center gap-1 rounded-lg border border-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: i.color ?? "#94a3b8" }} />
+                                  {i.value}. {i.label}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">{s.isDefault ? <span className="text-green-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => openEditScale(s)} className={setupActionBtn.edit}>Edit</button>
+                            <button type="button" onClick={() => deleteScale(s.id)} className={setupActionBtn.delete}>Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          )}
+          </section>
 
           {/* Competencies */}
-          {setupTab === "competencies" && (
-            <div>
-              <div className="mb-4 flex justify-end"><Button onClick={openCreateCategory}>+ New Category</Button></div>
-              <div className="space-y-4">
-                {categories.map(cat => (
-                  <div key={cat.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                    <div className="flex items-center justify-between px-5 py-3 bg-slate-50/50 border-b border-slate-100">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-700">{cat.name}</span>
-                        <span className="text-[10px] text-slate-400">{cat.competencies.length} competencies</span>
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => openCreateCompetency(cat.id)} className="rounded-lg p-1.5 text-blue-500 hover:bg-blue-50" title="Add competency"><svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg></button>
-                        <button onClick={() => openEditCategory(cat)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg></button>
-                      </div>
-                    </div>
-                    {cat.competencies.length > 0 && (
-                      <div className="divide-y divide-slate-50">
-                        {cat.competencies.map(comp => (
-                          <div key={comp.id} className="flex items-center justify-between px-5 py-2.5">
-                            <div>
-                              <span className="text-sm text-slate-700">{comp.name}</span>
-                              {comp.description && <span className="ml-2 text-xs text-slate-400">{comp.description}</span>}
-                            </div>
-                            <div className="flex gap-1">
-                              <button onClick={() => openEditCompetency(comp)} className="rounded p-1 text-slate-400 hover:text-blue-600"><svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg></button>
-                              <button onClick={() => deleteCompetency(comp.id)} className="rounded p-1 text-slate-400 hover:text-red-500"><svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+          <section className="space-y-3">
+            <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">Competencies</h2>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={openCreateCategory}>+ New Category</Button>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-left">
+                      <th className="px-6 py-2.5 font-semibold text-slate-600">Category</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Description</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Competencies</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {categories.length === 0 && (
+                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400">No competency categories defined yet.</td></tr>
                     )}
-                  </div>
-                ))}
-                {categories.length === 0 && <div className="py-12 text-center text-sm text-slate-400">No competency categories defined yet.</div>}
+                    {categories.map(cat => (
+                      <tr key={cat.id} className="hover:bg-slate-50/50">
+                        <td className="px-6 py-3 font-medium text-slate-700">{cat.name}</td>
+                        <td className="px-4 py-3 text-slate-600 max-w-xs">{cat.description ?? "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{cat.competencies.length}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => openCreateCompetency(cat.id)} className={setupActionBtn.add}>Add</button>
+                            <button type="button" onClick={() => openEditCategory(cat)} className={setupActionBtn.edit}>Edit</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          )}
+          </section>
 
           {/* Templates */}
-          {setupTab === "templates" && (
-            <div>
-              <div className="mb-4 flex justify-end"><Button onClick={openCreateTemplate}>+ New Template</Button></div>
-              <div className="space-y-3">
-                {templates.map(t => (
-                  <div key={t.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <span className="text-sm font-semibold text-slate-800">{t.name}</span>
-                        <span className="ml-2 text-xs text-slate-400">{t.ratingScaleName} &middot; {t.sectionCount} sections</span>
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => openEditTemplate(t)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"><svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg></button>
-                        <button onClick={() => deleteTemplate(t.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"><svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                      </div>
-                    </div>
-                    {t.sections.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {t.sections.map(s => (
-                          <span key={s.id} className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1 text-[11px] text-slate-600">
-                            {s.name} <span className="text-slate-400">({s.weight}%, {s.items.length} items)</span>
-                          </span>
-                        ))}
-                      </div>
+          <section className="space-y-3">
+            <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">Templates</h2>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={openCreateTemplate}>+ New Template</Button>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-left">
+                      <th className="px-6 py-2.5 font-semibold text-slate-600">Name</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Description</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Rating scale</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Sections</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {templates.length === 0 && (
+                      <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-400">No appraisal templates yet.</td></tr>
                     )}
-                  </div>
-                ))}
-                {templates.length === 0 && <div className="py-12 text-center text-sm text-slate-400">No appraisal templates yet.</div>}
+                    {templates.map(t => (
+                      <tr key={t.id} className="hover:bg-slate-50/50 align-top">
+                        <td className="px-6 py-3 font-medium text-slate-700">{t.name}</td>
+                        <td className="px-4 py-3 text-slate-600 max-w-xs">{t.description ?? "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{t.ratingScaleName ?? "—"}</td>
+                        <td className="px-4 py-3">
+                          {t.sections.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {t.sections.map(s => (
+                                <span key={s.id} className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+                                  {s.name} <span className="text-slate-400">({s.weight}%, {s.items.length} items)</span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => openEditTemplate(t)} className={setupActionBtn.edit}>Edit</button>
+                            <button type="button" onClick={() => deleteTemplate(t.id)} className={setupActionBtn.delete}>Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          )}
+          </section>
         </div>
-      )}
+            )}
+          </div>
+        ))}
+      </div>
 
       {/* ═══════════════════════════════════════════════════════════
           MODALS
@@ -905,8 +973,8 @@ export default function PerformancePage() {
       <Modal open={showScaleModal} onClose={() => setShowScaleModal(false)} title={editScaleId ? "Edit Rating Scale" : "New Rating Scale"} wide>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div><label className={labelClass}>Name</label><input value={scaleName} onChange={e => setScaleName(e.target.value)} className={inputClass} /></div>
-            <div><label className={labelClass}>Description</label><input value={scaleDesc} onChange={e => setScaleDesc(e.target.value)} className={inputClass} /></div>
+            <div><label className={labelClass}>Name *</label><input value={scaleName} onChange={e => setScaleName(e.target.value)} className={inputClass} required /></div>
+            <div><label className={labelClass}>Description *</label><textarea value={scaleDesc} onChange={e => setScaleDesc(e.target.value)} rows={2} className={inputClass} required /></div>
           </div>
           <label className="flex items-center gap-2"><input type="checkbox" checked={scaleDefault} onChange={e => setScaleDefault(e.target.checked)} className="h-4 w-4 rounded" /><span className="text-sm text-slate-600">Set as default scale</span></label>
           <div>
@@ -926,7 +994,7 @@ export default function PerformancePage() {
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setShowScaleModal(false)} className="rounded-full border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-            <button onClick={saveScale} disabled={!scaleName || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
+            <button onClick={saveScale} disabled={!scaleName.trim() || !scaleDesc.trim() || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
           </div>
         </div>
       </Modal>
@@ -934,12 +1002,12 @@ export default function PerformancePage() {
       {/* Category Modal */}
       <Modal open={showCategoryModal} onClose={() => setShowCategoryModal(false)} title={editCatId ? "Edit Category" : "New Category"}>
         <div className="space-y-4">
-          <div><label className={labelClass}>Name</label><input value={catName} onChange={e => setCatName(e.target.value)} className={inputClass} /></div>
-          <div><label className={labelClass}>Description</label><textarea value={catDesc} onChange={e => setCatDesc(e.target.value)} rows={2} className={inputClass} /></div>
+          <div><label className={labelClass}>Name *</label><input value={catName} onChange={e => setCatName(e.target.value)} className={inputClass} required /></div>
+          <div><label className={labelClass}>Description *</label><textarea value={catDesc} onChange={e => setCatDesc(e.target.value)} rows={2} className={inputClass} required /></div>
           <div><label className={labelClass}>Sort Order</label><input type="number" value={catSort} onChange={e => setCatSort(Number(e.target.value))} className={inputClass + " w-24"} /></div>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setShowCategoryModal(false)} className="rounded-full border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-            <button onClick={saveCategory} disabled={!catName || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
+            <button onClick={saveCategory} disabled={!catName.trim() || !catDesc.trim() || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
           </div>
         </div>
       </Modal>
@@ -948,14 +1016,14 @@ export default function PerformancePage() {
       <Modal open={showCompetencyModal} onClose={() => setShowCompetencyModal(false)} title={editCompId ? "Edit Competency" : "New Competency"}>
         <div className="space-y-4">
           <div><label className={labelClass}>Name</label><input value={compName} onChange={e => setCompName(e.target.value)} className={inputClass} /></div>
-          <div><label className={labelClass}>Description</label><textarea value={compDesc} onChange={e => setCompDesc(e.target.value)} rows={2} className={inputClass} /></div>
+          <div><label className={labelClass}>Description *</label><textarea value={compDesc} onChange={e => setCompDesc(e.target.value)} rows={2} className={inputClass} required /></div>
           <div className="grid grid-cols-2 gap-4">
             <div><label className={labelClass}>Category</label><select value={compCatId} onChange={e => setCompCatId(e.target.value)} className={inputClass}>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             <div><label className={labelClass}>Sort Order</label><input type="number" value={compSort} onChange={e => setCompSort(Number(e.target.value))} className={inputClass} /></div>
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setShowCompetencyModal(false)} className="rounded-full border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-            <button onClick={saveCompetency} disabled={!compName || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
+            <button onClick={saveCompetency} disabled={!compName.trim() || !compDesc.trim() || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
           </div>
         </div>
       </Modal>
@@ -964,10 +1032,10 @@ export default function PerformancePage() {
       <Modal open={showTemplateModal} onClose={() => setShowTemplateModal(false)} title={editTplId ? "Edit Template" : "New Template"} wide>
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-4">
-            <div><label className={labelClass}>Name</label><input value={tplName} onChange={e => setTplName(e.target.value)} className={inputClass} /></div>
-            <div><label className={labelClass}>Rating Scale</label><select value={tplScaleId} onChange={e => setTplScaleId(e.target.value)} className={inputClass}>{scales.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+            <div><label className={labelClass}>Name *</label><input value={tplName} onChange={e => setTplName(e.target.value)} className={inputClass} required /></div>
+            <div><label className={labelClass}>Rating Scale *</label><select value={tplScaleId} onChange={e => setTplScaleId(e.target.value)} className={inputClass} required>{scales.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
           </div>
-          <div><label className={labelClass}>Description</label><textarea value={tplDesc} onChange={e => setTplDesc(e.target.value)} rows={2} className={inputClass} /></div>
+          <div><label className={labelClass}>Description *</label><textarea value={tplDesc} onChange={e => setTplDesc(e.target.value)} rows={2} className={inputClass} required /></div>
 
           <div>
             <label className={labelClass}>Sections</label>
@@ -997,7 +1065,7 @@ export default function PerformancePage() {
 
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setShowTemplateModal(false)} className="rounded-full border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-            <button onClick={saveTemplate} disabled={!tplName || !tplScaleId || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
+            <button onClick={saveTemplate} disabled={!tplName.trim() || !tplDesc.trim() || !tplScaleId || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
           </div>
         </div>
       </Modal>
@@ -1006,7 +1074,7 @@ export default function PerformancePage() {
       <Modal open={showCycleModal} onClose={() => setShowCycleModal(false)} title={editCycleId ? "Edit Cycle" : "New Appraisal Cycle"} wide>
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-4">
-            <div><label className={labelClass}>Name</label><input value={cycleName} onChange={e => setCycleName(e.target.value)} className={inputClass} placeholder="e.g. Annual Review 2026" /></div>
+            <div><label className={labelClass}>Name *</label><input value={cycleName} onChange={e => setCycleName(e.target.value)} className={inputClass} placeholder="e.g. Annual Review 2026" required /></div>
             <div>
               <label className={labelClass}>Type</label>
               <FormSelect
@@ -1023,7 +1091,7 @@ export default function PerformancePage() {
               />
             </div>
           </div>
-          <div><label className={labelClass}>Description</label><textarea value={cycleDesc} onChange={e => setCycleDesc(e.target.value)} rows={2} className={inputClass} /></div>
+          <div><label className={labelClass}>Description *</label><textarea value={cycleDesc} onChange={e => setCycleDesc(e.target.value)} rows={2} className={inputClass} required /></div>
           <div className="grid grid-cols-3 gap-4">
             <div><label className={labelClass}>Start Date</label><DatePickerField value={cycleStart} onChange={setCycleStart} className={inputClass} /></div>
             <div><label className={labelClass}>End Date</label><DatePickerField value={cycleEnd} onChange={setCycleEnd} className={inputClass} /></div>
@@ -1078,7 +1146,7 @@ export default function PerformancePage() {
 
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setShowCycleModal(false)} className="rounded-full border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-            <button onClick={saveCycle} disabled={!cycleName || !cycleTplId || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
+            <button onClick={saveCycle} disabled={!cycleName.trim() || !cycleDesc.trim() || !cycleTplId || saving} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
           </div>
         </div>
       </Modal>

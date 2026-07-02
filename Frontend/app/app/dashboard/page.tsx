@@ -312,7 +312,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <AppTopbar title="Command Center" />
+      <AppTopbar title="Dashboard" />
 
       <div id="dashboard-birthdays" className="mb-6 scroll-mt-28">
         <BirthdaysCompanyNoticesWidget />
@@ -465,23 +465,26 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="opensky-dashboard-card">
-          <div className="mb-3 flex items-center justify-between">
+      <div className="mt-6 grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
+        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col">
+          <div className="mb-3 flex shrink-0 items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Recruitment pipeline</h3>
             <span className="text-xs text-slate-500">Scale = largest metric</span>
           </div>
+          <div className="flex min-h-0 flex-1 flex-col justify-center">
           {recruitPipelineBars.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">Recruitment dashboard not available.</p>
           ) : (
             <HorizontalCompareBars items={recruitPipelineBars} />
           )}
+          </div>
         </div>
-        <div className="opensky-dashboard-card">
-          <div className="mb-3 flex items-center justify-between">
+        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col">
+          <div className="mb-3 flex shrink-0 items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Recent leave by status</h3>
             <span className="text-xs text-slate-500">Sample</span>
           </div>
+          <div className="flex min-h-0 flex-1 flex-col justify-center">
           {leaveStatusBars.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">
               No recent leave requests in the dashboard payload.
@@ -489,12 +492,11 @@ export default function DashboardPage() {
           ) : (
             <HorizontalCompareBars items={leaveStatusBars} />
           )}
+          </div>
         </div>
-      </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
-        <div className="opensky-dashboard-card">
-          <div className="mb-4 flex items-center justify-between">
+        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col">
+          <div className="mb-4 flex shrink-0 items-center justify-between">
             <div>
               <h3 className="text-base font-semibold text-slate-900">Recent activity</h3>
               <p className="text-xs text-slate-500">Leave and recruitment updates</p>
@@ -508,7 +510,7 @@ export default function DashboardPage() {
               No recent leave requests or recruitment activities returned yet.
             </p>
           ) : (
-            <div className="max-h-[min(320px,50vh)] space-y-2.5 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain pr-2 [scrollbar-gutter:stable] scroll-smooth [scrollbar-width:thin] [scrollbar-color:rgb(203_213_225)_rgb(241_245_249)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100">
               {timelineItems.map((ev, i) => {
                 const isLeave = ev.title.toLowerCase().includes("leave");
                 return (
@@ -535,19 +537,20 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="opensky-dashboard-card">
-          <div className="mb-4">
+        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col">
+          <div className="mb-4 shrink-0">
             <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
             <p className="text-xs text-slate-500">Navigate faster to high-traffic modules</p>
           </div>
-          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
-            {quickLinks.map((link) => (
-              <Link key={link.title} href={link.href} className="opensky-dashboard-quicklink group">
+          <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-2.5">
+            {quickLinks.slice(0, 4).map((link) => (
+              <Link key={link.title} href={link.href} className="opensky-dashboard-quicklink group flex h-full min-h-0 flex-col justify-center">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{link.sub}</p>
                   </div>
-                  <span className="opensky-quicklink-chev mt-0.5 text-slate-400">→</span>
+                  <span className="opensky-quicklink-chev mt-0.5 shrink-0 text-slate-400">→</span>
                 </div>
               </Link>
             ))}

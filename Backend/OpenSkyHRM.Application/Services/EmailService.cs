@@ -29,6 +29,7 @@ public class EmailService : IEmailService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IEmailDeliveryLogWriter _deliveryLog;
     private readonly AppDbContext _db;
+    private readonly IHtmlToPdfService _htmlToPdf;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -41,13 +42,15 @@ public class EmailService : IEmailService
         ILogger<EmailService> logger,
         IHttpClientFactory httpClientFactory,
         IEmailDeliveryLogWriter deliveryLog,
-        AppDbContext db)
+        AppDbContext db,
+        IHtmlToPdfService htmlToPdf)
     {
         _config = config;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _deliveryLog = deliveryLog;
         _db = db;
+        _htmlToPdf = htmlToPdf;
     }
 
     private string? GetSendGridApiKey() => OutboundEmailConfiguration.GetSendGridApiKey(_config);
@@ -55,9 +58,13 @@ public class EmailService : IEmailService
     public Task<bool> IsConfiguredAsync() =>
         Task.FromResult(OutboundEmailConfiguration.IsEmailProviderConfigured(_config));
 
-    public async Task SendOfferEmailAsync(string toEmail, string candidateName, string positionTitle,
-        decimal salary, string currency, DateTime? joiningDate, string? remarks, string? customLetterHtml = null)
+    public async Task<byte[]?> SendOfferEmailAsync(string toEmail, string candidateName, string positionTitle,
+        decimal salary, string currency, DateTime? joiningDate, string? remarks, string? customLetterHtml = null,
+        CancellationToken cancellationToken = default)
     {
+        string letterHtml;
+        string subject;
+
         if (!string.IsNullOrWhiteSpace(customLetterHtml))
         {
             var posEncoded = WebUtility.HtmlEncode(positionTitle);
@@ -66,47 +73,72 @@ public class EmailService : IEmailService
                 ["{{PositionTitle}}"] = posEncoded,
             };
             var offerSubject = $"Offer of Employment – {posEncoded}";
-            var (resolvedSubject, _) = await ResolveTransactionalEmailAsync(
+            (subject, _) = await ResolveTransactionalEmailAsync(
                 TransactionalEmailTemplateSeeder.RecruitmentOfferKey,
                 subjReplacements,
                 offerSubject,
                 subjReplacements,
                 () => "");
-            await SendHtmlEmailAsync(toEmail, candidateName, resolvedSubject, customLetterHtml, CategoryRecruitmentOffer);
-            return;
+            letterHtml = customLetterHtml;
+        }
+        else
+        {
+            var encName = WebUtility.HtmlEncode(candidateName);
+            var encPos = WebUtility.HtmlEncode(positionTitle);
+            var salaryFormatted = WebUtility.HtmlEncode($"{currency} {salary:N0}");
+            var joiningText = WebUtility.HtmlEncode(joiningDate.HasValue ? joiningDate.Value.ToString("dd MMM yyyy") : "—");
+            var remarksHtml = string.IsNullOrWhiteSpace(remarks)
+                ? ""
+                : $"<p style=\"font-size: 14px; line-height: 1.6; color: #555; margin: 0 0 20px;\">{WebUtility.HtmlEncode(remarks)}</p>";
+
+            var bodyReplacements = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["{{CandidateName}}"] = encName,
+                ["{{PositionTitle}}"] = encPos,
+                ["{{SalaryFormatted}}"] = salaryFormatted,
+                ["{{JoiningDate}}"] = joiningText,
+                ["{{RemarksHtml}}"] = remarksHtml,
+            };
+
+            var subjectReplacements = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["{{PositionTitle}}"] = encPos,
+            };
+
+            var defaultSubject = $"Offer of Employment – {encPos}";
+            (subject, letterHtml) = await ResolveTransactionalEmailAsync(
+                TransactionalEmailTemplateSeeder.RecruitmentOfferKey,
+                bodyReplacements,
+                defaultSubject,
+                subjectReplacements,
+                () => BuildOfferHtml(candidateName, positionTitle, salary, currency, joiningDate, remarks));
         }
 
-        var encName = WebUtility.HtmlEncode(candidateName);
-        var encPos = WebUtility.HtmlEncode(positionTitle);
-        var salaryFormatted = WebUtility.HtmlEncode($"{currency} {salary:N0}");
-        var joiningText = WebUtility.HtmlEncode(joiningDate.HasValue ? joiningDate.Value.ToString("dd MMM yyyy") : "—");
-        var remarksHtml = string.IsNullOrWhiteSpace(remarks)
-            ? ""
-            : $"<p style=\"font-size: 14px; line-height: 1.6; color: #555; margin: 0 0 20px;\">{WebUtility.HtmlEncode(remarks)}</p>";
-
-        var bodyReplacements = new Dictionary<string, string>(StringComparer.Ordinal)
+        byte[] pdfBytes;
+        try
         {
-            ["{{CandidateName}}"] = encName,
-            ["{{PositionTitle}}"] = encPos,
-            ["{{SalaryFormatted}}"] = salaryFormatted,
-            ["{{JoiningDate}}"] = joiningText,
-            ["{{RemarksHtml}}"] = remarksHtml,
-        };
-
-        var subjectReplacements = new Dictionary<string, string>(StringComparer.Ordinal)
+            pdfBytes = await _htmlToPdf.ConvertHtmlToPdfAsync(WrapOfferLetterHtmlForPdf(letterHtml), cancellationToken);
+        }
+        catch (Exception ex)
         {
-            ["{{PositionTitle}}"] = encPos,
-        };
+            _logger.LogError(ex, "Could not generate offer letter PDF for {Email}", toEmail);
+            throw new InvalidOperationException("Could not generate the offer letter PDF. Please try again.", ex);
+        }
 
-        var defaultSubject = $"Offer of Employment – {encPos}";
-        var (subject, body) = await ResolveTransactionalEmailAsync(
-            TransactionalEmailTemplateSeeder.RecruitmentOfferKey,
-            bodyReplacements,
-            defaultSubject,
-            subjectReplacements,
-            () => BuildOfferHtml(candidateName, positionTitle, salary, currency, joiningDate, remarks));
+        var coverHtml = BuildOfferEmailCoverHtml(candidateName, positionTitle);
+        var attachmentName = BuildOfferPdfFileName(candidateName, positionTitle);
+        var attachment = new EmailAttachment(attachmentName, "application/pdf", pdfBytes);
 
-        await SendHtmlEmailAsync(toEmail, candidateName, subject, body, CategoryRecruitmentOffer);
+        await SendHtmlEmailAsync(
+            toEmail,
+            candidateName,
+            subject,
+            coverHtml,
+            CategoryRecruitmentOffer,
+            new[] { attachment },
+            cancellationToken);
+
+        return pdfBytes;
     }
 
     public async Task SendLeaveApplicationConfirmationAsync(string toEmail, string employeeName, string leaveTypeName,
@@ -303,17 +335,24 @@ public class EmailService : IEmailService
         return result;
     }
 
-    private async Task SendHtmlEmailAsync(string toEmail, string toDisplayName, string subject, string htmlBody, string category)
+    private async Task SendHtmlEmailAsync(
+        string toEmail,
+        string toDisplayName,
+        string subject,
+        string htmlBody,
+        string category,
+        IReadOnlyList<EmailAttachment>? attachments = null,
+        CancellationToken cancellationToken = default)
     {
         var fromEmail = _config["SendGrid:FromEmail"] ?? _config["Smtp:From"] ?? "hr@openskyhrm.com";
         var sendGridKey = GetSendGridApiKey();
         if (!string.IsNullOrWhiteSpace(sendGridKey))
         {
-            await SendViaSendGridAsync(toEmail, toDisplayName, subject, htmlBody, sendGridKey, category, fromEmail);
+            await SendViaSendGridAsync(toEmail, toDisplayName, subject, htmlBody, sendGridKey, category, fromEmail, attachments, cancellationToken);
             return;
         }
 
-        await SendViaSmtpAsync(toEmail, toDisplayName, subject, htmlBody, category, fromEmail);
+        await SendViaSmtpAsync(toEmail, toDisplayName, subject, htmlBody, category, fromEmail, attachments, cancellationToken);
     }
 
     private async Task TryPersistLogAsync(EmailDeliveryLogEntry entry)
@@ -328,10 +367,33 @@ public class EmailService : IEmailService
         }
     }
 
-    private async Task SendViaSendGridAsync(string toEmail, string toName, string subject, string htmlBody, string apiKey, string category, string fromEmail)
+    private async Task SendViaSendGridAsync(
+        string toEmail,
+        string toName,
+        string subject,
+        string htmlBody,
+        string apiKey,
+        string category,
+        string fromEmail,
+        IReadOnlyList<EmailAttachment>? attachments = null,
+        CancellationToken cancellationToken = default)
     {
         var apiUrl = _config["SendGrid:ApiUrl"] ?? "https://api.sendgrid.com/v3/mail/send";
         var fromName = _config["SendGrid:FromName"] ?? _config["Smtp:FromName"] ?? "OpenSky HRM";
+
+        object[]? sendGridAttachments = null;
+        if (attachments is { Count: > 0 })
+        {
+            sendGridAttachments = attachments
+                .Select(a => new
+                {
+                    content = Convert.ToBase64String(a.Content),
+                    type = a.ContentType,
+                    filename = a.FileName,
+                    disposition = "attachment",
+                })
+                .ToArray();
+        }
 
         var payload = new
         {
@@ -342,6 +404,7 @@ public class EmailService : IEmailService
             From = new { Email = fromEmail, Name = fromName },
             Subject = subject,
             Content = new[] { new { Type = "text/html", Value = htmlBody } },
+            Attachments = sendGridAttachments,
         };
 
         var json = JsonSerializer.Serialize(payload, JsonOpts);
@@ -354,11 +417,11 @@ public class EmailService : IEmailService
         var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(60);
 
-        using var resp = await client.SendAsync(req);
+        using var resp = await client.SendAsync(req, cancellationToken);
         var code = (int)resp.StatusCode;
         if (!resp.IsSuccessStatusCode)
         {
-            var err = await resp.Content.ReadAsStringAsync();
+            var err = await resp.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("SendGrid failed ({Status}): {Body}", code, err);
             await TryPersistLogAsync(new EmailDeliveryLogEntry(
                 category, toEmail, toName, subject, "Failed", "SendGrid", code, fromEmail, err));
@@ -370,7 +433,15 @@ public class EmailService : IEmailService
         _logger.LogInformation("Email sent via SendGrid to {Email} subject {Subject}", toEmail, subject);
     }
 
-    private async Task SendViaSmtpAsync(string toEmail, string toDisplayName, string subject, string body, string category, string fromEmailResolved)
+    private async Task SendViaSmtpAsync(
+        string toEmail,
+        string toDisplayName,
+        string subject,
+        string body,
+        string category,
+        string fromEmailResolved,
+        IReadOnlyList<EmailAttachment>? attachments = null,
+        CancellationToken cancellationToken = default)
     {
         var host = _config["Smtp:Host"];
         var portStr = _config["Smtp:Port"] ?? "587";
@@ -407,6 +478,15 @@ public class EmailService : IEmailService
         msg.Subject = subject;
         msg.Body = body;
         msg.IsBodyHtml = true;
+
+        if (attachments is { Count: > 0 })
+        {
+            foreach (var attachment in attachments)
+            {
+                var stream = new MemoryStream(attachment.Content, writable: false);
+                msg.Attachments.Add(new Attachment(stream, attachment.FileName, attachment.ContentType));
+            }
+        }
 
         try
         {
@@ -627,5 +707,74 @@ public class EmailService : IEmailService
   </div>
 </body>
 </html>";
+    }
+
+    private static string WrapOfferLetterHtmlForPdf(string html)
+    {
+        var trimmed = html.Trim();
+        if (trimmed.Contains("<html", StringComparison.OrdinalIgnoreCase))
+            return trimmed;
+
+        return $"""
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"></head>
+            <body style="font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0;">
+            {trimmed}
+            </body>
+            </html>
+            """;
+    }
+
+    private static string BuildOfferEmailCoverHtml(string candidateName, string positionTitle)
+    {
+        var safeName = WebUtility.HtmlEncode(candidateName);
+        var safePos = WebUtility.HtmlEncode(positionTitle);
+        return $"""
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"></head>
+            <body style="font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f6fa;">
+              <div style="max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+                <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 24px 32px; color: white;">
+                  <h1 style="margin: 0; font-size: 20px; font-weight: 600;">Offer of Employment</h1>
+                  <p style="margin: 8px 0 0; opacity: 0.85; font-size: 14px;">OpenSky HRM</p>
+                </div>
+                <div style="padding: 28px 32px;">
+                  <p style="font-size: 16px; margin: 0 0 16px;">Dear <strong>{safeName}</strong>,</p>
+                  <p style="font-size: 15px; line-height: 1.6; margin: 0 0 16px;">
+                    Please find attached your offer of employment for the position of <strong>{safePos}</strong> as a PDF document.
+                  </p>
+                  <p style="font-size: 14px; line-height: 1.6; color: #555; margin: 0;">
+                    Open the attachment to review salary, joining date, and other details. Contact HR if you have any questions.
+                  </p>
+                </div>
+                <div style="background: #f5f6fa; padding: 16px 32px; text-align: center; font-size: 12px; color: #999;">
+                  This is an automated email from OpenSky HRM.
+                </div>
+              </div>
+            </body>
+            </html>
+            """;
+    }
+
+    private static string BuildOfferPdfFileName(string candidateName, string positionTitle)
+    {
+        static string Sanitize(string value)
+        {
+            var chars = value.Trim().ToCharArray();
+            for (var i = 0; i < chars.Length; i++)
+            {
+                if (!char.IsLetterOrDigit(chars[i]) && chars[i] != '-' && chars[i] != '_')
+                    chars[i] = '-';
+            }
+            return new string(chars).Trim('-');
+        }
+
+        var namePart = Sanitize(candidateName);
+        var posPart = Sanitize(positionTitle);
+        if (string.IsNullOrWhiteSpace(namePart)) namePart = "Candidate";
+        if (string.IsNullOrWhiteSpace(posPart)) posPart = "Offer";
+        return $"{namePart}-{posPart}-Offer-Letter.pdf";
     }
 }

@@ -8,7 +8,7 @@ public interface IRosterService
     Task<RosterTemplateDto?> GetTemplateByIdAsync(Guid id);
     Task<RosterTemplateDto> CreateTemplateAsync(CreateRosterTemplateDto dto);
     Task<RosterTemplateDto?> UpdateTemplateAsync(Guid id, UpdateRosterTemplateDto dto);
-    Task<bool> DeleteTemplateAsync(Guid id);
+    Task<bool> DeleteTemplateAsync(Guid id, bool deleteAssignments = false);
 
     Task<List<RosterAssignmentDto>> GetAssignmentsAsync(Guid? employeeId = null, Guid? rosterTemplateId = null, DateTime? effectiveDate = null);
     Task<RosterAssignmentDto?> GetAssignmentByIdAsync(Guid id);

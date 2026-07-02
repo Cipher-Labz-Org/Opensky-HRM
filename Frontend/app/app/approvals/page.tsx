@@ -10,7 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { LeaveRequestsPanel } from "@/components/workforce/LeaveRequestsPanel";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/date-utils";
-import { formatLocalDateToIso } from "@/lib/datePickerIso";
+import { formatLocalDateToIso, applyFromDateInRange, applyToDateInRange, isValidIsoDateRange } from "@/lib/datePickerIso";
 import { appAlert } from "@/components/ui/appDialogs";
 import { useAuth } from "@/contexts/auth-context";
 import { useApplyFilter } from "@/lib/use-apply-filter";
@@ -212,6 +212,10 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
 
   const calculate = useCallback(() => {
     if (!fromDate || !toDate) return;
+    if (!isValidIsoDateRange(fromDate, toDate)) {
+      setError("From date cannot be after to date.");
+      return;
+    }
     setLoading(true);
     setError(null);
     const params = new URLSearchParams({ from: fromDate, to: toDate });
@@ -283,6 +287,18 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
     return "badge badge-yellow";
   }
 
+  function onOtFromDateChange(v: string) {
+    const { from, to } = applyFromDateInRange(v, toDate);
+    setFromDate(from);
+    setToDate(to);
+  }
+
+  function onOtToDateChange(v: string) {
+    const { from, to } = applyToDateInRange(fromDate, v);
+    setFromDate(from);
+    setToDate(to);
+  }
+
   return (
     <div className="mt-6 space-y-4">
       <div>
@@ -296,11 +312,11 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
       <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div>
           <label className={labelClass}>From</label>
-          <DatePickerField value={fromDate} onChange={setFromDate} className={`${inputClassSlate} w-40`} />
+          <DatePickerField value={fromDate} onChange={onOtFromDateChange} max={toDate || undefined} className={`${inputClassSlate} w-40`} />
         </div>
         <div>
           <label className={labelClass}>To</label>
-          <DatePickerField value={toDate} onChange={setToDate} className={`${inputClassSlate} w-40`} />
+          <DatePickerField value={toDate} onChange={onOtToDateChange} min={fromDate || undefined} className={`${inputClassSlate} w-40`} />
         </div>
         <div className="w-48 shrink-0 sm:w-56">
           <label className={labelClass}>Department</label>

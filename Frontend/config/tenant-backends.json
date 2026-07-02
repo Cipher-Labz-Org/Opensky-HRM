@@ -2,5 +2,7 @@
   "mbkh.openskyhrm.com": "https://mbkhbackend.openskyhrm.com",
   "gamma.openskyhrm.com": "https://gammabackend.openskyhrm.com",
   "tasty.openskyhrm.com": "https://tastybackend.openskyhrm.com",
-  "donandson.openskyhrm.com": "https://donandsonbackend.openskyhrm.com"
+  "donandson.openskyhrm.com": "https://donandsonbackend.openskyhrm.com",
+  "stagecafe.openskyhrm.com": "https://stagecafebackend.openskyhrm.com",
+  "demo.openskyhrm.com": "https://demobackend.openskyhrm.com"
 }

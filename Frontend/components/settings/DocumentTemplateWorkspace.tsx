@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiFetch } from "@/lib/api";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { appConfirm } from "@/components/ui/appDialogs";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
+import { FlashMessageBanner, type FlashMessage } from "@/components/ui/FlashMessageBanner";
 import {
   applyPlaceholders,
   buildDefaultSamples,
@@ -61,6 +66,35 @@ type DocumentTemplateWorkspaceProps = {
 const ALL_MODULES = "All modules";
 const ALL_STATUSES = "All statuses";
 
+const DEFAULT_NEW_EMAIL_HTML = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f6fa;">
+  <div style="max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+    <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2B7DE9 100%); padding: 28px 36px; color: white;">
+      <h1 style="margin: 0; font-size: 22px; font-weight: 600;">Your email title</h1>
+      <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">OpenSky HRM</p>
+    </div>
+    <div style="padding: 28px 36px;">
+      <p style="font-size: 16px; margin: 0 0 16px;">Hi <strong>{{RecipientName}}</strong>,</p>
+      <p style="font-size: 15px; line-height: 1.6; margin: 0;">Write your message here. Use {{placeholders}} for dynamic values.</p>
+    </div>
+    <div style="background: #f5f6fa; padding: 16px 36px; text-align: center; font-size: 12px; color: #999;">
+      This is an automated message from OpenSky HRM.
+    </div>
+  </div>
+</body>
+</html>`;
+
+function slugEmailTemplateKey(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `Email_Custom_${slug || "Template"}`;
+}
+
 export function DocumentTemplateWorkspace({ kind, onTemplatesChange }: DocumentTemplateWorkspaceProps) {
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -79,6 +113,17 @@ export function DocumentTemplateWorkspace({ kind, onTemplatesChange }: DocumentT
   const [saving, setSaving] = useState(false);
   const [bannerError, setBannerError] = useState("");
   const [listLoading, setListLoading] = useState(true);
+  const [flash, setFlash] = useState<FlashMessage | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [seedingDefaults, setSeedingDefaults] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newKey, setNewKey] = useState("");
+  const [newSubject, setNewSubject] = useState("");
+  const [newHtml, setNewHtml] = useState(DEFAULT_NEW_EMAIL_HTML);
+  const [newActive, setNewActive] = useState(true);
+  const [createSaving, setCreateSaving] = useState(false);
+  const [keyTouched, setKeyTouched] = useState(false);
 
   const isEmail = kind === "email";
 
@@ -255,15 +300,101 @@ export function DocumentTemplateWorkspace({ kind, onTemplatesChange }: DocumentT
     setEditMode(false);
   }
 
+  async function seedDefaults() {
+    setSeedingDefaults(true);
+    setBannerError("");
+    try {
+      await apiFetch("/api/documenttemplates/seed-defaults", { method: "POST" });
+      setFlash({ type: "ok", text: "Default templates loaded." });
+      reloadList();
+    } catch (e: unknown) {
+      setBannerError(e instanceof Error ? e.message : "Could not load default templates");
+    } finally {
+      setSeedingDefaults(false);
+    }
+  }
+
+  function openCreateModal() {
+    setBannerError("");
+    setNewName("");
+    setNewKey("");
+    setNewSubject("");
+    setNewHtml(DEFAULT_NEW_EMAIL_HTML);
+    setNewActive(true);
+    setKeyTouched(false);
+    setShowCreate(true);
+  }
+
+  async function createTemplate() {
+    const name = newName.trim();
+    const key = (newKey.trim() || slugEmailTemplateKey(name)).trim();
+    if (!name) {
+      setBannerError("Template name is required.");
+      return;
+    }
+    if (!key.startsWith("Email_")) {
+      setBannerError('Template key must start with "Email_".');
+      return;
+    }
+    if (!newHtml.trim()) {
+      setBannerError("HTML body is required.");
+      return;
+    }
+    setCreateSaving(true);
+    setBannerError("");
+    try {
+      const created = await apiFetch<ApiRow>("/api/documenttemplates", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          templateKey: key,
+          subject: newSubject.trim() || null,
+          htmlContent: newHtml,
+          isActive: newActive,
+        }),
+      });
+      const norm = normalizeListRow(created);
+      setTemplates((prev) => [...prev, norm].sort((a, b) => a.name.localeCompare(b.name)));
+      setShowCreate(false);
+      setFlash({ type: "ok", text: `Template "${name}" created.` });
+      loadDetail(norm);
+    } catch (e: unknown) {
+      setBannerError(e instanceof Error ? e.message : "Failed to create template");
+    } finally {
+      setCreateSaving(false);
+    }
+  }
+
+  async function deleteTemplate(tpl: TemplateListItem) {
+    if (!tpl.id || tpl.id === "undefined") return;
+    if (!(await appConfirm(`Delete "${tpl.name}"? This cannot be undone.`, { confirmLabel: "Delete" }))) return;
+    setDeletingId(tpl.id);
+    setBannerError("");
+    try {
+      await apiFetch(`/api/documenttemplates/${tpl.id}`, { method: "DELETE" });
+      setTemplates((prev) => prev.filter((t) => t.id !== tpl.id));
+      if (detail?.id === tpl.id) {
+        setDetail(null);
+        setSelectedId(null);
+      }
+      setFlash({ type: "ok", text: `Template "${tpl.name}" deleted.` });
+    } catch (e: unknown) {
+      setBannerError(e instanceof Error ? e.message : "Failed to delete template");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
-      {bannerError && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
-          {bannerError}
-        </div>
-      )}
+      <FlashMessageBanner msg={flash} onClear={() => setFlash(null)} />
+      <FormErrorAlert
+        message={bannerError}
+        onDismiss={() => setBannerError("")}
+        className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+      />
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-slate-900">
             {isEmail ? "Transactional email templates" : "Employee letter templates"}
@@ -274,7 +405,15 @@ export function DocumentTemplateWorkspace({ kind, onTemplatesChange }: DocumentT
               : "Preview and edit letter HTML used for PDF and Word documents from People."}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="secondary" onClick={() => void seedDefaults()} disabled={seedingDefaults}>
+            {seedingDefaults ? "Loading…" : "Load defaults"}
+          </Button>
+          {isEmail && (
+            <Button type="button" onClick={openCreateModal}>
+              Create template
+            </Button>
+          )}
           <StatPill label="Total" value={templates.length} tone="neutral" />
           <StatPill label="Active" value={activeCount} tone="success" />
           <StatPill label="Inactive" value={inactiveCount} tone="warning" />
@@ -331,8 +470,8 @@ export function DocumentTemplateWorkspace({ kind, onTemplatesChange }: DocumentT
               <p className="px-2 py-6 text-center text-sm text-slate-500">
                 {templates.length === 0
                   ? isEmail
-                    ? "No email templates found. Restart the API so defaults can be seeded."
-                    : "No letter templates found. Restart the API so defaults can be seeded."
+                    ? "No email templates yet. Use Load defaults or Create template above."
+                    : "No letter templates found. Use Load defaults or restart the API so defaults can be seeded."
                   : "No templates match your filters."}
               </p>
             ) : (
@@ -435,6 +574,16 @@ export function DocumentTemplateWorkspace({ kind, onTemplatesChange }: DocumentT
                       >
                         ✎ Edit
                       </button>
+                      {selectedListItem && (
+                        <button
+                          type="button"
+                          onClick={() => void deleteTemplate(selectedListItem)}
+                          disabled={deletingId === selectedListItem.id}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+                        >
+                          {deletingId === selectedListItem.id ? "Deleting…" : "Delete"}
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -587,6 +736,72 @@ export function DocumentTemplateWorkspace({ kind, onTemplatesChange }: DocumentT
           onResetSamples={resetSamples}
           horizontal
         />
+      )}
+
+      {showCreate && isEmail && (
+        <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Create email template" wide>
+          <div className="max-h-[80vh] overflow-y-auto pr-1">
+            <p className="mb-4 text-sm text-slate-600">
+              Custom templates use an <code className="text-xs">Email_</code> key. System emails use built-in keys when you load defaults.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Template name</label>
+                <input
+                  value={newName}
+                  onChange={(e) => {
+                    setNewName(e.target.value);
+                    if (!keyTouched) setNewKey(slugEmailTemplateKey(e.target.value));
+                  }}
+                  placeholder="e.g. Welcome email"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Template key</label>
+                <input
+                  value={newKey}
+                  onChange={(e) => {
+                    setKeyTouched(true);
+                    setNewKey(e.target.value);
+                  }}
+                  placeholder="Email_Custom_Welcome"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Email subject</label>
+                <input
+                  value={newSubject}
+                  onChange={(e) => setNewSubject(e.target.value)}
+                  placeholder="e.g. Welcome to the team"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={newActive} onChange={(e) => setNewActive(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
+                <span className="text-sm text-slate-600">Active</span>
+              </label>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">HTML body</label>
+                <textarea
+                  value={newHtml}
+                  onChange={(e) => setNewHtml(e.target.value)}
+                  rows={14}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 resize-y"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-3">
+                <button type="button" onClick={() => setShowCreate(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">
+                  Cancel
+                </button>
+                <button type="button" onClick={() => void createTemplate()} disabled={createSaving} className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50">
+                  {createSaving ? "Creating…" : "Create template"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import * as Popover from "@radix-ui/react-popover";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { DatePickerField } from "@/components/ui/DatePickerField";
 import { FormSelect } from "@/components/ui/FormSelect";
 import { SectionRecordHeaderActions } from "@/components/ui/SectionRecordHeaderActions";
 import { TablePagination } from "@/components/ui/TablePagination";
@@ -44,6 +46,8 @@ interface EmployeeActionRecord {
   effectiveDate: string;
   title: string;
   details: string;
+  warningFromDate?: string;
+  warningToDate?: string;
   createdAt: string;
   createdByUsername: string | null;
 }
@@ -75,7 +79,104 @@ const emptyForm = {
   effectiveDate: new Date().toISOString().slice(0, 10),
   title: "",
   details: "",
+  warningFromDate: "",
+  warningToDate: "",
 };
+
+function reasonFirstTwoWords(text: string): string {
+  return text.trim().split(/\s+/).slice(0, 2).join(" ");
+}
+
+function reasonHasMoreWords(text: string): boolean {
+  return text.trim().split(/\s+/).filter(Boolean).length > 2;
+}
+
+const datePickerClass = "rounded-lg border-slate-200 py-2 text-sm";
+
+function ReasonCell({ reason }: { reason: string }) {
+  const [open, setOpen] = useState(false);
+  const trimmed = reason.trim();
+
+  if (!trimmed) {
+    return <span className="text-slate-400">—</span>;
+  }
+
+  const preview = reasonHasMoreWords(trimmed);
+  const snippet = reasonFirstTwoWords(trimmed);
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+
+  if (!preview) {
+    return <p className="text-xs text-slate-600">{snippet}</p>;
+  }
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate text-xs text-slate-600">{snippet}</span>
+        <Popover.Trigger asChild>
+          <button
+            type="button"
+            className={`inline-flex shrink-0 items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold transition ${
+              open
+                ? "border-[#2B7DE9]/40 bg-[#e3eef8] text-[#1a5f94]"
+                : "border-slate-200 bg-slate-50 text-[#2B7DE9] hover:border-[#2B7DE9]/30 hover:bg-[#e3eef8]"
+            }`}
+            aria-label="Show full reason"
+            aria-expanded={open}
+          >
+            …
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`shrink-0 transition ${open ? "rotate-180" : ""}`}
+              aria-hidden
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+        </Popover.Trigger>
+      </div>
+      <Popover.Portal>
+        <Popover.Content
+          className="z-[10050] w-[min(100vw-2rem,20rem)] rounded-xl border border-slate-200/90 bg-white p-0 shadow-lg shadow-slate-900/10 outline-none"
+          sideOffset={6}
+          align="start"
+          collisionPadding={12}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <Popover.Arrow className="fill-white" width={12} height={6} />
+          <div className="flex items-start justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-[#e3eef8]/70 to-white px-3.5 py-2.5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#1a5f94]">Reason</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                {wordCount} word{wordCount === 1 ? "" : "s"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Close"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="max-h-44 overflow-y-auto px-3.5 py-3">
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{trimmed}</p>
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
 
 export default function EmployeeActionsPage() {
   const { user } = useAuth();
@@ -252,6 +353,8 @@ export default function EmployeeActionsPage() {
       effectiveDate: r.effectiveDate.slice(0, 10),
       title: r.title,
       details: r.details,
+      warningFromDate: r.warningFromDate?.slice(0, 10) ?? "",
+      warningToDate: r.warningToDate?.slice(0, 10) ?? "",
     });
     const fromList = employees.find((e) => e.id === r.employeeId);
     setEmpInput(fromList ? employeeLabel(fromList) : `${r.employeeName} (${r.employeeCode})`);
@@ -264,10 +367,24 @@ export default function EmployeeActionsPage() {
       void appAlert("Choose an employee and enter a short title.", "Missing Information");
       return;
     }
+    if (form.actionType === "Warning") {
+      if (!form.warningFromDate || !form.warningToDate) {
+        void appAlert("Enter both From Date and To Date for a warning.", "Missing Information");
+        return;
+      }
+      if (form.warningFromDate > form.warningToDate) {
+        void appAlert("From Date must be on or before To Date.", "Invalid Dates");
+        return;
+      }
+    }
     const emp = employees.find((e) => e.id === form.employeeId);
     const prev = editingId ? records.find((x) => x.id === editingId) : undefined;
     const employeeName = emp?.fullName ?? prev?.employeeName ?? "Unknown";
     const employeeCode = emp?.employeeCode ?? prev?.employeeCode ?? "—";
+    const warningDates =
+      form.actionType === "Warning"
+        ? { warningFromDate: form.warningFromDate, warningToDate: form.warningToDate }
+        : { warningFromDate: undefined, warningToDate: undefined };
 
     if (editingId) {
       const next = records.map((r) =>
@@ -281,6 +398,7 @@ export default function EmployeeActionsPage() {
               effectiveDate: form.effectiveDate,
               title: form.title.trim(),
               details: form.details.trim(),
+              ...warningDates,
             }
           : r
       );
@@ -296,6 +414,7 @@ export default function EmployeeActionsPage() {
         effectiveDate: form.effectiveDate,
         title: form.title.trim(),
         details: form.details.trim(),
+        ...warningDates,
         createdAt: new Date().toISOString(),
         createdByUsername: user?.username ?? null,
       };
@@ -437,16 +556,17 @@ export default function EmployeeActionsPage() {
                 <h3 className="text-base font-semibold text-slate-800">Records</h3>
                 <p className="text-xs text-slate-500">{visibleRecords.length} matching · {records.length} total</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <FormSelect
-                  value={typeFilter}
-                  onValueChange={(value) => setTypeFilter(value as ActionType | "All")}
-                  className="min-w-[160px]"
-                  options={[
-                    { value: "All", label: "All types" },
-                    ...ACTION_TYPES.map((t) => ({ value: t, label: t })),
-                  ]}
-                />
+              <div className="flex min-w-0 flex-nowrap items-center gap-2">
+                <div className="w-[160px] shrink-0">
+                  <FormSelect
+                    value={typeFilter}
+                    onValueChange={(value) => setTypeFilter(value as ActionType | "All")}
+                    options={[
+                      { value: "All", label: "All types" },
+                      ...ACTION_TYPES.map((t) => ({ value: t, label: t })),
+                    ]}
+                  />
+                </div>
                 <input
                   type="search"
                   placeholder="Search employee, code, title… (Enter)"
@@ -455,7 +575,7 @@ export default function EmployeeActionsPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") searchFilter.apply();
                   }}
-                  className="min-w-[200px] flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 sm:max-w-xs"
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
                 />
               </div>
             </div>
@@ -468,6 +588,7 @@ export default function EmployeeActionsPage() {
                     <th className="py-2.5 pr-3">Employee</th>
                     <th className="py-2.5 pr-3">Type</th>
                     <th className="py-2.5 pr-3">Title</th>
+                    <th className="py-2.5 pr-3">Reason</th>
                     <th className="py-2.5 pr-3">Logged</th>
                     <th className="py-2.5 text-right">Actions</th>
                   </tr>
@@ -475,7 +596,7 @@ export default function EmployeeActionsPage() {
                 <tbody className="divide-y divide-slate-50">
                   {recordsPager.pageItems.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-500">
+                      <td colSpan={7} className="py-12 text-center text-slate-500">
                         No records match your filters.{" "}
                         <button type="button" className="font-medium text-[#2B7DE9] hover:underline" onClick={openCreate}>
                           Add one
@@ -486,7 +607,14 @@ export default function EmployeeActionsPage() {
                   ) : (
                     recordsPager.pageItems.map((r) => (
                       <tr key={r.id} className="text-slate-700">
-                        <td className="py-3 pr-3 whitespace-nowrap text-slate-600">{formatDate(r.effectiveDate)}</td>
+                        <td className="py-3 pr-3 whitespace-nowrap text-slate-600">
+                          {formatDate(r.effectiveDate)}
+                          {r.actionType === "Warning" && r.warningFromDate && r.warningToDate ? (
+                            <div className="mt-0.5 text-xs text-slate-400">
+                              {formatDate(r.warningFromDate)} – {formatDate(r.warningToDate)}
+                            </div>
+                          ) : null}
+                        </td>
                         <td className="py-3 pr-3">
                           <Link href={`${ROUTES.people}/${r.employeeId}`} className="font-medium text-[#2B7DE9] hover:underline">
                             {r.employeeName}
@@ -501,9 +629,11 @@ export default function EmployeeActionsPage() {
                             {r.actionType}
                           </span>
                         </td>
-                        <td className="max-w-[220px] py-3 pr-3">
+                        <td className="max-w-[180px] py-3 pr-3">
                           <div className="truncate font-medium text-slate-800">{r.title}</div>
-                          {r.details ? <div className="truncate text-xs text-slate-500">{r.details}</div> : null}
+                        </td>
+                        <td className="max-w-[220px] py-3 pr-3">
+                          <ReasonCell reason={r.details} />
                         </td>
                         <td className="py-3 pr-3 text-xs text-slate-500 whitespace-nowrap">
                           {formatDate(r.createdAt)}
@@ -614,20 +744,49 @@ export default function EmployeeActionsPage() {
               <label className="mb-1 block text-xs font-medium text-slate-600">Action type</label>
               <FormSelect
                 value={form.actionType}
-                onValueChange={(value) => setForm((f) => ({ ...f, actionType: value as ActionType }))}
+                onValueChange={(value) =>
+                  setForm((f) => ({
+                    ...f,
+                    actionType: value as ActionType,
+                    ...(value !== "Warning" ? { warningFromDate: "", warningToDate: "" } : {}),
+                  }))
+                }
                 options={ACTION_TYPES.map((t) => ({ value: t, label: t }))}
               />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">Effective date</label>
-              <input
-                type="date"
+              <DatePickerField
                 value={form.effectiveDate}
-                onChange={(e) => setForm((f) => ({ ...f, effectiveDate: e.target.value }))}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                onChange={(value) => setForm((f) => ({ ...f, effectiveDate: value }))}
+                className={datePickerClass}
               />
             </div>
           </div>
+          {form.actionType === "Warning" ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">From Date</label>
+                <DatePickerField
+                  value={form.warningFromDate}
+                  onChange={(value) => setForm((f) => ({ ...f, warningFromDate: value }))}
+                  max={form.warningToDate || undefined}
+                  className={datePickerClass}
+                  placeholder="Select from date"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">To Date</label>
+                <DatePickerField
+                  value={form.warningToDate}
+                  onChange={(value) => setForm((f) => ({ ...f, warningToDate: value }))}
+                  min={form.warningFromDate || undefined}
+                  className={datePickerClass}
+                  placeholder="Select to date"
+                />
+              </div>
+            </div>
+          ) : null}
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">Title</label>
             <input
@@ -638,7 +797,7 @@ export default function EmployeeActionsPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Details (optional)</label>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Reason</label>
             <textarea
               value={form.details}
               onChange={(e) => setForm((f) => ({ ...f, details: e.target.value }))}

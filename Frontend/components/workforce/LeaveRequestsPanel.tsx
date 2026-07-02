@@ -7,6 +7,7 @@ import { DatePickerField, FormSelect, type FormSelectOption } from "@/components
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
 import { formatDate } from "@/lib/date-utils";
+import { applyFromDateInRange, applyToDateInRange } from "@/lib/datePickerIso";
 import { appAlert } from "@/components/ui/appDialogs";
 
 export interface LeaveRequestRow {
@@ -34,6 +35,7 @@ export interface LeaveRequestRow {
   level2ApprovedAt: string | null;
   approverName: string | null;
   responsibleUserName: string | null;
+  responsibleEmployeeId: string | null;
   medicalCertificateUrl?: string | null;
 }
 
@@ -90,6 +92,16 @@ function canActOnLeaveStatus(status: string): boolean {
   return s === "pending" || s === "pendinglevel2";
 }
 
+function canUserActOnLeaveRow(
+  row: LeaveRequestRow,
+  currentEmployeeId: string | null,
+  showApprovalActions: boolean,
+): boolean {
+  if (!showApprovalActions || !canActOnLeaveStatus(row.status)) return false;
+  if (!currentEmployeeId || !row.responsibleEmployeeId) return false;
+  return row.responsibleEmployeeId.toLowerCase() === currentEmployeeId.toLowerCase();
+}
+
 function leaveStatusBadgeClass(status: string): string {
   const s = status.toLowerCase();
   if (s.includes("approved")) return "badge badge-green";
@@ -116,7 +128,7 @@ export interface LeaveRequestsPanelProps {
 export function LeaveRequestsPanel({
   onApplyLeave,
   isEmployeeView = false,
-  currentEmployeeId: _currentEmployeeId = null,
+  currentEmployeeId = null,
   showApprovalActions = false,
   teamOnly = false,
   sectionTitle = "Leave requests",
@@ -134,6 +146,19 @@ export function LeaveRequestsPanel({
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
+
+  function onFromDateChange(next: string) {
+    const { from, to } = applyFromDateInRange(next, toDate);
+    setFromDate(from);
+    setToDate(to);
+  }
+
+  function onToDateChange(next: string) {
+    const { from, to } = applyToDateInRange(fromDate, next);
+    setFromDate(from);
+    setToDate(to);
+  }
+
   const [actionRow, setActionRow] = useState<LeaveRequestRow | null>(null);
   const [actionKind, setActionKind] = useState<"approve" | "reject" | null>(null);
   const [remarks, setRemarks] = useState("");
@@ -272,11 +297,11 @@ export function LeaveRequestsPanel({
         </div>
         <div>
           <label className={labelClass}>From date</label>
-          <DatePickerField value={fromDate} onChange={setFromDate} className={`${inputClassSlate} w-40`} />
+          <DatePickerField value={fromDate} onChange={onFromDateChange} max={toDate || undefined} className={`${inputClassSlate} w-40`} />
         </div>
         <div>
           <label className={labelClass}>To date</label>
-          <DatePickerField value={toDate} onChange={setToDate} className={`${inputClassSlate} w-40`} />
+          <DatePickerField value={toDate} onChange={onToDateChange} min={fromDate || undefined} className={`${inputClassSlate} w-40`} />
         </div>
         <div className="flex-1" />
         <Button type="button" variant="secondary" onClick={() => void load()} disabled={loading}>
@@ -346,7 +371,7 @@ export function LeaveRequestsPanel({
                           Certificate
                         </a>
                       ) : null}
-                      {showApprovalActions && canActOnLeaveStatus(r.status) ? (
+                      {canUserActOnLeaveRow(r, currentEmployeeId, showApprovalActions) ? (
                         <>
                           <button
                             type="button"

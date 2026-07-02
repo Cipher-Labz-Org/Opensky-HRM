@@ -63,6 +63,17 @@ public class EmployeesController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("{id:guid}/lifecycle-timeline")]
+    public async Task<IActionResult> GetLifecycleTimeline(
+        Guid id,
+        [FromServices] IEmployeeLifecycleService lifecycleService)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Read"))
+            return Forbid();
+
+        return Ok(await lifecycleService.GetTimelineAsync(id));
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id)
     {
@@ -156,7 +167,8 @@ public class EmployeesController : ControllerBase
     [HttpPost("{id:guid}/terminate")]
     public async Task<IActionResult> Terminate(Guid id, [FromBody] TerminateRequest req,
         [FromServices] IOffboardingService offboardingService,
-        [FromServices] IEmployeeTaskService employeeTaskService)
+        [FromServices] IEmployeeTaskService employeeTaskService,
+        [FromServices] IEmployeeLifecycleService lifecycleService)
     {
         if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
             return Forbid();
@@ -169,6 +181,8 @@ public class EmployeesController : ControllerBase
         employee.TerminationReason = req.TerminationReason;
         employee.TerminationNote = req.TerminationNote;
         await _db.SaveChangesAsync();
+
+        await lifecycleService.RecordSeparationAsync(employee);
 
         if (req.WithOffboarding && req.TemplateId.HasValue)
         {
@@ -193,7 +207,10 @@ public class EmployeesController : ControllerBase
     }
 
     [HttpPost("{id:guid}/reactivate")]
-    public async Task<IActionResult> Reactivate(Guid id, [FromBody] ReactivateRequest req)
+    public async Task<IActionResult> Reactivate(
+        Guid id,
+        [FromBody] ReactivateRequest req,
+        [FromServices] IEmployeeLifecycleService lifecycleService)
     {
         if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
             return Forbid();
@@ -214,6 +231,8 @@ public class EmployeesController : ControllerBase
         _db.OffboardingTasks.RemoveRange(offTasks);
 
         await _db.SaveChangesAsync();
+
+        await lifecycleService.RecordReactivatedAsync(employee);
 
         // Re-activate user account
         var user = await _db.Users.FirstOrDefaultAsync(u => u.EmployeeId == id);

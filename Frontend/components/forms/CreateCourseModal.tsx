@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { FormSelect, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
@@ -56,7 +57,7 @@ export function CreateCourseModal({ open, onClose, onCreated }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Create Course" wide>
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+        <FormErrorAlert message={error} onDismiss={() => setError("")} />
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className={labelClass}>Course Title *</label><input name="title" required className={inputClass} placeholder="Leadership Fundamentals" /></div>
           <div><label className={labelClass}>Code *</label><input name="code" required className={inputClass} placeholder="LDR-101" /></div>

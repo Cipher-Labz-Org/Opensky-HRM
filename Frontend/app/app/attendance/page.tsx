@@ -5,12 +5,13 @@ import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } fro
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, DateTimePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, DateTimePickerField, FormSelect, TablePagination, TimePickerField, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
+import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
 import { formatBusinessTime, formatDate, formatDateTime } from "@/lib/date-utils";
-import { formatLocalDateToIso } from "@/lib/datePickerIso";
+import { formatLocalDateToIso, applyFromDateInRange, applyToDateInRange, isValidIsoDateRange } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 
@@ -91,6 +92,8 @@ interface ShiftItem {
 }
 
 const SHIFT_TYPES = ["Regular", "Split", "Flexi", "Rotational", "Open"] as const;
+
+const SHIFT_TYPE_OPTIONS: FormSelectOption[] = SHIFT_TYPES.map((t) => ({ value: t, label: t }));
 
 interface EmployeeLookup {
   id: string;
@@ -254,6 +257,186 @@ function timeOrNull(hhmm: string): string | null {
   const t = (hhmm || "").trim();
   if (!t) return null;
   return timeInputToSpan(t);
+}
+
+const SHIFT_DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
+
+const SHIFT_DAY_LABELS: Record<(typeof SHIFT_DAY_KEYS)[number], string> = {
+  monday: "Monday",
+  tuesday: "Tuesday",
+  wednesday: "Wednesday",
+  thursday: "Thursday",
+  friday: "Friday",
+  saturday: "Saturday",
+  sunday: "Sunday",
+};
+
+function defaultAppliesOnDay(key: (typeof SHIFT_DAY_KEYS)[number]): boolean {
+  return key !== "saturday" && key !== "sunday";
+}
+
+function buildAppliesOnDays(editing: ShiftItem | null): Record<string, boolean> {
+  const days: Record<string, boolean> = {};
+  for (const key of SHIFT_DAY_KEYS) {
+    const appliesKey = `appliesOn${key.charAt(0).toUpperCase() + key.slice(1)}` as keyof ShiftItem;
+    days[key] = editing ? Boolean(editing[appliesKey]) : defaultAppliesOnDay(key);
+  }
+  return days;
+}
+
+function defaultTimesForShift(editing: ShiftItem | null, shiftType?: string) {
+  if (shiftType === "Flexi") {
+    return {
+      start: editing?.flexiWindowStart ? timeSpanToInput(editing.flexiWindowStart) : "07:00",
+      end: editing?.flexiWindowEnd ? timeSpanToInput(editing.flexiWindowEnd) : "20:00",
+    };
+  }
+  return {
+    start: editing ? timeSpanToInput(editing.startTime) : "09:00",
+    end: editing ? timeSpanToInput(editing.endTime) : "17:00",
+  };
+}
+
+function buildShiftDayTimes(
+  editing: ShiftItem | null,
+  appliesOn?: Record<string, boolean>,
+  shiftType?: string,
+): Record<string, string> {
+  const { start: defStart, end: defEnd } = defaultTimesForShift(editing, shiftType);
+  const dayTimes: Record<string, string> = {};
+  for (const key of SHIFT_DAY_KEYS) {
+    const startKey = `${key}StartTime` as keyof ShiftItem;
+    const endKey = `${key}EndTime` as keyof ShiftItem;
+    const appliesKey = `appliesOn${key.charAt(0).toUpperCase() + key.slice(1)}` as keyof ShiftItem;
+    const applies = appliesOn?.[key] ?? (editing ? Boolean(editing[appliesKey]) : defaultAppliesOnDay(key));
+    const storedStart = editing ? timeSpanToInput(String(editing[startKey] ?? "")) : "";
+    const storedEnd = editing ? timeSpanToInput(String(editing[endKey] ?? "")) : "";
+    dayTimes[`${key}Start`] = storedStart || (applies ? defStart : "");
+    dayTimes[`${key}End`] = storedEnd || (applies ? defEnd : "");
+  }
+  return dayTimes;
+}
+
+function buildShiftFormTimes(editing: ShiftItem | null, shiftType?: string) {
+  const appliesOn = buildAppliesOnDays(editing);
+  return {
+    startTime: editing ? timeSpanToInput(editing.startTime) : "09:00",
+    endTime: editing ? timeSpanToInput(editing.endTime) : "17:00",
+    session2StartTime: editing?.session2StartTime ? timeSpanToInput(editing.session2StartTime) : "14:00",
+    session2EndTime: editing?.session2EndTime ? timeSpanToInput(editing.session2EndTime) : "18:00",
+    flexiWindowStart: editing?.flexiWindowStart ? timeSpanToInput(editing.flexiWindowStart) : "07:00",
+    flexiWindowEnd: editing?.flexiWindowEnd ? timeSpanToInput(editing.flexiWindowEnd) : "20:00",
+    dayTimes: buildShiftDayTimes(editing, appliesOn, shiftType ?? editing?.shiftType),
+  };
+}
+
+function validateApplicableDays(
+  appliesOnDays: Record<string, boolean>,
+  dayTimes: Record<string, string>,
+): string | null {
+  const applied = SHIFT_DAY_KEYS.filter((k) => appliesOnDays[k]);
+  if (applied.length === 0) return "Select at least one applicable day.";
+  for (const key of applied) {
+    if (!dayTimes[`${key}Start`]?.trim() || !dayTimes[`${key}End`]?.trim()) {
+      return `Start and end time are required for ${SHIFT_DAY_LABELS[key]}.`;
+    }
+  }
+  return null;
+}
+
+function syncAppliedDayTimes(
+  formTimes: ReturnType<typeof buildShiftFormTimes>,
+  appliesOnDays: Record<string, boolean>,
+  start: string,
+  end: string,
+): ReturnType<typeof buildShiftFormTimes> {
+  const dayTimes = { ...formTimes.dayTimes };
+  for (const key of SHIFT_DAY_KEYS) {
+    if (appliesOnDays[key]) {
+      dayTimes[`${key}Start`] = start;
+      dayTimes[`${key}End`] = end;
+    }
+  }
+  return { ...formTimes, dayTimes };
+}
+
+const DAY_ABBR_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+function getShiftApplicableDays(shift: ShiftItem) {
+  return [
+    { applies: shift.appliesOnMonday, start: shift.mondayStartTime, end: shift.mondayEndTime, abbr: "Mon" },
+    { applies: shift.appliesOnTuesday, start: shift.tuesdayStartTime, end: shift.tuesdayEndTime, abbr: "Tue" },
+    { applies: shift.appliesOnWednesday, start: shift.wednesdayStartTime, end: shift.wednesdayEndTime, abbr: "Wed" },
+    { applies: shift.appliesOnThursday, start: shift.thursdayStartTime, end: shift.thursdayEndTime, abbr: "Thu" },
+    { applies: shift.appliesOnFriday, start: shift.fridayStartTime, end: shift.fridayEndTime, abbr: "Fri" },
+    { applies: shift.appliesOnSaturday, start: shift.saturdayStartTime, end: shift.saturdayEndTime, abbr: "Sat" },
+    { applies: shift.appliesOnSunday, start: shift.sundayStartTime, end: shift.sundayEndTime, abbr: "Sun" },
+  ].filter((d) => d.applies);
+}
+
+function compressDayAbbreviations(abbrs: string[]): string {
+  if (abbrs.length === 0) return "";
+  if (abbrs.length === 1) return abbrs[0];
+  const indices = abbrs
+    .map((a) => DAY_ABBR_ORDER.indexOf(a as (typeof DAY_ABBR_ORDER)[number]))
+    .filter((i) => i >= 0)
+    .sort((a, b) => a - b);
+  if (indices.length === 0) return abbrs.join(", ");
+  let consecutive = true;
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] !== indices[i - 1] + 1) {
+      consecutive = false;
+      break;
+    }
+  }
+  if (consecutive && indices.length > 1) {
+    return `${DAY_ABBR_ORDER[indices[0]]}–${DAY_ABBR_ORDER[indices[indices.length - 1]]}`;
+  }
+  return abbrs.join(", ");
+}
+
+function formatDayTimeRange(start: string | null, end: string | null): string {
+  if (!start || !end) return "—";
+  return `${timeSpanToInput(start)} – ${timeSpanToInput(end)}`;
+}
+
+function ApplicableDaysCell({ shift }: { shift: ShiftItem }) {
+  const applicable = getShiftApplicableDays(shift);
+  if (applicable.length === 0) return <span className="text-slate-400">—</span>;
+
+  const timed = applicable.filter((d) => d.start && d.end);
+  const allSameTime =
+    timed.length === applicable.length &&
+    timed.length > 0 &&
+    timed.every(
+      (d) =>
+        timeSpanToInput(d.start!) === timeSpanToInput(timed[0].start!) &&
+        timeSpanToInput(d.end!) === timeSpanToInput(timed[0].end!),
+    );
+
+  if (allSameTime) {
+    return (
+      <div className="min-w-[6.5rem] leading-snug">
+        <div className="whitespace-nowrap font-medium text-slate-700">
+          {compressDayAbbreviations(applicable.map((d) => d.abbr))}
+        </div>
+        <div className="whitespace-nowrap tabular-nums text-slate-500">
+          {formatDayTimeRange(timed[0].start, timed[0].end)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="min-w-[8.5rem] space-y-0.5">
+      {applicable.map((d) => (
+        <li key={d.abbr} className="flex items-baseline gap-2 whitespace-nowrap leading-snug">
+          <span className="w-8 shrink-0 font-medium text-slate-700">{d.abbr}</span>
+          <span className="tabular-nums text-slate-500">{formatDayTimeRange(d.start, d.end)}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function dateOnlyForInput(iso: string): string {
@@ -856,6 +1039,20 @@ function AttendanceListTab() {
     ? employeeOptions.find((opt) => opt.id === filterEmployee)?.label
     : null;
 
+  function onFilterFromChange(v: string) {
+    const { from, to } = applyFromDateInRange(v, filterTo);
+    setFilterFrom(from);
+    setFilterTo(to);
+    setPage(1);
+  }
+
+  function onFilterToChange(v: string) {
+    const { from, to } = applyToDateInRange(filterFrom, v);
+    setFilterFrom(from);
+    setFilterTo(to);
+    setPage(1);
+  }
+
   function clearAllFilters() {
     employeeSearchFilter.clear();
     setFilterEmployee("");
@@ -909,11 +1106,11 @@ function AttendanceListTab() {
           </div>
           <div className="w-40 shrink-0">
             <label className={labelClass}>From</label>
-            <DatePickerField value={filterFrom} onChange={(v) => { setFilterFrom(v); setPage(1); }} className={`${filterControlClass} w-full rounded-lg py-0`} />
+            <DatePickerField value={filterFrom} onChange={onFilterFromChange} max={filterTo || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
           </div>
           <div className="w-40 shrink-0">
             <label className={labelClass}>To</label>
-            <DatePickerField value={filterTo} onChange={(v) => { setFilterTo(v); setPage(1); }} className={`${filterControlClass} w-full rounded-lg py-0`} />
+            <DatePickerField value={filterTo} onChange={onFilterToChange} min={filterFrom || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
           </div>
           <button
             type="button"
@@ -1427,6 +1624,10 @@ function OtNopayTab() {
 
   const calculate = useCallback(() => {
     if (!fromDate || !toDate) return;
+    if (!isValidIsoDateRange(fromDate, toDate)) {
+      setError("From date cannot be after to date.");
+      return;
+    }
     setLoading(true);
     setError(null);
     const params = new URLSearchParams({ from: fromDate, to: toDate });
@@ -1450,16 +1651,28 @@ function OtNopayTab() {
     { worked: 0, expected: 0, ot: 0, nopayDays: 0, nopayHours: 0 },
   );
 
+  function onOtFromDateChange(v: string) {
+    const { from, to } = applyFromDateInRange(v, toDate);
+    setFromDate(from);
+    setToDate(to);
+  }
+
+  function onOtToDateChange(v: string) {
+    const { from, to } = applyToDateInRange(fromDate, v);
+    setFromDate(from);
+    setToDate(to);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className={labelClass}>From *</label>
-          <DatePickerField value={fromDate} onChange={setFromDate} className={`${inputClass} w-40`} />
+          <DatePickerField value={fromDate} onChange={onOtFromDateChange} max={toDate || undefined} className={`${inputClass} w-40`} />
         </div>
         <div>
           <label className={labelClass}>To *</label>
-          <DatePickerField value={toDate} onChange={setToDate} className={`${inputClass} w-40`} />
+          <DatePickerField value={toDate} onChange={onOtToDateChange} min={fromDate || undefined} className={`${inputClass} w-40`} />
         </div>
         <div>
           <label className={labelClass}>Employee</label>
@@ -1538,7 +1751,16 @@ function ShiftsTab() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formShiftType, setFormShiftType] = useState("Regular");
+  const [formTimes, setFormTimes] = useState(() => buildShiftFormTimes(null));
+  const [appliesOnDays, setAppliesOnDays] = useState(() => buildAppliesOnDays(null));
   const editingIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (showModal) {
+      setAppliesOnDays(buildAppliesOnDays(editing));
+      setFormTimes(buildShiftFormTimes(editing, editing?.shiftType ?? "Regular"));
+    }
+  }, [showModal, editing]);
 
   const load = useCallback(() => {
     setError(null);
@@ -1570,39 +1792,65 @@ function ShiftsTab() {
     setError(null);
     const fd = new FormData(e.currentTarget);
     const st = (fd.get("shiftType") as string) || "Regular";
+    if (st !== "Open") {
+      if (st === "Flexi") {
+        if (!formTimes.flexiWindowStart || !formTimes.flexiWindowEnd) {
+          setError("Window start and end time are required.");
+          setSaving(false);
+          return;
+        }
+      } else {
+        if (!formTimes.startTime || !formTimes.endTime) {
+          setError("Start and end time are required.");
+          setSaving(false);
+          return;
+        }
+      }
+      if (st === "Split" && (!formTimes.session2StartTime || !formTimes.session2EndTime)) {
+        setError("Session 2 start and end time are required.");
+        setSaving(false);
+        return;
+      }
+    }
+    const applicableDaysError = validateApplicableDays(appliesOnDays, formTimes.dayTimes);
+    if (applicableDaysError) {
+      setError(applicableDaysError);
+      setSaving(false);
+      return;
+    }
     const payload: Record<string, unknown> = {
       name: fd.get("name") as string,
       code: fd.get("code") as string,
       shiftType: st,
-      startTime: timeInputToSpan((fd.get("startTime") as string) || "00:00"),
-      endTime: timeInputToSpan((fd.get("endTime") as string) || "00:00"),
+      startTime: timeInputToSpan(formTimes.startTime || "00:00"),
+      endTime: timeInputToSpan(formTimes.endTime || "00:00"),
       breakHours: Number(fd.get("breakHours")) || 0,
       isNightShift: fd.get("isNightShift") === "on",
       isActive: fd.get("isActive") === "on",
       lateGraceMinutes: Number(fd.get("lateGraceMinutes")) || 5,
       earlyDepartureGraceMinutes: Number(fd.get("earlyDepartureGraceMinutes")) || 5,
       halfDayHours: Number(fd.get("halfDayHours")) || 4,
-      appliesOnMonday: fd.get("appliesOnMonday") === "on",
-      appliesOnTuesday: fd.get("appliesOnTuesday") === "on",
-      appliesOnWednesday: fd.get("appliesOnWednesday") === "on",
-      appliesOnThursday: fd.get("appliesOnThursday") === "on",
-      appliesOnFriday: fd.get("appliesOnFriday") === "on",
-      appliesOnSaturday: fd.get("appliesOnSaturday") === "on",
-      appliesOnSunday: fd.get("appliesOnSunday") === "on",
-      mondayStartTime: timeOrNull((fd.get("mondayStartTime") as string) || ""),
-      mondayEndTime: timeOrNull((fd.get("mondayEndTime") as string) || ""),
-      tuesdayStartTime: timeOrNull((fd.get("tuesdayStartTime") as string) || ""),
-      tuesdayEndTime: timeOrNull((fd.get("tuesdayEndTime") as string) || ""),
-      wednesdayStartTime: timeOrNull((fd.get("wednesdayStartTime") as string) || ""),
-      wednesdayEndTime: timeOrNull((fd.get("wednesdayEndTime") as string) || ""),
-      thursdayStartTime: timeOrNull((fd.get("thursdayStartTime") as string) || ""),
-      thursdayEndTime: timeOrNull((fd.get("thursdayEndTime") as string) || ""),
-      fridayStartTime: timeOrNull((fd.get("fridayStartTime") as string) || ""),
-      fridayEndTime: timeOrNull((fd.get("fridayEndTime") as string) || ""),
-      saturdayStartTime: timeOrNull((fd.get("saturdayStartTime") as string) || ""),
-      saturdayEndTime: timeOrNull((fd.get("saturdayEndTime") as string) || ""),
-      sundayStartTime: timeOrNull((fd.get("sundayStartTime") as string) || ""),
-      sundayEndTime: timeOrNull((fd.get("sundayEndTime") as string) || ""),
+      appliesOnMonday: appliesOnDays.monday,
+      appliesOnTuesday: appliesOnDays.tuesday,
+      appliesOnWednesday: appliesOnDays.wednesday,
+      appliesOnThursday: appliesOnDays.thursday,
+      appliesOnFriday: appliesOnDays.friday,
+      appliesOnSaturday: appliesOnDays.saturday,
+      appliesOnSunday: appliesOnDays.sunday,
+      mondayStartTime: appliesOnDays.monday ? timeOrNull(formTimes.dayTimes.mondayStart ?? "") : null,
+      mondayEndTime: appliesOnDays.monday ? timeOrNull(formTimes.dayTimes.mondayEnd ?? "") : null,
+      tuesdayStartTime: appliesOnDays.tuesday ? timeOrNull(formTimes.dayTimes.tuesdayStart ?? "") : null,
+      tuesdayEndTime: appliesOnDays.tuesday ? timeOrNull(formTimes.dayTimes.tuesdayEnd ?? "") : null,
+      wednesdayStartTime: appliesOnDays.wednesday ? timeOrNull(formTimes.dayTimes.wednesdayStart ?? "") : null,
+      wednesdayEndTime: appliesOnDays.wednesday ? timeOrNull(formTimes.dayTimes.wednesdayEnd ?? "") : null,
+      thursdayStartTime: appliesOnDays.thursday ? timeOrNull(formTimes.dayTimes.thursdayStart ?? "") : null,
+      thursdayEndTime: appliesOnDays.thursday ? timeOrNull(formTimes.dayTimes.thursdayEnd ?? "") : null,
+      fridayStartTime: appliesOnDays.friday ? timeOrNull(formTimes.dayTimes.fridayStart ?? "") : null,
+      fridayEndTime: appliesOnDays.friday ? timeOrNull(formTimes.dayTimes.fridayEnd ?? "") : null,
+      saturdayStartTime: appliesOnDays.saturday ? timeOrNull(formTimes.dayTimes.saturdayStart ?? "") : null,
+      saturdayEndTime: appliesOnDays.saturday ? timeOrNull(formTimes.dayTimes.saturdayEnd ?? "") : null,
+      sundayStartTime: appliesOnDays.sunday ? timeOrNull(formTimes.dayTimes.sundayStart ?? "") : null,
+      sundayEndTime: appliesOnDays.sunday ? timeOrNull(formTimes.dayTimes.sundayEnd ?? "") : null,
       session2StartTime: null as string | null,
       session2EndTime: null as string | null,
       flexiWindowStart: null as string | null,
@@ -1610,12 +1858,12 @@ function ShiftsTab() {
       minimumWorkHours: null as number | null,
     };
     if (st === "Split") {
-      payload.session2StartTime = timeInputToSpan((fd.get("session2StartTime") as string) || "");
-      payload.session2EndTime = timeInputToSpan((fd.get("session2EndTime") as string) || "");
+      payload.session2StartTime = timeInputToSpan(formTimes.session2StartTime || "00:00");
+      payload.session2EndTime = timeInputToSpan(formTimes.session2EndTime || "00:00");
     }
     if (st === "Flexi") {
-      payload.flexiWindowStart = timeInputToSpan((fd.get("flexiWindowStart") as string) || "07:00");
-      payload.flexiWindowEnd = timeInputToSpan((fd.get("flexiWindowEnd") as string) || "20:00");
+      payload.flexiWindowStart = timeInputToSpan(formTimes.flexiWindowStart || "07:00");
+      payload.flexiWindowEnd = timeInputToSpan(formTimes.flexiWindowEnd || "20:00");
       payload.minimumWorkHours = Number(fd.get("minimumWorkHours")) || 8;
     }
     const isEdit = editingIdRef.current != null;
@@ -1658,29 +1906,46 @@ function ShiftsTab() {
     }
   };
 
-  function formatApplicableDays(s: ShiftItem): string {
-    const dayData = [
-      { applies: s.appliesOnMonday, start: s.mondayStartTime, end: s.mondayEndTime, abbr: "Mon" },
-      { applies: s.appliesOnTuesday, start: s.tuesdayStartTime, end: s.tuesdayEndTime, abbr: "Tue" },
-      { applies: s.appliesOnWednesday, start: s.wednesdayStartTime, end: s.wednesdayEndTime, abbr: "Wed" },
-      { applies: s.appliesOnThursday, start: s.thursdayStartTime, end: s.thursdayEndTime, abbr: "Thu" },
-      { applies: s.appliesOnFriday, start: s.fridayStartTime, end: s.fridayEndTime, abbr: "Fri" },
-      { applies: s.appliesOnSaturday, start: s.saturdayStartTime, end: s.saturdayEndTime, abbr: "Sat" },
-      { applies: s.appliesOnSunday, start: s.sundayStartTime, end: s.sundayEndTime, abbr: "Sun" },
-    ];
-    const applicable = dayData.filter((d) => d.applies);
-    if (applicable.length === 0) return "—";
-    const parts = applicable.map((d) => {
-      if (d.start && d.end) return `${d.abbr} ${timeSpanToInput(d.start)}-${timeSpanToInput(d.end)}`;
-      return d.abbr;
-    });
-    return parts.join(", ");
-  }
-
   const showTimes = formShiftType !== "Open";
   const showSession2 = formShiftType === "Split";
   const showFlexi = formShiftType === "Flexi";
   const showNight = formShiftType === "Regular" || formShiftType === "Rotational" || formShiftType === "Split";
+
+  function toggleAppliesOnDay(key: string, checked: boolean) {
+    setAppliesOnDays((prev) => ({ ...prev, [key]: checked }));
+    if (checked) {
+      setFormTimes((prev) => {
+        const start = showFlexi ? prev.flexiWindowStart : prev.startTime;
+        const end = showFlexi ? prev.flexiWindowEnd : prev.endTime;
+        return {
+          ...prev,
+          dayTimes: {
+            ...prev.dayTimes,
+            [`${key}Start`]: start,
+            [`${key}End`]: end,
+          },
+        };
+      });
+    }
+  }
+
+  function updateMainStartTime(t: string) {
+    setFormTimes((prev) => {
+      const next = showFlexi ? { ...prev, flexiWindowStart: t } : { ...prev, startTime: t };
+      const start = showFlexi ? next.flexiWindowStart : next.startTime;
+      const end = showFlexi ? next.flexiWindowEnd : next.endTime;
+      return syncAppliedDayTimes(next, appliesOnDays, start, end);
+    });
+  }
+
+  function updateMainEndTime(t: string) {
+    setFormTimes((prev) => {
+      const next = showFlexi ? { ...prev, flexiWindowEnd: t } : { ...prev, endTime: t };
+      const start = showFlexi ? next.flexiWindowStart : next.startTime;
+      const end = showFlexi ? next.flexiWindowEnd : next.endTime;
+      return syncAppliedDayTimes(next, appliesOnDays, start, end);
+    });
+  }
 
   return (
     <div className="space-y-5">
@@ -1703,7 +1968,7 @@ function ShiftsTab() {
               <th className="px-4 py-2.5 font-semibold text-slate-600">Code</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Type</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Times</th>
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Days</th>
+              <th className="min-w-[7.5rem] px-4 py-2.5 font-semibold text-slate-600">Days</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Break</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Grace</th>
               <th className="px-4 py-2.5 font-semibold text-slate-600">Active</th>
@@ -1733,8 +1998,8 @@ function ShiftsTab() {
                       </>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-slate-600 text-xs">
-                    <span>{formatApplicableDays(s)}</span>
+                  <td className="px-4 py-3 align-top text-xs">
+                    <ApplicableDaysCell shift={s} />
                   </td>
                   <td className="px-4 py-3 text-slate-600">{s.breakHours}h</td>
                   <td className="px-4 py-3 text-slate-500 text-xs">
@@ -1772,16 +2037,36 @@ function ShiftsTab() {
             <div><label className={labelClass}>Code *</label><input name="code" required defaultValue={editing?.code ?? ""} className={inputClass} /></div>
             <div>
               <label className={labelClass}>Shift Type *</label>
-              <select name="shiftType" value={formShiftType} onChange={(e) => setFormShiftType(e.target.value)} className={inputClass}>
-                {SHIFT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <FormSelect
+                name="shiftType"
+                value={formShiftType}
+                onValueChange={setFormShiftType}
+                options={SHIFT_TYPE_OPTIONS}
+                placeholder="Select type"
+                clearable={false}
+                required
+              />
             </div>
           </div>
 
           {showTimes && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><label className={labelClass}>{showFlexi ? "Window Start" : "Start time"} *</label><input name={showFlexi ? "flexiWindowStart" : "startTime"} type="time" required defaultValue={showFlexi ? (editing?.flexiWindowStart ? timeSpanToInput(editing.flexiWindowStart) : "07:00") : (editing ? timeSpanToInput(editing.startTime) : "09:00")} className={inputClass} /></div>
-              <div><label className={labelClass}>{showFlexi ? "Window End" : "End time"} *</label><input name={showFlexi ? "flexiWindowEnd" : "endTime"} type="time" required defaultValue={showFlexi ? (editing?.flexiWindowEnd ? timeSpanToInput(editing.flexiWindowEnd) : "20:00") : (editing ? timeSpanToInput(editing.endTime) : "17:00")} className={inputClass} /></div>
+              <div>
+                <label className={labelClass}>{showFlexi ? "Window Start" : "Start time"} *</label>
+                <TimePickerField
+                  value={showFlexi ? formTimes.flexiWindowStart : formTimes.startTime}
+                  onChange={updateMainStartTime}
+                  placeholder="Select time"
+                />
+              </div>
+              <div>
+                <label className={labelClass}>{showFlexi ? "Window End" : "End time"} *</label>
+                <TimePickerField
+                  value={showFlexi ? formTimes.flexiWindowEnd : formTimes.endTime}
+                  onChange={updateMainEndTime}
+                  placeholder="Select time"
+                />
+              </div>
             </div>
           )}
 
@@ -1791,8 +2076,22 @@ function ShiftsTab() {
 
           {showSession2 && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><label className={labelClass}>Session 2 Start *</label><input name="session2StartTime" type="time" required defaultValue={editing?.session2StartTime ? timeSpanToInput(editing.session2StartTime) : "14:00"} className={inputClass} /></div>
-              <div><label className={labelClass}>Session 2 End *</label><input name="session2EndTime" type="time" required defaultValue={editing?.session2EndTime ? timeSpanToInput(editing.session2EndTime) : "18:00"} className={inputClass} /></div>
+              <div>
+                <label className={labelClass}>Session 2 Start *</label>
+                <TimePickerField
+                  value={formTimes.session2StartTime}
+                  onChange={(t) => setFormTimes((prev) => ({ ...prev, session2StartTime: t }))}
+                  placeholder="Select time"
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Session 2 End *</label>
+                <TimePickerField
+                  value={formTimes.session2EndTime}
+                  onChange={(t) => setFormTimes((prev) => ({ ...prev, session2EndTime: t }))}
+                  placeholder="Select time"
+                />
+              </div>
             </div>
           )}
 
@@ -1822,62 +2121,74 @@ function ShiftsTab() {
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <h4 className="mb-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Applicable Days</h4>
+            <h4 className="mb-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Applicable Days *</h4>
+            <p className="mb-3 text-xs text-slate-500">
+              Select at least one day. Start and end times for selected days are filled from the shift times above and update automatically when those change.
+            </p>
             <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
               <table className="w-full min-w-[420px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
-                    <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Day</th>
-                    <th className="w-14 px-2 py-2.5 text-center font-semibold text-slate-600">Apply</th>
-                    <th className="w-28 px-2 py-2.5 text-left font-semibold text-slate-600">Start</th>
-                    <th className="w-28 px-2 py-2.5 text-left font-semibold text-slate-600">End</th>
+                    <th className="whitespace-nowrap align-middle px-4 py-2.5 text-left font-semibold text-slate-600">Day</th>
+                    <th className="whitespace-nowrap align-middle min-w-[5rem] px-2 py-2.5 text-center font-semibold text-slate-600">
+                      Apply <span className="text-red-500">*</span>
+                    </th>
+                    <th className="whitespace-nowrap align-middle w-36 px-2 py-2.5 text-left font-semibold text-slate-600">
+                      Start <span className="text-red-500">*</span>
+                    </th>
+                    <th className="whitespace-nowrap align-middle w-36 px-2 py-2.5 text-left font-semibold text-slate-600">
+                      End <span className="text-red-500">*</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {[
-                    { day: "Monday", key: "monday", defaultApplies: true },
-                    { day: "Tuesday", key: "tuesday", defaultApplies: true },
-                    { day: "Wednesday", key: "wednesday", defaultApplies: true },
-                    { day: "Thursday", key: "thursday", defaultApplies: true },
-                    { day: "Friday", key: "friday", defaultApplies: true },
-                    { day: "Saturday", key: "saturday", defaultApplies: false },
-                    { day: "Sunday", key: "sunday", defaultApplies: false },
-                  ].map(({ day, key, defaultApplies }) => {
-                    const appliesKey = `appliesOn${key.charAt(0).toUpperCase() + key.slice(1)}` as keyof ShiftItem;
-                    const startKey = `${key}StartTime` as keyof ShiftItem;
-                    const endKey = `${key}EndTime` as keyof ShiftItem;
-                    const appliesChecked = editing ? (editing[appliesKey] as boolean) : defaultApplies;
-                    const startVal = editing ? (editing[startKey] as string | null) ?? "" : "";
-                    const endVal = editing ? (editing[endKey] as string | null) ?? "" : "";
+                  {SHIFT_DAY_KEYS.map((key) => {
+                    const day = SHIFT_DAY_LABELS[key];
+                    const defaultApplies = defaultAppliesOnDay(key);
+                    const appliesChecked = appliesOnDays[key] ?? defaultApplies;
+                    const startVal = formTimes.dayTimes[`${key}Start`] ?? "";
+                    const endVal = formTimes.dayTimes[`${key}End`] ?? "";
                     const appliesId = `applies-${key}`;
                     return (
                       <tr key={key} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-2 font-medium text-slate-700">{day}</td>
-                        <td className="px-2 py-2 text-center">
+                        <td className="align-middle px-4 py-2 font-medium text-slate-700">{day}</td>
+                        <td className="align-middle px-2 py-2 text-center">
                           <label className="inline-flex cursor-pointer items-center justify-center">
                             <input
                               type="checkbox"
                               id={appliesId}
-                              name={`appliesOn${key.charAt(0).toUpperCase() + key.slice(1)}`}
-                              defaultChecked={appliesChecked}
+                              checked={appliesChecked}
+                              onChange={(e) => toggleAppliesOnDay(key, e.target.checked)}
                               className="h-4 w-4 rounded border-slate-300"
                             />
                           </label>
                         </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="time"
-                            name={`${key}StartTime`}
-                            defaultValue={timeSpanToInput(startVal || "")}
-                            className="w-full min-w-0 rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-700"
+                        <td className="align-middle px-2 py-2">
+                          <TimePickerField
+                            value={startVal}
+                            onChange={(t) =>
+                              setFormTimes((prev) => ({
+                                ...prev,
+                                dayTimes: { ...prev.dayTimes, [`${key}Start`]: t },
+                              }))
+                            }
+                            disabled={!appliesChecked}
+                            placeholder={appliesChecked ? "Select time" : "—"}
+                            className="text-xs"
                           />
                         </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="time"
-                            name={`${key}EndTime`}
-                            defaultValue={timeSpanToInput(endVal || "")}
-                            className="w-full min-w-0 rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-700"
+                        <td className="align-middle px-2 py-2">
+                          <TimePickerField
+                            value={endVal}
+                            onChange={(t) =>
+                              setFormTimes((prev) => ({
+                                ...prev,
+                                dayTimes: { ...prev.dayTimes, [`${key}End`]: t },
+                              }))
+                            }
+                            disabled={!appliesChecked}
+                            placeholder={appliesChecked ? "Select time" : "—"}
+                            className="text-xs"
                           />
                         </td>
                       </tr>
@@ -1934,7 +2245,15 @@ interface RosterAssignmentItem {
   notes: string | null;
 }
 
+type RosterSubTab = "templates" | "assignments";
+
+const ROSTER_SUB_TABS: { key: RosterSubTab; label: string }[] = [
+  { key: "templates", label: "Templates" },
+  { key: "assignments", label: "Assignments" },
+];
+
 function RosterTab() {
+  const [rosterSubTab, setRosterSubTab] = useState<RosterSubTab>("templates");
   const [templates, setTemplates] = useState<RosterTemplateItem[]>([]);
   const [assignments, setAssignments] = useState<RosterAssignmentItem[]>([]);
   const [shifts, setShifts] = useState<ShiftItem[]>([]);
@@ -1948,6 +2267,8 @@ function RosterTab() {
   const [editingTpl, setEditingTpl] = useState<RosterTemplateItem | null>(null);
   const [editingAssign, setEditingAssign] = useState<RosterAssignmentItem | null>(null);
   const [editAssignModal, setEditAssignModal] = useState(false);
+  const [editAssignFrom, setEditAssignFrom] = useState("");
+  const [editAssignTo, setEditAssignTo] = useState("");
   const [savingTpl, setSavingTpl] = useState(false);
   const [savingAssign, setSavingAssign] = useState(false);
 
@@ -1969,6 +2290,7 @@ function RosterTab() {
   const [bulkLocFilter, setBulkLocFilter] = useState("");
   const bulkSearchFilter = useApplyFilter();
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkModalError, setBulkModalError] = useState<string | null>(null);
 
   const departments = (() => {
     const map = new Map<string, string>();
@@ -2009,6 +2331,12 @@ function RosterTab() {
   useEffect(() => { loadTemplates(); }, [loadTemplates]);
   useEffect(() => { loadAssignments(); }, [loadAssignments]);
   useEffect(() => { loadLookups(); }, [loadLookups]);
+
+  useEffect(() => {
+    if (!filterEmployeeId || !filterDeptId) return;
+    const emp = employees.find((e) => e.id === filterEmployeeId);
+    if (emp && emp.departmentId !== filterDeptId) setFilterEmployeeId("");
+  }, [filterDeptId, filterEmployeeId, employees]);
 
   function openTplAdd() {
     setEditingTpl(null);
@@ -2085,25 +2413,83 @@ function RosterTab() {
   }
 
   async function deleteTemplate(t: RosterTemplateItem) {
-    if (!(await appConfirm(`Delete roster template "${t.name}"?`))) return;
+    if (!(await appConfirm(`Delete roster template "${t.name}"?`, {
+      title: "Delete roster template",
+      variant: "danger",
+      confirmLabel: "Delete template",
+    }))) return;
+
+    let deleteAssignments = false;
+    try {
+      const linked = await apiFetch<RosterAssignmentItem[]>(
+        `/api/roster/assignments?rosterTemplateId=${encodeURIComponent(t.id)}`,
+      );
+      const assignmentCount = linked.length;
+      if (assignmentCount > 0) {
+        deleteAssignments = await appConfirm(
+          `This template has ${assignmentCount} roster assignment${assignmentCount === 1 ? "" : "s"}. Also delete ${assignmentCount === 1 ? "it" : "them"}?`,
+          {
+            title: "Delete assignments?",
+            variant: "danger",
+            confirmLabel: "Delete assignments",
+            cancelLabel: "Keep assignments",
+          },
+        );
+      }
+    } catch {
+      // Fall back to client-side count if lookup fails.
+      const assignmentCount = assignments.filter((a) => a.rosterTemplateId === t.id).length;
+      if (assignmentCount > 0) {
+        deleteAssignments = await appConfirm(
+          `This template has ${assignmentCount} roster assignment${assignmentCount === 1 ? "" : "s"}. Also delete ${assignmentCount === 1 ? "it" : "them"}?`,
+          {
+            title: "Delete assignments?",
+            variant: "danger",
+            confirmLabel: "Delete assignments",
+            cancelLabel: "Keep assignments",
+          },
+        );
+      }
+    }
+
     setError(null);
-    try { await apiFetch(`/api/roster/templates/${t.id}`, { method: "DELETE" }); loadTemplates(); }
-    catch (err) { setError(err instanceof Error ? err.message : "Delete failed"); }
+    try {
+      await apiFetch(`/api/roster/templates/${t.id}?deleteAssignments=${deleteAssignments}`, { method: "DELETE" });
+      loadTemplates();
+      loadAssignments();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    }
   }
 
-  function openAssignEdit(a: RosterAssignmentItem) { setEditingAssign(a); setError(null); setEditAssignModal(true); }
+  function openAssignEdit(a: RosterAssignmentItem) {
+    setEditingAssign(a);
+    setEditAssignFrom(dateOnlyForInput(a.effectiveFrom));
+    setEditAssignTo(a.effectiveTo ? dateOnlyForInput(a.effectiveTo) : "");
+    setError(null);
+    setEditAssignModal(true);
+  }
 
   async function submitEditAssignment(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!editingAssign) return;
+    if (editAssignTo && !isValidIsoDateRange(editAssignFrom, editAssignTo)) {
+      setError("Effective to cannot be before effective from.");
+      return;
+    }
     setSavingAssign(true);
     setError(null);
     const fd = new FormData(e.currentTarget);
-    const from = (fd.get("effectiveFrom") as string) || "";
-    const toRaw = (fd.get("effectiveTo") as string) || "";
     const notes = (fd.get("notes") as string) || null;
     try {
-      await apiFetch(`/api/roster/assignments/${editingAssign.id}`, { method: "PUT", body: JSON.stringify({ effectiveFrom: from, effectiveTo: toRaw || null, notes }) });
+      await apiFetch(`/api/roster/assignments/${editingAssign.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          effectiveFrom: editAssignFrom,
+          effectiveTo: editAssignTo || null,
+          notes,
+        }),
+      });
       setEditAssignModal(false);
       loadAssignments();
     } catch (err) {
@@ -2123,7 +2509,7 @@ function RosterTab() {
   function openBulkModal(prefilledTemplateId?: string) {
     setBulkStep(1);
     setBulkTemplateId(prefilledTemplateId ?? "");
-    setBulkFrom("");
+    setBulkFrom(todayLocalIso());
     setBulkTo("");
     setBulkNotes("");
     setBulkSelectedIds(new Set());
@@ -2131,6 +2517,7 @@ function RosterTab() {
     setBulkLocFilter("");
     bulkSearchFilter.clear();
     setError(null);
+    setBulkModalError(null);
     setSuccessMsg(null);
     setBulkModal(true);
   }
@@ -2188,7 +2575,18 @@ function RosterTab() {
 
   async function submitBulkAssign() {
     if (bulkSelectedIds.size === 0) return;
+    if (!bulkFrom) {
+      setBulkModalError("Effective from is required.");
+      setBulkStep(1);
+      return;
+    }
+    if (bulkTo && !isValidIsoDateRange(bulkFrom, bulkTo)) {
+      setBulkModalError("Effective to cannot be before effective from.");
+      setBulkStep(1);
+      return;
+    }
     setBulkSaving(true);
+    setBulkModalError(null);
     setError(null);
     setSuccessMsg(null);
     try {
@@ -2204,6 +2602,7 @@ function RosterTab() {
       });
       setBulkModal(false);
       loadAssignments();
+      setRosterSubTab("assignments");
       const parts: string[] = [];
       if (result.created > 0) parts.push(`${result.created} assignment(s) created`);
       if (result.skipped > 0) parts.push(`${result.skipped} skipped`);
@@ -2221,17 +2620,6 @@ function RosterTab() {
         return emp?.departmentId === filterDeptId;
       })
     : assignments;
-
-  const rosterEmployeeFilterOpts = useMemo<FormSelectOption[]>(
-    () => [
-      { value: "", label: "All employees" },
-      ...employees.map((emp) => ({
-        value: emp.id,
-        label: `${emp.fullName}${emp.employeeCode ? ` (${emp.employeeCode})` : ""}`,
-      })),
-    ],
-    [employees],
-  );
 
   const rosterDeptFilterOpts = useMemo<FormSelectOption[]>(
     () => [
@@ -2265,127 +2653,183 @@ function RosterTab() {
   const selectableVisibleCount = bulkVisibleEmployees.filter((e) => !alreadyAssignedIds.has(e.id)).length;
   const allVisibleSelected = selectableVisibleCount > 0 && bulkVisibleEmployees.filter((e) => !alreadyAssignedIds.has(e.id)).every((e) => bulkSelectedIds.has(e.id));
 
+  function onBulkFromChange(v: string) {
+    setBulkModalError(null);
+    const { from, to } = applyFromDateInRange(v, bulkTo);
+    setBulkFrom(from);
+    setBulkTo(to);
+  }
+
+  function onBulkToChange(v: string) {
+    setBulkModalError(null);
+    const { from, to } = applyToDateInRange(bulkFrom, v);
+    setBulkFrom(from);
+    setBulkTo(to);
+  }
+
+  function goToBulkStep2() {
+    setBulkModalError(null);
+    if (!bulkTemplateId) {
+      setBulkModalError("Select a roster template.");
+      return;
+    }
+    if (!bulkFrom) {
+      setBulkModalError("Effective from is required.");
+      return;
+    }
+    if (bulkTo && !isValidIsoDateRange(bulkFrom, bulkTo)) {
+      setBulkModalError("Effective to cannot be before effective from.");
+      return;
+    }
+    setBulkStep(2);
+  }
+
+  function onEditAssignFromChange(v: string) {
+    const { from, to } = applyFromDateInRange(v, editAssignTo);
+    setEditAssignFrom(from);
+    setEditAssignTo(to);
+  }
+
+  function onEditAssignToChange(v: string) {
+    const { from, to } = applyToDateInRange(editAssignFrom, v);
+    setEditAssignFrom(from);
+    setEditAssignTo(to);
+  }
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       {successMsg && <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{successMsg}</div>}
 
-      {/* ── Templates section ── */}
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" checked={includeInactiveTemplates} onChange={(e) => setIncludeInactiveTemplates(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-            Include inactive templates
-          </label>
-          <Button onClick={openTplAdd}>+ Add template</Button>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="border-b border-slate-100 px-6 py-4">
-            <h2 className="text-[15px] font-bold text-slate-700">Roster templates</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="bg-slate-50 text-left">
-                <th className="px-6 py-2.5 font-semibold text-slate-600">Name</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Start</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">End</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Hours/day</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Shift</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Active</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
-              </tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {templates.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400">No roster templates yet.</td></tr>}
-                {templates.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50/50">
-                    <td className="px-6 py-3 font-medium text-slate-700">{t.name}</td>
-                    <td className="px-4 py-3 text-slate-600">{timeSpanToInput(t.defaultStartTime)}</td>
-                    <td className="px-4 py-3 text-slate-600">{timeSpanToInput(t.defaultEndTime)}</td>
-                    <td className="px-4 py-3 text-slate-600">{t.workHoursPerDay}</td>
-                    <td className="px-4 py-3 text-slate-600">{t.defaultShiftPatternName ?? "—"}</td>
-                    <td className="px-4 py-3">{t.isActive ? <span className="text-green-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => openBulkModal(t.id)} className="rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-100">Assign</button>
-                        <button type="button" onClick={() => openTplEdit(t)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
-                        <button type="button" onClick={() => deleteTemplate(t)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <div className="flex flex-col gap-2">
+        {ROSTER_SUB_TABS.map((t) => (
+          <div key={t.key} className="space-y-3">
+            <button
+              type="button"
+              onClick={() => setRosterSubTab(t.key)}
+              className={`w-full rounded-xl border px-3.5 py-2.5 text-left text-xs font-semibold transition sm:text-sm ${
+                rosterSubTab === t.key
+                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                  : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+              }`}
+            >
+              {t.label}
+            </button>
 
-      {/* ── Assignments section ── */}
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <label className="shrink-0 text-sm text-slate-600">Employee</label>
-              <FormSelect
-                value={filterEmployeeId}
-                onValueChange={setFilterEmployeeId}
-                options={rosterEmployeeFilterOpts}
-                placeholder="All employees"
-                className="max-w-xs"
-              />
+            {rosterSubTab === t.key && t.key === "templates" && (
+            <div className="space-y-4 pb-2">
+              <Button onClick={openTplAdd}>+ Add template</Button>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={includeInactiveTemplates} onChange={(e) => setIncludeInactiveTemplates(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                Include inactive templates
+              </label>
+              <p className="text-xs text-slate-500">Default times, hours per day, optional link to a shift pattern.</p>
+              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-slate-50 text-left">
+                      <th className="px-6 py-2.5 font-semibold text-slate-600">Name</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Start</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">End</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Hours/day</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Shift</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Active</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {templates.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400">No roster templates yet.</td></tr>}
+                      {templates.map((tpl) => (
+                        <tr key={tpl.id} className="hover:bg-slate-50/50">
+                          <td className="px-6 py-3 font-medium text-slate-700">{tpl.name}</td>
+                          <td className="px-4 py-3 text-slate-600">{timeSpanToInput(tpl.defaultStartTime)}</td>
+                          <td className="px-4 py-3 text-slate-600">{timeSpanToInput(tpl.defaultEndTime)}</td>
+                          <td className="px-4 py-3 text-slate-600">{tpl.workHoursPerDay}</td>
+                          <td className="px-4 py-3 text-slate-600">{tpl.defaultShiftPatternName ?? "—"}</td>
+                          <td className="px-4 py-3">{tpl.isActive ? <span className="text-green-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => openBulkModal(tpl.id)} className="rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-100">Assign</button>
+                              <button type="button" onClick={() => openTplEdit(tpl)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
+                              <button type="button" onClick={() => deleteTemplate(tpl)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="shrink-0 text-sm text-slate-600">Department</label>
-              <FormSelect
-                value={filterDeptId}
-                onValueChange={setFilterDeptId}
-                options={rosterDeptFilterOpts}
-                placeholder="All departments"
-                className="max-w-xs"
-              />
+            )}
+
+            {rosterSubTab === t.key && t.key === "assignments" && (
+            <div className="space-y-4 pb-2">
+              <Button onClick={() => openBulkModal()}>+ Assign roster</Button>
+              <p className="text-xs text-slate-500">Date ranges must not overlap for the same employee.</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                <div className="flex min-w-0 items-center gap-2">
+                  <label className="shrink-0 text-sm text-slate-600">Employee</label>
+                  <EmployeeSearchCombobox
+                    key={filterDeptId || "all-departments"}
+                    value={filterEmployeeId}
+                    departmentId={filterDeptId || undefined}
+                    placeholder="Type name or employee code…"
+                    className="w-56 sm:w-64"
+                    onPick={(emp) => setFilterEmployeeId(emp?.id ?? "")}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="shrink-0 text-sm text-slate-600">Department</label>
+                  <FormSelect
+                    value={filterDeptId}
+                    onValueChange={setFilterDeptId}
+                    options={rosterDeptFilterOpts}
+                    placeholder="All departments"
+                    className="max-w-xs"
+                  />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-slate-50 text-left">
+                      <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Department</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Template</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">From</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">To</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Notes</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredAssignments.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400">No assignments yet.</td></tr>}
+                      {filteredAssignments.map((a) => {
+                        const emp = employees.find((e) => e.id === a.employeeId);
+                        return (
+                          <tr key={a.id} className="hover:bg-slate-50/50">
+                            <td className="px-6 py-3 font-medium text-slate-700">{a.employeeName}{a.employeeCode ? <span className="ml-1 text-xs text-slate-500">({a.employeeCode})</span> : null}</td>
+                            <td className="px-4 py-3 text-slate-600">{emp?.departmentName ?? "—"}</td>
+                            <td className="px-4 py-3 text-slate-600">{a.rosterTemplateName}</td>
+                            <td className="px-4 py-3 text-slate-600">{dateOnlyForInput(a.effectiveFrom)}</td>
+                            <td className="px-4 py-3 text-slate-600">{a.effectiveTo ? dateOnlyForInput(a.effectiveTo) : "—"}</td>
+                            <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate" title={a.notes ?? undefined}>{a.notes ?? "—"}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex gap-2">
+                                <button type="button" onClick={() => openAssignEdit(a)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
+                                <button type="button" onClick={() => deleteAssignment(a)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Remove</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
+            )}
           </div>
-          <Button onClick={() => openBulkModal()}>+ Assign roster</Button>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="border-b border-slate-100 px-6 py-4">
-            <h2 className="text-[15px] font-bold text-slate-700">Roster assignments</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="bg-slate-50 text-left">
-                <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Department</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Template</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">From</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">To</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Notes</th>
-                <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
-              </tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredAssignments.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400">No assignments yet.</td></tr>}
-                {filteredAssignments.map((a) => {
-                  const emp = employees.find((e) => e.id === a.employeeId);
-                  return (
-                    <tr key={a.id} className="hover:bg-slate-50/50">
-                      <td className="px-6 py-3 font-medium text-slate-700">{a.employeeName}{a.employeeCode ? <span className="ml-1 text-xs text-slate-500">({a.employeeCode})</span> : null}</td>
-                      <td className="px-4 py-3 text-slate-600">{emp?.departmentName ?? "—"}</td>
-                      <td className="px-4 py-3 text-slate-600">{a.rosterTemplateName}</td>
-                      <td className="px-4 py-3 text-slate-600">{dateOnlyForInput(a.effectiveFrom)}</td>
-                      <td className="px-4 py-3 text-slate-600">{a.effectiveTo ? dateOnlyForInput(a.effectiveTo) : "—"}</td>
-                      <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate" title={a.notes ?? undefined}>{a.notes ?? "—"}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <button type="button" onClick={() => openAssignEdit(a)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
-                          <button type="button" onClick={() => deleteAssignment(a)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Remove</button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* ── Template add/edit modal ── */}
@@ -2403,11 +2847,23 @@ function RosterTab() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelClass}>{tplShiftId ? "Default start" : "Default start *"}</label>
-              <input type="time" value={tplStart} onChange={(e) => setTplStart(e.target.value)} readOnly={!!tplShiftId} className={inputClass} />
+              <TimePickerField
+                value={tplStart}
+                onChange={setTplStart}
+                disabled={!!tplShiftId}
+                placeholder="Select time"
+              />
+              {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
             </div>
             <div>
               <label className={labelClass}>{tplShiftId ? "Default end" : "Default end *"}</label>
-              <input type="time" value={tplEnd} onChange={(e) => setTplEnd(e.target.value)} readOnly={!!tplShiftId} className={inputClass} />
+              <TimePickerField
+                value={tplEnd}
+                onChange={setTplEnd}
+                disabled={!!tplShiftId}
+                placeholder="Select time"
+              />
+              {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
             </div>
           </div>
           <div>
@@ -2430,8 +2886,25 @@ function RosterTab() {
               <span className="font-medium">{editingAssign.employeeName}</span> &mdash; {editingAssign.rosterTemplateName}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><label className={labelClass}>Effective from *</label><DatePickerField name="effectiveFrom" required defaultValue={dateOnlyForInput(editingAssign.effectiveFrom)} className={inputClass} /></div>
-              <div><label className={labelClass}>Effective to</label><DatePickerField name="effectiveTo" defaultValue={editingAssign.effectiveTo ? dateOnlyForInput(editingAssign.effectiveTo) : ""} className={inputClass} /></div>
+              <div>
+                <label className={labelClass}>Effective from *</label>
+                <DatePickerField
+                  value={editAssignFrom}
+                  onChange={onEditAssignFromChange}
+                  max={editAssignTo || undefined}
+                  required
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Effective to</label>
+                <DatePickerField
+                  value={editAssignTo}
+                  onChange={onEditAssignToChange}
+                  min={editAssignFrom || undefined}
+                  className={inputClass}
+                />
+              </div>
             </div>
             <div><label className={labelClass}>Notes</label><textarea name="notes" rows={2} defaultValue={editingAssign.notes ?? ""} className={inputClass} /></div>
             <div className="flex justify-end gap-3 pt-2">
@@ -2456,6 +2929,11 @@ function RosterTab() {
 
           {bulkStep === 1 && (
             <div className="space-y-4">
+              {bulkModalError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {bulkModalError}
+                </div>
+              )}
               <div>
                 <label className={labelClass}>Roster template *</label>
                 <FormSelect
@@ -2467,13 +2945,22 @@ function RosterTab() {
                 />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div><label className={labelClass}>Effective from *</label><DatePickerField value={bulkFrom} onChange={setBulkFrom} className={inputClass} /></div>
-                <div><label className={labelClass}>Effective to</label><DatePickerField value={bulkTo} onChange={setBulkTo} className={inputClass} /></div>
+                <div>
+                  <label className={labelClass}>Effective from *</label>
+                  <DatePickerField value={bulkFrom} onChange={onBulkFromChange} max={bulkTo || undefined} className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Effective to</label>
+                  <DatePickerField value={bulkTo} onChange={onBulkToChange} min={bulkFrom || undefined} className={inputClass} />
+                </div>
               </div>
+              <p className="text-xs text-slate-500">
+                Effective from is required. If you set an end date, it must be on or after the start date.
+              </p>
               <div><label className={labelClass}>Notes</label><textarea rows={2} value={bulkNotes} onChange={(e) => setBulkNotes(e.target.value)} className={inputClass} /></div>
               <div className="flex justify-end gap-3 pt-2">
                 <Button variant="secondary" type="button" onClick={() => setBulkModal(false)}>Cancel</Button>
-                <Button type="button" disabled={!bulkTemplateId || !bulkFrom} onClick={() => setBulkStep(2)}>Next &rarr;</Button>
+                <Button type="button" onClick={goToBulkStep2}>Next &rarr;</Button>
               </div>
             </div>
           )}

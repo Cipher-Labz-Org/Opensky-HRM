@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { resolveAuthApiPath } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
 
@@ -10,7 +11,7 @@ type Step = "verify" | "reset" | "done";
 export function ForgotPasswordExperience() {
   const [step, setStep] = useState<Step>("verify");
   const [employeeCode, setEmployeeCode] = useState("");
-  const [email, setEmail] = useState("");
+  const [employeeName, setEmployeeName] = useState("");
   const [resetToken, setResetToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -26,11 +27,11 @@ export function ForgotPasswordExperience() {
       const res = await fetch(resolveAuthApiPath("/api/auth/forgot-password/verify"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ employeeCode: employeeCode.trim(), email: email.trim() }),
+        body: JSON.stringify({ employeeCode: employeeCode.trim(), employeeName: employeeName.trim() }),
       });
       const data = (await res.json()) as { resetToken?: string; message?: string };
       if (!res.ok) {
-        throw new Error(data.message || "Employee number and email do not match our records.");
+        throw new Error(data.message || "Employee number and name do not match our records.");
       }
       if (!data.resetToken) {
         throw new Error("Verification failed. Please try again.");
@@ -95,10 +96,14 @@ export function ForgotPasswordExperience() {
           {step === "verify" && (
             <>
               <p className="mt-4 text-center text-sm text-slate-600">
-                Enter your employee number and email. If they match our records, you can set a new password.
+                Enter your employee number and name. If they match our records, you can set a new password.
               </p>
               <form onSubmit={handleVerify} className="mt-9">
-                {error && <ErrorBanner message={error} />}
+                <FormErrorAlert
+                  message={error}
+                  onDismiss={() => setError("")}
+                  className="mb-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+                />
 
                 <Field
                   icon="badge"
@@ -114,20 +119,20 @@ export function ForgotPasswordExperience() {
 
                 <div className="mb-7">
                   <Field
-                    icon="email"
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={setEmail}
-                    placeholder="Your email address"
-                    autoComplete="email"
+                    icon="person"
+                    id="employeeName"
+                    type="text"
+                    value={employeeName}
+                    onChange={setEmployeeName}
+                    placeholder="Your full name"
+                    autoComplete="name"
                     required
                   />
                 </div>
 
                 <button
                   type="submit"
-                  disabled={submitting || !employeeCode.trim() || !email.trim()}
+                  disabled={submitting || !employeeCode.trim() || !employeeName.trim()}
                   className="h-[50px] w-full rounded-full bg-[#3a86ca] text-[15px] font-bold tracking-wide text-white shadow-[0_8px_24px_rgba(58,134,202,0.38)] transition hover:bg-[#2f75b5] disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none"
                 >
                   {submitting ? "Verifying…" : "Verify identity"}
@@ -142,7 +147,11 @@ export function ForgotPasswordExperience() {
                 Identity verified. Choose a new password for your account.
               </p>
               <form onSubmit={handleReset} className="mt-9">
-                {error && <ErrorBanner message={error} />}
+                <FormErrorAlert
+                  message={error}
+                  onDismiss={() => setError("")}
+                  className="mb-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+                />
 
                 <Field
                   icon="lock"
@@ -224,21 +233,6 @@ export function ForgotPasswordExperience() {
   );
 }
 
-function ErrorBanner({ message }: { message: string }) {
-  return (
-    <div className="mb-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-      <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-        />
-      </svg>
-      {message}
-    </div>
-  );
-}
-
 function Field({
   icon,
   id,
@@ -252,7 +246,7 @@ function Field({
   minLength,
   trailing,
 }: {
-  icon: "badge" | "email" | "lock";
+  icon: "badge" | "person" | "lock";
   id: string;
   type: string;
   value: string;
@@ -268,12 +262,12 @@ function Field({
     <div className="mb-7">
       <div className="flex items-center gap-3 border-b border-[#add8e6] pb-2.5 transition-colors focus-within:border-[#1a92d5]">
         <span className="text-[#1a92d5]" aria-hidden>
-          {icon === "email" ? (
+          {icon === "person" ? (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
+                d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
               />
             </svg>
           ) : icon === "lock" ? (

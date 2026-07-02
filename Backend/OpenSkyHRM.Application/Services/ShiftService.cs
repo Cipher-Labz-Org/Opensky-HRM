@@ -41,6 +41,8 @@ public class ShiftService : IShiftService
         if (exists)
             throw new InvalidOperationException($"A shift with code '{dto.Code}' already exists.");
 
+        ValidateApplicableDays(dto);
+
         var entity = new ShiftPattern
         {
             Name = dto.Name,
@@ -97,6 +99,8 @@ public class ShiftService : IShiftService
         if (duplicateCode)
             throw new InvalidOperationException($"A shift with code '{dto.Code}' already exists.");
 
+        ValidateApplicableDays(dto);
+
         entity.Name = dto.Name;
         entity.Code = dto.Code;
         entity.ShiftType = dto.ShiftType;
@@ -151,6 +155,56 @@ public class ShiftService : IShiftService
         entity.IsDeleted = true;
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    private static void ValidateApplicableDays(CreateShiftPatternDto dto) =>
+        ValidateApplicableDaysCore(
+            dto.AppliesOnMonday, dto.MondayStartTime, dto.MondayEndTime,
+            dto.AppliesOnTuesday, dto.TuesdayStartTime, dto.TuesdayEndTime,
+            dto.AppliesOnWednesday, dto.WednesdayStartTime, dto.WednesdayEndTime,
+            dto.AppliesOnThursday, dto.ThursdayStartTime, dto.ThursdayEndTime,
+            dto.AppliesOnFriday, dto.FridayStartTime, dto.FridayEndTime,
+            dto.AppliesOnSaturday, dto.SaturdayStartTime, dto.SaturdayEndTime,
+            dto.AppliesOnSunday, dto.SundayStartTime, dto.SundayEndTime);
+
+    private static void ValidateApplicableDays(UpdateShiftPatternDto dto) =>
+        ValidateApplicableDaysCore(
+            dto.AppliesOnMonday, dto.MondayStartTime, dto.MondayEndTime,
+            dto.AppliesOnTuesday, dto.TuesdayStartTime, dto.TuesdayEndTime,
+            dto.AppliesOnWednesday, dto.WednesdayStartTime, dto.WednesdayEndTime,
+            dto.AppliesOnThursday, dto.ThursdayStartTime, dto.ThursdayEndTime,
+            dto.AppliesOnFriday, dto.FridayStartTime, dto.FridayEndTime,
+            dto.AppliesOnSaturday, dto.SaturdayStartTime, dto.SaturdayEndTime,
+            dto.AppliesOnSunday, dto.SundayStartTime, dto.SundayEndTime);
+
+    private static void ValidateApplicableDaysCore(
+        bool appliesMonday, TimeSpan? mondayStart, TimeSpan? mondayEnd,
+        bool appliesTuesday, TimeSpan? tuesdayStart, TimeSpan? tuesdayEnd,
+        bool appliesWednesday, TimeSpan? wednesdayStart, TimeSpan? wednesdayEnd,
+        bool appliesThursday, TimeSpan? thursdayStart, TimeSpan? thursdayEnd,
+        bool appliesFriday, TimeSpan? fridayStart, TimeSpan? fridayEnd,
+        bool appliesSaturday, TimeSpan? saturdayStart, TimeSpan? saturdayEnd,
+        bool appliesSunday, TimeSpan? sundayStart, TimeSpan? sundayEnd)
+    {
+        var days = new (bool Applies, TimeSpan? Start, TimeSpan? End, string Name)[]
+        {
+            (appliesMonday, mondayStart, mondayEnd, "Monday"),
+            (appliesTuesday, tuesdayStart, tuesdayEnd, "Tuesday"),
+            (appliesWednesday, wednesdayStart, wednesdayEnd, "Wednesday"),
+            (appliesThursday, thursdayStart, thursdayEnd, "Thursday"),
+            (appliesFriday, fridayStart, fridayEnd, "Friday"),
+            (appliesSaturday, saturdayStart, saturdayEnd, "Saturday"),
+            (appliesSunday, sundayStart, sundayEnd, "Sunday"),
+        };
+
+        if (!days.Any(d => d.Applies))
+            throw new InvalidOperationException("Select at least one applicable day.");
+
+        foreach (var day in days.Where(d => d.Applies))
+        {
+            if (!day.Start.HasValue || !day.End.HasValue)
+                throw new InvalidOperationException($"Start and end time are required for {day.Name}.");
+        }
     }
 
     private static ShiftPatternDto MapToDto(ShiftPattern s) => new()
