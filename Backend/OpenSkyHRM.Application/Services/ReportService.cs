@@ -52,7 +52,7 @@ public class ReportService : IReportService
                 Key = "attendance", Name = "Time & Attendance", Icon = "clock",
                 Reports = new()
                 {
-                    new() { Key = "daily-attendance", Name = "Daily Attendance Register", Description = "Punch-in/out times for a specific date" },
+                    new() { Key = "daily-attendance", Name = "Attendance Register", Description = "Punch-in/out times for a selected date range" },
                     new() { Key = "monthly-attendance", Name = "Monthly Attendance Summary", Description = "Monthly attendance statistics per employee" },
                     new() { Key = "late-arrivals", Name = "Late Arrivals", Description = "Employees who arrived after the scheduled start time" },
                     new() { Key = "early-departures", Name = "Early Departures", Description = "Employees who left before the scheduled end time" },
@@ -154,7 +154,7 @@ public class ReportService : IReportService
         Tag("leave", "leave-by-type", true, "dateRange");
         Tag("leave", "pending-approvals", true, "none");
 
-        Tag("attendance", "daily-attendance", true, "singleDate");
+        Tag("attendance", "daily-attendance", true, "dateRange");
         Tag("attendance", "monthly-attendance", true, "yearMonth");
         Tag("attendance", "late-arrivals", true, "dateRange");
         Tag("attendance", "early-departures", true, "dateRange");
@@ -694,22 +694,38 @@ public class ReportService : IReportService
 
     private async Task<ReportResultDto> DailyAttendanceReport(Dictionary<string, string>? filters)
     {
-        var date = DateTime.UtcNow.Date;
-        if (filters != null && filters.TryGetValue("date", out var d) && DateTime.TryParse(d, out var dd)) date = dd.Date;
+        var to = DateTime.UtcNow.Date;
+        var from = new DateTime(to.Year, to.Month, 1);
+        if (filters != null)
+        {
+            if (filters.TryGetValue("from", out var f) && DateTime.TryParse(f, out var fd)) from = fd.Date;
+            if (filters.TryGetValue("to", out var t) && DateTime.TryParse(t, out var td)) to = td.Date;
+            else if (filters.TryGetValue("date", out var d) && DateTime.TryParse(d, out var dd))
+            {
+                from = dd.Date;
+                to = dd.Date;
+            }
+        }
+        if (from > to) (from, to) = (to, from);
+
         var q = _db.Set<AttendanceRecord>().Include(a => a.Employee).ThenInclude(e => e.Department)
-            .Where(a => !a.IsDeleted && a.Date.Date == date).AsQueryable();
+            .Where(a => !a.IsDeleted && a.Date.Date >= from && a.Date.Date <= to).AsQueryable();
         if (TryGetDepartmentId(filters, out var deptId))
             q = q.Where(a => a.Employee.DepartmentId == deptId);
-        var data = await q.OrderBy(a => a.Employee.FirstName).ToListAsync();
-        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Punch In", "Punch Out", "Worked Hours", "Status" };
+        var data = await q.OrderBy(a => a.Date).ThenBy(a => a.Employee.FirstName).ToListAsync();
+        var cols = new List<string> { "Date", "Employee Code", "Employee Name", "Department", "Punch In", "Punch Out", "Worked Hours", "Status" };
         var rows = data.Select(a => new Dictionary<string, object?>
         {
+            ["Date"] = a.Date.ToString("yyyy-MM-dd"),
             ["Employee Code"] = a.Employee.EmployeeCode, ["Employee Name"] = a.Employee.FullName,
             ["Department"] = a.Employee.Department?.Name,
             ["Punch In"] = a.PunchIn?.ToString("HH:mm"), ["Punch Out"] = a.PunchOut?.ToString("HH:mm"),
             ["Worked Hours"] = a.WorkedHours?.ToString("F2"), ["Status"] = a.Status,
         }).ToList();
-        return Build($"Daily Attendance - {date:yyyy-MM-dd}", cols, rows);
+        var title = from == to
+            ? $"Attendance Register - {from:yyyy-MM-dd}"
+            : $"Attendance Register - {from:yyyy-MM-dd} to {to:yyyy-MM-dd}";
+        return Build(title, cols, rows);
     }
 
     private async Task<ReportResultDto> MonthlyAttendanceReport(Dictionary<string, string>? filters)

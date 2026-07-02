@@ -320,6 +320,9 @@ if (dbAvailable)
         if (app.Environment.IsDevelopment())
             await PayrollSeeder.EnsureDemoSalary100kAsync(db);
         await OpenSkyHRM.Persistence.Seeders.EmployeeLifecycleTemplateSeeder.EnsureAsync(db);
+        await DocumentTemplateSeeder.SeedAsync(db);
+        await DocumentTemplateSeeder.EnsureLetterPackAsync(db);
+        await TransactionalEmailTemplateSeeder.EnsureAsync(db);
         await db.SaveChangesAsync();
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureCatalogLeaveTypesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);

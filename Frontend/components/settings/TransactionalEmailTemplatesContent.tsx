@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
@@ -270,7 +270,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
           <h3>Transactional email templates</h3>
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="secondary" onClick={() => void seedDefaults()} disabled={seedingDefaults}>
-              {seedingDefaults ? "Loading…" : "Load defaults"}
+              {seedingDefaults ? "LoadingΓÇª" : "Load defaults"}
             </Button>
             <Button type="button" onClick={openCreateModal}>
               Create template
@@ -312,7 +312,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
                     disabled={deletingId === tpl.id}
                     className="text-sm font-medium text-rose-600 hover:underline disabled:opacity-50"
                   >
-                    {deletingId === tpl.id ? "Deleting…" : "Delete"}
+                    {deletingId === tpl.id ? "DeletingΓÇª" : "Delete"}
                   </button>
                 </div>
               </div>
@@ -326,7 +326,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
           <div className="max-h-[80vh] overflow-y-auto pr-1">
             <p className="mb-4 text-sm text-slate-600">
               <span className="font-medium text-slate-800">{editingTemplate.name}</span>
-              <span className="text-slate-400"> · </span>
+              <span className="text-slate-400"> ┬╖ </span>
               <code className="text-xs text-slate-600">{editingTemplate.templateKey}</code>
             </p>
             <div className="space-y-4">
@@ -446,7 +446,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
                   Cancel
                 </button>
                 <button type="button" onClick={() => void createTemplate()} disabled={createSaving} className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50">
-                  {createSaving ? "Creating…" : "Create template"}
+                  {createSaving ? "CreatingΓÇª" : "Create template"}
                 </button>
               </div>
             </div>
