@@ -217,9 +217,9 @@ export function getTemplateMeta(templateKey: string, kind: TemplateKind, name: s
   const known = META[templateKey];
   if (known) return known;
 
-  const module = inferModule(templateKey, kind);
+  const templateModule = inferModule(templateKey, kind);
   return {
-    module,
+    module: templateModule,
     category: inferCategory(templateKey),
     description: kind === "email" ? `Transactional email: ${name}.` : `Employee letter: ${name}.`,
     trigger: kind === "email" ? "Sent automatically when the related HR event occurs." : "Generated from People → Create Document.",

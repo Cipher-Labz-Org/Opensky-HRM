@@ -1,5 +1,5 @@
 import { API_BASE_URL, getApiBaseUrl, getAssetBaseUrl } from "@/config/constants";
-import { formatApiErrorBody } from "@/lib/api-errors";
+import { resolveHttpErrorMessage } from "@/lib/api-errors";
 
 export { getAssetBaseUrl };
 
@@ -20,36 +20,19 @@ function getAuthToken(): string | null {
 }
 
 function parseHttpErrorMessage(text: string, status: number, endpoint: string): string {
-  let errorMessage = `API ${status}: ${text}`;
   try {
-    const parsed = JSON.parse(text) as {
-      message?: string;
-      title?: string;
-      detail?: string;
-      code?: string;
-      module?: string;
-      errors?: Record<string, string[] | string>;
-    };
+    const parsed = JSON.parse(text) as { code?: string; module?: string };
     if (parsed.code === "MODULE_NOT_LICENSED") {
-      errorMessage = `The "${parsed.module ?? "requested"}" module is not licensed for this instance.`;
-    } else {
-      const friendly = formatApiErrorBody(parsed);
-      if (friendly) errorMessage = friendly;
-      else if (typeof parsed.message === "string") errorMessage = parsed.message;
-      else if (typeof parsed.detail === "string") errorMessage = parsed.detail;
-      else if (typeof parsed.title === "string") errorMessage = parsed.title;
+      return `The "${parsed.module ?? "requested"}" module is not licensed for this instance.`;
     }
   } catch {
-    /* use raw text */
+    /* resolved below */
   }
-  if (status === 404 && !text?.trim()) {
-    errorMessage = `API 404: no route for ${endpoint}. Restart the API after pulling changes, or set NEXT_PUBLIC_API_URL to your API (using ${API_BASE_URL}).`;
-  }
-  if (status >= 500 && !text?.trim()) {
-    errorMessage =
-      "The server failed while processing this request. Deploy the latest API build or check server logs, then try again.";
-  }
-  return errorMessage;
+  return resolveHttpErrorMessage(text, {
+    status,
+    endpoint,
+    backendUrl: getApiBaseUrl() || API_BASE_URL,
+  });
 }
 
 export type ApiFetchOptions = RequestInit & { timeoutMs?: number; baseUrl?: string };
