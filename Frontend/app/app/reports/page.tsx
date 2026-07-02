@@ -54,10 +54,16 @@ function getDefaultQueryParamsForItem(item: ReportItem | null | undefined): Reco
   const mode = item.periodFilterMode || "none";
   const isoDate = (d: Date) => d.toISOString().slice(0, 10);
   if (mode === "dateRange") {
-    const from = new Date(today);
-    from.setFullYear(from.getFullYear() - 1);
-    p.from = isoDate(from);
-    p.to = isoDate(today);
+    if (item.key === "daily-attendance") {
+      const from = new Date(today.getFullYear(), today.getMonth(), 1);
+      p.from = isoDate(from);
+      p.to = isoDate(today);
+    } else {
+      const from = new Date(today);
+      from.setFullYear(from.getFullYear() - 1);
+      p.from = isoDate(from);
+      p.to = isoDate(today);
+    }
   } else if (mode === "yearMonth") {
     p.year = String(today.getFullYear());
     p.month = String(today.getMonth() + 1);
@@ -81,6 +87,11 @@ function mergeUrlFiltersIntoReportParams(
   if (mode === "dateRange") {
     if (url.from) merged.from = url.from;
     if (url.to) merged.to = url.to;
+    // Legacy single-date links (?date=…) for Attendance Register
+    if (item.key === "daily-attendance" && url.date && !url.from && !url.to) {
+      merged.from = url.date;
+      merged.to = url.date;
+    }
   } else if (mode === "yearMonth") {
     if (url.year) merged.year = url.year;
     if (url.month) merged.month = url.month;
