@@ -186,12 +186,21 @@ var localNextDevOrigins = Enumerable.Range(0, 11)
     })
     .ToArray();
 
+// Expo / Metro web dev server (8081, 8082, …)
+var localExpoDevOrigins = Enumerable.Range(0, 11)
+    .SelectMany(p =>
+    {
+        var port = 8081 + p;
+        return new[] { $"http://localhost:{port}", $"http://127.0.0.1:{port}" };
+    })
+    .ToArray();
+
 var configuredCors = builder.Configuration.GetSection("Cors:Origins").Get<string[]>();
 string[] corsOrigins;
 if (configuredCors is { Length: > 0 })
 {
     corsOrigins = builder.Environment.IsDevelopment()
-        ? configuredCors.Concat(localNextDevOrigins).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+        ? configuredCors.Concat(localNextDevOrigins).Concat(localExpoDevOrigins).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
         : configuredCors;
 }
 else
@@ -336,6 +345,7 @@ if (dbAvailable)
                 db, year, OpenSkyHRM.Domain.Entities.HolidayCountryCodes.LK);
         }
         await OpenSkyHRM.Persistence.Seeders.LearningSeeder.EnsureCatalogAsync(db);
+        await RequisitionSkillTemplateSeeder.EnsureAsync(db);
         await OpenSkyHRM.Persistence.Seeders.TransactionalEmailTemplateSeeder.EnsureAsync(db);
         await OpenSkyHRM.Persistence.Seeders.DocumentTemplateSeeder.EnsureLetterPackAsync(db);
     }

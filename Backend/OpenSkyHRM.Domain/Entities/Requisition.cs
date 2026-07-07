@@ -17,6 +17,8 @@ public class Requisition : AuditableEntity
     public int? ExperienceMax { get; set; }
     public decimal? SalaryMin { get; set; }
     public decimal? SalaryMax { get; set; }
+    /// <summary>ISO 4217 currency for salary range (e.g. LKR, USD).</summary>
+    public string? SalaryCurrency { get; set; }
     public string? Skills { get; set; }
     public DateTime? ClosedAt { get; set; }
 

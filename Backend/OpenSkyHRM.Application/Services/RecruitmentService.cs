@@ -150,13 +150,15 @@ public class RecruitmentService : IRecruitmentService
 
     public async Task<RequisitionDto> CreateRequisitionAsync(CreateRequisitionDto dto)
     {
+        ValidateRequisitionExperience(dto.ExperienceMin, dto.ExperienceMax);
+        var salaryCurrency = await ResolveSalaryCurrencyAsync(dto.SalaryCurrency);
         var req = new Requisition
         {
             Title = dto.Title, Code = dto.Code, Description = dto.Description, Vacancies = dto.Vacancies,
             Status = ApprovalStatus.Pending,
             TargetDate = dto.TargetDate, Priority = dto.Priority, EmploymentType = dto.EmploymentType,
             ExperienceMin = dto.ExperienceMin, ExperienceMax = dto.ExperienceMax,
-            SalaryMin = dto.SalaryMin, SalaryMax = dto.SalaryMax, Skills = dto.Skills,
+            SalaryMin = dto.SalaryMin, SalaryMax = dto.SalaryMax, SalaryCurrency = salaryCurrency, Skills = dto.Skills,
             DepartmentId = dto.DepartmentId, JobTitleId = dto.JobTitleId,
             HiringManagerId = dto.HiringManagerId, LocationId = dto.LocationId, PositionId = dto.PositionId,
             ApplicationNotificationEmail = string.IsNullOrWhiteSpace(dto.ApplicationNotificationEmail)
@@ -170,12 +172,14 @@ public class RecruitmentService : IRecruitmentService
 
     public async Task<RequisitionDto> UpdateRequisitionAsync(UpdateRequisitionDto dto)
     {
+        ValidateRequisitionExperience(dto.ExperienceMin, dto.ExperienceMax);
         var req = await _db.Requisitions.FindAsync(dto.Id)
             ?? throw new InvalidOperationException("Requisition not found");
         req.Title = dto.Title; req.Code = dto.Code; req.Description = dto.Description;
         req.Vacancies = dto.Vacancies; req.TargetDate = dto.TargetDate; req.Priority = dto.Priority;
         req.EmploymentType = dto.EmploymentType; req.ExperienceMin = dto.ExperienceMin;
         req.ExperienceMax = dto.ExperienceMax; req.SalaryMin = dto.SalaryMin; req.SalaryMax = dto.SalaryMax;
+        req.SalaryCurrency = await ResolveSalaryCurrencyAsync(dto.SalaryCurrency);
         req.Skills = dto.Skills; req.DepartmentId = dto.DepartmentId; req.JobTitleId = dto.JobTitleId;
         req.HiringManagerId = dto.HiringManagerId; req.LocationId = dto.LocationId; req.PositionId = dto.PositionId;
         req.ApplicationNotificationEmail = string.IsNullOrWhiteSpace(dto.ApplicationNotificationEmail)
@@ -1214,6 +1218,23 @@ public class RecruitmentService : IRecruitmentService
         });
     }
 
+    private static void ValidateRequisitionExperience(int? experienceMin, int? experienceMax)
+    {
+        if (!experienceMin.HasValue)
+            throw new InvalidOperationException("Experience minimum (years) is required.");
+        if (experienceMin.Value < 0)
+            throw new InvalidOperationException("Experience minimum cannot be negative.");
+        if (experienceMax.HasValue && experienceMin.Value > experienceMax.Value)
+            throw new InvalidOperationException("Experience minimum cannot be greater than experience maximum.");
+    }
+
+    private async Task<string> ResolveSalaryCurrencyAsync(string? requested)
+    {
+        if (!string.IsNullOrWhiteSpace(requested))
+            return requested.Trim().ToUpperInvariant();
+        return (await _settings.GetAsync("DefaultCurrency") ?? "LKR").Trim().ToUpperInvariant();
+    }
+
     private static List<RequisitionTimelineEntryDto> DeserializeTimeline(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return new List<RequisitionTimelineEntryDto>();
@@ -1233,7 +1254,7 @@ public class RecruitmentService : IRecruitmentService
         Id = r.Id, Title = r.Title, Code = r.Code, Description = r.Description,
         Vacancies = r.Vacancies, Status = r.Status.ToString(), TargetDate = r.TargetDate, Priority = r.Priority,
         EmploymentType = r.EmploymentType, ExperienceMin = r.ExperienceMin, ExperienceMax = r.ExperienceMax,
-        SalaryMin = r.SalaryMin, SalaryMax = r.SalaryMax, Skills = r.Skills, ClosedAt = r.ClosedAt,
+        SalaryMin = r.SalaryMin, SalaryMax = r.SalaryMax, SalaryCurrency = r.SalaryCurrency, Skills = r.Skills, ClosedAt = r.ClosedAt,
         DepartmentName = r.Department?.Name, DepartmentId = r.DepartmentId,
         JobTitleName = r.JobTitle?.Title, JobTitleId = r.JobTitleId,
         HiringManagerName = r.HiringManager != null ? r.HiringManager.FullName : null, HiringManagerId = r.HiringManagerId,
@@ -1261,6 +1282,7 @@ public class RecruitmentService : IRecruitmentService
         ExperienceMax = r.ExperienceMax,
         SalaryMin = r.SalaryMin,
         SalaryMax = r.SalaryMax,
+        SalaryCurrency = r.SalaryCurrency,
         Skills = r.Skills,
         DepartmentName = r.Department?.Name,
         DepartmentId = r.DepartmentId,

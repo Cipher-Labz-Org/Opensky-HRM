@@ -11,6 +11,7 @@ export type RequisitionDescriptionSnapshot = {
   experienceMax: string;
   salaryMin: string;
   salaryMax: string;
+  salaryCurrency: string;
   departmentName: string;
   jobTitleName: string;
   hiringManagerName: string;
@@ -31,12 +32,14 @@ function expRange(min: string, max: string): string | null {
   return null;
 }
 
-function salaryRange(min: string, max: string): string | null {
+function salaryRange(min: string, max: string, currency: string): string | null {
   const hasMin = min !== "" && !Number.isNaN(Number(min));
   const hasMax = max !== "" && !Number.isNaN(Number(max));
-  if (hasMin && hasMax) return `${min} – ${max}`;
-  if (hasMin) return `from ${min}`;
-  if (hasMax) return `up to ${max}`;
+  const cur = currency.trim() || "";
+  const prefix = cur ? `${cur} ` : "";
+  if (hasMin && hasMax) return `${prefix}${min} – ${max}`;
+  if (hasMin) return `${prefix}from ${min}`;
+  if (hasMax) return `${prefix}up to ${max}`;
   return null;
 }
 
@@ -75,7 +78,7 @@ export function generateRequisitionDescription(s: RequisitionDescriptionSnapshot
   }
   const exp = expRange(s.experienceMin, s.experienceMax);
   if (exp) detailLines.push(`• Experience: ${exp}`);
-  const sal = salaryRange(s.salaryMin, s.salaryMax);
+  const sal = salaryRange(s.salaryMin, s.salaryMax, s.salaryCurrency);
   if (sal) detailLines.push(`• Compensation band (numbers as entered on the form): ${sal}`);
   if (nonEmpty(s.targetDate)) detailLines.push(`• Target hire / start date: ${s.targetDate}`);
   if (nonEmpty(s.hiringManagerName)) detailLines.push(`• Hiring manager / point of contact: ${s.hiringManagerName}`);

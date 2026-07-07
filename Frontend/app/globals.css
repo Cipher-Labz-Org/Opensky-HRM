@@ -63,27 +63,29 @@
 }
 
 :root {
-  /* OpenSky logo–aligned palette (SKY blue #2E7BBF, OPEN red #ED1C24, neutral gray) */
-  --bg: #f5f7fa;
+  /* OpenSky landing palette — navy + brand green */
+  --bg: #f4f8fc;
   --panel: #ffffff;
-  --soft: #eef4f9;
-  --text: #1f2937;
-  --muted: #6b7280;
-  --primary: #2e7bbf;
-  --primary-deep: #256aa3;
-  --primary-soft: #e3eef8;
-  --accent-hot: #ed1c24;
-  --accent-hot-soft: #fde8ea;
-  --success: #0f766e;
-  --warning: #b45309;
-  --danger: #b91c1c;
-  --border: #d9e2ec;
-  --shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  --soft: #eef4fa;
+  --text: #081f3e;
+  --muted: #5b7087;
+  --primary: #1e3a8a;
+  --primary-deep: #0a2540;
+  --primary-soft: #e8eef7;
+  --accent: #76b82a;
+  --accent-soft: #eef6e4;
+  --accent-hot: #76b82a;
+  --accent-hot-soft: #eef6e4;
+  --success: #76b82a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --border: #d4dee8;
+  --shadow: 0 18px 40px rgba(8, 31, 62, 0.08);
 }
 
 body {
   margin: 0;
-  background: #f5f7fa;
+  background: var(--bg);
   color: var(--text);
 }
 
@@ -100,7 +102,7 @@ button,
 button:hover:not(:disabled),
 [role="button"]:hover:not([aria-disabled="true"]) {
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px -14px rgba(30, 136, 255, 0.45);
+  box-shadow: 0 10px 22px -14px rgba(118, 184, 42, 0.35);
   filter: saturate(1.04);
 }
 button:active:not(:disabled),
@@ -108,37 +110,48 @@ button:active:not(:disabled),
   transform: translateY(0);
 }
 
-/* Command Center cards — layout unchanged; brand hover lift + blue rim */
+/* Command Center cards — navy + green accent */
 .opensky-dashboard-card {
   border-radius: 1rem;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--border);
+  background: var(--panel);
   padding: 1.25rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 1px 2px rgba(8, 31, 62, 0.06);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .opensky-dashboard-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(46, 123, 191, 0.4);
-  box-shadow: 0 14px 36px -16px rgba(46, 123, 191, 0.28);
+  border-color: rgba(118, 184, 42, 0.35);
+  box-shadow: 0 14px 36px -16px rgba(8, 31, 62, 0.15);
+}
+
+.opensky-dashboard-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -1.25rem -1.25rem 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--primary-soft);
+  border-radius: 1rem 1rem 0 0;
 }
 
 .opensky-dashboard-quicklink {
   display: block;
   border-radius: 0.75rem;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--border);
+  background: var(--panel);
   padding: 0.75rem 0.875rem;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 .opensky-dashboard-quicklink:hover {
-  border-color: rgba(46, 123, 191, 0.48);
-  background: #f8fbff;
-  box-shadow: 0 10px 28px -12px rgba(46, 123, 191, 0.26);
+  border-color: rgba(118, 184, 42, 0.45);
+  background: var(--accent-soft);
+  box-shadow: 0 10px 28px -12px rgba(8, 31, 62, 0.12);
   transform: translateY(-1px);
 }
 .opensky-dashboard-quicklink:hover .opensky-quicklink-chev {
-  color: #ed1c24;
+  color: var(--accent);
   transform: translateX(4px);
 }
 .opensky-quicklink-chev {
@@ -150,8 +163,8 @@ button:active:not(:disabled),
   transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 .opensky-dashboard-timeline-row:hover {
-  border-color: rgba(46, 123, 191, 0.35) !important;
-  background: rgba(46, 123, 191, 0.045);
+  border-color: rgba(118, 184, 42, 0.35) !important;
+  background: var(--accent-soft);
 }
 
 /* App shell: responsive override so sidebar stacks on small screens */

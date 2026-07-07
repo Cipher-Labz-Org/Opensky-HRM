@@ -1,0 +1,22 @@
+/** OpenSky landing / product palette — navy + brand green */
+module.exports = {
+  primary: "#1E3A8A",
+  primaryDeep: "#0A2540",
+  primarySoft: "#E8EEF7",
+  navy: "#081F3E",
+  navyMid: "#1E3A8A",
+  accent: "#76B82A",
+  accentSoft: "#EEF6E4",
+  background: "#F4F8FC",
+  surface: "#ffffff",
+  soft: "#EEF4FA",
+  text: "#081F3E",
+  muted: "#5B7087",
+  border: "#D4DEE8",
+  success: "#76B82A",
+  successSoft: "#EEF6E4",
+  warning: "#D97706",
+  warningSoft: "#FEF3C7",
+  danger: "#DC2626",
+  dangerSoft: "#FEE2E2",
+};

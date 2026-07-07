@@ -56,6 +56,7 @@ public class AppDbContext : DbContext
 
     // Recruitment & Onboarding
     public DbSet<Requisition> Requisitions => Set<Requisition>();
+    public DbSet<RequisitionSkillTemplate> RequisitionSkillTemplates => Set<RequisitionSkillTemplate>();
     public DbSet<Candidate> Candidates => Set<Candidate>();
     public DbSet<Interview> Interviews => Set<Interview>();
     public DbSet<Offer> Offers => Set<Offer>();

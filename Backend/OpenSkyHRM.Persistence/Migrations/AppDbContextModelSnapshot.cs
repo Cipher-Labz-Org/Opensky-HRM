@@ -4748,6 +4748,10 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<decimal?>("SalaryMax")
                         .HasColumnType("numeric");
 
+                    b.Property<string>("SalaryCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<decimal?>("SalaryMin")
                         .HasColumnType("numeric");
 
@@ -5341,6 +5345,12 @@ namespace OpenSkyHRM.Persistence.Migrations
                             Key = "EmployeeCodePrefix",
                             Description = "Prefix for auto-generated employee codes (e.g. EMP → EMP-000001)",
                             Value = "EMP"
+                        },
+                        new
+                        {
+                            Key = "DefaultCurrency",
+                            Description = "Default ISO 4217 currency for salary ranges and recruitment offers",
+                            Value = "LKR"
                         });
                 });
 

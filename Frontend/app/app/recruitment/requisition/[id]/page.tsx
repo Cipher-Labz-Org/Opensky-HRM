@@ -28,8 +28,8 @@ interface RequisitionDetail {
   experienceMax?: number;
   salaryMin?: number;
   salaryMax?: number;
+  salaryCurrency?: string;
   skills?: string;
-  closedAt?: string;
   departmentName?: string;
   departmentId: string;
   jobTitleName?: string;
@@ -61,6 +61,7 @@ function snapshotFromReq(req: RequisitionDetail, employmentTypeLabel: string): R
     experienceMax: req.experienceMax != null ? String(req.experienceMax) : "",
     salaryMin: req.salaryMin != null ? String(req.salaryMin) : "",
     salaryMax: req.salaryMax != null ? String(req.salaryMax) : "",
+    salaryCurrency: req.salaryCurrency ?? "",
     departmentName: req.departmentName ?? "",
     jobTitleName: req.jobTitleName ?? "",
     hiringManagerName: req.hiringManagerName ?? "",

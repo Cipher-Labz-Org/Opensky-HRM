@@ -1,36 +1,35 @@
 "use client";
 
-import { appAlert } from "@/components/ui/appDialogs";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AppTopbar } from "@/components/navigation/AppTopbar";
+import { appAlert } from "@/components/ui/appDialogs";
 import { apiFetch } from "@/lib/api";
 import { formatBusinessDateTime } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
 import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
+import { DASH_CHART, OPENSKY_THEME } from "@/lib/opensky-theme";
 
-/** Solid brand/accent colors (no gradients). */
-const DASH_WORKFORCE_ROW_COLORS: string[] = ["#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5"];
-
-const DASH_ACTIVITY_DAY_COLORS: [string, string][] = [
-  ["#22C55E", "#22C55E"],
-  ["#22C55E", "#22C55E"],
-  ["#22C55E", "#22C55E"],
-  ["#22C55E", "#22C55E"],
-  ["#22C55E", "#22C55E"],
-  ["#22C55E", "#22C55E"],
-  ["#22C55E", "#22C55E"],
+const DASH_WORKFORCE_ROW_COLORS: string[] = [
+  OPENSKY_THEME.navyMid,
+  OPENSKY_THEME.accent,
+  "#3B82F6",
+  OPENSKY_THEME.navyMid,
+  OPENSKY_THEME.accent,
+  "#64748B",
 ];
 
-const DASH_COMPARE_COLORS = {
-  primary: "#1a92d5",
-  secondary: "#39b3e8",
-  success: "#10B981",
-  warning: "#F59E0B",
-  danger: "#F43F5E",
-  muted: "#94A3B8",
-} as const;
+const DASH_ACTIVITY_DAY_COLORS: [string, string][] = [
+  [OPENSKY_THEME.accent, OPENSKY_THEME.accent],
+  [OPENSKY_THEME.accent, OPENSKY_THEME.accent],
+  [OPENSKY_THEME.accent, OPENSKY_THEME.accent],
+  [OPENSKY_THEME.accent, OPENSKY_THEME.accent],
+  [OPENSKY_THEME.accent, OPENSKY_THEME.accent],
+  [OPENSKY_THEME.accent, OPENSKY_THEME.accent],
+  [OPENSKY_THEME.accent, OPENSKY_THEME.accent],
+];
+
+const DASH_COMPARE_COLORS = DASH_CHART;
 
 interface MyTask {
   id: string;
@@ -304,25 +303,81 @@ export default function DashboardPage() {
 
   const headcountMix = useMemo(() => {
     const rows = [
-      { label: "Active", value: activeCount ?? 0, color: "#F97316" },
-      { label: "Terminated (records)", value: terminatedCount ?? 0, color: "#F97316" },
+      { label: "Active", value: activeCount ?? 0, color: OPENSKY_THEME.accent },
+      { label: "Terminated (records)", value: terminatedCount ?? 0, color: OPENSKY_THEME.navyMid },
     ].filter((r) => r.value > 0);
     return rows;
   }, [activeCount, terminatedCount]);
 
   return (
     <>
-      <AppTopbar title="Dashboard" />
+      <div
+        className="relative -mx-7 mb-6 overflow-hidden border-b border-[#D4DEE8] shadow-[0_8px_32px_rgba(8,31,62,0.1)]"
+        style={{
+          background: `linear-gradient(165deg, ${OPENSKY_THEME.navyDeep} 0%, ${OPENSKY_THEME.navy} 50%, ${OPENSKY_THEME.navyMid} 100%)`,
+        }}
+      >
+        <div
+          className="pointer-events-none absolute inset-0 opacity-40"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 20% 20%, rgba(118,184,42,0.35) 0, transparent 45%), radial-gradient(circle at 90% 80%, rgba(255,255,255,0.1) 0, transparent 40%)",
+          }}
+          aria-hidden
+        />
+        <div className="relative px-7 py-6 sm:py-7">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#76B82A]" aria-hidden />
+                <span className="text-xs font-semibold uppercase tracking-widest text-white/70">Command center</span>
+              </div>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">Dashboard</h1>
+              <p className="mt-1 max-w-xl text-sm text-white/75">
+                Overview of workforce metrics, pending actions, and recent activity
+                {attentionCount > 0 ? (
+                  <>
+                    {" "}
+                    · <span className="font-semibold text-[#EEF6E4]">{attentionCount} need attention</span>
+                  </>
+                ) : null}
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white/90">
+              <span className="text-[#76B82A]" aria-hidden>
+                ★
+              </span>
+              OpenSky HRM
+            </span>
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {kpis.map((kpi) => (
+              <div
+                key={kpi.label}
+                className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4 backdrop-blur-sm"
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-white/65">{kpi.label}</div>
+                <div className="mt-2 text-3xl font-bold leading-none text-white">
+                  {dashLoading && kpi.value === "—" ? "..." : kpi.value}
+                </div>
+                <p className="mt-2 text-[11px] leading-snug text-white/60">{kpi.sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div id="dashboard-birthdays" className="mb-6 scroll-mt-28">
         <BirthdaysCompanyNoticesWidget />
       </div>
 
       {myTasks.length > 0 && (
-        <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center gap-3 border-b border-[#2E7BBF]/20 px-6 py-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2E7BBF]/12">
-              <svg className="h-5 w-5 text-[#2E7BBF]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <div className="mb-6 overflow-hidden rounded-2xl border border-[#D4DEE8] bg-white shadow-sm">
+          <div className="opensky-dashboard-card-header !mx-0 !mb-0 !mt-0 rounded-none border-b border-[#D4DEE8]">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EEF6E4]">
+                <svg className="h-5 w-5 text-[#76B82A]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -331,10 +386,11 @@ export default function DashboardPage() {
               </svg>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">My pending tasks</h3>
-              <p className="text-xs text-[#2E7BBF]">
+              <h3 className="text-sm font-semibold text-[#081F3E]">My pending tasks</h3>
+              <p className="text-xs text-[#1E3A8A]">
                 {myTasks.length} task{myTasks.length !== 1 ? "s" : ""} assigned to you
               </p>
+            </div>
             </div>
           </div>
           <div className="divide-y divide-slate-100">
@@ -348,11 +404,11 @@ export default function DashboardPage() {
                     e.stopPropagation();
                     handleComplete(task.id);
                   }}
-                  className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-[#2E7BBF]/50 text-[#2E7BBF] transition hover:border-[#ED1C24] hover:bg-[#ED1C24] hover:text-white"
+                  className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-[#76B82A]/50 text-[#76B82A] transition hover:border-[#76B82A] hover:bg-[#76B82A] hover:text-white"
                   title="Mark as complete"
                 >
                   {completing === task.id ? (
-                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-slate-200 border-t-[#2E7BBF]" />
+                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-slate-200 border-t-[#76B82A]" />
                   ) : (
                     <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -364,7 +420,7 @@ export default function DashboardPage() {
                   <div className="mt-0.5 flex items-center gap-2">
                     <a
                       href={`/app/people/${task.employeeId}`}
-                      className="relative z-10 text-xs font-medium text-[#2E7BBF] underline-offset-2 transition hover:text-[#ED1C24] hover:underline"
+                      className="relative z-10 text-xs font-medium text-[#1E3A8A] underline-offset-2 transition hover:text-[#76B82A] hover:underline"
                     >
                       {task.employeeName}
                     </a>
@@ -376,11 +432,11 @@ export default function DashboardPage() {
                 >
                   {task.taskType}
                 </span>
-                <span className="shrink-0 rounded-full bg-[#e3eef8] px-2 py-0.5 text-[10px] font-medium text-[#1a5f94]">
+                <span className="shrink-0 rounded-full bg-[#E8EEF7] px-2 py-0.5 text-[10px] font-medium text-[#1E3A8A]">
                   {task.category}
                 </span>
                 {task.assignmentType === "Supervisor" && (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#2E7BBF]/25 bg-white/80 px-2 py-0.5 text-[10px] font-medium text-[#2E7BBF]">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#D4DEE8] bg-white px-2 py-0.5 text-[10px] font-medium text-[#1E3A8A]">
                     <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
@@ -397,21 +453,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {kpis.map((kpi) => (
-          <div key={kpi.label} className="opensky-dashboard-card">
-            <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
-            <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{dashLoading && kpi.value === "—" ? "..." : kpi.value}</div>
-          </div>
-        ))}
-      </div>
-
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <div className="opensky-dashboard-card">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Workforce distribution</h3>
-            <span className="text-xs text-slate-500">{snapshotRows.title}</span>
+        <div className="opensky-dashboard-card overflow-hidden !p-0">
+          <div className="opensky-dashboard-card-header">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-[#081F3E]">Workforce distribution</h3>
+            <span className="text-xs text-[#5B7087]">{snapshotRows.title}</span>
           </div>
+          <div className="p-5 pt-0">
           {snapshotRows.rows.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-500">
               No headcount by unit or department yet.
@@ -439,39 +487,44 @@ export default function DashboardPage() {
               })}
             </div>
           )}
+          </div>
         </div>
 
-        <div className="opensky-dashboard-card">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Activity volume</h3>
-            <span className="text-xs text-slate-500">Last 7 days</span>
+        <div className="opensky-dashboard-card overflow-hidden !p-0">
+          <div className="opensky-dashboard-card-header">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-[#081F3E]">Activity volume</h3>
+            <span className="text-xs text-[#5B7087]">Last 7 days</span>
           </div>
+          <div className="p-5 pt-0">
           <WeeklyActivityBars data={activityLast7Days} barGradients={DASH_ACTIVITY_DAY_COLORS} />
-          <p className="mt-2 text-[11px] text-slate-500">
+          <p className="mt-2 text-[11px] text-[#5B7087]">
             Counts from recent leave requests and recruitment activities returned by the API.
           </p>
+          </div>
         </div>
 
-        <div className="opensky-dashboard-card">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Headcount mix</h3>
-            <span className="text-xs text-slate-500">Records</span>
+        <div className="opensky-dashboard-card overflow-hidden !p-0">
+          <div className="opensky-dashboard-card-header">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-[#081F3E]">Headcount mix</h3>
+            <span className="text-xs text-[#5B7087]">Records</span>
           </div>
+          <div className="p-5 pt-0">
           {headcountMix.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">People counts not loaded.</p>
           ) : (
             <DonutMixChart values={headcountMix} />
           )}
+          </div>
         </div>
       </div>
 
       <div className="mt-6 grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
-        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col">
-          <div className="mb-3 flex shrink-0 items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Recruitment pipeline</h3>
-            <span className="text-xs text-slate-500">Scale = largest metric</span>
+        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col overflow-hidden !p-0">
+          <div className="opensky-dashboard-card-header shrink-0">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-[#081F3E]">Recruitment pipeline</h3>
+            <span className="text-xs text-[#5B7087]">Scale = largest metric</span>
           </div>
-          <div className="flex min-h-0 flex-1 flex-col justify-center">
+          <div className="flex min-h-0 flex-1 flex-col justify-center p-5 pt-0">
           {recruitPipelineBars.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">Recruitment dashboard not available.</p>
           ) : (
@@ -479,12 +532,12 @@ export default function DashboardPage() {
           )}
           </div>
         </div>
-        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col">
-          <div className="mb-3 flex shrink-0 items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Recent leave by status</h3>
-            <span className="text-xs text-slate-500">Sample</span>
+        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col overflow-hidden !p-0">
+          <div className="opensky-dashboard-card-header shrink-0">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-[#081F3E]">Recent leave by status</h3>
+            <span className="text-xs text-[#5B7087]">Sample</span>
           </div>
-          <div className="flex min-h-0 flex-1 flex-col justify-center">
+          <div className="flex min-h-0 flex-1 flex-col justify-center p-5 pt-0">
           {leaveStatusBars.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">
               No recent leave requests in the dashboard payload.
@@ -495,16 +548,17 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col">
-          <div className="mb-4 flex shrink-0 items-center justify-between">
+        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col overflow-hidden !p-0">
+          <div className="opensky-dashboard-card-header shrink-0">
             <div>
-              <h3 className="text-base font-semibold text-slate-900">Recent activity</h3>
-              <p className="text-xs text-slate-500">Leave and recruitment updates</p>
+              <h3 className="text-sm font-bold uppercase tracking-wide text-[#081F3E]">Recent activity</h3>
+              <p className="text-xs text-[#5B7087]">Leave and recruitment updates</p>
             </div>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+            <span className="rounded-full border border-[#D4DEE8] bg-[#EEF6E4] px-2.5 py-1 text-[11px] font-medium text-[#1E3A8A]">
               {timelineItems.length} items
             </span>
           </div>
+          <div className="min-h-0 flex-1 overflow-hidden p-5 pt-0">
           {timelineItems.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-500">
               No recent leave requests or recruitment activities returned yet.
@@ -516,41 +570,44 @@ export default function DashboardPage() {
                 return (
                   <div
                     key={`${ev.at}-${i}`}
-                    className="opensky-dashboard-timeline-row group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5"
+                    className="opensky-dashboard-timeline-row group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-[#D4DEE8] px-3 py-2.5"
                   >
-                    <div className="pt-0.5 text-[11px] font-medium text-slate-500">
+                    <div className="pt-0.5 text-[11px] font-medium text-[#5B7087]">
                       {formatBusinessDateTime(ev.at)}
                     </div>
                     <div className="min-w-0">
                       <div className="mb-0.5 flex items-center gap-2">
                         <span
-                          className={`inline-flex h-2 w-2 shrink-0 rounded-full ${isLeave ? "bg-amber-400" : "bg-[#2E7BBF]"}`}
+                          className={`inline-flex h-2 w-2 shrink-0 rounded-full ${isLeave ? "bg-[#D97706]" : "bg-[#76B82A]"}`}
                         />
-                        <strong className="truncate text-sm text-slate-800">{ev.title}</strong>
+                        <strong className="truncate text-sm text-[#081F3E]">{ev.title}</strong>
                       </div>
-                      <div className="line-clamp-2 text-sm text-slate-600">{ev.body}</div>
+                      <div className="line-clamp-2 text-sm text-[#5B7087]">{ev.body}</div>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
+          </div>
         </div>
 
-        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col">
-          <div className="mb-4 shrink-0">
-            <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
-            <p className="text-xs text-slate-500">Navigate faster to high-traffic modules</p>
+        <div className="opensky-dashboard-card flex h-[min(400px,42vh)] min-h-[320px] flex-col overflow-hidden !p-0">
+          <div className="opensky-dashboard-card-header shrink-0">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-wide text-[#081F3E]">Quick actions</h3>
+              <p className="text-xs text-[#5B7087]">Navigate faster to high-traffic modules</p>
+            </div>
           </div>
-          <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-2.5">
+          <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-2.5 p-5 pt-0">
             {quickLinks.slice(0, 4).map((link) => (
               <Link key={link.title} href={link.href} className="opensky-dashboard-quicklink group flex h-full min-h-0 flex-col justify-center">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
-                    <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{link.sub}</p>
+                    <div className="truncate text-sm font-semibold text-[#081F3E]">{link.title}</div>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-[#5B7087]">{link.sub}</p>
                   </div>
-                  <span className="opensky-quicklink-chev mt-0.5 shrink-0 text-slate-400">→</span>
+                  <span className="opensky-quicklink-chev mt-0.5 shrink-0 text-[#94A3B8]">→</span>
                 </div>
               </Link>
             ))}

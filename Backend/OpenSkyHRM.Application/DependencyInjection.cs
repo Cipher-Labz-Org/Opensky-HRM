@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Application.Jobs;
 using OpenSkyHRM.Application.Services;
@@ -24,6 +25,9 @@ public static class DependencyInjection
         services.AddScoped<IBiometricService, BiometricService>();
         services.AddScoped<BiometricAdmsIngestService>();
         services.AddScoped<IRecruitmentService, RecruitmentService>();
+        services.AddScoped<OpenAiSettingsResolver>();
+        services.AddScoped<IRequisitionSkillSuggestionService, RequisitionSkillSuggestionService>();
+        services.AddScoped<IOpenAiSkillSuggestionService, OpenAiSkillSuggestionService>();
         services.AddScoped<IOnboardingService, OnboardingService>();
         services.AddScoped<IOffboardingService, OffboardingService>();
         services.AddScoped<IEmployeeTaskService, EmployeeTaskService>();

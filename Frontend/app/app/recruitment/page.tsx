@@ -13,6 +13,7 @@ import { CreateRequisitionModal } from "@/components/forms/CreateRequisitionModa
 import { Modal } from "@/components/ui/Modal";
 import { apiFetch } from "@/lib/api";
 import { formatBusinessDateTime, formatDate } from "@/lib/date-utils";
+import { currencySelectOptions, DEFAULT_CURRENCY } from "@/lib/currencies";
 import { type EmploymentTypeCatalogItem, employmentTypeSelectOptions } from "@/lib/employment-types";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { ROUTES } from "@/config/routes";
@@ -28,7 +29,7 @@ import {
 interface Requisition {
   id: string; title: string; code: string; description?: string; vacancies: number;
   status: string; targetDate?: string; priority?: string; employmentType?: string;
-  experienceMin?: number; experienceMax?: number; salaryMin?: number; salaryMax?: number;
+  experienceMin?: number; experienceMax?: number; salaryMin?: number; salaryMax?: number; salaryCurrency?: string;
   skills?: string; closedAt?: string; departmentName?: string; departmentId: string;
   jobTitleName?: string; jobTitleId?: string; hiringManagerName?: string; hiringManagerId?: string;
   locationName?: string; locationId?: string; positionTitle?: string; positionId?: string;
@@ -1395,7 +1396,8 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
           vacancies: form.vacancies, targetDate: form.targetDate || null,
           priority: form.priority || null, employmentType: form.employmentType || null,
           experienceMin: form.experienceMin, experienceMax: form.experienceMax,
-          salaryMin: form.salaryMin, salaryMax: form.salaryMax, skills: form.skills || null,
+          salaryMin: form.salaryMin, salaryMax: form.salaryMax, salaryCurrency: form.salaryCurrency || null,
+          skills: form.skills || null,
           departmentId: form.departmentId, jobTitleId: form.jobTitleId || null,
           hiringManagerId: form.hiringManagerId || null, locationId: form.locationId || null,
           positionId: form.positionId || null,
@@ -1444,7 +1446,15 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
               />
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Salary currency</label>
+              <FormSelect
+                value={form.salaryCurrency || DEFAULT_CURRENCY}
+                onValueChange={(v) => setForm({ ...form, salaryCurrency: v })}
+                options={currencySelectOptions()}
+              />
+            </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Salary Range (Min)</label>
               <input type="number" className={inputClass} value={form.salaryMin || ""} onChange={(e) => setForm({ ...form, salaryMin: Number(e.target.value) || undefined })} />

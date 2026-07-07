@@ -4,13 +4,14 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { PhoneInput, FlashMessageBanner, type FlashMessage } from "@/components/ui";
+import { PhoneInput, FlashMessageBanner, type FlashMessage, FormSelect } from "@/components/ui";
 import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import { currencySelectOptions, DEFAULT_CURRENCY } from "@/lib/currencies";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal";
 import { apiFetch } from "@/lib/api";
 import { getSystemSetting } from "@/lib/system-settings";
-import { API_BASE_URL } from "@/config/constants";
+import { API_BASE_URL, getApiBaseUrl } from "@/config/constants";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
@@ -24,6 +25,7 @@ interface CountSummary {
   statuses: number;
   empStatuses: number;
   skills: number;
+  skillTemplates: number;
   attachmentTypes: number;
 }
 
@@ -39,8 +41,9 @@ export default function SettingsPage() {
   const [editStatuses, setEditStatuses] = useState(false);
   const [editEmpStatuses, setEditEmpStatuses] = useState(false);
   const [editSkills, setEditSkills] = useState(false);
+  const [editSkillTemplates, setEditSkillTemplates] = useState(false);
   const [editAttachmentTypes, setEditAttachmentTypes] = useState(false);
-  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0, empStatuses: 0, skills: 0, attachmentTypes: 0 });
+  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0, empStatuses: 0, skills: 0, skillTemplates: 0, attachmentTypes: 0 });
 
   const [codeAutoGen, setCodeAutoGen] = useState(true);
   const [codeLength, setCodeLength] = useState("6");
@@ -68,6 +71,13 @@ export default function SettingsPage() {
   const [companyEmail, setCompanyEmail] = useState("");
   const [companyWebsite, setCompanyWebsite] = useState("");
   const [companyRegNo, setCompanyRegNo] = useState("");
+  const [defaultCurrency, setDefaultCurrency] = useState(DEFAULT_CURRENCY);
+  const [openAiEnabled, setOpenAiEnabled] = useState(false);
+  const [openAiModel, setOpenAiModel] = useState("gpt-4o-mini");
+  const [openAiApiKey, setOpenAiApiKey] = useState("");
+  const [openAiApiKeyConfigured, setOpenAiApiKeyConfigured] = useState(false);
+  const [openAiSaving, setOpenAiSaving] = useState(false);
+  const [openAiMsg, setOpenAiMsg] = useState("");
   const [companySaving, setCompanySaving] = useState(false);
   const [companyMsg, setCompanyMsg] = useState("");
 
@@ -88,11 +98,12 @@ export default function SettingsPage() {
       apiFetch<{ id: string }[]>("/api/organization/employment-statuses").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/organization/employee-statuses").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/employees/skills-catalog").then((r) => r.length).catch(() => 0),
+      apiFetch<{ id: string }[]>("/api/recruitment/skill-templates").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/employees/profile-attachment-types").then((r) => r.length).catch(() => 0),
-    ]).then(([businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, attachmentTypes]) =>
-      setCounts({ businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, attachmentTypes })
+    ]).then(([businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, skillTemplates, attachmentTypes]) =>
+      setCounts({ businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, skillTemplates, attachmentTypes })
     );
-  }, [editBU, editGrades, editJobs, editLocations, editStatuses, editEmpStatuses, editSkills, editAttachmentTypes]);
+  }, [editBU, editGrades, editJobs, editLocations, editStatuses, editEmpStatuses, editSkills, editSkillTemplates, editAttachmentTypes]);
 
   function applySystemSettings(settings: Record<string, string>) {
     const autoGen = getSystemSetting(settings, "EmployeeCodeAutoGenerate");
@@ -113,11 +124,20 @@ export default function SettingsPage() {
     setCompanyEmail(getSystemSetting(settings, "CompanyEmail") ?? "");
     setCompanyWebsite(getSystemSetting(settings, "CompanyWebsite") ?? "");
     setCompanyRegNo(getSystemSetting(settings, "CompanyRegNo") ?? "");
+    setDefaultCurrency((getSystemSetting(settings, "DefaultCurrency") ?? DEFAULT_CURRENCY).toUpperCase());
   }
 
   useEffect(() => {
     apiFetch<Record<string, string>>("/api/system-settings")
       .then(applySystemSettings)
+      .catch(() => {});
+    apiFetch<{ enabled: boolean; model: string; apiKeyConfigured: boolean }>("/api/system-settings/openai")
+      .then((data) => {
+        setOpenAiEnabled(data.enabled);
+        setOpenAiModel(data.model || "gpt-4o-mini");
+        setOpenAiApiKeyConfigured(data.apiKeyConfigured);
+        setOpenAiApiKey("");
+      })
       .catch(() => {});
   }, []);
 
@@ -178,6 +198,7 @@ export default function SettingsPage() {
         apiFetch("/api/system-settings/CompanyEmail", { method: "PUT", body: JSON.stringify({ value: companyEmail }) }),
         apiFetch("/api/system-settings/CompanyWebsite", { method: "PUT", body: JSON.stringify({ value: companyWebsite }) }),
         apiFetch("/api/system-settings/CompanyRegNo", { method: "PUT", body: JSON.stringify({ value: companyRegNo }) }),
+        apiFetch("/api/system-settings/DefaultCurrency", { method: "PUT", body: JSON.stringify({ value: defaultCurrency.trim().toUpperCase() }) }),
       ]);
       const settings = await apiFetch<Record<string, string>>("/api/system-settings");
       applySystemSettings(settings);
@@ -187,6 +208,34 @@ export default function SettingsPage() {
       setCompanyMsg("Failed to save company details");
     } finally {
       setCompanySaving(false);
+    }
+  }
+
+  async function saveOpenAiSettings() {
+    setOpenAiSaving(true);
+    setOpenAiMsg("");
+    try {
+      const updated = await apiFetch<{ enabled: boolean; model: string; apiKeyConfigured: boolean }>(
+        "/api/system-settings/openai",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            enabled: openAiEnabled,
+            model: openAiModel.trim() || "gpt-4o-mini",
+            apiKey: openAiApiKey.trim() || null,
+          }),
+        }
+      );
+      setOpenAiEnabled(updated.enabled);
+      setOpenAiModel(updated.model || "gpt-4o-mini");
+      setOpenAiApiKeyConfigured(updated.apiKeyConfigured);
+      setOpenAiApiKey("");
+      setOpenAiMsg("OpenAI settings saved successfully");
+      setTimeout(() => setOpenAiMsg(""), 3000);
+    } catch (err) {
+      setOpenAiMsg(err instanceof Error ? err.message : "Failed to save OpenAI settings");
+    } finally {
+      setOpenAiSaving(false);
     }
   }
 
@@ -538,6 +587,17 @@ export default function SettingsPage() {
               <input value={companyRegNo} onChange={(e) => setCompanyRegNo(e.target.value)}
                 className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Default currency</label>
+              <FormSelect
+                value={defaultCurrency}
+                onValueChange={(v) => setDefaultCurrency(v.toUpperCase())}
+                options={currencySelectOptions()}
+              />
+              <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">
+                Used as the default for recruitment salary ranges and other monetary fields.
+              </p>
+            </div>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Address Line 1</label>
@@ -597,6 +657,100 @@ export default function SettingsPage() {
             <button onClick={saveCompanyDetails} disabled={companySaving}
               className="rounded-lg bg-[var(--primary)] px-5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50">
               {companySaving ? "Saving..." : "Save Company Details"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Connect mobile app */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-6">
+        <div className="section-title">
+          <h3>Connect mobile app</h3>
+        </div>
+        <div className="space-y-4 px-1 py-3">
+          <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
+            Employees scan this QR code in the <strong>OpenSky HRM</strong> mobile app to connect to this
+            company&apos;s backend. You can also share the backend URL manually if scanning is not possible.
+          </p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <img
+              src={`${getApiBaseUrl()}/api/mobile/connection-qr?pixelsPerModule=8`}
+              alt="Mobile connection QR code"
+              className="h-48 w-48 shrink-0 rounded-xl border border-[var(--border)] bg-white p-2"
+            />
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="text-xs font-medium text-[var(--text-muted)]">Backend URL encoded in QR</p>
+              <p className="break-all rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm text-[var(--text)]">
+                {getApiBaseUrl() || API_BASE_URL || "Configure API URL"}
+              </p>
+              <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
+                Set <code className="rounded bg-slate-100 px-1">Mobile:PublicApiBaseUrl</code> on the API when
+                the public URL differs from the request host (e.g. reverse proxy or IIS binding).
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Recruitment / OpenAI */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-6">
+        <div className="section-title">
+          <h3>Recruitment — OpenAI</h3>
+        </div>
+        <div className="space-y-4 px-1 py-3">
+          <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
+            Powers <strong>Suggest with AI</strong> on the Create Requisition form. Your API key is stored securely and never shown again after saving.
+          </p>
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <input
+              type="checkbox"
+              checked={openAiEnabled}
+              onChange={(e) => setOpenAiEnabled(e.target.checked)}
+              className="h-4 w-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/20"
+            />
+            <span className="text-sm font-medium text-[var(--text)]">Enable AI skill suggestions</span>
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">OpenAI API key</label>
+              <input
+                type="password"
+                value={openAiApiKey}
+                onChange={(e) => setOpenAiApiKey(e.target.value)}
+                autoComplete="off"
+                placeholder={openAiApiKeyConfigured ? "Configured — leave blank to keep current key" : "sk-…"}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+              {openAiApiKeyConfigured ? (
+                <p className="mt-1.5 text-[11px] text-green-700">An API key is saved on the server.</p>
+              ) : null}
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Model</label>
+              <input
+                value={openAiModel}
+                onChange={(e) => setOpenAiModel(e.target.value)}
+                placeholder="gpt-4o-mini"
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+              <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">
+                Default: gpt-4o-mini. Server env <code className="text-[10px]">OPENAI_API_KEY</code> is used if no key is saved here.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-1">
+            {openAiMsg ? (
+              <span className={`text-xs font-medium ${openAiMsg.includes("success") ? "text-green-600" : "text-red-500"}`}>
+                {openAiMsg}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={saveOpenAiSettings}
+              disabled={openAiSaving}
+              className="rounded-lg bg-[var(--primary)] px-5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {openAiSaving ? "Saving..." : "Save OpenAI Settings"}
             </button>
           </div>
         </div>
@@ -762,6 +916,35 @@ export default function SettingsPage() {
       />
 
       <MasterDataEditorModal
+        open={editSkillTemplates}
+        onClose={() => setEditSkillTemplates(false)}
+        title="Recruitment role skill templates"
+        apiBase="/api/recruitment/skill-templates"
+        codeColumnHeader="Keywords"
+        fields={[
+          { key: "name", label: "Template name", placeholder: "e.g. Chef / Culinary" },
+          { key: "code", label: "Keywords (pipe-separated)", placeholder: "chef|sous chef|culinary|cook" },
+          { key: "description", label: "Skills (comma-separated)", type: "textarea", placeholder: "Food safety, Menu costing, Knife skills…" },
+          { key: "sortOrder", label: "Sort order", type: "number", required: false, placeholder: "0" },
+          { key: "isActive", label: "Active", type: "checkbox", required: false, defaultForAdd: true },
+        ]}
+        toForm={(item) => ({
+          name: item.name,
+          code: (item.keywords as string) ?? item.code ?? "",
+          description: (item.skills as string) ?? item.description ?? "",
+          sortOrder: typeof item.sortOrder === "number" ? item.sortOrder : 0,
+          isActive: item.isActive !== false,
+        })}
+        toPayload={(fd) => ({
+          name: fd.get("name"),
+          keywords: fd.get("code"),
+          skills: fd.get("description"),
+          sortOrder: parseInt(String(fd.get("sortOrder") || "0"), 10),
+          isActive: fd.get("isActive") === "on",
+        })}
+      />
+
+      <MasterDataEditorModal
         open={editAttachmentTypes}
         onClose={() => setEditAttachmentTypes(false)}
         title="Profile attachment types (People Hub)"
@@ -907,6 +1090,13 @@ export default function SettingsPage() {
                 <div className="text-xs text-[var(--text-muted)]">{counts.skills} skill{counts.skills !== 1 ? "s" : ""} in catalog (People qualifications)</div>
               </div>
               <button type="button" onClick={() => setEditSkills(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
+            </div>
+            <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
+              <div>
+                <strong className="text-sm font-semibold text-[var(--text)]">Recruitment skill templates</strong>
+                <div className="text-xs text-[var(--text-muted)]">{counts.skillTemplates} role template{counts.skillTemplates !== 1 ? "s" : ""} (e.g. Chef, Engineer)</div>
+              </div>
+              <button type="button" onClick={() => setEditSkillTemplates(true)} className="text-sm font-medium text-[var(--primary)] hover:underline">Edit</button>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
               <div>
