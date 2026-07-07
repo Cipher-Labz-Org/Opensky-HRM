@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useRef } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { InlinePageAlert } from "@/components/ui";
 import { API_BASE_URL, API_ASSET_BASE_URL, getApiBaseUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { apiFetch } from "@/lib/api";
@@ -370,7 +371,7 @@ function EmployeeUploadSection() {
               <li>Click <strong>Download template</strong> to get the Excel file with all columns pre-formatted.</li>
               <li>
                 Fill in employee data. <strong>First Name, Last Name, Department, Gender, Date of Birth, Joined Date</strong> are required.{" "}
-                <strong>Email</strong> is optional if <strong>Personal Email</strong> is set; otherwise a placeholder work email is generated from the employee code. Leave <strong>Employee Code</strong> blank to auto-generate a code for the employee record only. If you enable <strong>Create employee logins</strong>, a login is created only for rows with <strong>Employee Code</strong> filled in — that code becomes the username (letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, or <code className="text-[11px]">-</code>; unique). Rows with a blank Employee Code are imported without a login.
+                <strong>Email</strong> is optional. Leave blank if the employee has no company email address. Leave <strong>Employee Code</strong> blank to auto-generate a code for the employee record only. If you enable <strong>Create employee logins</strong>, a login is created only for rows with <strong>Employee Code</strong> filled in — that code becomes the username (letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, or <code className="text-[11px]">-</code>; unique). Rows with a blank Employee Code are imported without a login.
               </li>
               <li>Use values from the lookup sheets (Departments, Grades, etc.) for dropdown fields.</li>
               <li><strong>Employment Type</strong> and <strong>Employee Status</strong> must match the codes on the <strong>Reference</strong> sheet (same codes as Organization / People Hub).</li>
@@ -401,9 +402,7 @@ function EmployeeUploadSection() {
               )}
               {uploading ? "Uploading…" : "Upload & import"}
             </Button>
-            {error && (
-              <div className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</div>
-            )}
+            <InlinePageAlert message={error} className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800 scroll-mt-20" />
           </div>
         </div>
       </div>
@@ -575,9 +574,7 @@ function LeaveBalanceUploadSection() {
               )}
               {uploading ? "Uploading…" : "Upload & import"}
             </Button>
-            {error && (
-              <div className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</div>
-            )}
+            <InlinePageAlert message={error} className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800 scroll-mt-20" />
           </div>
         </div>
       </div>
@@ -755,9 +752,7 @@ function PayrollUploadSection() {
               )}
               {uploading ? "Uploading…" : "Upload & import"}
             </Button>
-            {error && (
-              <div className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</div>
-            )}
+            <InlinePageAlert message={error} className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800 scroll-mt-20" />
           </div>
         </div>
       </div>

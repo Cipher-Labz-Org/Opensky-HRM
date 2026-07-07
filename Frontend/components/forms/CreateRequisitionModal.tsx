@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, FormErrorAlert, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, FormErrorAlert, EmailInput, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { type EmploymentTypeCatalogItem, employmentTypeOptionsFromCatalog } from "@/lib/employment-types";
 import { getSuggestedSkillsForJob } from "@/lib/requisition-skills-by-job";
@@ -352,10 +352,8 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
           <label className={labelClass} htmlFor="req-application-inbox">
             Application notification email
           </label>
-          <input
+          <EmailInput
             id="req-application-inbox"
-            type="email"
-            inputMode="email"
             autoComplete="email"
             className={inputClass}
             placeholder="hr@company.com"

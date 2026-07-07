@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Api.Filters;
@@ -15,12 +16,12 @@ namespace OpenSkyHRM.Api.Controllers;
 public class ImmigrationDocumentsController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly IWebHostEnvironment _env;
+    private readonly IFileStorageService _files;
 
-    public ImmigrationDocumentsController(AppDbContext db, IWebHostEnvironment env)
+    public ImmigrationDocumentsController(AppDbContext db, IFileStorageService files)
     {
         _db = db;
-        _env = env;
+        _files = files;
     }
 
     [HttpGet]
@@ -59,16 +60,13 @@ public class ImmigrationDocumentsController : ControllerBase
         var employee = await _db.Employees.FindAsync(employeeId);
         if (employee is null) return NotFound();
 
-        var uploadsDir = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads", "immigration");
-        Directory.CreateDirectory(uploadsDir);
-
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         var storedName = $"{employeeId}_{Guid.NewGuid():N}{ext}";
-        var filePath = Path.Combine(uploadsDir, storedName);
+        var logicalPath = _files.BuildLogicalPath("immigration", storedName);
 
-        using (var stream = new FileStream(filePath, FileMode.Create))
+        await using (var stream = file.OpenReadStream())
         {
-            await file.CopyToAsync(stream);
+            await _files.SaveAsync(logicalPath, stream, file.ContentType);
         }
 
         var doc = new ImmigrationDocument
@@ -108,11 +106,11 @@ public class ImmigrationDocumentsController : ControllerBase
 
         if (doc is null) return NotFound();
 
-        var filePath = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads", "immigration", doc.StoredFileName);
-        if (!System.IO.File.Exists(filePath)) return NotFound(new { error = "File not found on disk." });
+        var logicalPath = _files.BuildLogicalPath("immigration", doc.StoredFileName);
+        var stored = await _files.OpenReadAsync(logicalPath);
+        if (stored is null) return NotFound(new { error = "File not found." });
 
-        var bytes = await System.IO.File.ReadAllBytesAsync(filePath);
-        return File(bytes, doc.ContentType, doc.FileName);
+        return File(stored.Stream, stored.ContentType ?? doc.ContentType, doc.FileName);
     }
 
     [HttpDelete("{docId:guid}")]

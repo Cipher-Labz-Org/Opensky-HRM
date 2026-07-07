@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import * as Popover from "@radix-ui/react-popover";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
@@ -16,6 +17,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/date-utils";
 import { useApplyFilter } from "@/lib/use-apply-filter";
+import { sanitizeSearchInput } from "@/lib/input-validation";
 import { ROUTES } from "@/config/routes";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 
@@ -180,6 +182,8 @@ function ReasonCell({ reason }: { reason: string }) {
 
 export default function EmployeeActionsPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const filterEmployeeId = searchParams.get("employeeId");
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [empLoading, setEmpLoading] = useState(true);
   const [records, setRecords] = useState<EmployeeActionRecord[]>([]);
@@ -250,10 +254,18 @@ export default function EmployeeActionsPage() {
     setEmpComboOpen(false);
   }
 
+  useEffect(() => {
+    const type = searchParams.get("type");
+    if (type && (ACTION_TYPES as readonly string[]).includes(type)) {
+      setTypeFilter(type as ActionType);
+    }
+  }, [searchParams]);
+
   const visibleRecords = useMemo(() => {
     const q = searchFilter.applied.toLowerCase();
     return records
       .filter((r) => typeFilter === "All" || r.actionType === typeFilter)
+      .filter((r) => !filterEmployeeId || r.employeeId === filterEmployeeId)
       .filter(
         (r) =>
           !q ||
@@ -263,7 +275,7 @@ export default function EmployeeActionsPage() {
           r.details.toLowerCase().includes(q)
       )
       .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
-  }, [records, typeFilter, searchFilter.applied]);
+  }, [records, typeFilter, searchFilter.applied, filterEmployeeId]);
 
   const recordsPager = useClientPagination(visibleRecords, 15);
 
@@ -688,7 +700,7 @@ export default function EmployeeActionsPage() {
               value={empInput}
               disabled={empLoading}
               onChange={(e) => {
-                const v = e.target.value;
+                const v = sanitizeSearchInput(e.target.value);
                 setEmpInput(v);
                 setEmpComboOpen(true);
                 if (!form.employeeId) return;

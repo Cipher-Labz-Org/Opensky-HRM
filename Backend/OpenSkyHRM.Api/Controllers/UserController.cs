@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.Auth;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Api.Filters;
+using OpenSkyHRM.Api.Services;
 
 namespace OpenSkyHRM.Api.Controllers;
 
@@ -54,6 +56,10 @@ public class UserController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = UserSaveExceptionMapper.Map(ex) });
+        }
     }
 
     [HttpPut("{id:guid}")]
@@ -72,6 +78,10 @@ public class UserController : ControllerBase
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = UserSaveExceptionMapper.Map(ex) });
         }
     }
 

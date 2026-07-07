@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.Services;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
@@ -114,16 +115,31 @@ public class EmployeesController : ControllerBase
         if (dto.CreateLogin != null)
         {
             var login = dto.CreateLogin;
-            if (await _db.Users.AnyAsync(u => u.Username == login.Username && !u.IsDeleted))
-                return BadRequest(new { message = $"Username '{login.Username}' already exists." });
+            try
+            {
+                InputValidators.ValidateUsername(login.Username, "Username");
+                login.Username = login.Username.Trim();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+
+            if (await _db.Users.AnyAsync(u => u.Username == login.Username))
+                return BadRequest(new { message = $"Username '{login.Username}' is already in use (including archived accounts). Choose a different username." });
 
             var user = new User
             {
                 Username = login.Username,
-                Email = created.Email,
+                Email = !string.IsNullOrWhiteSpace(created.Email)
+                    ? created.Email
+                    : !string.IsNullOrWhiteSpace(created.OtherEmail)
+                        ? created.OtherEmail
+                        : $"{created.EmployeeCode.Trim().ToLowerInvariant()}@noemail.opensky.hrm",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(login.Password),
                 IsActive = login.IsActive,
-                EmployeeId = created.Id
+                EmployeeId = created.Id,
+                MustChangePassword = true,
             };
 
             foreach (var roleId in login.RoleIds)
@@ -261,41 +277,6 @@ public class EmployeesController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
-    }
-
-    [HttpPost("{id:guid}/photo")]
-    public async Task<IActionResult> UploadPhoto(Guid id, IFormFile file, [FromServices] IWebHostEnvironment env)
-    {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
-            return Forbid();
-        if (file is null || file.Length == 0)
-            return BadRequest(new { error = "No file uploaded." });
-
-        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "image/gif" };
-        if (!allowedTypes.Contains(file.ContentType.ToLower()))
-            return BadRequest(new { error = "Only JPEG, PNG, WebP and GIF images are allowed." });
-
-        if (file.Length > 5 * 1024 * 1024)
-            return BadRequest(new { error = "File size must be less than 5 MB." });
-
-        var uploadsDir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "photos");
-        Directory.CreateDirectory(uploadsDir);
-
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (string.IsNullOrEmpty(ext)) ext = ".jpg";
-        var fileName = $"{id}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
-
-        var filePath = Path.Combine(uploadsDir, fileName);
-        using (var stream = new FileStream(filePath, FileMode.Create))
-        {
-            await file.CopyToAsync(stream);
-        }
-
-        var imageUrl = $"/uploads/photos/{fileName}";
-        var result = await _employeeService.UpdateProfileImageAsync(id, imageUrl);
-        if (result is null) return NotFound();
-
-        return Ok(new { profileImageUrl = imageUrl });
     }
 
     [HttpGet("{id:guid}/supervisors")]
@@ -701,14 +682,24 @@ public class EmployeesController : ControllerBase
         var today = DateTime.UtcNow.Date;
         const int upcomingBirthdayHorizonDays = 7;
         var upcomingEnd = today.AddDays(upcomingBirthdayHorizonDays);
+        var fromUserId = GetCurrentUserAccountId();
+        var wishedTodayIds = await GetWishedTodayEmployeeIdsAsync(fromUserId, cancellationToken);
 
         var baseQuery = _db.Employees.AsNoTracking()
-            .Include(e => e.Department)
             .Where(e =>
                 e.DateOfBirth.Year > 1900
                 && (e.TerminationDate == null || e.TerminationDate.Value.Date >= today));
 
-        var companyEmployees = await baseQuery.ToListAsync(cancellationToken);
+        var companyEmployees = await baseQuery
+            .Select(e => new BirthdaySummaryEmployeeRow(
+                e.Id,
+                e.FirstName,
+                e.MiddleName,
+                e.LastName,
+                e.Department != null ? e.Department.Name : null,
+                e.ProfileImageUrl,
+                e.DateOfBirth))
+            .ToListAsync(cancellationToken);
 
         var todayEmployees = allowedIds is null
             ? companyEmployees
@@ -724,11 +715,12 @@ public class EmployeesController : ControllerBase
             todayList.Add(new BirthdayPersonDto(
                 emp.Id,
                 FormatEmployeeDisplayName(emp),
-                emp.Department?.Name,
+                emp.DepartmentName,
                 emp.ProfileImageUrl,
                 DateOnly.FromDateTime(today).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 true,
-                0));
+                0,
+                wishedTodayIds.Contains(emp.Id)));
         }
 
         for (var d = today.AddDays(1); d <= upcomingEnd; d = d.AddDays(1))
@@ -740,7 +732,7 @@ public class EmployeesController : ControllerBase
                 upcomingList.Add(new BirthdayPersonDto(
                     emp.Id,
                     FormatEmployeeDisplayName(emp),
-                    emp.Department?.Name,
+                    emp.DepartmentName,
                     emp.ProfileImageUrl,
                     DateOnly.FromDateTime(d).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                     false,
@@ -770,15 +762,16 @@ public class EmployeesController : ControllerBase
         if (fromUserId is null)
             return Unauthorized();
 
-        var fromUser = await _db.Users.AsNoTracking()
-            .Include(u => u.Employee)
-            .FirstOrDefaultAsync(u => u.Id == fromUserId.Value, cancellationToken);
-        if (fromUser is null)
+        var senderName = await _db.Users.AsNoTracking()
+            .Where(u => u.Id == fromUserId.Value)
+            .Select(u => u.Employee != null
+                ? (string.IsNullOrWhiteSpace(u.Employee.MiddleName)
+                    ? (u.Employee.FirstName + " " + u.Employee.LastName).Trim()
+                    : (u.Employee.FirstName + " " + u.Employee.MiddleName + " " + u.Employee.LastName).Trim())
+                : (u.Username.Trim().Length > 0 ? u.Username.Trim() : "Someone"))
+            .FirstOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(senderName))
             return Unauthorized();
-
-        var senderName = fromUser.Employee != null
-            ? FormatEmployeeDisplayName(fromUser.Employee)
-            : (fromUser.Username.Trim().Length > 0 ? fromUser.Username.Trim() : "Someone");
 
         var linkedUserIds = await _db.Users.AsNoTracking()
             .Where(u => u.EmployeeId == dto.ToEmployeeId && u.IsActive && !u.IsDeleted)
@@ -815,9 +808,12 @@ public class EmployeesController : ControllerBase
 
         if (inserted > 0)
         {
-            var toEmp = await _db.Employees.AsNoTracking()
-                .FirstOrDefaultAsync(e => e.Id == dto.ToEmployeeId, cancellationToken);
-            var toName = toEmp != null ? FormatEmployeeDisplayName(toEmp) : "your colleague";
+            var toName = await _db.Employees.AsNoTracking()
+                .Where(e => e.Id == dto.ToEmployeeId)
+                .Select(e => string.IsNullOrWhiteSpace(e.MiddleName)
+                    ? (e.FirstName + " " + e.LastName).Trim()
+                    : (e.FirstName + " " + e.MiddleName + " " + e.LastName).Trim())
+                .FirstOrDefaultAsync(cancellationToken) ?? "your colleague";
             var sentDedupe = $"BD-WISH-SENT:{runDate}:{fromUserId.Value:D}:{dto.ToEmployeeId:D}";
             await _notifications.TryCreateDedupedAsync(
                 fromUserId.Value,
@@ -838,10 +834,49 @@ public class EmployeesController : ControllerBase
             ? $"{emp.FirstName} {emp.LastName}".Trim()
             : $"{emp.FirstName} {emp.MiddleName} {emp.LastName}".Trim();
 
+    private static string FormatEmployeeDisplayName(BirthdaySummaryEmployeeRow emp) =>
+        string.IsNullOrWhiteSpace(emp.MiddleName)
+            ? $"{emp.FirstName} {emp.LastName}".Trim()
+            : $"{emp.FirstName} {emp.MiddleName} {emp.LastName}".Trim();
+
+    private sealed record BirthdaySummaryEmployeeRow(
+        Guid Id,
+        string FirstName,
+        string? MiddleName,
+        string LastName,
+        string? DepartmentName,
+        string? ProfileImageUrl,
+        DateTime DateOfBirth);
+
     private Guid? GetCurrentUserAccountId()
     {
         var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         return Guid.TryParse(sub, out var id) ? id : null;
+    }
+
+    private async Task<HashSet<Guid>> GetWishedTodayEmployeeIdsAsync(Guid? fromUserId, CancellationToken cancellationToken)
+    {
+        var result = new HashSet<Guid>();
+        if (!fromUserId.HasValue) return result;
+
+        var runDate = DateTime.UtcNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        var prefix = $"BD-WISH-SENT:{runDate}:{fromUserId.Value:D}:";
+        var dedupeKeys = await _db.UserNotifications.AsNoTracking()
+            .Where(n => n.UserId == fromUserId.Value
+                        && n.Category == "BirthdayWishSent"
+                        && n.DedupeKey.StartsWith(prefix))
+            .Select(n => n.DedupeKey)
+            .ToListAsync(cancellationToken);
+
+        foreach (var key in dedupeKeys)
+        {
+            // BD-WISH-SENT:{yyyyMMdd}:{senderUserId}:{toEmployeeId}
+            var parts = key.Split(':');
+            if (parts.Length >= 4 && Guid.TryParse(parts[3], out var toEmployeeId))
+                result.Add(toEmployeeId);
+        }
+
+        return result;
     }
 
     private static IActionResult? LicenseDateValidationProblem(DateTime? issue, DateTime? expiry)
@@ -912,7 +947,8 @@ public sealed record BirthdayPersonDto(
     string? ProfileImageUrl,
     string OccasionDate,
     bool IsToday,
-    int DaysUntil);
+    int DaysUntil,
+    bool AlreadyWished = false);
 
 public sealed record BirthdaySummaryResponse(
     IReadOnlyList<BirthdayPersonDto> Today,

@@ -17,10 +17,13 @@ import {
   employmentTypeDisplayName,
   employmentTypeFilterOptions,
 } from "@/lib/employment-types";
+import { sanitizeSearchInput } from "@/lib/input-validation";
+import { formatFirstNameOnly, formatSupervisorFirstNames } from "@/lib/person-display";
 
 interface Employee {
   id: string;
   employeeCode: string;
+  firstName: string;
   fullName: string;
   departmentName: string | null;
   jobTitleName: string | null;
@@ -28,6 +31,7 @@ interface Employee {
   status: string;
   employmentType: string;
   managerName: string | null;
+  supervisorNames: string | null;
   locationName: string | null;
   isTopOfHierarchy: boolean;
   hasDirectSupervisor: boolean;
@@ -234,9 +238,7 @@ export default function PeoplePage() {
   function handleQuickSearch() {
     const term = quickSearch.trim();
     if (!term) {
-      setAppliedFilters(emptyFilters);
-      setFilters(emptyFilters);
-      setPage(1);
+      handleReset();
       setShowSuggestions(false);
       return;
     }
@@ -248,8 +250,10 @@ export default function PeoplePage() {
   }
 
   function handleSearch() {
-    setAppliedFilters({ ...filters });
-    setFilters(emptyFilters);
+    const next = { ...filters };
+    setAppliedFilters(next);
+    setFilters(next);
+    setQuickSearch(next.search);
     setPage(1);
     setShowFilters(false);
   }
@@ -261,7 +265,48 @@ export default function PeoplePage() {
     setPage(1);
     setSortBy("employeeCode");
     setSortAsc(true);
+    setActiveOnly(true);
   }
+
+  function openFilters() {
+    setFilters({ ...appliedFilters });
+    setQuickSearch(appliedFilters.search);
+    setShowFilters(true);
+  }
+
+  function removeAppliedFilter(key: keyof Filters) {
+    const next = { ...appliedFilters, [key]: "" };
+    setAppliedFilters(next);
+    setFilters(next);
+    if (key === "search") setQuickSearch("");
+    setPage(1);
+  }
+
+  function filterLabel(key: keyof Filters, value: string): string {
+    switch (key) {
+      case "search":
+        return `Name: ${value}`;
+      case "employeeCode":
+        return `Employee ID: ${value}`;
+      case "status":
+        return `Status: ${value}`;
+      case "employmentType":
+        return `Employment type: ${employmentTypeLabels[value] ?? employmentTypeDisplayName(value, employmentTypes) ?? value}`;
+      case "departmentId":
+        return `Department: ${departments.find((d) => d.id === value)?.name ?? value}`;
+      case "jobTitleId":
+        return `Job title: ${jobTitles.find((j) => j.id === value)?.name ?? value}`;
+      case "locationId":
+        return `Location: ${locations.find((l) => l.id === value)?.name ?? value}`;
+      case "managerId":
+        return `Supervisor: ${managers.find((m) => m.id === value)?.name ?? value}`;
+      default:
+        return value;
+    }
+  }
+
+  const activeFilterEntries = (Object.entries(appliedFilters) as [keyof Filters, string][])
+    .filter(([, value]) => Boolean(value));
 
   function handleSortColumn(key: PeopleSortKey) {
     setPage(1);
@@ -272,7 +317,7 @@ export default function PeoplePage() {
     }
   }
 
-  const activeFilterCount = Object.values(appliedFilters).filter(Boolean).length;
+  const activeFilterCount = activeFilterEntries.length + (!activeOnly ? 1 : 0);
 
   useEffect(() => {
     if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
@@ -418,7 +463,7 @@ export default function PeoplePage() {
               placeholder="Search employees… (Enter)"
               className="w-[280px] rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-[13px] text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               value={quickSearch}
-              onChange={(e) => { setQuickSearch(e.target.value); setShowSuggestions(true); }}
+              onChange={(e) => { setQuickSearch(sanitizeSearchInput(e.target.value)); setShowSuggestions(true); }}
               onFocus={() => setShowSuggestions(true)}
               onKeyDown={(e) => { if (e.key === "Enter") { handleQuickSearch(); } if (e.key === "Escape") setShowSuggestions(false); }}
             />
@@ -478,7 +523,7 @@ export default function PeoplePage() {
             )}
           </div>
           <button
-            onClick={() => setShowFilters(!showFilters)}
+            onClick={() => (showFilters ? setShowFilters(false) : openFilters())}
             className={`relative flex h-9 w-9 items-center justify-center rounded-xl border shadow-sm transition ${showFilters ? "border-blue-400 bg-blue-50 text-blue-600" : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600"}`}
             title={showFilters ? "Hide Filters" : "Filters"}
           >
@@ -494,6 +539,42 @@ export default function PeoplePage() {
         </div>
         <span className="text-[11px] text-slate-400">{totalEmployees} records{activeFilterCount > 0 ? " (filtered)" : ""}</span>
       </div>
+
+      {activeFilterCount > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-medium text-slate-500">Active filters:</span>
+          {activeFilterEntries.map(([key, value]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => removeAppliedFilter(key)}
+              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-900"
+              title="Remove filter"
+            >
+              {filterLabel(key, value)}
+              <span aria-hidden>×</span>
+            </button>
+          ))}
+          {!activeOnly && (
+            <button
+              type="button"
+              onClick={() => { setActiveOnly(true); setPage(1); }}
+              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-900"
+              title="Remove filter"
+            >
+              Including inactive employees
+              <span aria-hidden>×</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleReset}
+            className="text-[11px] font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
 
       {canCreateEmployee && (
       <CreateEmployeeModal
@@ -621,7 +702,7 @@ export default function PeoplePage() {
             </label>
           </div>
           <div className="mt-4 flex items-center justify-center gap-3">
-            <Button variant="secondary" onClick={() => { handleReset(); setActiveOnly(true); }}>Reset</Button>
+            <Button variant="secondary" onClick={handleReset}>Reset</Button>
             <Button variant="secondary" onClick={() => setShowFilters(false)}>Cancel</Button>
             <Button onClick={handleSearch}>Search</Button>
           </div>
@@ -686,7 +767,9 @@ export default function PeoplePage() {
                         <td className="py-2 px-3 text-[12px] font-mono text-slate-500">{emp.employeeCode}</td>
                         <td className="py-2 px-3">
                           <div className="flex items-center gap-1">
-                            <span className="text-[12px] font-medium text-slate-800">{emp.fullName}</span>
+                            <span className="text-[12px] font-medium text-slate-800">
+                              {formatFirstNameOnly(emp.firstName || emp.fullName)}
+                            </span>
                             {emp.isTopOfHierarchy && (
                               <span title="Top of Hierarchy" className="inline-flex shrink-0">
                                 <svg className="h-3 w-3 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005Z" clipRule="evenodd" /></svg>
@@ -715,7 +798,9 @@ export default function PeoplePage() {
                         </td>
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.departmentName ?? "—"}</td>
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.locationName ?? "—"}</td>
-                        <td className="py-2 px-3 pr-5 text-[12px] text-slate-600">{emp.managerName ?? "—"}</td>
+                        <td className="py-2 px-3 pr-5 text-[12px] text-slate-600">
+                          {formatSupervisorFirstNames(emp.supervisorNames ?? emp.managerName)}
+                        </td>
                       </tr>
                     );
                   })}

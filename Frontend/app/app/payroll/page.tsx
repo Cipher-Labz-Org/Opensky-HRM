@@ -9,7 +9,7 @@ import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } f
 import { API_BASE_URL } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 
@@ -582,7 +582,7 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
   return (
     <Modal open onClose={onClose} title={editing ? "Edit Component" : "Add Component"} wide>
       <form key={editing?.id ?? "new"} onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
+        <InlinePageAlert message={error} className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600 scroll-mt-20" />
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className={labelCls}>Name *</label><input name="name" required className={inputCls} defaultValue={editing?.name} /></div>
           <div><label className={labelCls}>Code *</label><input name="code" required className={inputCls} defaultValue={editing?.code} placeholder="e.g. BASIC" /></div>
@@ -861,9 +861,7 @@ function EmployeeSalaryTab() {
           </div>
         ) : (
           <>
-            {compError ? (
-              <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700">{compError}</div>
-            ) : null}
+            <InlinePageAlert message={compError} className="rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700 scroll-mt-20" />
             <SalaryComponentsEditor
               key={selectedEmp.id}
               employeeId={selectedEmp.id}
@@ -1206,9 +1204,7 @@ function SalaryComponentsEditor({
             <span className="text-slate-500">Employer statutory: LKR {fmt(employerStatutoryCost)}</span>
           ) : null}
         </div>
-        {saveError ? (
-          <div className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{saveError}</div>
-        ) : null}
+        <InlinePageAlert message={saveError} className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700 scroll-mt-20" />
       </div>
 
       {loading ? (
@@ -1302,7 +1298,7 @@ function ImportCompensationModal({ category, batchId, onClose, onImported }: { c
   return (
     <Modal open onClose={onClose} title={`Import ${category} Components`}>
       <div className="space-y-4">
-        {error && <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
+        <InlinePageAlert message={error} className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600 scroll-mt-20" />
 
         <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
           <p className="mb-2 font-medium text-slate-700">How to import:</p>
@@ -1751,7 +1747,7 @@ function ImportAttendanceLeaveModal({
         </p>
       </div>
 
-      {error && <div className="mb-3 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
+      <InlinePageAlert message={error} className="mb-3 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600 scroll-mt-20" />
 
       {loading ? <Loading /> : preview ? (
         <>
@@ -1926,7 +1922,7 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
   return (
     <Modal open onClose={onClose} title={step === 1 ? "New Payroll Batch" : `Select Employees — ${formatProcessType(processType)} — ${MONTHS[month - 1]} ${year}`} wide={step === 2}>
-      {error && <div className="mb-3 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>}
+      <InlinePageAlert message={error} className="mb-3 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600 scroll-mt-20" />
 
       {step === 1 && (
         <div className="space-y-4">
@@ -2308,7 +2304,13 @@ function SettingsTab() {
             <input name="otMultiplier" type="number" step="0.01" className={inputCls}
               defaultValue={settings?.otMultiplier ?? 1.5} />
           </div>
-          {msg && <div className={`rounded-lg px-4 py-2 text-sm ${msg.includes("success") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{msg}</div>}
+          {msg ? (
+            <InlinePageAlert
+              message={msg}
+              variant={msg.includes("success") ? "success" : "error"}
+              className={`rounded-lg px-4 py-2 text-sm scroll-mt-20 ${msg.includes("success") ? "border border-green-200 bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}
+            />
+          ) : null}
           <div className="flex justify-end pt-2">
             <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Settings"}</Button>
           </div>

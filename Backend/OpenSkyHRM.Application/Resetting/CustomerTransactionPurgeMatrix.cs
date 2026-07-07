@@ -20,6 +20,7 @@ public static class CustomerTransactionPurgeMatrix
         "EmployeeSkills",
         "EmployeeLanguages",
         "EmployeeBenefits",
+        "EmployeeDriverLicenses",
         "Immigrations",
         "ImmigrationDocuments",
         "WorkExperiences",

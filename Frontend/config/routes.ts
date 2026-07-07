@@ -22,6 +22,7 @@ export const ROUTES = {
   peopleAuditTrail: "/app/people/audit-trail",
   employeeProfile: "/app/employee-profile",
   recruitment: "/app/recruitment",
+  recruitmentTab: (tab: string) => `/app/recruitment?tab=${encodeURIComponent(tab)}`,
   recruitmentRequisition: (id: string) => `/app/recruitment/requisition/${id}`,
   onboarding: "/app/onboarding",
   offboarding: "/app/offboarding",

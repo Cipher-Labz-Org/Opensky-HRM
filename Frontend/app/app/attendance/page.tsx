@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } fro
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, DateTimePickerField, FormSelect, TablePagination, TimePickerField, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, DateTimePickerField, FormSelect, TablePagination, TimePickerField, InlinePageAlert, FormErrorAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
@@ -1211,7 +1211,7 @@ function AttendanceListTab() {
 
       <CreateAttendanceModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />
 
-      {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
+      <InlinePageAlert message={error} />
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -1440,7 +1440,7 @@ function DevicesTab() {
 
   return (
     <div className="space-y-6">
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      <InlinePageAlert message={error} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-slate-700">Biometric Devices</h2>
@@ -1684,7 +1684,7 @@ function OtNopayTab() {
         <Button onClick={calculate}>Calculate</Button>
       </div>
 
-      {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
+      <InlinePageAlert message={error} />
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -1956,7 +1956,7 @@ function ShiftsTab() {
         </label>
         <Button onClick={openAdd}>+ Add Shift</Button>
       </div>
-      {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
+      <InlinePageAlert message={error} />
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="border-b border-slate-100 px-6 py-4">
           <h2 className="text-[15px] font-bold text-slate-700">Shift Patterns</h2>
@@ -2698,8 +2698,8 @@ function RosterTab() {
 
   return (
     <div className="space-y-6">
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-      {successMsg && <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{successMsg}</div>}
+      <InlinePageAlert message={error} />
+      <InlinePageAlert message={successMsg} variant="success" />
 
       <div className="flex flex-col gap-2">
         {ROSTER_SUB_TABS.map((t) => (
@@ -2929,11 +2929,7 @@ function RosterTab() {
 
           {bulkStep === 1 && (
             <div className="space-y-4">
-              {bulkModalError && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {bulkModalError}
-                </div>
-              )}
+              <FormErrorAlert message={bulkModalError} onDismiss={() => setBulkModalError(null)} />
               <div>
                 <label className={labelClass}>Roster template *</label>
                 <FormSelect

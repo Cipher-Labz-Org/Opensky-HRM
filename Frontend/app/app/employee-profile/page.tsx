@@ -8,11 +8,16 @@ import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
-import { type EmploymentTypeCatalogItem, employmentTypeDisplayName } from "@/lib/employment-types";
+import { displayWorkEmail } from "@/lib/employee-email";
 import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
 import { Modal } from "@/components/ui/Modal";
-import { ListAutocompleteInput, SectionRecordHeaderActions } from "@/components/ui";
+import { ListAutocompleteInput, SectionRecordHeaderActions, InlinePageAlert } from "@/components/ui";
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
+import { sanitizeSearchInput } from "@/lib/input-validation";
+import {
+  type EmploymentTypeCatalogItem,
+  employmentTypeDisplayName,
+} from "@/lib/employment-types";
 
 function dash(v: string | null | undefined): string {
   const s = v?.trim();
@@ -261,12 +266,22 @@ interface ImmigrationItem {
 }
 
 interface BenefitData {
+  id: string;
   insuranceProvider: string | null;
   coverageExtendedMedical: boolean;
   coverageDental: boolean;
   coverageVision: boolean;
   spousalCoverage: boolean;
   dependentsCovered: boolean;
+}
+
+interface DriverLicenseItem {
+  id: string;
+  number: string | null;
+  licenseType: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  issuingCountry: string | null;
 }
 
 const card =
@@ -388,10 +403,14 @@ export default function EmployeeProfilePage() {
   const [skillYears, setSkillYears] = useState("");
   const [skillComments, setSkillComments] = useState("");
   const [skillMasterList, setSkillMasterList] = useState<SkillMasterItem[]>([]);
-  const skillCatalogNames = useMemo(
-    () => skillMasterList.map((s) => s.name).sort((a, b) => a.localeCompare(b)),
-    [skillMasterList],
-  );
+  const skillCatalogNames = useMemo(() => {
+    const names = new Set(skillMasterList.map((s) => s.name.trim()).filter(Boolean));
+    skills.forEach((s) => {
+      const n = s.skill.trim();
+      if (n) names.add(n);
+    });
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [skillMasterList, skills]);
   const [certRows, setCertRows] = useState<EmployeeCertRow[]>([]);
   const [languages, setLanguages] = useState<LanguageItem[]>([]);
   const [workExperiences, setWorkExperiences] = useState<WorkExperienceItem[]>([]);
@@ -403,7 +422,8 @@ export default function EmployeeProfilePage() {
   const [matrixRows, setMatrixRows] = useState<SkillMatrixRow[]>([]);
   const [immigrations, setImmigrations] = useState<ImmigrationItem[]>([]);
   const [immDocs, setImmDocs] = useState<Attachment[]>([]);
-  const [benefit, setBenefit] = useState<BenefitData | null>(null);
+  const [benefits, setBenefits] = useState<BenefitData[]>([]);
+  const [driverLicenses, setDriverLicenses] = useState<DriverLicenseItem[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
 
   const resetProfileState = useCallback(() => {
@@ -423,7 +443,8 @@ export default function EmployeeProfilePage() {
     setMatrixRows([]);
     setImmigrations([]);
     setImmDocs([]);
-    setBenefit(null);
+    setBenefits([]);
+    setDriverLicenses([]);
   }, []);
 
   const load = useCallback(async (id: string) => {
@@ -449,6 +470,7 @@ export default function EmployeeProfilePage() {
         imm,
         idocs,
         ben,
+        dls,
       ] = await Promise.all([
         apiFetch<EmergencyContactItem[]>(`/api/employees/${id}/emergency-contacts`).catch(() => []),
         apiFetch<DependentItem[]>(`/api/employees/${id}/dependents`).catch(() => []),
@@ -464,7 +486,8 @@ export default function EmployeeProfilePage() {
         apiFetch<TrainingAssignmentRow[]>(`/api/employees/${id}/training-assignments`).catch(() => []),
         apiFetch<ImmigrationItem[]>(`/api/employees/${id}/immigrations`).catch(() => []),
         apiFetch<Attachment[]>(`/api/employees/${id}/immigration-documents`).catch(() => []),
-        apiFetch<BenefitData>(`/api/employees/${id}/benefit`).catch(() => null),
+        apiFetch<BenefitData[]>(`/api/employees/${id}/benefits`).catch(() => []),
+        apiFetch<DriverLicenseItem[]>(`/api/employees/${id}/driver-licenses`).catch(() => []),
       ]);
 
       setEmergencyContacts(ec);
@@ -481,7 +504,8 @@ export default function EmployeeProfilePage() {
       setTrainingRows(train);
       setImmigrations(imm);
       setImmDocs(idocs);
-      setBenefit(ben);
+      setBenefits(ben);
+      setDriverLicenses(dls);
 
       apiFetch<SkillMasterItem[]>("/api/employees/skills-catalog")
         .then((rows) => setSkillMasterList(rows.filter((r) => r.isActive !== false)))
@@ -524,12 +548,12 @@ export default function EmployeeProfilePage() {
   }
 
   async function saveSkill() {
-    if (!effectiveEmployeeId || !skillName.trim()) return;
+    if (!effectiveEmployeeId || !skillName.trim() || !skillYears.trim()) return;
     setSkillSaving(true);
     try {
       const body = {
         skill: skillName.trim(),
-        yearsOfExperience: skillYears || null,
+        yearsOfExperience: skillYears.trim(),
         comments: skillComments || null,
       };
       if (editingSkill) {
@@ -604,9 +628,10 @@ export default function EmployeeProfilePage() {
   }, [loading, emp]);
 
   function handleDirSearchInput(query: string) {
-    setDirSearch(query);
+    const sanitized = sanitizeSearchInput(query);
+    setDirSearch(sanitized);
     if (dirSearchTimer.current) clearTimeout(dirSearchTimer.current);
-    if (!query.trim()) {
+    if (!sanitized.trim()) {
       setDirResults([]);
       setDirOpen(false);
       return;
@@ -615,7 +640,7 @@ export default function EmployeeProfilePage() {
       setDirLoading(true);
       try {
         const res = await apiFetch<{ items: EmployeeSearchHit[] }>(
-          `/api/employees?search=${encodeURIComponent(query.trim())}&pageSize=10`
+          `/api/employees?search=${encodeURIComponent(sanitized.trim())}&pageSize=10`
         );
         setDirResults(res.items ?? []);
         setDirOpen(true);
@@ -825,7 +850,7 @@ export default function EmployeeProfilePage() {
       <>
         <AppTopbar title={pageTitle} subtitle={pageSubtitle} />
         {directorySearchBar}
-        <div className="rounded-2xl border border-red-200 bg-red-50/60 px-5 py-4 text-sm text-red-800">{error ?? "Profile unavailable."}</div>
+        <InlinePageAlert message={error ?? "Profile unavailable."} className="rounded-2xl border border-red-200 bg-red-50/60 px-5 py-4 text-sm text-red-800 scroll-mt-20" />
       </>
     );
   }
@@ -931,7 +956,7 @@ export default function EmployeeProfilePage() {
         <BioSection id="bio-contact" title="Contact details">
           <h3 className="mb-4 text-xs font-bold uppercase tracking-wide text-slate-400">Reach you</h3>
           <div className="mb-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="Work email">{dash(emp.email)}</Field>
+            <Field label="Work email">{dash(displayWorkEmail(emp.email) || null)}</Field>
             <Field label="Personal email">{dash(emp.otherEmail)}</Field>
             <Field label="Mobile">{dash(emp.phone)}</Field>
             <Field label="Home telephone">{dash(emp.homeTelephone)}</Field>
@@ -1300,18 +1325,25 @@ export default function EmployeeProfilePage() {
         </BioSection>
 
         <BioSection id="bio-benefits" title="Benefits snapshot">
-          {benefit ? (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label="Insurance provider">{dash(benefit.insuranceProvider)}</Field>
-              <Field label="Extended medical">{benefit.coverageExtendedMedical ? "Yes" : "No"}</Field>
-              <Field label="Dental">{benefit.coverageDental ? "Yes" : "No"}</Field>
-              <Field label="Vision">{benefit.coverageVision ? "Yes" : "No"}</Field>
-              <Field label="Spousal coverage">{benefit.spousalCoverage ? "Yes" : "No"}</Field>
-              <Field label="Dependents covered">{benefit.dependentsCovered ? "Yes" : "No"}</Field>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400">No benefits data available.</p>
-          )}
+          <DataTable
+            empty="No benefits data available."
+            columns={[
+              { key: "provider", header: "Insurance provider" },
+              { key: "coverage", header: "Coverage" },
+              { key: "spousal", header: "Spousal" },
+              { key: "deps", header: "Dependents" },
+            ]}
+            rows={benefits.map((b) => ({
+              provider: dash(b.insuranceProvider),
+              coverage: [
+                b.coverageExtendedMedical ? "Extended Medical" : null,
+                b.coverageDental ? "Dental" : null,
+                b.coverageVision ? "Vision" : null,
+              ].filter(Boolean).join(", ") || "—",
+              spousal: b.spousalCoverage ? "Yes" : "No",
+              deps: b.dependentsCovered ? "Yes" : "No",
+            }))}
+          />
         </BioSection>
 
         <BioSection id="bio-license" title="EPF / ETF & driver’s license">
@@ -1319,13 +1351,23 @@ export default function EmployeeProfilePage() {
             <Field label="EPF number">{dash(emp.epfNumber)}</Field>
             <Field label="ETF number">{dash(emp.etfNumber)}</Field>
           </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="License number">{dash(emp.driversLicenseNumber)}</Field>
-            <Field label="License type">{dash(emp.driversLicenseType)}</Field>
-            <Field label="Issue date">{emp.licenseIssueDate ? formatDate(emp.licenseIssueDate) : "—"}</Field>
-            <Field label="Expiry date">{emp.licenseExpiryDate ? formatDate(emp.licenseExpiryDate) : "—"}</Field>
-            <Field label="Issuing country">{dash(emp.driversLicenseIssuingCountry)}</Field>
-          </div>
+          <DataTable
+            empty="No driver's license records."
+            columns={[
+              { key: "num", header: "Number" },
+              { key: "type", header: "Type" },
+              { key: "iss", header: "Issue date" },
+              { key: "exp", header: "Expiry date" },
+              { key: "country", header: "Issuing country" },
+            ]}
+            rows={driverLicenses.map((dl) => ({
+              num: dash(dl.number),
+              type: dash(dl.licenseType),
+              iss: dl.issueDate ? formatDate(dl.issueDate) : "—",
+              exp: dl.expiryDate ? formatDate(dl.expiryDate) : "—",
+              country: dash(dl.issuingCountry),
+            }))}
+          />
         </BioSection>
 
         <BioSection id="bio-immigration" title="Immigration">
@@ -1436,11 +1478,25 @@ export default function EmployeeProfilePage() {
                 options={skillCatalogNames}
                 className={skillInputClass}
                 placeholder={skillCatalogNames.length ? "Choose from list or type a skill" : "Type a skill name"}
+                showAllOnFocus
+                maxSuggestions={200}
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-slate-600">Years of Experience</label>
-              <input value={skillYears} onChange={(e) => setSkillYears(e.target.value)} className={skillInputClass} />
+              <label className="mb-1 block text-sm font-semibold text-slate-600">
+                Years of Experience<span className="text-red-500">*</span>
+              </label>
+              <input
+                value={skillYears}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "" || /^\d+$/.test(v)) setSkillYears(v);
+                }}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                className={skillInputClass}
+                required
+              />
             </div>
           </div>
           <div className="mt-4">
@@ -1465,7 +1521,7 @@ export default function EmployeeProfilePage() {
               <button
                 type="button"
                 onClick={() => void saveSkill()}
-                disabled={!skillName.trim() || skillSaving}
+                disabled={!skillName.trim() || !skillYears.trim() || skillSaving}
                 className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50"
               >
                 {skillSaving ? "Saving..." : "Save"}

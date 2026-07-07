@@ -13,10 +13,12 @@ namespace OpenSkyHRM.Api.Controllers;
 public class SystemSettingsController : ControllerBase
 {
     private readonly ISystemSettingService _service;
+    private readonly IFileStorageService _files;
 
-    public SystemSettingsController(ISystemSettingService service)
+    public SystemSettingsController(ISystemSettingService service, IFileStorageService files)
     {
         _service = service;
+        _files = files;
     }
 
     [HttpGet]
@@ -59,7 +61,7 @@ public class SystemSettingsController : ControllerBase
     }
 
     [HttpPost("company-logo")]
-    public async Task<IActionResult> UploadCompanyLogo(IFormFile file, [FromServices] IWebHostEnvironment env)
+    public async Task<IActionResult> UploadCompanyLogo(IFormFile file)
     {
         if (file is null || file.Length == 0)
             return BadRequest(new { error = "No file uploaded." });
@@ -71,20 +73,16 @@ public class SystemSettingsController : ControllerBase
         if (file.Length > 5 * 1024 * 1024)
             return BadRequest(new { error = "File size must be less than 5 MB." });
 
-        var uploadsDir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "branding");
-        Directory.CreateDirectory(uploadsDir);
-
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (string.IsNullOrEmpty(ext)) ext = ".png";
         var fileName = $"company_logo_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
+        var logoUrl = _files.BuildLogicalPath("branding", fileName);
 
-        var filePath = Path.Combine(uploadsDir, fileName);
-        using (var stream = new FileStream(filePath, FileMode.Create))
+        await using (var stream = file.OpenReadStream())
         {
-            await file.CopyToAsync(stream);
+            await _files.SaveAsync(logoUrl, stream, file.ContentType);
         }
 
-        var logoUrl = $"/uploads/branding/{fileName}";
         await _service.SetAsync("CompanyLogoUrl", logoUrl);
 
         return Ok(new { logoUrl });

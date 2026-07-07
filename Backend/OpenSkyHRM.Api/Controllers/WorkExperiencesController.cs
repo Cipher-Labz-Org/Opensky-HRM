@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
@@ -45,19 +46,30 @@ public class WorkExperiencesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create(Guid employeeId, [FromBody] WorkExperienceRequest req)
     {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Create"))
+            return Forbid();
         var employee = await _db.Employees.FindAsync(employeeId);
         if (employee is null) return NotFound();
+
+        try
+        {
+            ValidateWorkExperienceRequest(req);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         var item = new WorkExperience
         {
             EmployeeId = employeeId,
-            Company = req.Company,
-            JobTitle = req.JobTitle,
-            EmploymentType = req.EmploymentType,
+            Company = req.Company.Trim(),
+            JobTitle = req.JobTitle.Trim(),
+            EmploymentType = req.EmploymentType!.Trim(),
             FromDate = req.FromDate,
             ToDate = req.ToDate,
             Creditable = req.Creditable,
-            Comment = req.Comment,
+            Comment = string.IsNullOrWhiteSpace(req.Comment) ? null : req.Comment.Trim(),
         };
 
         _db.WorkExperiences.Add(item);
@@ -74,13 +86,22 @@ public class WorkExperiencesController : ControllerBase
             .FirstOrDefaultAsync(w => w.Id == id && w.EmployeeId == employeeId);
         if (item is null) return NotFound();
 
-        item.Company = req.Company;
-        item.JobTitle = req.JobTitle;
-        item.EmploymentType = req.EmploymentType;
+        try
+        {
+            ValidateWorkExperienceRequest(req);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
+        item.Company = req.Company.Trim();
+        item.JobTitle = req.JobTitle.Trim();
+        item.EmploymentType = req.EmploymentType!.Trim();
         item.FromDate = req.FromDate;
         item.ToDate = req.ToDate;
         item.Creditable = req.Creditable;
-        item.Comment = req.Comment;
+        item.Comment = string.IsNullOrWhiteSpace(req.Comment) ? null : req.Comment.Trim();
         await _db.SaveChangesAsync();
 
         return Ok(MapToDto(item));
@@ -112,6 +133,31 @@ public class WorkExperiencesController : ControllerBase
         Creditable = w.Creditable,
         Comment = w.Comment,
     };
+
+    private static void ValidateWorkExperienceRequest(WorkExperienceRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Company))
+            throw new InvalidOperationException("Company is required.");
+        InputValidators.ValidateAddressText(req.Company, "Company", required: true);
+
+        if (string.IsNullOrWhiteSpace(req.JobTitle))
+            throw new InvalidOperationException("Job title is required.");
+        InputValidators.ValidateAddressText(req.JobTitle, "Job title", required: true);
+
+        if (string.IsNullOrWhiteSpace(req.EmploymentType))
+            throw new InvalidOperationException("Employment type is required.");
+
+        var today = DateTime.UtcNow.Date;
+        if (req.FromDate.HasValue && req.FromDate.Value.Date > today)
+            throw new InvalidOperationException("Work experience start date cannot be in the future.");
+        if (req.ToDate.HasValue && req.ToDate.Value.Date > today)
+            throw new InvalidOperationException("Work experience end date cannot be in the future.");
+        if (req.FromDate.HasValue && req.ToDate.HasValue && req.ToDate.Value.Date < req.FromDate.Value.Date)
+            throw new InvalidOperationException("End date must be on or after the start date.");
+
+        if (!string.IsNullOrWhiteSpace(req.Comment))
+            InputValidators.ValidateAddressText(req.Comment, "Comment");
+    }
 }
 
 public class WorkExperienceDto

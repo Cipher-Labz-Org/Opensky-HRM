@@ -188,7 +188,7 @@ export default function RequisitionDetailPage() {
         <AppTopbar title="Recruitment & Hiring" subtitle={error || "Requisition not found"} />
         <div className="flex flex-col items-center justify-center gap-4 py-16">
           <p className="text-center text-red-600">{error || "Requisition not found."}</p>
-          <Link href={ROUTES.recruitment}>
+          <Link href={ROUTES.recruitmentTab("Requisitions")}>
             <Button variant="secondary" type="button">
               Back to Recruitment
             </Button>
@@ -221,6 +221,10 @@ export default function RequisitionDetailPage() {
         : "Openings TBD";
 
   const year = new Date().getFullYear();
+  const canSharePublicLink =
+    !!careersPublicUrl &&
+    !req.closedAt &&
+    (req.status === "Approved" || req.status === "PendingLevel2");
 
   return (
     <>
@@ -229,14 +233,14 @@ export default function RequisitionDetailPage() {
       <div className="mx-auto w-full max-w-3xl px-0 pb-8 sm:px-2">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-600">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <Link href={ROUTES.recruitment} className="text-neutral-600 underline-offset-2 hover:text-neutral-900 hover:underline">
+            <Link href={ROUTES.recruitmentTab("Requisitions")} className="text-neutral-600 underline-offset-2 hover:text-neutral-900 hover:underline">
               Recruitment
             </Link>
             <span className="text-neutral-300">/</span>
             <span className="font-mono text-neutral-800">{req.code}</span>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href={ROUTES.recruitment}>
+            <Link href={ROUTES.recruitmentTab("Requisitions")}>
               <Button variant="secondary" type="button" className="text-sm">
                 ← All requisitions
               </Button>
@@ -247,7 +251,7 @@ export default function RequisitionDetailPage() {
           </div>
         </div>
 
-        {careersPublicUrl ? (
+        {canSharePublicLink ? (
           <section className="mb-6 rounded-xl border border-sky-200/80 bg-gradient-to-b from-sky-50/90 to-white px-4 py-4 shadow-sm sm:px-5">
             <h3 className="text-sm font-bold text-slate-800">Share this job</h3>
             <p className="mt-1.5 text-xs leading-relaxed text-slate-600">

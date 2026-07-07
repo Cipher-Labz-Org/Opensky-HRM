@@ -54,6 +54,12 @@ public class DependentsController : ControllerBase
         {
             InputValidators.ValidatePersonName(req.FirstName, "First name");
             InputValidators.ValidatePersonName(req.LastName, "Last name");
+            if (string.IsNullOrWhiteSpace(req.Occupation))
+                throw new InvalidOperationException("Occupation is required.");
+            if (string.IsNullOrWhiteSpace(req.Organization))
+                throw new InvalidOperationException("Organization is required.");
+            InputValidators.ValidateAddressText(req.Occupation, "Occupation");
+            InputValidators.ValidateAddressText(req.Organization, "Organization");
         }
         catch (InvalidOperationException ex)
         {
@@ -63,13 +69,13 @@ public class DependentsController : ControllerBase
         var dependent = new Dependent
         {
             EmployeeId = employeeId,
-            FirstName = req.FirstName,
-            LastName = req.LastName,
+            FirstName = req.FirstName.Trim(),
+            LastName = req.LastName.Trim(),
             Relationship = req.Relationship,
             DateOfBirth = req.DateOfBirth,
             MaritalStatus = req.MaritalStatus,
-            Occupation = req.Occupation,
-            Organization = req.Organization,
+            Occupation = req.Occupation!.Trim(),
+            Organization = req.Organization!.Trim(),
         };
 
         _db.Dependents.Add(dependent);
@@ -92,19 +98,25 @@ public class DependentsController : ControllerBase
         {
             InputValidators.ValidatePersonName(req.FirstName, "First name");
             InputValidators.ValidatePersonName(req.LastName, "Last name");
+            if (string.IsNullOrWhiteSpace(req.Occupation))
+                throw new InvalidOperationException("Occupation is required.");
+            if (string.IsNullOrWhiteSpace(req.Organization))
+                throw new InvalidOperationException("Organization is required.");
+            InputValidators.ValidateAddressText(req.Occupation, "Occupation");
+            InputValidators.ValidateAddressText(req.Organization, "Organization");
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
         }
 
-        dependent.FirstName = req.FirstName;
-        dependent.LastName = req.LastName;
+        dependent.FirstName = req.FirstName.Trim();
+        dependent.LastName = req.LastName.Trim();
         dependent.Relationship = req.Relationship;
         dependent.DateOfBirth = req.DateOfBirth;
         dependent.MaritalStatus = req.MaritalStatus;
-        dependent.Occupation = req.Occupation;
-        dependent.Organization = req.Organization;
+        dependent.Occupation = req.Occupation!.Trim();
+        dependent.Organization = req.Organization!.Trim();
         await _db.SaveChangesAsync();
 
         return Ok(MapToDto(dependent));

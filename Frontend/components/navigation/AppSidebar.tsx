@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/hooks/use-auth";
+import { sanitizeSearchInput } from "@/lib/input-validation";
 export type NavItem = { href: string; label: string };
 export type NavGroup = { title: string; items: NavItem[] };
 
@@ -171,7 +172,7 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
                   type="text"
                   placeholder="Search"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => setSearchQuery(sanitizeSearchInput(e.target.value))}
                   className="w-full bg-transparent py-1 text-xs text-[#5f739f] outline-none placeholder:text-[#8ea0bc]"
                 />
                 <svg className="h-4 w-4 text-[#6b81ac]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">

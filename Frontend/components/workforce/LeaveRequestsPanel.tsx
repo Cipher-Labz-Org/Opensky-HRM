@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
 import { formatDate } from "@/lib/date-utils";
@@ -309,11 +309,7 @@ export function LeaveRequestsPanel({
         </Button>
       </div>
 
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-center text-sm text-red-700 shadow-sm">
-          {error}
-        </div>
-      )}
+      <InlinePageAlert message={error} className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-center text-sm text-red-700 shadow-sm scroll-mt-20" />
 
       <div className={`${panelClass} overflow-x-auto`}>
         <table className="hris-table min-w-[880px]">
