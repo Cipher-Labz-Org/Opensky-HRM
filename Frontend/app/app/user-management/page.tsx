@@ -10,7 +10,15 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
 import { useApplyFilter } from "@/lib/use-apply-filter";
-import { USERNAME_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import {
+  sanitizeUsernameInput,
+  isValidUsername,
+  isValidEmailInput,
+  isValidEmailFormat,
+  USERNAME_VALIDATION_MESSAGE,
+  EMAIL_INPUT_VALIDATION_MESSAGE,
+  EMAIL_FORMAT_VALIDATION_MESSAGE,
+} from "@/lib/input-validation";
 import { modalShellWidthClass } from "@/lib/modal-layout";
 
 interface UserItem {

@@ -291,7 +291,7 @@ export default function PeoplePage() {
       case "status":
         return `Status: ${value}`;
       case "employmentType":
-        return `Employment type: ${employmentTypeLabels[value] ?? employmentTypeDisplayName(value, employmentTypes) ?? value}`;
+        return `Employment type: ${employmentTypeLabels[value] ?? employmentTypeDisplayName(employmentTypes, value) ?? value}`;
       case "departmentId":
         return `Department: ${departments.find((d) => d.id === value)?.name ?? value}`;
       case "jobTitleId":
