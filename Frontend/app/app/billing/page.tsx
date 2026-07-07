@@ -8,7 +8,7 @@ import { formatDate as fmtDate } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
 import { useAuth } from "@/contexts/auth-context";
 import Link from "next/link";
-import { DatePickerField } from "@/components/ui";
+import { DatePickerField, InlinePageAlert } from "@/components/ui";
 
 type LicensingSummary = {
   planName: string;
@@ -276,16 +276,15 @@ export default function BillingPage() {
       <AppTopbar title="Billing" subtitle="Plan, licensed modules, and subscription (per instance)." />
 
       <div className="mt-6 space-y-6">
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-            {error}
-          </div>
-        )}
-        {success && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
-            {success}
-          </div>
-        )}
+        <InlinePageAlert
+          message={error}
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200 scroll-mt-20"
+        />
+        <InlinePageAlert
+          message={success}
+          variant="success"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 scroll-mt-20"
+        />
 
         <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
           {billingKpis.map((kpi) => (

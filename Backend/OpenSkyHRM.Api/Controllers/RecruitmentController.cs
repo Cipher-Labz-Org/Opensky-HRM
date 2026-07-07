@@ -26,12 +26,18 @@ public class RecruitmentController : ControllerBase
     private readonly IRecruitmentService _svc;
     private readonly IEmployeeService _employeeService;
     private readonly AppDbContext _db;
+    private readonly IFileStorageService _files;
 
-    public RecruitmentController(IRecruitmentService svc, IEmployeeService employeeService, AppDbContext db)
+    public RecruitmentController(
+        IRecruitmentService svc,
+        IEmployeeService employeeService,
+        AppDbContext db,
+        IFileStorageService files)
     {
         _svc = svc;
         _employeeService = employeeService;
         _db = db;
+        _files = files;
     }
 
     // ── Requisitions ─────────────────────────────────────────────
@@ -146,8 +152,7 @@ public class RecruitmentController : ControllerBase
         [FromForm] string phone,
         [FromForm] Guid requisitionId,
         [FromForm] string? source,
-        IFormFile? resume,
-        [FromServices] IWebHostEnvironment env)
+        IFormFile? resume)
     {
         if (resume == null || resume.Length == 0)
             return BadRequest(new { message = "Resume PDF is required." });
@@ -203,11 +208,7 @@ public class RecruitmentController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
 
-        var dir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", created.Id.ToString());
-        Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, "resume.pdf");
-        await using (var fs = System.IO.File.Create(path))
-            await resume.CopyToAsync(fs);
+        await SaveCandidateResumeAsync(created.Id, resume);
 
         var emailNotification = await _svc.NotifyJobApplicationSubmittedAsync(created.Id);
 
@@ -254,8 +255,7 @@ public class RecruitmentController : ControllerBase
         [FromForm] string firstName,
         [FromForm] string lastName,
         [FromForm] string phone,
-        IFormFile? resume,
-        [FromServices] IWebHostEnvironment env)
+        IFormFile? resume)
     {
         try
         {
@@ -288,13 +288,7 @@ public class RecruitmentController : ControllerBase
                 resumeFileName);
 
             if (resume != null && resume.Length > 0)
-            {
-                var dir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", id.ToString());
-                Directory.CreateDirectory(dir);
-                var path = Path.Combine(dir, "resume.pdf");
-                await using var fs = System.IO.File.Create(path);
-                await resume.CopyToAsync(fs);
-            }
+                await SaveCandidateResumeAsync(id, resume);
 
             return Ok(updated);
         }
@@ -308,42 +302,47 @@ public class RecruitmentController : ControllerBase
     [HttpGet("public/applications/{id:guid}/resume")]
     public async Task<IActionResult> DownloadPublicApplicationResume(
         Guid id,
-        [FromQuery] string email,
-        [FromServices] IWebHostEnvironment env)
+        [FromQuery] string email)
     {
         var app = await _svc.GetPublicApplicationAsync(id, email);
         if (app == null || !app.HasUploadedResume)
-            return NotFound();
-
-        var path = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", id.ToString(), "resume.pdf");
-        if (!System.IO.File.Exists(path))
             return NotFound();
 
         var download = string.IsNullOrWhiteSpace(app.ResumeFileName) ? "resume.pdf" : Path.GetFileName(app.ResumeFileName);
         if (string.IsNullOrWhiteSpace(download) || download.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             download = "resume.pdf";
 
-        var bytes = await System.IO.File.ReadAllBytesAsync(path);
-        return File(bytes, "application/pdf", download);
+        return await ResumeFileResultAsync(id, download) ?? NotFound();
     }
 
     [HttpGet("candidates/{id:guid}/resume")]
-    public async Task<IActionResult> DownloadCandidateResume(Guid id, [FromServices] IWebHostEnvironment env)
+    public async Task<IActionResult> DownloadCandidateResume(Guid id)
     {
         var detail = await _svc.GetCandidateByIdAsync(id);
         if (detail == null || !detail.HasUploadedResume)
-            return NotFound();
-
-        var path = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "candidates", id.ToString(), "resume.pdf");
-        if (!System.IO.File.Exists(path))
             return NotFound();
 
         var download = string.IsNullOrWhiteSpace(detail.ResumeUrl) ? "resume.pdf" : Path.GetFileName(detail.ResumeUrl);
         if (string.IsNullOrWhiteSpace(download) || download.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             download = "resume.pdf";
 
-        var bytes = await System.IO.File.ReadAllBytesAsync(path);
-        return File(bytes, "application/pdf", download);
+        return await ResumeFileResultAsync(id, download) ?? NotFound();
+    }
+
+    private string CandidateResumePath(Guid candidateId) =>
+        _files.BuildLogicalPath($"candidates/{candidateId}", "resume.pdf");
+
+    private async Task SaveCandidateResumeAsync(Guid candidateId, IFormFile resume)
+    {
+        await using var stream = resume.OpenReadStream();
+        await _files.SaveAsync(CandidateResumePath(candidateId), stream, "application/pdf");
+    }
+
+    private async Task<IActionResult?> ResumeFileResultAsync(Guid candidateId, string downloadName)
+    {
+        var stored = await _files.OpenReadAsync(CandidateResumePath(candidateId));
+        if (stored is null) return null;
+        return File(stored.Stream, stored.ContentType ?? "application/pdf", downloadName);
     }
 
     [HttpPut("candidates/{id}")]
@@ -416,16 +415,31 @@ public class RecruitmentController : ControllerBase
         if (dto.CreateLogin != null)
         {
             var login = dto.CreateLogin;
-            if (await _db.Users.AnyAsync(u => u.Username == login.Username && !u.IsDeleted))
-                return BadRequest(new { message = $"Username '{login.Username}' already exists." });
+            try
+            {
+                InputValidators.ValidateUsername(login.Username, "Username");
+                login.Username = login.Username.Trim();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+
+            if (await _db.Users.AnyAsync(u => u.Username == login.Username))
+                return BadRequest(new { message = $"Username '{login.Username}' is already in use (including archived accounts). Choose a different username." });
 
             var user = new User
             {
                 Username = login.Username,
-                Email = created.Email,
+                Email = !string.IsNullOrWhiteSpace(created.Email)
+                    ? created.Email
+                    : !string.IsNullOrWhiteSpace(created.OtherEmail)
+                        ? created.OtherEmail
+                        : $"{created.EmployeeCode.Trim().ToLowerInvariant()}@noemail.opensky.hrm",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(login.Password),
                 IsActive = login.IsActive,
                 EmployeeId = created.Id,
+                MustChangePassword = true,
             };
 
             foreach (var roleId in login.RoleIds)

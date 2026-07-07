@@ -9,7 +9,7 @@ public class Employee : AuditableEntity
     public string FirstName { get; set; } = string.Empty;
     public string? MiddleName { get; set; }
     public string LastName { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
+    public string? Email { get; set; }
     public string? Phone { get; set; }
     public string? AddressStreet1 { get; set; }
     public string? AddressStreet2 { get; set; }
@@ -90,7 +90,8 @@ public class Employee : AuditableEntity
     public ICollection<Education> Educations { get; set; } = new List<Education>();
     public ICollection<EmployeeSkill> Skills { get; set; } = new List<EmployeeSkill>();
     public ICollection<EmployeeLanguage> Languages { get; set; } = new List<EmployeeLanguage>();
-    public EmployeeBenefit? Benefit { get; set; }
+    public ICollection<EmployeeBenefit> Benefits { get; set; } = new List<EmployeeBenefit>();
+    public ICollection<EmployeeDriverLicense> DriverLicenses { get; set; } = new List<EmployeeDriverLicense>();
     public ICollection<Immigration> Immigrations { get; set; } = new List<Immigration>();
     public ICollection<ImmigrationDocument> ImmigrationDocuments { get; set; } = new List<ImmigrationDocument>();
     public ICollection<WorkExperience> WorkExperiences { get; set; } = new List<WorkExperience>();

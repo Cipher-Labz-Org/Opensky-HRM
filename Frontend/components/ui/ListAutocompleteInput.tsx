@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { sanitizeSearchInput } from "@/lib/input-validation";
 
-const MAX_SUGGESTIONS = 12;
+const DEFAULT_MAX_SUGGESTIONS = 12;
 
 export function ListAutocompleteInput({
   name,
@@ -12,6 +13,8 @@ export function ListAutocompleteInput({
   className = "",
   placeholder = "Type to search…",
   disabled = false,
+  showAllOnFocus = false,
+  maxSuggestions = DEFAULT_MAX_SUGGESTIONS,
 }: {
   name: string;
   value: string;
@@ -20,6 +23,10 @@ export function ListAutocompleteInput({
   className?: string;
   placeholder?: string;
   disabled?: boolean;
+  /** When true, focus shows the full option list; typing still filters and custom values are allowed. */
+  showAllOnFocus?: boolean;
+  /** Max items in the dropdown. Use a large number (e.g. 200) with showAllOnFocus for full catalogs. */
+  maxSuggestions?: number;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputId = useId();
@@ -41,14 +48,19 @@ export function ListAutocompleteInput({
 
   const suggestions = useMemo(() => {
     const q = inputText.trim().toLowerCase();
-    if (!q) return [];
-    return options.filter((item) => item.toLowerCase().includes(q)).slice(0, MAX_SUGGESTIONS);
-  }, [inputText, options]);
+    const filtered = q
+      ? options.filter((item) => item.toLowerCase().includes(q))
+      : showAllOnFocus
+        ? options
+        : [];
+    return filtered.slice(0, maxSuggestions);
+  }, [inputText, options, showAllOnFocus, maxSuggestions]);
 
   function onInputChange(next: string) {
-    setInputText(next);
-    onChange(next);
-    setOpen(next.trim().length > 0);
+    const sanitized = sanitizeSearchInput(next);
+    setInputText(sanitized);
+    onChange(sanitized);
+    setOpen(showAllOnFocus ? options.length > 0 : sanitized.trim().length > 0);
   }
 
   function pickItem(item: string) {
@@ -66,6 +78,10 @@ export function ListAutocompleteInput({
         value={inputText}
         onChange={(e) => onInputChange(e.target.value)}
         onFocus={() => {
+          if (showAllOnFocus && options.length > 0) {
+            setOpen(true);
+            return;
+          }
           if (inputText.trim().length > 0 && suggestions.length > 0) setOpen(true);
         }}
         onKeyDown={(e) => {

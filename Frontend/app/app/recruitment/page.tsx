@@ -3,19 +3,21 @@
 import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { TablePagination } from "@/components/ui/TablePagination";
-import { DateTimePickerField, FormSelect, PersonNameInput, PhoneInput, type FormSelectOption } from "@/components/ui";
+import { DateTimePickerField, FormSelect, PersonNameInput, PhoneInput, EmailInput, type FormSelectOption } from "@/components/ui";
 import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { CreateRequisitionModal } from "@/components/forms/CreateRequisitionModal";
 import { Modal } from "@/components/ui/Modal";
+import { ROUTES } from "@/config/routes";
 import { apiFetch } from "@/lib/api";
+import { modalShellWidthClass } from "@/lib/modal-layout";
 import { formatBusinessDateTime, formatDate } from "@/lib/date-utils";
 import { type EmploymentTypeCatalogItem, employmentTypeSelectOptions } from "@/lib/employment-types";
 import { useApplyFilter } from "@/lib/use-apply-filter";
-import { ROUTES } from "@/config/routes";
+import { formatRecruitmentActivityDescription } from "@/lib/recruitment-activity";
 import {
   defaultScheduleTitle,
   inferInterviewTypeFromTitle,
@@ -90,6 +92,7 @@ interface Dashboard {
 
 interface Activity {
   id: string; activityType: string; description: string;
+  candidateName?: string | null;
   performedBy?: string; performedAt: string;
 }
 
@@ -145,6 +148,7 @@ const inputClassSlate =
 
 export default function RecruitmentPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<(typeof TABS)[number]>("Dashboard");
   const [showCreate, setShowCreate] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -473,6 +477,18 @@ export default function RecruitmentPage() {
 
   const inputClass = inputClassSlate;
 
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t && (TABS as readonly string[]).includes(t)) {
+      setTab(t as (typeof TABS)[number]);
+    }
+  }, [searchParams]);
+
+  function selectTab(next: (typeof TABS)[number]) {
+    setTab(next);
+    router.replace(ROUTES.recruitmentTab(next), { scroll: false });
+  }
+
   return (
     <>
       <AppTopbar
@@ -485,7 +501,7 @@ export default function RecruitmentPage() {
           <button
             key={t}
             type="button"
-            onClick={() => setTab(t)}
+            onClick={() => selectTab(t)}
             className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
               tab === t
                 ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/90"
@@ -620,7 +636,7 @@ export default function RecruitmentPage() {
                         />
                         <strong className="truncate text-sm text-slate-800">{a.activityType || "Activity"}</strong>
                       </div>
-                      <div className="text-sm text-slate-600">{a.description}</div>
+                      <div className="text-sm text-slate-600">{formatRecruitmentActivityDescription(a)}</div>
                     </div>
                   </div>
                 ))}
@@ -1119,7 +1135,7 @@ export default function RecruitmentPage() {
       {scheduleModal && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 pt-16 pb-10"
           onClick={(e) => { if (e.target === e.currentTarget) setScheduleModal(false); }}>
-          <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className={`relative w-full ${modalShellWidthClass()} rounded-2xl border border-slate-200 bg-white p-6 shadow-xl`}>
             <h2 className="mb-4 text-lg font-semibold text-slate-900">Schedule Interview</h2>
             <div className="space-y-3">
               <div>
@@ -1270,7 +1286,7 @@ export default function RecruitmentPage() {
       {showAddCandidate && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 pt-16 pb-10"
           onClick={(e) => { if (e.target === e.currentTarget) setShowAddCandidate(false); }}>
-          <div className="relative w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className={`relative w-full ${modalShellWidthClass(true)} rounded-2xl border border-slate-200 bg-white p-6 shadow-xl`}>
             <h2 className="mb-4 text-lg font-semibold text-slate-900">Add Candidate</h2>
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -1288,7 +1304,7 @@ export default function RecruitmentPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">Email *</label>
-                  <input type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@example.com)" className={inputClass} value={candidateForm.email}
+                  <EmailInput className={inputClass} value={candidateForm.email}
                     onChange={(e) => setCandidateForm({ ...candidateForm, email: e.target.value })} />
                 </div>
                 <div>
@@ -1409,7 +1425,7 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 pt-16 pb-10"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="relative w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <div className={`relative w-full ${modalShellWidthClass(true)} rounded-2xl border border-slate-200 bg-white p-6 shadow-xl`}>
         <h2 className="mb-4 text-lg font-semibold text-slate-900">Edit Requisition</h2>
         <div className="space-y-3">
           <div>
@@ -1460,9 +1476,7 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Application notification email</label>
-            <input
-              type="email"
-              inputMode="email"
+            <EmailInput
               className={inputClass}
               placeholder="hr@company.com — optional; uses global default if empty"
               value={form.applicationNotificationEmail || ""}

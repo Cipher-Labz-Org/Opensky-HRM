@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { PersonNameInput, PhoneInput } from "@/components/ui";
+import { PersonNameInput, PhoneInput, EmailInput } from "@/components/ui";
 import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { type ApiFetchOptions, publicApiFetch } from "@/lib/api";
 import { APP_NAME, getApiBaseUrl } from "@/config/constants";
@@ -333,8 +333,7 @@ export function CandidateJobApplicationPanel({
           <p className="text-sm text-slate-600">Enter the email you used when applying to view your submission.</p>
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-slate-800">Email</span>
-            <input
-              type="email"
+            <EmailInput
               value={lookupEmail}
               onChange={(e) => setLookupEmail(e.target.value)}
               className={inputClass}
@@ -503,8 +502,7 @@ export function CandidateJobApplicationPanel({
               <span className="mb-1.5 block text-sm font-medium text-slate-800">
                 Email <span className="text-red-500">*</span>
               </span>
-              <input
-                type="email"
+              <EmailInput
                 value={applyEmail}
                 onChange={(e) => setApplyEmail(e.target.value)}
                 className={inputClass}

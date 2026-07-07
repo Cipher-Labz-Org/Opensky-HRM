@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Recruitment;
@@ -19,7 +18,7 @@ public class RecruitmentService : IRecruitmentService
     private readonly ISystemSettingService _settings;
     private readonly IEmailService _email;
     private readonly ILogger<RecruitmentService> _logger;
-    private readonly IHostEnvironment _hostEnv;
+    private readonly IFileStorageService _files;
     private readonly IConfiguration _configuration;
 
     public RecruitmentService(
@@ -27,22 +26,22 @@ public class RecruitmentService : IRecruitmentService
         ISystemSettingService settings,
         IEmailService email,
         ILogger<RecruitmentService> logger,
-        IHostEnvironment hostEnv,
+        IFileStorageService files,
         IConfiguration configuration)
     {
         _db = db;
         _settings = settings;
         _email = email;
         _logger = logger;
-        _hostEnv = hostEnv;
+        _files = files;
         _configuration = configuration;
     }
 
-    private bool ResumeFileExists(Guid candidateId)
-    {
-        var path = Path.Combine(_hostEnv.ContentRootPath, "wwwroot", "uploads", "candidates", candidateId.ToString(), "resume.pdf");
-        return File.Exists(path);
-    }
+    private string CandidateResumePath(Guid candidateId) =>
+        _files.BuildLogicalPath($"candidates/{candidateId}", "resume.pdf");
+
+    private Task<bool> ResumeFileExistsAsync(Guid candidateId) =>
+        _files.ExistsAsync(CandidateResumePath(candidateId));
 
     private static bool CandidateAllowsSelfServiceEdit(string stage) =>
         !string.Equals(stage, "Rejected", StringComparison.OrdinalIgnoreCase)
@@ -52,7 +51,7 @@ public class RecruitmentService : IRecruitmentService
     private static DateTime AsStoredUtc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
-    private PublicCandidateApplicationDto MapPublicApplication(Candidate c) => new()
+    private async Task<PublicCandidateApplicationDto> MapPublicApplicationAsync(Candidate c) => new()
     {
         Id = c.Id,
         FirstName = c.FirstName,
@@ -63,7 +62,7 @@ public class RecruitmentService : IRecruitmentService
         AppliedAt = AsStoredUtc(c.AppliedAt),
         RequisitionId = c.RequisitionId,
         RequisitionTitle = c.Requisition?.Title,
-        HasUploadedResume = ResumeFileExists(c.Id),
+        HasUploadedResume = await ResumeFileExistsAsync(c.Id),
         ResumeFileName = c.ResumeUrl,
         CanEdit = CandidateAllowsSelfServiceEdit(c.Stage),
     };
@@ -150,6 +149,8 @@ public class RecruitmentService : IRecruitmentService
 
     public async Task<RequisitionDto> CreateRequisitionAsync(CreateRequisitionDto dto)
     {
+        InputValidators.ValidateEmailInput(dto.ApplicationNotificationEmail, "Application notification email", required: false);
+
         var req = new Requisition
         {
             Title = dto.Title, Code = dto.Code, Description = dto.Description, Vacancies = dto.Vacancies,
@@ -172,6 +173,7 @@ public class RecruitmentService : IRecruitmentService
     {
         var req = await _db.Requisitions.FindAsync(dto.Id)
             ?? throw new InvalidOperationException("Requisition not found");
+        InputValidators.ValidateEmailInput(dto.ApplicationNotificationEmail, "Application notification email", required: false);
         req.Title = dto.Title; req.Code = dto.Code; req.Description = dto.Description;
         req.Vacancies = dto.Vacancies; req.TargetDate = dto.TargetDate; req.Priority = dto.Priority;
         req.EmploymentType = dto.EmploymentType; req.ExperienceMin = dto.ExperienceMin;
@@ -325,6 +327,7 @@ public class RecruitmentService : IRecruitmentService
         InputValidators.ValidatePersonName(dto.FirstName, "First name");
         InputValidators.ValidatePersonName(dto.LastName, "Last name");
         InputValidators.ValidatePhone(dto.Phone, "Phone", required: false);
+        InputValidators.ValidateEmailInput(dto.Email, "Email", required: true);
 
         var candidate = new Candidate
         {
@@ -346,7 +349,7 @@ public class RecruitmentService : IRecruitmentService
     public async Task<PublicCandidateApplicationDto?> GetPublicApplicationAsync(Guid candidateId, string email)
     {
         var c = await FindCandidateForSelfServiceAsync(candidateId, email);
-        return c == null ? null : MapPublicApplication(c);
+        return c == null ? null : await MapPublicApplicationAsync(c);
     }
 
     public async Task<PublicCandidateApplicationDto?> LookupPublicApplicationAsync(Guid requisitionId, string email)
@@ -361,7 +364,7 @@ public class RecruitmentService : IRecruitmentService
             .OrderByDescending(x => x.AppliedAt)
             .FirstOrDefaultAsync();
 
-        return c == null ? null : MapPublicApplication(c);
+        return c == null ? null : await MapPublicApplicationAsync(c);
     }
 
     public async Task<PublicCandidateApplicationDto> UpdatePublicApplicationAsync(
@@ -389,7 +392,7 @@ public class RecruitmentService : IRecruitmentService
             c.ResumeUrl = resumeFileName.Trim();
 
         await _db.SaveChangesAsync();
-        return MapPublicApplication(c);
+        return await MapPublicApplicationAsync(c);
     }
 
     public async Task<JobApplicationEmailNotificationResultDto> NotifyJobApplicationSubmittedAsync(Guid candidateId)
@@ -433,7 +436,7 @@ public class RecruitmentService : IRecruitmentService
 
         var reqTitle = c.Requisition?.Title?.Trim() ?? "Position";
         var reqCode = c.Requisition?.Code?.Trim() ?? "—";
-        var resumeUploaded = ResumeFileExists(candidateId);
+        var resumeUploaded = await ResumeFileExistsAsync(candidateId);
 
         try
         {
@@ -476,6 +479,7 @@ public class RecruitmentService : IRecruitmentService
         InputValidators.ValidatePersonName(dto.FirstName, "First name");
         InputValidators.ValidatePersonName(dto.LastName, "Last name");
         InputValidators.ValidatePhone(dto.Phone, "Phone", required: false);
+        InputValidators.ValidateEmailInput(dto.Email, "Email", required: true);
 
         c.FirstName = dto.FirstName; c.LastName = dto.LastName; c.Email = dto.Email;
         c.Phone = dto.Phone; c.ResumeUrl = dto.ResumeUrl; c.Source = dto.Source;
@@ -1023,12 +1027,10 @@ public class RecruitmentService : IRecruitmentService
         var offer = await _db.Offers.FirstOrDefaultAsync(o => o.Id == offerId)
             ?? throw new InvalidOperationException("Offer not found.");
 
-        var dir = Path.Combine(_hostEnv.ContentRootPath, "wwwroot", "uploads", "offers", offerId.ToString());
-        Directory.CreateDirectory(dir);
-        var fileName = "offer-letter.pdf";
-        var physicalPath = Path.Combine(dir, fileName);
-        await File.WriteAllBytesAsync(physicalPath, pdfBytes);
-        offer.OfferLetterUrl = $"/uploads/offers/{offerId}/{fileName}";
+        var logicalPath = _files.BuildLogicalPath($"offers/{offerId}", "offer-letter.pdf");
+        await using var stream = new MemoryStream(pdfBytes);
+        await _files.SaveAsync(logicalPath, stream, "application/pdf");
+        offer.OfferLetterUrl = logicalPath;
         await _db.SaveChangesAsync();
     }
 
@@ -1059,7 +1061,7 @@ public class RecruitmentService : IRecruitmentService
         if (offer.Candidate != null)
         {
             offer.Candidate.Stage = "Hired";
-            LogActivity(offer.CandidateId, "StageChange", "Offer accepted — candidate moved to Hired");
+            LogActivity(offer.CandidateId, "StageChange", $"{offer.Candidate.FullName} — offer accepted, moved to Hired");
         }
         await _db.SaveChangesAsync();
         return MapOffer(offer);
@@ -1173,8 +1175,12 @@ public class RecruitmentService : IRecruitmentService
             .Take(10)
             .Select(a => new CandidateActivityDto
             {
-                Id = a.Id, ActivityType = a.ActivityType, Description = a.Description,
-                PerformedBy = a.PerformedBy, PerformedAt = AsStoredUtc(a.PerformedAt),
+                Id = a.Id,
+                ActivityType = a.ActivityType,
+                Description = a.Description,
+                CandidateName = a.Candidate.FirstName + " " + a.Candidate.LastName,
+                PerformedBy = a.PerformedBy,
+                PerformedAt = AsStoredUtc(a.PerformedAt),
             })
             .ToListAsync();
 
@@ -1284,7 +1290,7 @@ public class RecruitmentService : IRecruitmentService
         Rating = c.Rating, RejectionReason = c.RejectionReason, Tags = c.Tags,
         RequisitionId = c.RequisitionId, RequisitionTitle = c.Requisition?.Title,
         EmployeeId = c.EmployeeId,
-        HasUploadedResume = ResumeFileExists(c.Id),
+        HasUploadedResume = !string.IsNullOrWhiteSpace(c.ResumeUrl),
     };
 
     private static InterviewDto MapInterview(Interview i) => new()

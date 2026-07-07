@@ -155,16 +155,28 @@ public class AuthService : IAuthService
 
     public async Task<UserListDto> CreateUserAsync(CreateUserDto dto)
     {
-        if (await _db.Users.AnyAsync(u => u.Username == dto.Username && !u.IsDeleted))
-            throw new InvalidOperationException($"Username '{dto.Username}' already exists.");
+        InputValidators.ValidateUsername(dto.Username, "Username");
+        dto.Username = dto.Username.Trim();
+        InputValidators.ValidateEmailInput(dto.Email, "Email", required: false);
+
+        if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 6)
+            throw new InvalidOperationException("Password must be at least 6 characters.");
+
+        if (dto.RoleIds == null || dto.RoleIds.Count == 0)
+            throw new InvalidOperationException("At least one role is required.");
+
+        if (await _db.Users.AnyAsync(u => u.Username == dto.Username))
+            throw new InvalidOperationException(
+                $"Username '{dto.Username}' is already in use (including archived accounts). Choose a different username.");
 
         var normalizedEmail = string.IsNullOrWhiteSpace(dto.Email)
             ? $"user-{Guid.NewGuid():N}@noemail.opensky.hrm"
             : dto.Email.Trim();
 
         if (!string.IsNullOrWhiteSpace(dto.Email) &&
-            await _db.Users.AnyAsync(u => u.Email == normalizedEmail && !u.IsDeleted))
-            throw new InvalidOperationException($"Email '{normalizedEmail}' already exists.");
+            await _db.Users.AnyAsync(u => u.Email == normalizedEmail))
+            throw new InvalidOperationException(
+                $"Email '{normalizedEmail}' is already in use (including archived accounts). Choose a different email.");
 
         var user = new User
         {
@@ -172,7 +184,8 @@ public class AuthService : IAuthService
             Email = normalizedEmail,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
             IsActive = dto.IsActive,
-            EmployeeId = dto.EmployeeId
+            EmployeeId = dto.EmployeeId,
+            MustChangePassword = dto.MustChangePassword,
         };
 
         foreach (var roleId in dto.RoleIds)
@@ -202,15 +215,21 @@ public class AuthService : IAuthService
 
         if (dto.Username != null)
         {
-            if (await _db.Users.AnyAsync(u => u.Username == dto.Username && u.Id != id && !u.IsDeleted))
-                throw new InvalidOperationException($"Username '{dto.Username}' already exists.");
+            InputValidators.ValidateUsername(dto.Username, "Username");
+            dto.Username = dto.Username.Trim();
+
+            if (await _db.Users.AnyAsync(u => u.Username == dto.Username && u.Id != id))
+                throw new InvalidOperationException(
+                    $"Username '{dto.Username}' is already in use (including archived accounts). Choose a different username.");
             user.Username = dto.Username;
         }
 
         if (dto.Email != null)
         {
-            if (await _db.Users.AnyAsync(u => u.Email == dto.Email && u.Id != id && !u.IsDeleted))
-                throw new InvalidOperationException($"Email '{dto.Email}' already exists.");
+            InputValidators.ValidateEmailInput(dto.Email, "Email", required: false);
+            if (await _db.Users.AnyAsync(u => u.Email == dto.Email && u.Id != id))
+                throw new InvalidOperationException(
+                    $"Email '{dto.Email}' is already in use (including archived accounts). Choose a different email.");
             user.Email = dto.Email;
         }
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { appConfirm } from "@/components/ui/appDialogs";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { FlashMessageBanner, type FlashMessage } from "@/components/ui/FlashMessageBanner";
+import { sanitizeSearchInput } from "@/lib/input-validation";
 import {
   applyPlaceholders,
   buildDefaultSamples,
@@ -435,7 +436,7 @@ export function DocumentTemplateWorkspace({ kind, onTemplatesChange }: DocumentT
               <input
                 type="search"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => setSearch(sanitizeSearchInput(e.target.value))}
                 placeholder="Search templates…"
                 className="w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
               />

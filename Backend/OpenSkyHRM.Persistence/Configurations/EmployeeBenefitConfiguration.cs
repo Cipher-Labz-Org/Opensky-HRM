@@ -14,8 +14,8 @@ public class EmployeeBenefitConfiguration : IEntityTypeConfiguration<EmployeeBen
         builder.Property(b => b.InsuranceProvider).HasMaxLength(255);
 
         builder.HasOne(b => b.Employee)
-            .WithOne(e => e.Benefit)
-            .HasForeignKey<EmployeeBenefit>(b => b.EmployeeId)
+            .WithMany(e => e.Benefits)
+            .HasForeignKey(b => b.EmployeeId)
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasQueryFilter(b => !b.IsDeleted);

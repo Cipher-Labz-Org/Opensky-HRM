@@ -22,6 +22,7 @@ interface ReportItem {
 }
 interface ReportCategory { key: string; name: string; icon: string; reports: ReportItem[]; }
 interface DepartmentOption { id: string; name: string; }
+interface LocationOption { id: string; name: string; }
 interface ReportResult { reportName: string; generatedAt: string; columns: string[]; rows: Record<string, unknown>[]; totalRows: number; }
 
 /**
@@ -38,7 +39,7 @@ function getReportCell(row: Record<string, unknown>, column: string): unknown {
 }
 
 /** Query keys mirrored in the address bar for shareable report links. */
-const REPORT_URL_FILTER_KEYS = ["departmentId", "from", "to", "year", "month", "date"] as const;
+const REPORT_URL_FILTER_KEYS = ["departmentId", "locationId", "employeeName", "from", "to", "year", "month", "date"] as const;
 
 function readUrlReportFilterOverrides(sp: { get: (key: string) => string | null }): Record<string, string> {
   const out: Record<string, string> = {};
@@ -85,6 +86,8 @@ function mergeUrlFiltersIntoReportParams(
   const merged = { ...base };
   if (!item) return merged;
   if (item.supportsDepartmentFilter && url.departmentId) merged.departmentId = url.departmentId;
+  if (item.supportsDepartmentFilter && url.locationId) merged.locationId = url.locationId;
+  if (item.supportsDepartmentFilter && url.employeeName) merged.employeeName = url.employeeName;
   const mode = item.periodFilterMode || "none";
   if (mode === "dateRange") {
     if (url.from) merged.from = url.from;
@@ -140,6 +143,8 @@ function buildReportUrlQuery(
   qs.set("report", rptKey);
   if (!item) return qs.toString();
   if (item.supportsDepartmentFilter && mergedParams.departmentId) qs.set("departmentId", mergedParams.departmentId);
+  if (item.supportsDepartmentFilter && mergedParams.locationId) qs.set("locationId", mergedParams.locationId);
+  if (item.supportsDepartmentFilter && mergedParams.employeeName) qs.set("employeeName", mergedParams.employeeName);
   const mode = item.periodFilterMode || "none";
   if (mode === "dateRange") {
     if (mergedParams.from) qs.set("from", mergedParams.from);
@@ -250,7 +255,10 @@ export default function ReportsPage() {
   const lastHandledReportUrlSig = useRef<string | null>(null);
 
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [locations, setLocations] = useState<LocationOption[]>([]);
   const [filterDepartmentId, setFilterDepartmentId] = useState("");
+  const [filterLocationId, setFilterLocationId] = useState("");
+  const [filterEmployeeName, setFilterEmployeeName] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [filterYear, setFilterYear] = useState("");
@@ -268,10 +276,15 @@ export default function ReportsPage() {
     apiFetch<DepartmentOption[]>("/api/organization/departments")
       .then((rows) => setDepartments(Array.isArray(rows) ? rows.map((d) => ({ id: d.id, name: d.name })) : []))
       .catch(() => setDepartments([]));
+    apiFetch<LocationOption[]>("/api/organization/locations")
+      .then((rows) => setLocations(Array.isArray(rows) ? rows.map((l) => ({ id: l.id, name: l.name })) : []))
+      .catch(() => setLocations([]));
   }, []);
 
   function syncFilterInputsFromParams(params: Record<string, string>) {
     setFilterDepartmentId(params.departmentId ?? "");
+    setFilterLocationId(params.locationId ?? "");
+    setFilterEmployeeName(params.employeeName ?? "");
     setFilterFrom(params.from ?? "");
     setFilterTo(params.to ?? "");
     setFilterYear(params.year ?? "");
@@ -296,6 +309,10 @@ export default function ReportsPage() {
     if (!item) return p;
     if (item.supportsDepartmentFilter && filterDepartmentId.trim())
       p.departmentId = filterDepartmentId.trim();
+    if (item.supportsDepartmentFilter && filterLocationId.trim())
+      p.locationId = filterLocationId.trim();
+    if (item.supportsDepartmentFilter && filterEmployeeName.trim())
+      p.employeeName = filterEmployeeName.trim();
     const mode = item.periodFilterMode || "none";
     if (mode === "dateRange") {
       if (filterFrom) p.from = filterFrom;
@@ -655,10 +672,11 @@ export default function ReportsPage() {
           {activeReportDef &&
             (activeReportDef.supportsDepartmentFilter ||
               (activeReportDef.periodFilterMode && activeReportDef.periodFilterMode !== "none")) && (
-            <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 bg-slate-50/80 px-6 py-3">
-              <p className="w-full text-[11px] font-medium uppercase tracking-wide text-slate-500">Report parameters</p>
+            <div className="border-b border-slate-200 bg-slate-50/80 px-6 py-3">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">Report parameters</p>
+              <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-0.5">
               {activeReportDef.supportsDepartmentFilter && (
-                <div className="min-w-[200px]">
+                <div className="w-[10.5rem] shrink-0">
                   <label className="mb-1 block text-[10px] font-medium text-slate-500">Department</label>
                   <FormSelect
                     value={filterDepartmentId}
@@ -671,21 +689,47 @@ export default function ReportsPage() {
                   />
                 </div>
               )}
+              {activeReportDef.supportsDepartmentFilter && (
+                <div className="w-[10.5rem] shrink-0">
+                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Location</label>
+                  <FormSelect
+                    value={filterLocationId}
+                    onValueChange={setFilterLocationId}
+                    placeholder="All locations"
+                    options={[
+                      { value: "", label: "All locations" },
+                      ...locations.map((l) => ({ value: l.id, label: l.name })),
+                    ]}
+                  />
+                </div>
+              )}
+              {activeReportDef.supportsDepartmentFilter && (
+                <div className="w-[11rem] shrink-0">
+                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Employee name</label>
+                  <input
+                    type="search"
+                    value={filterEmployeeName}
+                    onChange={(e) => setFilterEmployeeName(e.target.value)}
+                    placeholder="Name or employee code"
+                    className="h-[42px] w-full rounded-xl border border-slate-200/90 bg-white px-3 text-sm text-slate-800 shadow-sm outline-none focus:border-[#2E7BBF] focus:ring-[3px] focus:ring-[#2E7BBF]/20"
+                  />
+                </div>
+              )}
               {activeReportDef.periodFilterMode === "dateRange" && (
                 <>
-                  <div>
+                  <div className="w-[9.5rem] shrink-0">
                     <label className="mb-1 block text-[10px] font-medium text-slate-500">From</label>
-                    <DatePickerField value={filterFrom} onChange={onReportFromChange} max={filterTo || undefined} />
+                    <DatePickerField value={filterFrom} onChange={onReportFromChange} max={filterTo || undefined} className="h-[42px] rounded-lg py-2 text-xs" />
                   </div>
-                  <div>
+                  <div className="w-[9.5rem] shrink-0">
                     <label className="mb-1 block text-[10px] font-medium text-slate-500">To</label>
-                    <DatePickerField value={filterTo} onChange={onReportToChange} min={filterFrom || undefined} />
+                    <DatePickerField value={filterTo} onChange={onReportToChange} min={filterFrom || undefined} className="h-[42px] rounded-lg py-2 text-xs" />
                   </div>
                 </>
               )}
               {activeReportDef.periodFilterMode === "yearMonth" && (
                 <>
-                  <div>
+                  <div className="w-[6rem] shrink-0">
                     <label className="mb-1 block text-[10px] font-medium text-slate-500">Year</label>
                     <input
                       type="number"
@@ -693,10 +737,10 @@ export default function ReportsPage() {
                       max={2100}
                       value={filterYear}
                       onChange={(e) => setFilterYear(e.target.value)}
-                      className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      className="h-[42px] w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                     />
                   </div>
-                  <div>
+                  <div className="w-[10.5rem] shrink-0">
                     <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
                     <FormSelect
                       value={filterMonth}
@@ -710,13 +754,13 @@ export default function ReportsPage() {
                 </>
               )}
               {activeReportDef.periodFilterMode === "singleDate" && (
-                <div>
+                <div className="w-[9.5rem] shrink-0">
                   <label className="mb-1 block text-[10px] font-medium text-slate-500">Date</label>
-                  <DatePickerField value={filterDate} onChange={setFilterDate} />
+                  <DatePickerField value={filterDate} onChange={setFilterDate} className="h-[42px] rounded-lg py-2 text-xs" />
                 </div>
               )}
               {activeReportDef.periodFilterMode === "monthOnly" && (
-                <div>
+                <div className="w-[10.5rem] shrink-0">
                   <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
                   <FormSelect
                     value={filterMonth}
@@ -728,15 +772,14 @@ export default function ReportsPage() {
                   />
                 </div>
               )}
-              <div className="flex flex-1 justify-end">
-                <button
-                  type="button"
-                  onClick={() => void applyReportFilters()}
-                  disabled={loading}
-                  className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
-                >
-                  Apply filters
-                </button>
+              <button
+                type="button"
+                onClick={() => void applyReportFilters()}
+                disabled={loading}
+                className="ml-auto shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
+              >
+                Apply filters
+              </button>
               </div>
             </div>
           )}

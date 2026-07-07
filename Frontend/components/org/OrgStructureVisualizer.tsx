@@ -4,6 +4,7 @@ import { appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { FlashMessageBanner } from "@/components/ui/FlashMessageBanner";
 import { CreateDepartmentModal } from "@/components/forms/CreateDepartmentModal";
 import { apiFetch } from "@/lib/api";
 import { getSystemSetting } from "@/lib/system-settings";
@@ -259,17 +260,11 @@ export function OrgStructureVisualizer({ initialTab }: { initialTab: Tab }) {
         editingDepartment={editingDepartment}
       />
 
-      {notice && (
-        <div
-          className={`mb-4 rounded-2xl border px-4 py-3 text-sm shadow-sm ${
-            notice.type === "ok"
-              ? "border-emerald-200/80 bg-emerald-50/90 text-emerald-900"
-              : "border-rose-200/80 bg-rose-50 text-rose-800"
-          }`}
-        >
-          {notice.text}
-        </div>
-      )}
+      <FlashMessageBanner
+        msg={notice ? { type: notice.type, text: notice.text } : null}
+        onClear={() => setNotice(null)}
+        className="mb-4 rounded-2xl border px-4 py-3 text-sm shadow-sm"
+      />
 
       {loading && departments.length === 0 ? (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-sm text-slate-500 shadow-sm">

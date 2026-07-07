@@ -5,6 +5,7 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
 import Link from "next/link";
+import { InlinePageAlert } from "@/components/ui";
 
 type ConfirmPhraseResponse = { phrase: string };
 
@@ -139,17 +140,15 @@ export default function CustomerResetPage() {
           </div>
         )}
 
-        {success && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-            {success}
-          </div>
-        )}
-
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-            {error}
-          </div>
-        )}
+        <InlinePageAlert
+          message={success}
+          variant="success"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 scroll-mt-20"
+        />
+        <InlinePageAlert
+          message={error}
+          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 scroll-mt-20"
+        />
 
         <div className="rounded-[22px] border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[var(--shadow)]">
           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">

@@ -415,6 +415,7 @@ public class CandidateActivityDto
     public Guid Id { get; set; }
     public string ActivityType { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string? CandidateName { get; set; }
     public string? PerformedBy { get; set; }
     public DateTime PerformedAt { get; set; }
 }

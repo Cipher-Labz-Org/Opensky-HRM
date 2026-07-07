@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
@@ -49,6 +50,14 @@ public class ImmigrationsController : ControllerBase
     {
         if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Create"))
             return Forbid();
+        try
+        {
+            ValidateRequest(req);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
         var employee = await _db.Employees.FindAsync(employeeId);
         if (employee is null) return NotFound();
 
@@ -76,6 +85,14 @@ public class ImmigrationsController : ControllerBase
     {
         if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
             return Forbid();
+        try
+        {
+            ValidateRequest(req);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
         var imm = await _db.Immigrations
             .FirstOrDefaultAsync(i => i.Id == immId && i.EmployeeId == employeeId);
 
@@ -107,6 +124,22 @@ public class ImmigrationsController : ControllerBase
         imm.IsDeleted = true;
         await _db.SaveChangesAsync();
         return NoContent();
+    }
+
+    private static void ValidateRequest(ImmigrationRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.DocumentType))
+            throw new InvalidOperationException("Document type is required.");
+        req.Number = req.Number.Trim().ToUpperInvariant();
+        InputValidators.ValidatePassportNumber(req.Number, "Number", required: true);
+        if (req.IssuedDate is null)
+            throw new InvalidOperationException("Issued Date is required.");
+        if (req.ExpiryDate is null)
+            throw new InvalidOperationException("Expiry Date is required.");
+        if (req.EligibleReviewDate is null)
+            throw new InvalidOperationException("Eligible Date is required.");
+        if (req.ExpiryDate.Value.Date < req.IssuedDate.Value.Date)
+            throw new InvalidOperationException("Expiry Date must be on or after Issued Date.");
     }
 
     private static ImmigrationDto MapToDto(Immigration i) => new()
