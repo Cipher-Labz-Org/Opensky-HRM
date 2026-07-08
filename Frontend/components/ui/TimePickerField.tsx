@@ -141,7 +141,7 @@ export function TimePickerField({
     className;
 
   const scrollCol = (
-    colRef: React.RefObject<HTMLDivElement | null>,
+    colRef: React.Ref<HTMLDivElement>,
     selected: number | string,
     options: Array<number | string>,
     onSelect: (n: number | string) => void,
