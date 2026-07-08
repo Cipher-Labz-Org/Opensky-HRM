@@ -4795,6 +4795,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<string>("RoleTimelineJson")
                         .HasColumnType("text");
 
+                    b.Property<string>("SalaryCurrency")
+                        .HasColumnType("text");
+
                     b.Property<decimal?>("SalaryMax")
                         .HasColumnType("numeric");
 
@@ -4828,6 +4831,9 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<int>("Vacancies")
                         .HasColumnType("integer");
+
+                    b.Property<string>("WorkLocation")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 

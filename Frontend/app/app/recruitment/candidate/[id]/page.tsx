@@ -6,9 +6,11 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, DateTimePickerField, FormSelect, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, DateTimePickerField, FormSelect, MinutesStepperInput, type FormSelectOption } from "@/components/ui";
 import { CreateEmployeeModal } from "@/components/forms/CreateEmployeeModal";
 import { apiFetch, apiFetchBlob } from "@/lib/api";
+import { fetchCompanyBranding, type CompanyBranding } from "@/lib/company-branding";
+import { prepareOfferLetterHtmlForDisplay } from "@/lib/offer-letter-html";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { formatBusinessDateTime, formatDate, formatDateTime } from "@/lib/date-utils";
 import {
@@ -18,6 +20,12 @@ import {
   resolveInterviewLocation,
   scheduleOnsiteLocationOptions,
   scheduleTitleOptions,
+  nextInterviewScheduleDateTime,
+  normalizeInterviewScheduleDateTime,
+  isInterviewScheduleInPast,
+  INTERVIEW_SCHEDULE_MINUTE_STEP,
+  INTERVIEW_SCHEDULE_HOUR_START,
+  INTERVIEW_SCHEDULE_HOUR_END,
 } from "@/lib/interview-scheduling";
 
 interface CandidateDetail {
@@ -65,9 +73,11 @@ export default function CandidateDetailPage() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"overview" | "interviews" | "offer" | "activity">("overview");
   const [stageAction, setStageAction] = useState(false);
+  const stageActionRef = useRef<HTMLDivElement>(null);
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [scheduleModal, setScheduleModal] = useState(false);
+  const [scheduleDateTimeMin, setScheduleDateTimeMin] = useState("");
   const [interviewForm, setInterviewForm] = useState({
     title: "",
     scheduledAt: "",
@@ -96,9 +106,9 @@ export default function CandidateDetailPage() {
   });
   const [showOfferForm, setShowOfferForm] = useState(false);
   const [offerLetterHtml, setOfferLetterHtml] = useState("");
-  const [offerLetterView, setOfferLetterView] = useState<"edit" | "preview">("edit");
   const [offerLetterLoading, setOfferLetterLoading] = useState(false);
   const [offerLetterSaving, setOfferLetterSaving] = useState(false);
+  const [companyBranding, setCompanyBranding] = useState<CompanyBranding | null>(null);
   const [createOfferLoading, setCreateOfferLoading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
@@ -106,6 +116,21 @@ export default function CandidateDetailPage() {
   const [resumeOpening, setResumeOpening] = useState(false);
   const [evaluationNote, setEvaluationNote] = useState("");
   const [evaluationNoteSaving, setEvaluationNoteSaving] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void fetchCompanyBranding().then((branding) => {
+      if (mounted) setCompanyBranding(branding);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const resolvedOfferLetterHtml = useMemo(
+    () => (companyBranding ? prepareOfferLetterHtmlForDisplay(offerLetterHtml, companyBranding) : offerLetterHtml),
+    [offerLetterHtml, companyBranding],
+  );
 
   const openStoredResumePdf = useCallback(async () => {
     if (!candidate?.id) return;
@@ -132,6 +157,23 @@ export default function CandidateDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!stageAction) return;
+    const onPointerDown = (e: MouseEvent) => {
+      const el = stageActionRef.current;
+      if (el && !el.contains(e.target as Node)) setStageAction(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStageAction(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [stageAction]);
 
   const evaluationNotes = useMemo(
     () => (candidate?.activities ?? []).filter((a) => a.activityType === "EvaluationNote"),
@@ -162,18 +204,10 @@ export default function CandidateDetailPage() {
         <div>
           <h3 className="text-base font-semibold text-[var(--text)]">Offer letter</h3>
           <p className="mt-1 text-xs text-[var(--text-muted)]">
-            Form fields above fill the letter automatically. Placeholders: {" "}
-            <code className="text-[11px]">{"{{CandidateName}}"}</code> (candidate),{" "}
-            <code className="text-[11px]">{"{{PositionTitle}}"}</code> (position),{" "}
-            <code className="text-[11px]">{"{{SalaryFormatted}}"}</code> (salary + currency),{" "}
-            <code className="text-[11px]">{"{{JoiningDate}}"}</code>,{" "}
-            <code className="text-[11px]">{"{{RemarksHtml}}"}</code> (remarks)
+            Form fields above fill the letter automatically. Use Refresh fields after changing offer details.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" onClick={() => void handleResetOfferLetterTemplate()} disabled={offerLetterLoading}>
-            Reset template
-          </Button>
           <Button type="button" variant="secondary" onClick={() => void refreshOfferLetterPreview({ useCurrentAsTemplate: true })} disabled={offerLetterLoading}>
             {offerLetterLoading ? "Refreshing…" : "Refresh fields"}
           </Button>
@@ -184,32 +218,10 @@ export default function CandidateDetailPage() {
           )}
         </div>
       </div>
-      <div className="mb-2 flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg)]/50 p-1 w-fit">
-        <button type="button" onClick={() => setOfferLetterView("edit")}
-          className={`rounded-md px-3 py-1.5 text-xs font-medium ${offerLetterView === "edit" ? "bg-white shadow-sm text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
-          Edit
-        </button>
-        <button type="button" onClick={() => setOfferLetterView("preview")}
-          className={`rounded-md px-3 py-1.5 text-xs font-medium ${offerLetterView === "preview" ? "bg-white shadow-sm text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
-          Preview
-        </button>
-      </div>
-      {offerLetterView === "edit" ? (
-        <textarea
-          value={offerLetterHtml}
-          onChange={(e) => {
-            offerLetterUserEdited.current = true;
-            setOfferLetterHtml(e.target.value);
-          }}
-          className={`${INPUT} min-h-[280px] font-mono text-xs leading-relaxed`}
-          placeholder="Offer letter HTML…"
-        />
-      ) : (
-        <div
-          className="prose prose-sm max-w-none min-h-[200px] rounded-xl border border-[var(--border)] bg-white p-4"
-          dangerouslySetInnerHTML={{ __html: offerLetterHtml || "<p class='text-slate-500'>No letter content yet.</p>" }}
-        />
-      )}
+      <div
+        className="prose prose-sm max-w-none min-h-[200px] rounded-xl border border-[var(--border)] bg-white p-4"
+        dangerouslySetInnerHTML={{ __html: resolvedOfferLetterHtml || "<p class='text-slate-500'>No letter content yet.</p>" }}
+      />
     </div>
   );
 
@@ -284,12 +296,14 @@ export default function CandidateDetailPage() {
 
   function openScheduleModal() {
     const name = candidate?.fullName ?? "";
+    const minAt = nextInterviewScheduleDateTime();
+    setScheduleDateTimeMin(minAt);
     setNotifyInterviewCandidateEmail(true);
     setNotifyInterviewInterviewerEmail(true);
     setScheduleMeetingLink("");
     setInterviewForm({
       title: defaultScheduleTitle("Onsite", name),
-      scheduledAt: "",
+      scheduledAt: minAt,
       duration: 60,
       location: "",
       interviewType: "Onsite",
@@ -300,18 +314,15 @@ export default function CandidateDetailPage() {
   }
 
   const offerWorkflowOpened = useRef(false);
-  const offerLetterUserEdited = useRef(false);
   const offerLetterSectionRef = useRef<HTMLDivElement>(null);
 
   function handleViewOffer() {
-    setOfferLetterView("preview");
     window.setTimeout(() => {
       offerLetterSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 0);
   }
 
   const initOfferForm = useCallback(() => {
-    offerLetterUserEdited.current = false;
     setOfferLetterHtml("");
     setOfferForm((f) => ({
       ...f,
@@ -355,6 +366,11 @@ export default function CandidateDetailPage() {
 
   async function handleScheduleInterview() {
     if (!interviewForm.title || !interviewForm.scheduledAt) return;
+    const scheduledAt = normalizeInterviewScheduleDateTime(interviewForm.scheduledAt);
+    if (isInterviewScheduleInPast(scheduledAt)) {
+      await appAlert("Interview date and time must be in the future.");
+      return;
+    }
     const locationResolved = resolveInterviewLocation(
       interviewForm.interviewType,
       interviewForm.location,
@@ -366,7 +382,7 @@ export default function CandidateDetailPage() {
         method: "POST",
         body: JSON.stringify({
           title: interviewForm.title,
-          scheduledAt: interviewForm.scheduledAt,
+          scheduledAt,
           duration: interviewForm.duration,
           location: locationResolved,
           interviewType: interviewForm.interviewType || null,
@@ -428,7 +444,7 @@ export default function CandidateDetailPage() {
   }, [candidate?.offer?.letterHtml]);
 
   useEffect(() => {
-    if (!showOfferForm || candidate?.offer || offerLetterUserEdited.current) return;
+    if (!showOfferForm || candidate?.offer) return;
     const handle = window.setTimeout(() => {
       void refreshOfferLetterPreview();
     }, 400);
@@ -446,23 +462,13 @@ export default function CandidateDetailPage() {
     openOfferWorkflow();
   }, [candidate, openOfferWorkflow]);
 
-  async function handleResetOfferLetterTemplate() {
-    try {
-      offerLetterUserEdited.current = false;
-      const res = await apiFetch<{ html: string }>("/api/recruitment/offers/letter-template");
-      await refreshOfferLetterPreview({ templateHtml: res.html });
-    } catch (err) {
-      await appAlert(err instanceof Error ? err.message : "Could not load template.");
-    }
-  }
-
   async function handleSaveOfferLetter() {
-    if (!candidate?.offer?.id || !offerLetterHtml.trim()) return;
+    if (!candidate?.offer?.id || !resolvedOfferLetterHtml.trim()) return;
     setOfferLetterSaving(true);
     try {
       await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/letter`, {
         method: "PUT",
-        body: JSON.stringify({ letterHtml: offerLetterHtml }),
+        body: JSON.stringify({ letterHtml: resolvedOfferLetterHtml }),
       });
       await load();
     } catch (err) {
@@ -485,7 +491,7 @@ export default function CandidateDetailPage() {
       await appAlert("Offer date is required.");
       return;
     }
-    if (!offerLetterHtml.trim()) {
+    if (!resolvedOfferLetterHtml.trim()) {
       await appAlert("Offer letter is empty. Wait for the preview to load or click Refresh fields.");
       return;
     }
@@ -512,7 +518,7 @@ export default function CandidateDetailPage() {
           joiningDate: offerForm.joiningDate || null,
           remarks: offerForm.remarks || null,
           positionTitle: offerForm.positionTitle.trim() || null,
-          letterHtml: offerLetterHtml.trim(),
+          letterHtml: resolvedOfferLetterHtml.trim(),
         }),
       });
       await apiFetch(`/api/recruitment/offers/${created.id}/approve`, { method: "POST" });
@@ -667,13 +673,24 @@ export default function CandidateDetailPage() {
             )}
             {c.stage !== "Hired" && c.stage !== "Rejected" && (
               <>
-                <div className="relative">
+                <div className="relative" ref={stageActionRef}>
                   <Button variant="secondary" onClick={() => setStageAction(!stageAction)}>Move Stage</Button>
                   {stageAction && (
-                    <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-xl border border-[var(--border)] bg-white shadow-lg">
+                    <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-xl border border-[var(--border)] bg-white shadow-lg">
+                      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                        <span className="text-xs font-semibold text-slate-600">Move to stage</span>
+                        <button
+                          type="button"
+                          onClick={() => setStageAction(false)}
+                          className="grid h-6 w-6 place-items-center rounded-full text-base leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                          aria-label="Close stage menu"
+                        >
+                          ×
+                        </button>
+                      </div>
                       {STAGES.filter((s) => s !== c.stage).map((s) => (
                         <button key={s} onClick={() => handleStageChange(s)}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--bg)] first:rounded-t-xl last:rounded-b-xl">{s}</button>
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--bg)]">{s}</button>
                       ))}
                     </div>
                   )}
@@ -778,8 +795,8 @@ export default function CandidateDetailPage() {
                     <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--text)]">Offer letter</h3>
                     <p className="mt-1 text-sm text-[var(--text-muted)]">
                       {c.offer
-                        ? "Edit the offer letter, approve it, then share it with the candidate by email."
-                        : "Create an offer with an editable letter template, then approve and email it to the candidate."}
+                        ? "Review the offer letter, approve it, then share it with the candidate by email."
+                        : "Create an offer with a letter preview, then approve and email it to the candidate."}
                     </p>
                   </div>
                   <Button onClick={openOfferWorkflow}>{c.offer ? "Open offer" : "Create offer"}</Button>
@@ -1116,9 +1133,26 @@ export default function CandidateDetailPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Date & Time *</label>
-                  <DateTimePickerField value={interviewForm.scheduledAt} onChange={(v) => setInterviewForm({ ...interviewForm, scheduledAt: v })} className={INPUT} /></div>
+                  <DateTimePickerField
+                    value={interviewForm.scheduledAt}
+                    onChange={(v) =>
+                      setInterviewForm({
+                        ...interviewForm,
+                        scheduledAt: v ? normalizeInterviewScheduleDateTime(v) : "",
+                      })
+                    }
+                    className={INPUT}
+                    min={scheduleDateTimeMin}
+                    minuteStep={INTERVIEW_SCHEDULE_MINUTE_STEP}
+                    hourStart={INTERVIEW_SCHEDULE_HOUR_START}
+                    hourEnd={INTERVIEW_SCHEDULE_HOUR_END}
+                  /></div>
                 <div><label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Duration (min)</label>
-                  <input type="number" value={interviewForm.duration} onChange={(e) => setInterviewForm({ ...interviewForm, duration: Number(e.target.value) })} className={INPUT} /></div>
+                  <MinutesStepperInput
+                    className={INPUT}
+                    value={interviewForm.duration}
+                    onChange={(duration) => setInterviewForm({ ...interviewForm, duration })}
+                  /></div>
               </div>
               <div className={`grid gap-3 ${interviewForm.interviewType === "Phone" ? "grid-cols-1" : "grid-cols-2"}`}>
                 <div>

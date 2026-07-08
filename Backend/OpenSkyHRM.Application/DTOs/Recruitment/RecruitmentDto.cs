@@ -31,6 +31,7 @@ public class RequisitionDto
     public int? ExperienceMax { get; set; }
     public decimal? SalaryMin { get; set; }
     public decimal? SalaryMax { get; set; }
+    public string? SalaryCurrency { get; set; }
     public string? Skills { get; set; }
     public DateTime? ClosedAt { get; set; }
     public string? DepartmentName { get; set; }
@@ -44,6 +45,11 @@ public class RequisitionDto
     public string? PositionTitle { get; set; }
     public Guid? PositionId { get; set; }
     public int CandidateCount { get; set; }
+
+    /// <summary>False when active candidates remain (must reject or hire to employee first).</summary>
+    public bool CanDelete { get; set; } = true;
+
+    public int BlockingCandidateCount { get; set; }
 
     public List<RequisitionTimelineEntryDto> Timeline { get; set; } = new();
     public string? SupportingPdfOriginalFileName { get; set; }
@@ -69,6 +75,7 @@ public class PublicRequisitionDto
     public int? ExperienceMax { get; set; }
     public decimal? SalaryMin { get; set; }
     public decimal? SalaryMax { get; set; }
+    public string? SalaryCurrency { get; set; }
     public string? Skills { get; set; }
     public string? DepartmentName { get; set; }
     public Guid DepartmentId { get; set; }
@@ -96,11 +103,14 @@ public class CreateRequisitionDto
     public int? ExperienceMax { get; set; }
     public decimal? SalaryMin { get; set; }
     public decimal? SalaryMax { get; set; }
+    public string? SalaryCurrency { get; set; }
     public string? Skills { get; set; }
     public Guid DepartmentId { get; set; }
     public Guid? JobTitleId { get; set; }
     public Guid? HiringManagerId { get; set; }
     public Guid? LocationId { get; set; }
+    /// <summary>Free-text work location (required on create/update).</summary>
+    public string? WorkLocation { get; set; }
     public Guid? PositionId { get; set; }
 
     /// <summary>Inbox for new candidate applications (optional; else global Recruitment:ApplicationNotificationEmail).</summary>

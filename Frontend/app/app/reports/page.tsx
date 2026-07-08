@@ -61,6 +61,15 @@ function getDefaultQueryParamsForItem(item: ReportItem | null | undefined): Reco
       const from = new Date(today.getFullYear(), today.getMonth(), 1);
       p.from = isoDate(from);
       p.to = isoDate(today);
+    } else if (item.key === "absence-frequency") {
+      const from = new Date(today);
+      from.setDate(from.getDate() - 30);
+      p.from = isoDate(from);
+      p.to = isoDate(today);
+    } else if (item.key === "absent-report") {
+      const from = new Date(today.getFullYear(), today.getMonth(), 1);
+      p.from = isoDate(from);
+      p.to = isoDate(today);
     } else {
       const from = new Date(today);
       from.setFullYear(from.getFullYear() - 1);
@@ -248,6 +257,7 @@ export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<string>("");
   const [result, setResult] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
   const resultsSearch = useApplyFilter();
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
@@ -342,6 +352,7 @@ export default function ReportsPage() {
       setSelectedCategory(catKey);
       setSelectedReport(rptKey);
       setResult(null);
+      setReportError("");
       setLoading(true);
       setSortCol(null);
       resultsSearch.clear();
@@ -353,7 +364,9 @@ export default function ReportsPage() {
         const sig = `${catKey}:${rptKey}:${canonicalFilterSig(filterParamsForUrlSig(merged))}`;
         lastHandledReportUrlSig.current = sig;
         router.replace(`${pathname}?${qs}`, { scroll: false });
-      } catch { /* ignore */ } finally {
+      } catch (err) {
+        setReportError(err instanceof Error ? err.message : "Failed to load report");
+      } finally {
         setLoading(false);
       }
     },
@@ -368,6 +381,7 @@ export default function ReportsPage() {
   async function applyReportFilters() {
     if (!selectedCategory || !selectedReport) return;
     setLoading(true);
+    setReportError("");
     setSortCol(null);
     resultsSearch.clear();
     try {
@@ -377,7 +391,9 @@ export default function ReportsPage() {
       const sig = `${selectedCategory}:${selectedReport}:${canonicalFilterSig(filterParamsForUrlSig(params))}`;
       lastHandledReportUrlSig.current = sig;
       router.replace(`${pathname}?${qs}`, { scroll: false });
-    } catch { /* ignore */ } finally {
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : "Failed to load report");
+    } finally {
       setLoading(false);
     }
   }
@@ -402,7 +418,7 @@ export default function ReportsPage() {
     else { setSortCol(col); setSortAsc(true); }
   };
 
-  const closeReport = () => { setResult(null); setSelectedReport(""); setLoading(false); };
+  const closeReport = () => { setResult(null); setSelectedReport(""); setLoading(false); setReportError(""); };
 
   const activeCat = catalog.find(c => c.key === selectedCategory);
 
@@ -603,7 +619,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Report panel: below AppGlobalHeader (h-[52px] z-[45]); does not cover the app header */}
-      {(result || loading) && (
+      {(result || loading || selectedReport) && (
         <div className="fixed inset-x-0 bottom-0 top-[52px] z-40 flex flex-col border-l border-slate-200 bg-white shadow-lg lg:left-72 lg:right-0">
           {/* Top bar */}
           <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-3">
@@ -792,8 +808,15 @@ export default function ReportsPage() {
             </div>
           )}
 
+          {!loading && reportError && (
+            <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
+              <p className="max-w-md text-sm font-medium text-red-700">{reportError}</p>
+              <p className="mt-2 max-w-md text-xs text-slate-500">Adjust the From / To dates and filters above, then click Apply filters.</p>
+            </div>
+          )}
+
           {/* Table body */}
-          {result && !loading && (
+          {result && !loading && !reportError && (
             <div className="flex-1 overflow-auto px-6 py-4">
               {showLeaveInsightsTemplate && leaveTemplateMetrics && (
                 <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
@@ -858,7 +881,7 @@ export default function ReportsPage() {
           )}
 
           {/* Footer */}
-          {result && !loading && (
+          {result && !loading && !reportError && (
             <div className="border-t border-slate-200 bg-slate-50 px-6 py-2 text-right text-[10px] text-slate-400">
               Generated at {formatDateTime(result.generatedAt)} &middot; Showing {sortedRows.length} of {result.totalRows} records
             </div>
