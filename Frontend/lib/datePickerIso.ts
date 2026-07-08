@@ -24,9 +24,10 @@ export function splitDateTime(iso: string): { date: string; time: string } {
 }
 
 export function joinDateTime(date: string, time: string): string {
-  if (!date) return "";
+  const d = date || (time ? formatLocalDateToIso(new Date()) : "");
+  if (!d) return "";
   const tm = time && /^\d{2}:\d{2}$/.test(time) ? time : "00:00";
-  return `${date}T${tm}`;
+  return `${d}T${tm}`;
 }
 
 /** When from moves past to, bump to to match (ISO YYYY-MM-DD strings). */

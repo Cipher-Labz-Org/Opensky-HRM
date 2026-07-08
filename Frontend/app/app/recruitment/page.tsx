@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { TablePagination } from "@/components/ui/TablePagination";
-import { DateTimePickerField, FormSelect, PersonNameInput, PhoneInput, EmailInput, type FormSelectOption } from "@/components/ui";
+import { DateTimePickerField, FormSelect, MinutesStepperInput, PersonNameInput, PhoneInput, EmailInput, type FormSelectOption } from "@/components/ui";
 import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { CreateRequisitionModal } from "@/components/forms/CreateRequisitionModal";
 import { Modal } from "@/components/ui/Modal";
@@ -19,22 +19,35 @@ import { type EmploymentTypeCatalogItem, employmentTypeSelectOptions } from "@/l
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { formatRecruitmentActivityDescription } from "@/lib/recruitment-activity";
 import {
+  DEFAULT_SALARY_CURRENCY,
+  SALARY_CURRENCY_FORM_OPTIONS,
+  normalizeSalaryCurrency,
+} from "@/lib/salary-currency";
+import {
   defaultScheduleTitle,
   inferInterviewTypeFromTitle,
   INTERVIEW_TYPE_OPTS,
   resolveInterviewLocation,
   scheduleOnsiteLocationOptions,
   scheduleTitleOptions,
+  nextInterviewScheduleDateTime,
+  normalizeInterviewScheduleDateTime,
+  isInterviewScheduleInPast,
+  INTERVIEW_SCHEDULE_MINUTE_STEP,
+  INTERVIEW_SCHEDULE_HOUR_START,
+  INTERVIEW_SCHEDULE_HOUR_END,
 } from "@/lib/interview-scheduling";
 
 interface Requisition {
   id: string; title: string; code: string; description?: string; vacancies: number;
   status: string; targetDate?: string; priority?: string; employmentType?: string;
-  experienceMin?: number; experienceMax?: number; salaryMin?: number; salaryMax?: number;
+  experienceMin?: number; experienceMax?: number; salaryMin?: number; salaryMax?: number; salaryCurrency?: string;
   skills?: string; closedAt?: string; departmentName?: string; departmentId: string;
   jobTitleName?: string; jobTitleId?: string; hiringManagerName?: string; hiringManagerId?: string;
-  locationName?: string; locationId?: string; positionTitle?: string; positionId?: string;
+  locationName?: string; locationId?: string; workLocation?: string; positionTitle?: string; positionId?: string;
   candidateCount: number;
+  canDelete?: boolean;
+  blockingCandidateCount?: number;
   applicationNotificationEmail?: string;
 }
 
@@ -113,6 +126,13 @@ const REQ_STATUS_FILTER_OPTS: FormSelectOption[] = [
   { value: "Rejected", label: "Rejected" },
 ];
 
+function requisitionStatusBadgeClass(status: string): string {
+  if (status === "Approved") return "badge-green";
+  if (status === "Rejected") return "badge-red";
+  if (status === "Closed") return "badge-orange";
+  return "badge-yellow";
+}
+
 const REQ_PRIORITY_FILTER_OPTS: FormSelectOption[] = [
   { value: "", label: "All Priorities" },
   { value: "High", label: "High" },
@@ -152,6 +172,8 @@ export default function RecruitmentPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Dashboard");
   const [showCreate, setShowCreate] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState("");
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [requisitionPicklist, setRequisitionPicklist] = useState<Requisition[]>([]);
   const [reqPage, setReqPage] = useState(1);
@@ -168,13 +190,13 @@ export default function RecruitmentPage() {
   const [viewOfferLoading, setViewOfferLoading] = useState(false);
   const [filterReqStatus, setFilterReqStatus] = useState("");
   const [filterReqPriority, setFilterReqPriority] = useState("");
-  const [filterCandStage, setFilterCandStage] = useState("");
   const [filterCandReq, setFilterCandReq] = useState("");
   const candSearchFilter = useApplyFilter();
   const [candidateView, setCandidateView] = useState<"kanban" | "table">("kanban");
   const [dragCandidate, setDragCandidate] = useState<string | null>(null);
   const [editReq, setEditReq] = useState<Requisition | null>(null);
   const [scheduleModal, setScheduleModal] = useState(false);
+  const [scheduleDateTimeMin, setScheduleDateTimeMin] = useState("");
   const [scheduleForm, setScheduleForm] = useState<Partial<Interview & { candidateId: string }>>({});
   const [scheduleNotifyCandidateEmail, setScheduleNotifyCandidateEmail] = useState(true);
   const [scheduleNotifyInterviewerEmail, setScheduleNotifyInterviewerEmail] = useState(true);
@@ -190,11 +212,6 @@ export default function RecruitmentPage() {
   const candReqFilterOpts = useMemo<FormSelectOption[]>(
     () => [{ value: "", label: "All Requisitions" }, ...requisitionPicklist.map((r) => ({ value: r.id, label: r.title }))],
     [requisitionPicklist]
-  );
-
-  const candStageFilterOpts = useMemo<FormSelectOption[]>(
-    () => [{ value: "", label: "All Stages" }, ...STAGES.map((s) => ({ value: s, label: s }))],
-    []
   );
 
   const scheduleCandidateOpts = useMemo<FormSelectOption[]>(
@@ -265,7 +282,16 @@ export default function RecruitmentPage() {
   }, [scheduleModal]);
 
   const loadDashboard = useCallback(async () => {
-    try { setDashboard(await apiFetch<Dashboard>("/api/recruitment/dashboard")); } catch { /* */ }
+    setDashboardLoading(true);
+    setDashboardError("");
+    try {
+      setDashboard(await apiFetch<Dashboard>("/api/recruitment/dashboard"));
+    } catch (err) {
+      setDashboard(null);
+      setDashboardError(err instanceof Error ? err.message : "Could not load recruitment metrics.");
+    } finally {
+      setDashboardLoading(false);
+    }
   }, []);
 
   const loadRequisitionPicklist = useCallback(async () => {
@@ -293,14 +319,13 @@ export default function RecruitmentPage() {
         page: String(isKanban ? 1 : candPage),
         pageSize: String(isKanban ? 500 : CAND_PAGE_SIZE),
       });
-      if (filterCandStage) params.set("stage", filterCandStage);
       if (filterCandReq) params.set("requisitionId", filterCandReq);
       if (candSearchFilter.applied) params.set("search", candSearchFilter.applied);
       const res = await apiFetch<{ items: Candidate[]; totalCount: number }>(`/api/recruitment/candidates?${params}`);
       setCandidates(res.items ?? []);
       setCandTotalCount(res.totalCount ?? res.items?.length ?? 0);
     } catch { /* */ }
-  }, [filterCandStage, filterCandReq, candSearchFilter.applied, candPage, candidateView]);
+  }, [filterCandReq, candSearchFilter.applied, candPage, candidateView]);
 
   const loadInterviews = useCallback(async () => {
     try { setInterviews(await apiFetch<Interview[]>("/api/recruitment/interviews/upcoming")); } catch { /* */ }
@@ -340,7 +365,7 @@ export default function RecruitmentPage() {
   }, [tab, loadDashboard, loadRequisitions, loadCandidates, loadInterviews, loadInterviewHistory, loadOfferHistory, loadRequisitionPicklist]);
 
   useEffect(() => { setReqPage(1); }, [filterReqStatus, filterReqPriority]);
-  useEffect(() => { setCandPage(1); }, [filterCandStage, filterCandReq, candSearchFilter.applied, candidateView]);
+  useEffect(() => { setCandPage(1); }, [filterCandReq, candSearchFilter.applied, candidateView]);
 
   const handleApproveReq = async (id: string) => {
     if (!(await appConfirm("Approve this requisition? Approved roles can proceed in the hiring pipeline."))) return;
@@ -378,9 +403,20 @@ export default function RecruitmentPage() {
   };
 
   const handleDeleteReq = async (id: string) => {
+    const req = requisitions.find((r) => r.id === id);
+    if (req && (req.canDelete === false || (req.blockingCandidateCount ?? 0) > 0)) {
+      await appAlert(
+        "This requisition cannot be deleted while it has active candidates. Reject each candidate or convert them to employees first.",
+      );
+      return;
+    }
     if (!(await appConfirm("Delete this requisition?"))) return;
-    await apiFetch(`/api/recruitment/requisitions/${id}`, { method: "DELETE" });
-    loadRequisitions();
+    try {
+      await apiFetch(`/api/recruitment/requisitions/${id}`, { method: "DELETE" });
+      loadRequisitions();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Delete failed");
+    }
   };
 
   const handleStageChange = async (candidateId: string, stage: string) => {
@@ -391,36 +427,13 @@ export default function RecruitmentPage() {
     loadDashboard();
   };
 
-  const handleReinterview = async (candidateId: string, candidateName?: string, interviewerId?: string) => {
-    try {
-      await apiFetch(`/api/recruitment/candidates/${candidateId}/reinterview`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      setScheduleForm({
-        candidateId,
-        title: defaultScheduleTitle("Onsite", candidateName),
-        scheduledAt: "",
-        duration: 60,
-        location: "",
-        interviewType: "Onsite",
-        interviewerId: interviewerId ?? "",
-        interviewerName: "",
-      });
-      setScheduleTitleManual(false);
-      setScheduleMeetingLink("");
-      setScheduleNotifyCandidateEmail(true);
-      setScheduleNotifyInterviewerEmail(true);
-      setScheduleModal(true);
-      loadCandidates();
-      loadDashboard();
-    } catch (e) {
-      await appAlert(e instanceof Error ? e.message : "Could not reopen candidate for interview.");
-    }
-  };
-
   const handleScheduleInterview = async () => {
     if (!scheduleForm.candidateId || !scheduleForm.title || !scheduleForm.scheduledAt) return;
+    const scheduledAt = normalizeInterviewScheduleDateTime(String(scheduleForm.scheduledAt));
+    if (isInterviewScheduleInPast(scheduledAt)) {
+      await appAlert("Interview date and time must be in the future.");
+      return;
+    }
     const locationResolved = resolveInterviewLocation(
       scheduleForm.interviewType,
       scheduleForm.location,
@@ -431,7 +444,7 @@ export default function RecruitmentPage() {
       method: "POST",
       body: JSON.stringify({
         title: scheduleForm.title,
-        scheduledAt: scheduleForm.scheduledAt,
+        scheduledAt,
         duration: scheduleForm.duration || 60,
         location: locationResolved,
         interviewType: scheduleForm.interviewType,
@@ -514,19 +527,31 @@ export default function RecruitmentPage() {
       </div>
 
       {/* ── Dashboard Tab ──────────────────────────────────── */}
-      {tab === "Dashboard" && !dashboard && (
+      {tab === "Dashboard" && dashboardLoading && (
         <p className="mt-6 rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-500 shadow-sm">
           Loading recruitment metrics…
         </p>
+      )}
+      {tab === "Dashboard" && !dashboardLoading && dashboardError && (
+        <div className="mt-6 rounded-2xl border border-red-100 bg-white px-5 py-8 text-center shadow-sm">
+          <p className="text-sm font-medium text-red-700">{dashboardError}</p>
+          <button
+            type="button"
+            onClick={() => void loadDashboard()}
+            className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
       )}
       {tab === "Dashboard" && dashboard && (
         <div className="mt-6 space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { label: "Open requisitions", value: dashboard.openRequisitions, sub: "Approved, open roles" },
-              { label: "Candidates in pipeline", value: dashboard.totalCandidates, sub: "Across active requisitions" },
+              { label: "Open requisitions", value: dashboard.openRequisitions, sub: "Not closed (pending, approved, or rejected)" },
+              { label: "Candidates in pipeline", value: dashboard.totalCandidates, sub: "Active stages only (excludes hired/rejected)" },
               { label: "Interviews this week", value: dashboard.interviewsThisWeek, sub: "Scheduled sessions" },
-              { label: "Offers extended", value: dashboard.offersExtended, sub: "Pending decisions" },
+              { label: "Offers extended", value: dashboard.offersExtended, sub: "Approved, awaiting candidate response" },
             ].map((kpi) => (
               <div key={kpi.label} className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
@@ -675,7 +700,7 @@ export default function RecruitmentPage() {
               <thead>
                 <tr>
                   <th>Code</th><th>Title</th><th>Department</th><th>Vacancies</th>
-                  <th>Priority</th><th>Status</th><th>Candidates</th><th>Target Date</th><th>Actions</th>
+                  <th>Status</th><th>Priority</th><th>Candidates</th><th>Target Date</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -686,16 +711,16 @@ export default function RecruitmentPage() {
                     <td>{r.departmentName}</td>
                     <td>{r.vacancies}</td>
                     <td>
+                      <span className={`badge ${requisitionStatusBadgeClass(r.status)}`}>
+                        {r.status}
+                      </span>
+                    </td>
+                    <td>
                       {r.priority && (
                         <span className={`badge ${r.priority === "High" ? "badge-red" : r.priority === "Medium" ? "badge-yellow" : "badge-green"}`}>
                           {r.priority}
                         </span>
                       )}
-                    </td>
-                    <td>
-                      <span className={`badge ${r.status === "Approved" ? "badge-green" : r.status === "Rejected" ? "badge-red" : "badge-yellow"}`}>
-                        {r.status}
-                      </span>
                     </td>
                     <td>{r.candidateCount}</td>
                     <td>{r.targetDate ? formatDate(r.targetDate) : "-"}</td>
@@ -711,10 +736,19 @@ export default function RecruitmentPage() {
                           </>
                         )}
                         <button onClick={() => setEditReq(r)} className="text-xs text-blue-600 hover:underline">Edit</button>
-                        {r.status === "Approved" && !r.closedAt && (
+                        {r.status === "Approved" && (
                           <button onClick={() => handleCloseReq(r.id)} className="text-xs text-orange-600 hover:underline">Close</button>
                         )}
-                        <button onClick={() => handleDeleteReq(r.id)} className="text-xs text-red-600 hover:underline">Delete</button>
+                        {r.canDelete === false || (r.blockingCandidateCount ?? 0) > 0 ? (
+                          <span
+                            className="cursor-not-allowed text-xs text-slate-400"
+                            title="Reject all candidates or convert them to employees before deleting."
+                          >
+                            Delete
+                          </span>
+                        ) : (
+                          <button onClick={() => handleDeleteReq(r.id)} className="text-xs text-red-600 hover:underline">Delete</button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -740,18 +774,20 @@ export default function RecruitmentPage() {
       {tab === "Candidates" && (
         <div className="mt-6 space-y-4">
           <div className={`flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm`}>
-            <input
-              placeholder="Search candidates… (Enter)"
-              value={candSearchFilter.input}
-              onChange={(e) => candSearchFilter.setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  candSearchFilter.apply();
-                  setCandPage(1);
-                }
-              }}
-              className={`${inputClass} w-52`}
-            />
+            <div className="w-52 shrink-0">
+              <input
+                placeholder="Search candidates… (Enter)"
+                value={candSearchFilter.input}
+                onChange={(e) => candSearchFilter.setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    candSearchFilter.apply();
+                    setCandPage(1);
+                  }
+                }}
+                className={inputClass}
+              />
+            </div>
             <div className="w-48 shrink-0">
               <FormSelect
                 value={filterCandReq}
@@ -760,16 +796,6 @@ export default function RecruitmentPage() {
                 placeholder="All Requisitions"
               />
             </div>
-            {candidateView === "table" && (
-              <div className="w-40 shrink-0">
-                <FormSelect
-                  value={filterCandStage}
-                  onValueChange={setFilterCandStage}
-                  options={candStageFilterOpts}
-                  placeholder="All Stages"
-                />
-              </div>
-            )}
             <div className="flex-1" />
             <div className="flex items-center gap-0.5 rounded-xl border border-slate-200 bg-slate-50/80 p-0.5">
               <button
@@ -892,7 +918,9 @@ export default function RecruitmentPage() {
             </div>
             <Button
               onClick={() => {
-                setScheduleForm({ duration: 60 });
+                const minAt = nextInterviewScheduleDateTime();
+                setScheduleDateTimeMin(minAt);
+                setScheduleForm({ duration: 60, scheduledAt: minAt });
                 setScheduleTitleManual(false);
                 setScheduleMeetingLink("");
                 setScheduleNotifyCandidateEmail(true);
@@ -1034,7 +1062,7 @@ export default function RecruitmentPage() {
                 <tr>
                   <th>Title</th><th>Candidate</th><th>Requisition</th>
                   <th>Scheduled</th><th>Duration</th><th>Interviewer</th>
-                  <th>Type</th><th>Location / Link</th><th>Status</th><th>Actions</th>
+                  <th>Type</th><th>Location / Link</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -1059,21 +1087,10 @@ export default function RecruitmentPage() {
                         {iv.status}
                       </span>
                     </td>
-                    <td>
-                      {iv.candidateStage === "Rejected" && iv.candidateId && (
-                        <button
-                          type="button"
-                          onClick={() => void handleReinterview(iv.candidateId, iv.candidateName, iv.interviewerId)}
-                          className="text-sm font-medium text-[#2E7BBF] hover:underline"
-                        >
-                          Re-interview
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 ))}
                 {interviewHistory.length === 0 && (
-                  <tr><td colSpan={10} className="text-center text-slate-500">No interview history yet</td></tr>
+                  <tr><td colSpan={9} className="text-center text-slate-500">No interview history yet</td></tr>
                 )}
               </tbody>
             </table>
@@ -1177,13 +1194,25 @@ export default function RecruitmentPage() {
                   <DateTimePickerField
                     className={inputClass}
                     value={scheduleForm.scheduledAt ? String(scheduleForm.scheduledAt).slice(0, 16) : ""}
-                    onChange={(v) => setScheduleForm({ ...scheduleForm, scheduledAt: v })}
+                    onChange={(v) =>
+                      setScheduleForm({
+                        ...scheduleForm,
+                        scheduledAt: v ? normalizeInterviewScheduleDateTime(v) : "",
+                      })
+                    }
+                    min={scheduleDateTimeMin}
+                    minuteStep={INTERVIEW_SCHEDULE_MINUTE_STEP}
+                    hourStart={INTERVIEW_SCHEDULE_HOUR_START}
+                    hourEnd={INTERVIEW_SCHEDULE_HOUR_END}
                   />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">Duration (min)</label>
-                  <input type="number" className={inputClass} value={scheduleForm.duration || 60}
-                    onChange={(e) => setScheduleForm({ ...scheduleForm, duration: Number(e.target.value) })} />
+                  <MinutesStepperInput
+                    className={inputClass}
+                    value={scheduleForm.duration || 60}
+                    onChange={(duration) => setScheduleForm({ ...scheduleForm, duration })}
+                  />
                 </div>
               </div>
               <div className={`grid gap-3 ${scheduleForm.interviewType === "Phone" ? "grid-cols-1" : "sm:grid-cols-2"}`}>
@@ -1284,8 +1313,10 @@ export default function RecruitmentPage() {
       )}
 
       {showAddCandidate && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 pt-16 pb-10"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowAddCandidate(false); }}>
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 pt-16 pb-10"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAddCandidate(false); }}
+        >
           <div className={`relative w-full ${modalShellWidthClass(true)} rounded-2xl border border-slate-200 bg-white p-6 shadow-xl`}>
             <h2 className="mb-4 text-lg font-semibold text-slate-900">Add Candidate</h2>
             <div className="space-y-3">
@@ -1321,6 +1352,7 @@ export default function RecruitmentPage() {
                     onValueChange={(v) => setCandidateForm({ ...candidateForm, requisitionId: v })}
                     options={addCandidateReqOpts}
                     placeholder="Select requisition…"
+                    clearable={false}
                   />
                 </div>
                 <div>
@@ -1330,6 +1362,7 @@ export default function RecruitmentPage() {
                     onValueChange={(v) => setCandidateForm({ ...candidateForm, source: v })}
                     options={CANDIDATE_SOURCE_OPTS}
                     placeholder="Select…"
+                    clearable={false}
                   />
                 </div>
               </div>
@@ -1379,9 +1412,21 @@ export default function RecruitmentPage() {
   );
 }
 
+function parseRequisitionSkills(skills?: string | null): string[] {
+  return (skills ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: Requisition; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({ ...requisition });
+  const [form, setForm] = useState({
+    ...requisition,
+    salaryCurrency: normalizeSalaryCurrency(requisition.salaryCurrency),
+    workLocation: requisition.locationName ?? "",
+  });
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   const inputClass = inputClassSlate;
 
@@ -1401,7 +1446,42 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
     [employmentTypeOpts]
   );
 
+  function getEditValidationError(): string | null {
+    const missing: string[] = [];
+    if (!String(form.workLocation ?? "").trim()) missing.push("Location");
+    if (form.experienceMin == null || !Number.isFinite(Number(form.experienceMin))) missing.push("Experience (min years)");
+    if (parseRequisitionSkills(form.skills).length === 0) missing.push("Skills (at least one)");
+    if (missing.length > 0) {
+      return `To save this requisition, please provide: ${missing.join(", ")}.`;
+    }
+
+    const expMin = Number(form.experienceMin);
+    if (!Number.isFinite(expMin) || expMin < 0) {
+      return "Experience minimum must be 0 or greater.";
+    }
+    if (form.experienceMax != null && String(form.experienceMax).trim() !== "") {
+      const expMax = Number(form.experienceMax);
+      if (Number.isFinite(expMax) && expMin > expMax) {
+        return "Experience minimum cannot be greater than experience maximum.";
+      }
+    }
+
+    const salMin = form.salaryMin;
+    const salMax = form.salaryMax;
+    if (salMin != null && salMax != null && salMin > salMax) {
+      return "Salary minimum cannot be greater than salary maximum.";
+    }
+
+    return null;
+  }
+
   const handleSave = async () => {
+    setError("");
+    const validationError = getEditValidationError();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setSubmitting(true);
     try {
       await apiFetch(`/api/recruitment/requisitions/${requisition.id}`, {
@@ -1410,16 +1490,24 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
           title: form.title, code: form.code, description: form.description,
           vacancies: form.vacancies, targetDate: form.targetDate || null,
           priority: form.priority || null, employmentType: form.employmentType || null,
-          experienceMin: form.experienceMin, experienceMax: form.experienceMax,
-          salaryMin: form.salaryMin, salaryMax: form.salaryMax, skills: form.skills || null,
+          experienceMin: Number(form.experienceMin),
+          experienceMax: form.experienceMax != null && String(form.experienceMax).trim() !== ""
+            ? Number(form.experienceMax)
+            : null,
+          salaryMin: form.salaryMin, salaryMax: form.salaryMax,
+          salaryCurrency: normalizeSalaryCurrency(form.salaryCurrency),
+          skills: parseRequisitionSkills(form.skills).join(", "),
           departmentId: form.departmentId, jobTitleId: form.jobTitleId || null,
-          hiringManagerId: form.hiringManagerId || null, locationId: form.locationId || null,
+          hiringManagerId: form.hiringManagerId || null,
+          workLocation: String(form.workLocation ?? "").trim(),
           positionId: form.positionId || null,
           applicationNotificationEmail: form.applicationNotificationEmail?.trim() || null,
         }),
       });
       onSaved();
-    } catch { /* */ } finally { setSubmitting(false); }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save requisition");
+    } finally { setSubmitting(false); }
   };
 
   return (
@@ -1427,6 +1515,9 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`relative w-full ${modalShellWidthClass(true)} rounded-2xl border border-slate-200 bg-white p-6 shadow-xl`}>
         <h2 className="mb-4 text-lg font-semibold text-slate-900">Edit Requisition</h2>
+        {error ? (
+          <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        ) : null}
         <div className="space-y-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Title</label>
@@ -1460,7 +1551,55 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
               />
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Exp. Min (years) *</label>
+              <input
+                type="number"
+                min={0}
+                required
+                className={inputClass}
+                value={form.experienceMin ?? ""}
+                onChange={(e) => setForm({
+                  ...form,
+                  experienceMin: e.target.value === "" ? undefined : Number(e.target.value),
+                })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Exp. Max (years)</label>
+              <input
+                type="number"
+                min={0}
+                className={inputClass}
+                value={form.experienceMax ?? ""}
+                onChange={(e) => setForm({
+                  ...form,
+                  experienceMax: e.target.value === "" ? undefined : Number(e.target.value),
+                })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Location *</label>
+              <input
+                required
+                className={inputClass}
+                placeholder="e.g. Colombo, Hybrid, Remote"
+                value={form.workLocation ?? ""}
+                onChange={(e) => setForm({ ...form, workLocation: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Salary currency</label>
+              <FormSelect
+                value={form.salaryCurrency || DEFAULT_SALARY_CURRENCY}
+                onValueChange={(v) => setForm({ ...form, salaryCurrency: v })}
+                options={SALARY_CURRENCY_FORM_OPTIONS}
+                clearable={false}
+              />
+            </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Salary Range (Min)</label>
               <input type="number" className={inputClass} value={form.salaryMin || ""} onChange={(e) => setForm({ ...form, salaryMin: Number(e.target.value) || undefined })} />
@@ -1471,7 +1610,7 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Skills (comma-separated)</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Skills * (comma-separated)</label>
             <input className={inputClass} value={form.skills || ""} onChange={(e) => setForm({ ...form, skills: e.target.value })} />
           </div>
           <div>

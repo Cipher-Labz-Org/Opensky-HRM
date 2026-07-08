@@ -1,6 +1,6 @@
 /**
- * Suggested skills for requisitions, derived from job title and optional role / requisition title.
- * Matching is keyword-based so it works with org-specific job title names from the directory.
+ * Suggested skills for requisitions, derived from the requisition title field.
+ * Matching is keyword-based so it works with org-specific role names.
  */
 
 const DEFAULT_SKILLS = [
@@ -232,8 +232,8 @@ const RULES: Rule[] = [
   },
 ];
 
-function normalizeHints(jobTitleLabel: string, roleHint?: string): string {
-  return `${jobTitleLabel} ${roleHint ?? ""}`
+function normalizeTitle(title: string): string {
+  return title
     .toLowerCase()
     .replace(/[^a-z0-9\s.-]/g, " ")
     .replace(/\s+/g, " ")
@@ -242,10 +242,10 @@ function normalizeHints(jobTitleLabel: string, roleHint?: string): string {
 
 /**
  * Returns an ordered, de-duplicated list of suggested skills for checkboxes.
- * Uses job title first; optional requisition title widens keyword matches.
+ * Uses the requisition title only.
  */
-export function getSuggestedSkillsForJob(jobTitleLabel: string, roleHint?: string): string[] {
-  const text = normalizeHints(jobTitleLabel, roleHint);
+export function getSuggestedSkillsForTitle(title: string): string[] {
+  const text = normalizeTitle(title);
   const seen = new Set<string>();
   const out: string[] = [];
 

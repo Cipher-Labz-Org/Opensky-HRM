@@ -6,12 +6,17 @@ import { Button } from "@/components/ui/Button";
 import { DatePickerField, FormSelect, FormErrorAlert, EmailInput, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { type EmploymentTypeCatalogItem, employmentTypeOptionsFromCatalog } from "@/lib/employment-types";
-import { getSuggestedSkillsForJob } from "@/lib/requisition-skills-by-job";
+import { getSuggestedSkillsForTitle } from "@/lib/requisition-skills-by-job";
 import {
   generateRequisitionDescription,
   type RequisitionDescriptionSnapshot,
 } from "@/lib/generate-requisition-description";
 import { formatDate } from "@/lib/date-utils";
+import {
+  DEFAULT_SALARY_CURRENCY,
+  SALARY_CURRENCY_FORM_OPTIONS,
+  normalizeSalaryCurrency,
+} from "@/lib/salary-currency";
 
 /** Sparkles — common “AI assist” affordance (inline SVG, no extra dependency). */
 function AiAssistIcon({ className }: { className?: string }) {
@@ -46,7 +51,6 @@ function generateRequisitionCode(): string {
 }
 
 interface Lookup { id: string; name: string }
-interface LocationLookup { id: string; name: string }
 
 /** Shape returned by POST /api/recruitment/requisitions (camelCase JSON). */
 export interface CreatedRequisition {
@@ -73,7 +77,6 @@ const REQ_PRIORITY_CREATE_OPTS: FormSelectOption[] = [
 export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
-  const [locations, setLocations] = useState<LocationLookup[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -86,6 +89,8 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   const [manualSkillError, setManualSkillError] = useState("");
   const [description, setDescription] = useState("");
   const [applicationNotificationEmail, setApplicationNotificationEmail] = useState("");
+  const [salaryCurrency, setSalaryCurrency] = useState(DEFAULT_SALARY_CURRENCY);
+  const [workLocation, setWorkLocation] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
   const autoCodeRef = useRef("");
 
@@ -107,19 +112,10 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
     () => [{ value: "", label: "Select…" }, ...jobTitles.map((j) => ({ value: j.id, label: j.name }))],
     [jobTitles]
   );
-  const locationFormOpts = useMemo<FormSelectOption[]>(
-    () => [{ value: "", label: "Select…" }, ...locations.map((l) => ({ value: l.id, label: l.name }))],
-    [locations]
-  );
-
-  const jobTitleLabel = useMemo(
-    () => jobTitles.find((j) => j.id === jobTitleId)?.name ?? "",
-    [jobTitles, jobTitleId]
-  );
 
   const suggestedSkills = useMemo(
-    () => getSuggestedSkillsForJob(jobTitleLabel, requisitionTitle),
-    [jobTitleLabel, requisitionTitle]
+    () => getSuggestedSkillsForTitle(requisitionTitle),
+    [requisitionTitle]
   );
 
   const displaySkills = useMemo(() => {
@@ -144,16 +140,16 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
     setManualSkillError("");
     setDescription("");
     setApplicationNotificationEmail("");
+    setSalaryCurrency(DEFAULT_SALARY_CURRENCY);
+    setWorkLocation("");
     autoCodeRef.current = generateRequisitionCode();
     Promise.all([
       apiFetch<Lookup[]>("/api/organization/departments"),
       apiFetch<Lookup[]>("/api/organization/job-titles"),
-      apiFetch<LocationLookup[]>("/api/organization/locations"),
       apiFetch<EmploymentTypeCatalogItem[]>("/api/organization/employment-statuses").catch(() => [] as EmploymentTypeCatalogItem[]),
-    ]).then(([d, j, l, empTypes]) => {
+    ]).then(([d, j, empTypes]) => {
       setDepartments(d);
       setJobTitles(j);
-      setLocations(l);
       setEmploymentTypes(empTypes);
     }).catch(() => {});
   }, [open]);
@@ -181,11 +177,15 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   function getCreateValidationError(fd: FormData): string | null {
     const title = String(fd.get("title") ?? "").trim();
     const departmentId = String(fd.get("departmentId") ?? "").trim();
+    const locationText = workLocation.trim();
     const missing: string[] = [];
     if (!title) missing.push("Title");
     if (!departmentId) missing.push("Department");
+    if (!locationText) missing.push("Location");
+    if (String(fd.get("experienceMin") ?? "").trim() === "") missing.push("Experience (min years)");
+    if (selectedSkills.length === 0) missing.push("Skills (select at least one)");
     if (missing.length > 0) {
-      return `To create a requisition, please provide: ${missing.join(" and ")}.`;
+      return `To create a requisition, please provide: ${missing.join(", ")}.`;
     }
 
     const email = applicationNotificationEmail.trim();
@@ -198,9 +198,12 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
       return "Vacancies must be at least 1.";
     }
 
-    const expMin = fd.get("experienceMin") ? Number(fd.get("experienceMin")) : null;
+    const expMin = Number(fd.get("experienceMin"));
     const expMax = fd.get("experienceMax") ? Number(fd.get("experienceMax")) : null;
-    if (expMin != null && expMax != null && expMin > expMax) {
+    if (!Number.isFinite(expMin) || expMin < 0) {
+      return "Experience minimum must be 0 or greater.";
+    }
+    if (expMax != null && expMax !== undefined && String(fd.get("experienceMax")).trim() !== "" && expMin > expMax) {
       return "Experience minimum cannot be greater than experience maximum.";
     }
 
@@ -235,11 +238,12 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
       experienceMax: fd.get("experienceMax") ? Number(fd.get("experienceMax")) : null,
       salaryMin: fd.get("salaryMin") ? Number(fd.get("salaryMin")) : null,
       salaryMax: fd.get("salaryMax") ? Number(fd.get("salaryMax")) : null,
+      salaryCurrency: normalizeSalaryCurrency(salaryCurrency),
       skills: selectedSkills.length ? selectedSkills.join(", ") : null,
       departmentId: fd.get("departmentId"),
       jobTitleId: jobTitleId || null,
       hiringManagerId: null,
-      locationId: fd.get("locationId") || null,
+      workLocation: workLocation.trim(),
       applicationNotificationEmail: applicationNotificationEmail.trim() || null,
     };
     try {
@@ -262,11 +266,11 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
     const fd = new FormData(form);
     const g = (k: string) => String(fd.get(k) ?? "").trim();
     const deptId = g("departmentId");
-    const locId = g("locationId");
     const empVal = g("employmentType");
     const empOpt = employmentTypeFormOpts.find((o) => o.value === empVal);
     const employmentTypeLabel = empOpt && empOpt.value !== "" ? empOpt.label : "";
     const targetRaw = g("targetDate");
+    const jobTitleLabel = jobTitles.find((j) => j.id === jobTitleId)?.name ?? "";
     const snapshot: RequisitionDescriptionSnapshot = {
       title: g("title"),
       code: autoCodeRef.current || generateRequisitionCode(),
@@ -279,10 +283,11 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
       experienceMax: g("experienceMax"),
       salaryMin: g("salaryMin"),
       salaryMax: g("salaryMax"),
+      salaryCurrency: normalizeSalaryCurrency(salaryCurrency),
       departmentName: departments.find((d) => d.id === deptId)?.name ?? "",
       jobTitleName: jobTitleLabel,
       hiringManagerName: "",
-      locationName: locations.find((l) => l.id === locId)?.name ?? "",
+      locationName: workLocation.trim(),
       skills: [...selectedSkills],
     };
     setDescription(generateRequisitionDescription(snapshot));
@@ -324,10 +329,20 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <div><label className={labelClass}>Target Date</label><DatePickerField name="targetDate" className={inputClass} /></div>
-          <div><label className={labelClass}>Exp. Min (years)</label><input name="experienceMin" type="number" min={0} className={inputClass} /></div>
+          <div><label className={labelClass}>Exp. Min (years) *</label><input name="experienceMin" type="number" min={0} required className={inputClass} /></div>
           <div><label className={labelClass}>Exp. Max (years)</label><input name="experienceMax" type="number" min={0} className={inputClass} /></div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <label className={labelClass}>Salary currency</label>
+            <FormSelect
+              name="salaryCurrency"
+              value={salaryCurrency}
+              onValueChange={setSalaryCurrency}
+              options={SALARY_CURRENCY_FORM_OPTIONS}
+              clearable={false}
+            />
+          </div>
           <div><label className={labelClass}>Salary Min</label><input name="salaryMin" type="number" min={0} className={inputClass} /></div>
           <div><label className={labelClass}>Salary Max</label><input name="salaryMax" type="number" min={0} className={inputClass} /></div>
         </div>
@@ -344,8 +359,15 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
               placeholder="Select…"
             />
           </div>
-          <div><label className={labelClass}>Location</label>
-            <FormSelect name="locationId" defaultValue="" options={locationFormOpts} placeholder="Select…" />
+          <div><label className={labelClass}>Location *</label>
+            <input
+              name="workLocation"
+              required
+              className={inputClass}
+              placeholder="e.g. Colombo, Hybrid, Remote"
+              value={workLocation}
+              onChange={(e) => setWorkLocation(e.target.value)}
+            />
           </div>
         </div>
         <div>
@@ -366,9 +388,9 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
           </p>
         </div>
         <div>
-          <label className={labelClass}>Skills</label>
+          <label className={labelClass}>Skills *</label>
           <p className="mb-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
-            Suggestions follow the <strong>job title</strong> and <strong>requisition title</strong> (e.g. &quot;Backend Engineer&quot; vs &quot;HR Generalist&quot;). Choose all that apply, or add any missing skill manually below.
+            Suggestions follow the requisition <strong>title</strong> you enter above (e.g. &quot;Backend Engineer&quot; or &quot;HR Generalist&quot;). Choose all that apply, or add any missing skill manually below.
           </p>
           <div className="max-h-[220px] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--soft)]/30 p-3 sm:grid sm:grid-cols-2 sm:gap-x-4 sm:gap-y-2">
             {displaySkills.map((skill) => {

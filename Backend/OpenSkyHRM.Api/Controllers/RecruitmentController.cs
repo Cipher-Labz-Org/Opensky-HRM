@@ -81,20 +81,31 @@ public class RecruitmentController : ControllerBase
 
     [HttpPost("requisitions")]
     public async Task<IActionResult> CreateRequisition([FromBody] CreateRequisitionDto dto)
-        => Ok(await _svc.CreateRequisitionAsync(dto));
+    {
+        try { return Ok(await _svc.CreateRequisitionAsync(dto)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     [HttpPut("requisitions/{id}")]
     public async Task<IActionResult> UpdateRequisition(Guid id, [FromBody] UpdateRequisitionDto dto)
     {
         dto.Id = id;
-        return Ok(await _svc.UpdateRequisitionAsync(dto));
+        try { return Ok(await _svc.UpdateRequisitionAsync(dto)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     [HttpDelete("requisitions/{id}")]
     public async Task<IActionResult> DeleteRequisition(Guid id)
     {
-        await _svc.DeleteRequisitionAsync(id);
-        return NoContent();
+        try
+        {
+            await _svc.DeleteRequisitionAsync(id);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("requisitions/{id}/approve")]

@@ -12,7 +12,12 @@ import { ROUTES } from "@/config/routes";
 import { APP_NAME } from "@/config/constants";
 import { employmentTypeDisplayName, type EmploymentTypeCatalogItem } from "@/lib/employment-types";
 import { generateRequisitionDescription, type RequisitionDescriptionSnapshot } from "@/lib/generate-requisition-description";
+import { normalizeSalaryCurrency } from "@/lib/salary-currency";
 import { parseRequisitionDescription } from "@/lib/parse-requisition-description";
+import {
+  REQUISITION_GRADIENT_BAR_CLASS,
+  RequisitionDocumentHeader,
+} from "@/components/recruitment/RequisitionDocumentHeader";
 
 interface RequisitionDetail {
   id: string;
@@ -28,6 +33,7 @@ interface RequisitionDetail {
   experienceMax?: number;
   salaryMin?: number;
   salaryMax?: number;
+  salaryCurrency?: string;
   skills?: string;
   closedAt?: string;
   departmentName?: string;
@@ -45,8 +51,7 @@ interface RequisitionDetail {
 }
 
 /** Header + footer gradient (aligned with interview scheduled card). */
-const gradientBarClass =
-  "bg-gradient-to-r from-[#1a3a6e] via-[#1e4a8c] to-[#2e78e6] px-8 py-7 sm:px-10 sm:py-8";
+const gradientBarClass = REQUISITION_GRADIENT_BAR_CLASS;
 
 function snapshotFromReq(req: RequisitionDetail, employmentTypeLabel: string): RequisitionDescriptionSnapshot {
   return {
@@ -61,6 +66,7 @@ function snapshotFromReq(req: RequisitionDetail, employmentTypeLabel: string): R
     experienceMax: req.experienceMax != null ? String(req.experienceMax) : "",
     salaryMin: req.salaryMin != null ? String(req.salaryMin) : "",
     salaryMax: req.salaryMax != null ? String(req.salaryMax) : "",
+    salaryCurrency: normalizeSalaryCurrency(req.salaryCurrency),
     departmentName: req.departmentName ?? "",
     jobTitleName: req.jobTitleName ?? "",
     hiringManagerName: req.hiringManagerName ?? "",
@@ -322,11 +328,7 @@ export default function RequisitionDetailPage() {
         ) : null}
 
         <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-md sm:rounded-2xl">
-          <header className={`${gradientBarClass} rounded-t-xl sm:rounded-t-2xl`}>
-            <h2 className="text-xl font-bold tracking-tight text-white sm:text-2xl">Job requisition</h2>
-            <p className="mt-2 text-sm font-normal text-white/90">{APP_NAME}</p>
-            <p className="mt-3 max-w-2xl text-base font-semibold leading-snug text-white sm:text-lg">{req.title}</p>
-          </header>
+          <RequisitionDocumentHeader title={req.title} className="rounded-t-xl sm:rounded-t-2xl" />
 
           {/* 1 — Posting / overview (generated or edited description) */}
           <div className="border-b border-neutral-100 px-6 py-8 sm:px-10 sm:py-10">

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.Reports;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
+using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Application.Services;
@@ -159,7 +160,7 @@ public class ReportService : IReportService
         Tag("attendance", "late-arrivals", true, "dateRange");
         Tag("attendance", "early-departures", true, "dateRange");
         Tag("attendance", "overtime-report", true, "yearMonth");
-        Tag("attendance", "absent-report", true, "singleDate");
+        Tag("attendance", "absent-report", true, "dateRange");
 
         Tag("payroll", "payroll-register", true, "yearMonth");
         Tag("payroll", "salary-register", true, "none");
@@ -693,59 +694,81 @@ public class ReportService : IReportService
 
     private async Task<ReportResultDto> AbsenceFrequencyReport(Dictionary<string, string>? filters)
     {
-        var from = DateTime.UtcNow.AddDays(-30).Date;
-        var to = DateTime.UtcNow.Date;
-        if (filters != null)
-        {
-            if (filters.TryGetValue("from", out var f) && DateTime.TryParse(f, out var fd)) from = fd.Date;
-            if (filters.TryGetValue("to", out var t) && DateTime.TryParse(t, out var td)) to = td.Date;
-        }
+        var (from, to) = ResolveReportDateRange(filters, defaultDaysBack: 30);
+        var toInclusive = to.Date.AddDays(1).AddTicks(-1);
+
         var q = _db.Set<LeaveRequest>()
             .Include(r => r.Employee).ThenInclude(e => e.Department)
-            .Where(r => !r.IsDeleted && (r.Status.ToString() == "Approved" || r.Status.ToString() == "PendingLevel2")
-                && r.StartDate <= to && r.EndDate >= from).AsQueryable();
+            .Where(r => !r.IsDeleted
+                && (r.Status == ApprovalStatus.Approved || r.Status == ApprovalStatus.PendingLevel2)
+                && r.StartDate <= toInclusive
+                && r.EndDate >= from);
         var scopedEmployeeIds = await ResolveScopedEmployeeIdsAsync(filters);
         if (scopedEmployeeIds != null)
             q = q.Where(r => scopedEmployeeIds.Contains(r.EmployeeId));
-        var data = await q
-            .GroupBy(r => new { r.Employee.EmployeeCode, Name = r.Employee.FirstName + " " + r.Employee.LastName, Dept = r.Employee.Department!.Name })
-            .Select(g => new { g.Key.EmployeeCode, g.Key.Name, g.Key.Dept, Instances = g.Count(), TotalDays = g.Sum(r => r.TotalDays) })
-            .OrderByDescending(x => x.Instances).ToListAsync();
+
+        var leaves = await q.ToListAsync();
+        var data = leaves
+            .GroupBy(r => new
+            {
+                r.Employee.EmployeeCode,
+                Name = r.Employee.FullName,
+                Dept = r.Employee.Department?.Name ?? "",
+            })
+            .Select(g => new
+            {
+                g.Key.EmployeeCode,
+                g.Key.Name,
+                g.Key.Dept,
+                Instances = g.Count(),
+                TotalDays = g.Sum(r => r.TotalDays),
+            })
+            .OrderByDescending(x => x.Instances)
+            .ToList();
+
         var cols = new List<string> { "Employee Code", "Employee Name", "Department", "Leave Instances", "Total Days" };
         var rows = data.Select(d => new Dictionary<string, object?>
         {
             ["Employee Code"] = d.EmployeeCode, ["Employee Name"] = d.Name, ["Department"] = d.Dept,
             ["Leave Instances"] = d.Instances, ["Total Days"] = d.TotalDays,
         }).ToList();
-        return Build("Absence Frequency", cols, rows);
+        return Build($"Absence Frequency ({from:yyyy-MM-dd} to {to:yyyy-MM-dd})", cols, rows);
     }
 
     private async Task<ReportResultDto> LeaveByTypeReport(Dictionary<string, string>? filters)
     {
-        var from = DateTime.UtcNow.AddMonths(-12).Date;
-        var to = DateTime.UtcNow.Date;
-        if (filters != null)
-        {
-            if (filters.TryGetValue("from", out var f) && DateTime.TryParse(f, out var fd)) from = fd.Date;
-            if (filters.TryGetValue("to", out var t) && DateTime.TryParse(t, out var td)) to = td.Date;
-        }
+        var (from, to) = ResolveReportDateRange(filters, defaultDaysBack: 365);
+        var toInclusive = to.Date.AddDays(1).AddTicks(-1);
+
         var q = _db.Set<LeaveRequest>()
-            .Include(r => r.LeaveType).Include(r => r.Employee)
-            .Where(r => !r.IsDeleted && (r.Status.ToString() == "Approved" || r.Status.ToString() == "PendingLevel2")
-                && r.StartDate <= to && r.EndDate >= from).AsQueryable();
+            .Include(r => r.LeaveType)
+            .Include(r => r.Employee)
+            .Where(r => !r.IsDeleted
+                && (r.Status == ApprovalStatus.Approved || r.Status == ApprovalStatus.PendingLevel2)
+                && r.StartDate <= toInclusive
+                && r.EndDate >= from);
         var scopedEmployeeIds = await ResolveScopedEmployeeIdsAsync(filters);
         if (scopedEmployeeIds != null)
             q = q.Where(r => scopedEmployeeIds.Contains(r.EmployeeId));
-        var data = await q
+
+        var leaves = await q.ToListAsync();
+        var data = leaves
             .GroupBy(r => r.LeaveType.Name)
-            .Select(g => new { LeaveType = g.Key, Requests = g.Count(), TotalDays = g.Sum(r => r.TotalDays) })
-            .OrderByDescending(x => x.TotalDays).ToListAsync();
+            .Select(g => new
+            {
+                LeaveType = g.Key,
+                Requests = g.Count(),
+                TotalDays = g.Sum(r => r.TotalDays),
+            })
+            .OrderByDescending(x => x.TotalDays)
+            .ToList();
+
         var cols = new List<string> { "Leave Type", "Total Requests", "Total Days" };
         var rows = data.Select(d => new Dictionary<string, object?>
         {
             ["Leave Type"] = d.LeaveType, ["Total Requests"] = d.Requests, ["Total Days"] = d.TotalDays,
         }).ToList();
-        return Build("Leave by Type", cols, rows);
+        return Build($"Leave by Type ({from:yyyy-MM-dd} to {to:yyyy-MM-dd})", cols, rows);
     }
 
     private async Task<ReportResultDto> PendingApprovalsReport(Dictionary<string, string>? filters)
@@ -935,16 +958,64 @@ public class ReportService : IReportService
 
     private async Task<ReportResultDto> AbsentReport(Dictionary<string, string>? filters)
     {
-        var date = DateTime.UtcNow.Date;
-        if (filters != null && filters.TryGetValue("date", out var d) && DateTime.TryParse(d, out var dd)) date = dd.Date;
-        var empQ = _db.Employees.Where(e => e.Status != "Terminated").AsQueryable();
+        var (from, to) = ResolveReportDateRange(filters, defaultDaysBack: 0);
+        if (filters != null && filters.TryGetValue("date", out var legacyDate) && DateTime.TryParse(legacyDate, out var dd)
+            && !filters.ContainsKey("from") && !filters.ContainsKey("to"))
+        {
+            from = dd.Date;
+            to = dd.Date;
+        }
+
+        var empQ = _db.Employees.Where(e => e.Status != "Terminated" && !e.IsDeleted).AsQueryable();
         empQ = ApplyEmployeeFilters(empQ, filters);
-        var allActive = await empQ.Select(e => new { e.Id, e.EmployeeCode, e.FirstName, e.LastName }).ToListAsync();
-        var presentIds = await _db.Set<AttendanceRecord>().Where(a => !a.IsDeleted && a.Date.Date == date).Select(a => a.EmployeeId).Distinct().ToListAsync();
-        var absent = allActive.Where(e => !presentIds.Contains(e.Id)).ToList();
-        var cols = new List<string> { "Employee Code", "Employee Name" };
-        var rows = absent.Select(e => new Dictionary<string, object?> { ["Employee Code"] = e.EmployeeCode, ["Employee Name"] = $"{e.FirstName} {e.LastName}" }).ToList();
-        return Build($"Absent / No-Punch Report - {date:yyyy-MM-dd}", cols, rows);
+        var employees = await empQ
+            .Select(e => new { e.Id, e.EmployeeCode, e.FirstName, e.LastName })
+            .ToListAsync();
+
+        var presentByEmployee = await _db.Set<AttendanceRecord>()
+            .Where(a => !a.IsDeleted && a.Date.Date >= from && a.Date.Date <= to)
+            .GroupBy(a => a.EmployeeId)
+            .Select(g => new { EmployeeId = g.Key, Days = g.Select(a => a.Date.Date).Distinct().Count() })
+            .ToListAsync();
+        var presentLookup = presentByEmployee.ToDictionary(x => x.EmployeeId, x => x.Days);
+
+        var totalCalendarDays = (to.Date - from.Date).Days + 1;
+        var cols = new List<string> { "Employee Code", "Employee Name", "Absent Days", "From", "To" };
+        var rows = employees
+            .Select(e =>
+            {
+                var presentDays = presentLookup.GetValueOrDefault(e.Id);
+                var absentDays = Math.Max(0, totalCalendarDays - presentDays);
+                return new { e.EmployeeCode, Name = $"{e.FirstName} {e.LastName}", absentDays };
+            })
+            .Where(x => x.absentDays > 0)
+            .OrderByDescending(x => x.absentDays)
+            .Select(x => new Dictionary<string, object?>
+            {
+                ["Employee Code"] = x.EmployeeCode,
+                ["Employee Name"] = x.Name,
+                ["Absent Days"] = x.absentDays,
+                ["From"] = from.ToString("yyyy-MM-dd"),
+                ["To"] = to.ToString("yyyy-MM-dd"),
+            })
+            .ToList();
+
+        return Build($"Absent / No-Punch Report ({from:yyyy-MM-dd} to {to:yyyy-MM-dd})", cols, rows);
+    }
+
+    private static (DateTime from, DateTime to) ResolveReportDateRange(Dictionary<string, string>? filters, int defaultDaysBack)
+    {
+        var to = DateTime.UtcNow.Date;
+        var from = defaultDaysBack > 0 ? to.AddDays(-defaultDaysBack) : to;
+        if (filters == null) return (from, to);
+
+        if (filters.TryGetValue("from", out var f) && DateTime.TryParse(f, out var fd))
+            from = fd.Date;
+        if (filters.TryGetValue("to", out var t) && DateTime.TryParse(t, out var td))
+            to = td.Date;
+        if (to < from)
+            (from, to) = (to, from);
+        return (from, to);
     }
 
     // ========== PAYROLL ==========

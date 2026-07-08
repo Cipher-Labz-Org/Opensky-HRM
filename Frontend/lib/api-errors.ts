@@ -58,6 +58,7 @@ const FIELD_LABELS: Record<string, string> = {
   licenseExpiryDate: "Licence expiry date",
   salaryMin: "Minimum salary",
   salaryMax: "Maximum salary",
+  salaryCurrency: "Salary currency",
   experienceMin: "Minimum experience",
   experienceMax: "Maximum experience",
   skills: "Skills",

@@ -23,6 +23,7 @@ export { SectionAddRecordButton, SectionRecordHeaderActions, sectionAddRecordBut
 export { AddressTextInput } from "./AddressTextInput";
 export { PostalCodeInput } from "./PostalCodeInput";
 export { DistanceKmInput } from "./DistanceKmInput";
+export { MinutesStepperInput } from "./MinutesStepperInput";
 export { AddressRegionFields } from "./AddressRegionFields";
 export { TablePagination } from "./TablePagination";
 export { PasswordVisibilityToggle } from "./PasswordVisibilityToggle";

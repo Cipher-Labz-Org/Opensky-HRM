@@ -11,7 +11,7 @@ namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
-[RequireLicensedModule("People")]
+[RequireLicensedModuleAny("People", "Employee360")]
 [Route("api/employees/{employeeId:guid}/immigration-documents")]
 public class ImmigrationDocumentsController : ControllerBase
 {

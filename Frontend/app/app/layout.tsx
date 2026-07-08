@@ -31,12 +31,12 @@ const ALL_NAV_GROUPS: NavGroup[] = [
     items: [
       { href: ROUTES.dashboard, label: "Dashboard", module: "Dashboard" },
       { href: ROUTES.people, label: "People Hub", module: "People" },
-      { href: ROUTES.employeeProfile, label: "Employee 360", module: "People" },
+      { href: ROUTES.employeeProfile, label: "Employee bio", module: "People" },
       { href: ROUTES.recruitment, label: "Recruitment", module: "Recruitment" },
       {
         href: ROUTES.employeeTasks,
         label: "Employee Tasks",
-        moduleAnyOf: ["People", "Recruitment", "EmployeeTasks"],
+        moduleAnyOf: ["People", "Employee360", "Recruitment", "EmployeeTasks"],
       },
       { href: ROUTES.employeeActions, label: "Employee Actions", module: "People" },
     ],
