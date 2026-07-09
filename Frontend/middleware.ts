@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isKnownTenant } from "@/config/tenants";
 
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/", "/pricing", "/contact"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/", "/pricing", "/contact", "/careers"];
 
 /** True when the hostname is a *.openskyhrm.com subdomain (not the apex). */
 function isProductionTenantDomain(hostname: string): boolean {

@@ -1,8 +1,9 @@
 using System.Net;
+using System.Text.RegularExpressions;
 
 namespace OpenSkyHRM.Application.Common;
 
-public static class OfferLetterHelper
+public static partial class OfferLetterHelper
 {
     public const string DefaultCompanyName = "OpenSky HRM";
 
@@ -115,6 +116,7 @@ public static class OfferLetterHelper
             ["{{CompanyName}}"] = WebUtility.HtmlEncode(resolvedCompanyName),
             ["{{CompanyHeaderHtml}}"] = headerHtml,
             ["{{CompanyLogoHtml}}"] = "",
+            ["{{OfferActionsHtml}}"] = "",
         };
     }
 
@@ -158,4 +160,79 @@ public static class OfferLetterHelper
             return trimmed;
         return trimmed.StartsWith('/') ? trimmed : $"/{trimmed}";
     }
+
+    public static string BuildOfferActionsHtml(string responseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(responseUrl)) return "";
+
+        var encodedUrl = WebUtility.HtmlEncode(responseUrl.Trim());
+        var acceptUrl = WebUtility.HtmlEncode($"{responseUrl.Trim()}?action=accept");
+        var negotiateUrl = WebUtility.HtmlEncode($"{responseUrl.Trim()}?action=negotiate");
+        var rejectUrl = WebUtility.HtmlEncode($"{responseUrl.Trim()}?action=reject");
+
+        return $"""
+            <div style="margin: 28px 0 12px; padding: 24px; background: #f8f9fe; border-radius: 12px; text-align: center;">
+              <p style="margin: 0 0 16px; font-size: 15px; font-weight: 600; color: #1a1a2e;">Your response</p>
+              <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #555;">Please choose how you would like to proceed with this offer.</p>
+              <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 0 auto;">
+                <tr>
+                  <td style="padding: 6px;"><a href="{acceptUrl}" style="display: inline-block; padding: 12px 20px; background: #16a34a; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">Accept offer</a></td>
+                  <td style="padding: 6px;"><a href="{negotiateUrl}" style="display: inline-block; padding: 12px 20px; background: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">Negotiate</a></td>
+                  <td style="padding: 6px;"><a href="{rejectUrl}" style="display: inline-block; padding: 12px 20px; background: #dc2626; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">Decline</a></td>
+                </tr>
+              </table>
+              <p style="margin: 16px 0 0; font-size: 12px; color: #888;"><a href="{encodedUrl}" style="color: #2563eb; text-decoration: none;">Open offer response page</a></p>
+            </div>
+            """;
+    }
+
+    public static string InjectOfferActions(string html, string actionsHtml)
+    {
+        if (string.IsNullOrWhiteSpace(html) || string.IsNullOrWhiteSpace(actionsHtml))
+            return html;
+
+        html = StripPreviewOfferActions(html);
+
+        if (html.Contains(actionsHtml, StringComparison.Ordinal)
+            || html.Contains("Accept offer</a>", StringComparison.OrdinalIgnoreCase))
+            return html;
+
+        const string placeholder = "{{OfferActionsHtml}}";
+        if (html.Contains(placeholder, StringComparison.Ordinal))
+            return html.Replace(placeholder, actionsHtml, StringComparison.Ordinal);
+
+        const string marker = "Please review the details and let us know your decision at your earliest convenience.";
+        if (html.Contains(marker, StringComparison.Ordinal))
+        {
+            return html.Replace(
+                marker,
+                marker + actionsHtml,
+                StringComparison.Ordinal);
+        }
+
+        const string footerMarker = "This is an automated email from";
+        var footerIndex = html.IndexOf(footerMarker, StringComparison.OrdinalIgnoreCase);
+        if (footerIndex > 0)
+            return html.Insert(footerIndex, actionsHtml);
+
+        return html + actionsHtml;
+    }
+
+    /// <summary>Removes non-clickable preview action buttons injected by the HR offer letter preview.</summary>
+    public static string StripPreviewOfferActions(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return html;
+
+        const string previewMarker = "When emailed, the candidate can accept";
+        if (!html.Contains(previewMarker, StringComparison.OrdinalIgnoreCase))
+            return html;
+
+        return PreviewActionsBlockRegex().Replace(html, "");
+    }
+
+    [GeneratedRegex(
+        @"<div style=""margin: 28px 0 12px; padding: 24px; background: #f8f9fe; border-radius: 12px; text-align: center;"">[\s\S]*?When emailed, the candidate can accept[\s\S]*?</div>",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex PreviewActionsBlockRegex();
 }

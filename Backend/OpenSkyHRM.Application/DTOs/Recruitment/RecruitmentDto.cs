@@ -327,6 +327,9 @@ public class OfferDto
     public DateTime? AcceptedAt { get; set; }
     public DateTime? RejectedAt { get; set; }
     public string? RejectionReason { get; set; }
+    public DateTime? SentAt { get; set; }
+    public DateTime? NegotiationRequestedAt { get; set; }
+    public string? NegotiationMessage { get; set; }
     public Guid CandidateId { get; set; }
     public string? CandidateName { get; set; }
     public Guid? PositionId { get; set; }
@@ -379,6 +382,31 @@ public class UpdateOfferDto : CreateOfferDto
 public class RejectOfferDto
 {
     public string? Reason { get; set; }
+}
+
+/// <summary>Candidate-facing offer summary (public response link).</summary>
+public class PublicOfferResponseDto
+{
+    public string CandidateName { get; set; } = string.Empty;
+    public string PositionTitle { get; set; } = string.Empty;
+    public decimal SalaryOffered { get; set; }
+    public string? Currency { get; set; }
+    public DateTime? JoiningDate { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public bool CanRespond { get; set; }
+    public bool IsAccepted { get; set; }
+    public bool IsRejected { get; set; }
+    public bool HasNegotiationRequest { get; set; }
+    public string? NegotiationMessage { get; set; }
+    public DateTime? NegotiationRequestedAt { get; set; }
+    public string? LetterHtml { get; set; }
+    public string? ResponseMessage { get; set; }
+}
+
+public class PublicNegotiateOfferDto
+{
+    public string Message { get; set; } = string.Empty;
 }
 
 public class OfferHistoryDto

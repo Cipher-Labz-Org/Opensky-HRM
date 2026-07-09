@@ -136,6 +136,7 @@ public static class TransactionalEmailTemplateSeeder
       <p style="font-size: 15px; line-height: 1.6; margin: 0 0 8px;">
         Please review the details and let us know your decision at your earliest convenience.
       </p>
+      {{OfferActionsHtml}}
       <p style="font-size: 15px; margin: 24px 0 0;">
         Best regards,<br />
         <strong>Human Resources</strong><br />

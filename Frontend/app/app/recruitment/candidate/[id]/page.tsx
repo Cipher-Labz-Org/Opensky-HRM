@@ -49,7 +49,8 @@ interface Offer {
   id: string; salaryOffered: number; currency?: string; offerDate: string;
   expiryDate?: string; status: string; remarks?: string; joiningDate?: string;
   offerLetterUrl?: string; letterHtml?: string; acceptedAt?: string; rejectedAt?: string;
-  rejectionReason?: string; candidateId: string;
+  rejectionReason?: string; sentAt?: string; negotiationRequestedAt?: string; negotiationMessage?: string;
+  candidateId: string;
 }
 interface Activity { id: string; activityType: string; description: string; performedBy?: string; performedAt: string; }
 
@@ -107,7 +108,6 @@ export default function CandidateDetailPage() {
   const [showOfferForm, setShowOfferForm] = useState(false);
   const [offerLetterHtml, setOfferLetterHtml] = useState("");
   const [offerLetterLoading, setOfferLetterLoading] = useState(false);
-  const [offerLetterSaving, setOfferLetterSaving] = useState(false);
   const [companyBranding, setCompanyBranding] = useState<CompanyBranding | null>(null);
   const [createOfferLoading, setCreateOfferLoading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
@@ -115,6 +115,9 @@ export default function CandidateDetailPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [resumeOpening, setResumeOpening] = useState(false);
   const [evaluationNote, setEvaluationNote] = useState("");
+  const [editJoiningDate, setEditJoiningDate] = useState(false);
+  const [editJoiningDateValue, setEditJoiningDateValue] = useState("");
+  const [editJoiningDateSaving, setEditJoiningDateSaving] = useState(false);
   const [evaluationNoteSaving, setEvaluationNoteSaving] = useState(false);
 
   useEffect(() => {
@@ -198,25 +201,13 @@ export default function CandidateDetailPage() {
     }
   }
 
-  const offerLetterEditor = (opts: { showSave: boolean }) => (
+  const offerLetterEditor = () => (
     <div className="rounded-2xl border border-[var(--border)] bg-white p-6 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold text-[var(--text)]">Offer letter</h3>
-          <p className="mt-1 text-xs text-[var(--text-muted)]">
-            Form fields above fill the letter automatically. Use Refresh fields after changing offer details.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" onClick={() => void refreshOfferLetterPreview({ useCurrentAsTemplate: true })} disabled={offerLetterLoading}>
-            {offerLetterLoading ? "Refreshing…" : "Refresh fields"}
-          </Button>
-          {opts.showSave && (
-            <Button type="button" onClick={() => void handleSaveOfferLetter()} disabled={offerLetterSaving || !offerLetterHtml.trim()}>
-              {offerLetterSaving ? "Saving…" : "Save letter"}
-            </Button>
-          )}
-        </div>
+      <div className="mb-3">
+        <h3 className="text-base font-semibold text-[var(--text)]">Offer letter</h3>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          Form fields above fill the letter automatically.
+        </p>
       </div>
       <div
         className="prose prose-sm max-w-none min-h-[200px] rounded-xl border border-[var(--border)] bg-white p-4"
@@ -462,19 +453,28 @@ export default function CandidateDetailPage() {
     openOfferWorkflow();
   }, [candidate, openOfferWorkflow]);
 
-  async function handleSaveOfferLetter() {
-    if (!candidate?.offer?.id || !resolvedOfferLetterHtml.trim()) return;
-    setOfferLetterSaving(true);
+  async function handleSaveJoiningDate() {
+    if (!candidate?.offer?.id) return;
+    setEditJoiningDateSaving(true);
     try {
-      await apiFetch(`/api/recruitment/offers/${candidate.offer.id}/letter`, {
+      await apiFetch(`/api/recruitment/offers/${candidate.offer.id}`, {
         method: "PUT",
-        body: JSON.stringify({ letterHtml: resolvedOfferLetterHtml }),
+        body: JSON.stringify({
+          id: candidate.offer.id,
+          salaryOffered: candidate.offer.salaryOffered,
+          currency: candidate.offer.currency ?? "LKR",
+          offerDate: candidate.offer.offerDate,
+          expiryDate: candidate.offer.expiryDate || null,
+          joiningDate: editJoiningDateValue || null,
+          remarks: candidate.offer.remarks || null,
+        }),
       });
+      setEditJoiningDate(false);
       await load();
     } catch (err) {
-      await appAlert(err instanceof Error ? err.message : "Could not save offer letter.");
+      await appAlert(err instanceof Error ? err.message : "Could not update joining date.");
     } finally {
-      setOfferLetterSaving(false);
+      setEditJoiningDateSaving(false);
     }
   }
 
@@ -491,8 +491,8 @@ export default function CandidateDetailPage() {
       await appAlert("Offer date is required.");
       return;
     }
-    if (!resolvedOfferLetterHtml.trim()) {
-      await appAlert("Offer letter is empty. Wait for the preview to load or click Refresh fields.");
+    if (!offerLetterHtml.trim()) {
+      await appAlert("Offer letter is empty. Wait for the preview to load.");
       return;
     }
     const candidateEmail = candidate?.email?.trim();
@@ -518,7 +518,7 @@ export default function CandidateDetailPage() {
           joiningDate: offerForm.joiningDate || null,
           remarks: offerForm.remarks || null,
           positionTitle: offerForm.positionTitle.trim() || null,
-          letterHtml: resolvedOfferLetterHtml.trim(),
+          letterHtml: offerLetterHtml.trim(),
         }),
       });
       await apiFetch(`/api/recruitment/offers/${created.id}/approve`, { method: "POST" });
@@ -531,7 +531,7 @@ export default function CandidateDetailPage() {
       await load();
       setTab("offer");
       if (sendRes.emailConfigured) {
-        await appAlert(`Offer saved and emailed to ${candidateEmail} with a PDF attachment.`);
+        await appAlert(`Offer saved and emailed to ${candidateEmail}. The candidate can accept, negotiate, or decline from the email.`);
       } else {
         await appAlert(
           "Offer saved and approved. Email was not sent because outbound email is not configured on the server. Set up SMTP or SendGrid, then use Share with candidate.",
@@ -923,10 +923,46 @@ export default function CandidateDetailPage() {
                   <div><dt className="text-[var(--text-muted)]">Salary Offered</dt><dd className="font-medium">{c.offer.currency ?? "LKR"} {c.offer.salaryOffered.toLocaleString()}</dd></div>
                   <div><dt className="text-[var(--text-muted)]">Offer Date</dt><dd className="font-medium">{formatDate(c.offer.offerDate)}</dd></div>
                   {c.offer.expiryDate && <div><dt className="text-[var(--text-muted)]">Expiry</dt><dd className="font-medium">{formatDate(c.offer.expiryDate)}</dd></div>}
-                  {c.offer.joiningDate && <div><dt className="text-[var(--text-muted)]">Joining Date</dt><dd className="font-medium">{formatDate(c.offer.joiningDate)}</dd></div>}
+                  <div>
+                    <dt className="text-[var(--text-muted)] flex items-center gap-2">
+                      Joining Date
+                      {!c.offer.acceptedAt && c.offer.status !== "Rejected" && !editJoiningDate && (
+                        <button
+                          type="button"
+                          className="text-[10px] text-orange-600 hover:underline font-semibold"
+                          onClick={() => { setEditJoiningDate(true); setEditJoiningDateValue(c.offer!.joiningDate?.slice(0, 10) ?? ""); }}
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </dt>
+                    {editJoiningDate ? (
+                      <dd className="flex items-center gap-2 mt-1">
+                        <div className="w-40">
+                          <DatePickerField
+                            value={editJoiningDateValue}
+                            onChange={(v) => setEditJoiningDateValue(v)}
+                          />
+                        </div>
+                        <Button onClick={() => void handleSaveJoiningDate()} disabled={editJoiningDateSaving}>
+                          {editJoiningDateSaving ? "Saving…" : "Save"}
+                        </Button>
+                        <Button variant="secondary" onClick={() => setEditJoiningDate(false)} disabled={editJoiningDateSaving}>Cancel</Button>
+                      </dd>
+                    ) : (
+                      <dd className="font-medium">{c.offer.joiningDate ? formatDate(c.offer.joiningDate) : <span className="text-[var(--text-muted)]">Not set</span>}</dd>
+                    )}
+                  </div>
                   {c.offer.acceptedAt && <div><dt className="text-[var(--text-muted)]">Accepted</dt><dd className="font-medium text-green-600">{formatDateTime(c.offer.acceptedAt)}</dd></div>}
+                  {c.offer.sentAt && <div><dt className="text-[var(--text-muted)]">Emailed</dt><dd className="font-medium">{formatDateTime(c.offer.sentAt)}</dd></div>}
                   {c.offer.rejectedAt && <div><dt className="text-[var(--text-muted)]">Rejected</dt><dd className="font-medium text-red-600">{formatDateTime(c.offer.rejectedAt)}</dd></div>}
                 </dl>
+                {c.offer.negotiationMessage && (
+                  <div className="mt-4 rounded-lg bg-blue-50 p-4 text-sm text-blue-900">
+                    <p className="font-semibold">Candidate requested negotiation{c.offer.negotiationRequestedAt ? ` (${formatDateTime(c.offer.negotiationRequestedAt)})` : ""}</p>
+                    <p className="mt-2">{c.offer.negotiationMessage}</p>
+                  </div>
+                )}
                 {c.offer.remarks && <p className="mt-4 text-sm text-[var(--text-muted)]">{c.offer.remarks}</p>}
                 {c.offer.rejectionReason && (
                   <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
@@ -977,15 +1013,15 @@ export default function CandidateDetailPage() {
                   </div>
                 )}
 
-                {c.offer.status === "Approved" && c.offer.acceptedAt && c.stage === "Offer" && (
+                {c.offer.status === "Approved" && c.offer.acceptedAt && (
                   <div className="mt-4 rounded-lg bg-green-50 p-4 text-sm text-green-700">
-                    Offer accepted. The candidate will be moved to the <strong>Hired</strong> stage.
+                    Offer accepted. Candidate moved to <strong>Hired</strong>. Use <strong>Convert to Employee</strong> for the next onboarding step.
                   </div>
                 )}
               </div>
               {c.offer.status !== "Rejected" && (
                 <div ref={offerLetterSectionRef}>
-                  {offerLetterEditor({ showSave: true })}
+                  {offerLetterEditor()}
                 </div>
               )}
               </>
@@ -1043,7 +1079,7 @@ export default function CandidateDetailPage() {
                         <textarea value={offerForm.remarks} onChange={(e) => setOfferForm({ ...offerForm, remarks: e.target.value })}
                           placeholder="Additional notes about the offer..." className={`${INPUT} min-h-[80px]`} />
                       </div>
-                      {offerLetterEditor({ showSave: false })}
+                      {offerLetterEditor()}
                     </div>
                     <div className="mt-5 flex justify-end gap-3">
                       <Button variant="secondary" onClick={() => setShowOfferForm(false)} disabled={createOfferLoading}>Cancel</Button>

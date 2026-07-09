@@ -94,7 +94,7 @@ export const DrivingLicenseInput = forwardRef<HTMLInputElement, DrivingLicenseIn
         onKeyDown?.(e);
         return;
       }
-      if (/^[A-Za-z0-9]$/.test(e.key)) {
+      if (/^[A-Za-z0-9\s\-/]$/.test(e.key)) {
         onKeyDown?.(e);
         return;
       }
