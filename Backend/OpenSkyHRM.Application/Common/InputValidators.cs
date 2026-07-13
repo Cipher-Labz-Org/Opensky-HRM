@@ -8,7 +8,7 @@ public static class InputValidators
     private static readonly Regex PhoneIntlRegex = new(@"^\+[1-9]\d{7,14}$", RegexOptions.Compiled);
     private static readonly Regex PhoneLocalRegex = new(@"^\d{8,15}$", RegexOptions.Compiled);
     private static readonly Regex NicRegex = new(@"^(\d{9}[VvXx]|\d{12})$", RegexOptions.Compiled);
-    private static readonly Regex DrivingLicenseRegex = new(@"^[A-Za-z0-9]+$", RegexOptions.Compiled);
+    private static readonly Regex DrivingLicenseRegex = new(@"^[A-Za-z0-9\s\-/]+$", RegexOptions.Compiled);
     private static readonly Regex PassportNumberRegex = new(@"^[A-Z0-9]+$", RegexOptions.Compiled);
     private static readonly Regex UsernameRegex = new(@"^[A-Za-z0-9@.]+$", RegexOptions.Compiled);
     private static readonly Regex TinRegex = new(@"^[A-Za-z0-9]+$", RegexOptions.Compiled);
@@ -22,7 +22,7 @@ public static class InputValidators
         "Enter a valid NIC (9 digits + V/X or 12 digits).";
 
     public const string DrivingLicenseValidationMessage =
-        "Can only contain letters and numbers.";
+        "Can only contain letters, numbers, spaces, hyphens, and slashes.";
 
     public const string PassportNumberValidationMessage =
         "Can only contain uppercase letters (A–Z) and numbers (0–9).";
