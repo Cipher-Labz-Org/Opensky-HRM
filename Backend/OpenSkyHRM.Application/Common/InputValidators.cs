@@ -9,7 +9,7 @@ public static class InputValidators
     private static readonly Regex PhoneLocalRegex = new(@"^\d{8,15}$", RegexOptions.Compiled);
     private static readonly Regex NicRegex = new(@"^(\d{9}[VvXx]|\d{12})$", RegexOptions.Compiled);
     private static readonly Regex DrivingLicenseRegex = new(@"^[A-Za-z0-9\s\-/]+$", RegexOptions.Compiled);
-    private static readonly Regex PassportNumberRegex = new(@"^[A-Z0-9]+$", RegexOptions.Compiled);
+    private static readonly Regex PassportNumberRegex = new(@"^[A-Za-z0-9\-\s]+$", RegexOptions.Compiled);
     private static readonly Regex UsernameRegex = new(@"^[A-Za-z0-9@.]+$", RegexOptions.Compiled);
     private static readonly Regex TinRegex = new(@"^[A-Za-z0-9]+$", RegexOptions.Compiled);
     private static readonly Regex StatutoryFundNumberRegex =
@@ -25,7 +25,7 @@ public static class InputValidators
         "Can only contain letters, numbers, spaces, hyphens, and slashes.";
 
     public const string PassportNumberValidationMessage =
-        "Can only contain uppercase letters (A–Z) and numbers (0–9).";
+        "Can only contain letters, numbers, hyphens, and spaces.";
 
     public const string UsernameValidationMessage =
         "Username can only contain letters, numbers, @ and .";
@@ -254,17 +254,17 @@ public static class InputValidators
     }
 
     private static readonly Regex AddressTextRegex =
-        new(@"^[\p{L}\p{N}\s.,'\-:&]+$", RegexOptions.Compiled);
+        new(@"^[\p{L}\p{N}\s.,'\-:&/#()\[\]\\@]+$", RegexOptions.Compiled);
     private static readonly Regex PostalCodeRegex =
-        new(@"^[\p{L}\p{N}\s.,'\-:&]+$", RegexOptions.Compiled);
+        new(@"^[\p{L}\p{N}\s.,'\-:&/#()\[\]\\@]+$", RegexOptions.Compiled);
     private static readonly Regex DistanceKmRegex =
         new(@"^\d+(\.\d+)?$", RegexOptions.Compiled);
 
     public const string AddressTextValidationMessage =
-        "Can only contain letters, numbers, spaces, and . , - ' : &.";
+        "Can only contain letters, numbers, spaces, and . , - ' : & / # ( ) [ ] \\ @.";
 
     public const string PostalCodeValidationMessage =
-        "Can only contain letters, numbers, spaces, and . , - ' : &.";
+        "Can only contain letters, numbers, spaces, and . , - ' : & / # ( ) [ ] \\ @.";
 
     public const string DistanceKmValidationMessage =
         "Enter a valid distance in KM (e.g. 15 or 12.5).";
