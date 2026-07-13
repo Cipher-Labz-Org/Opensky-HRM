@@ -1043,29 +1043,6 @@ public partial class BulkUploadController : ControllerBase
         }
         ws.Columns().AdjustToContents(1, 1);
 
-        var empSheet = wb.Worksheets.Add("Employees");
-        empSheet.Cell(1, 1).Value = "Employee Code";
-        empSheet.Cell(1, 2).Value = "Employee Name";
-        empSheet.Cell(1, 1).Style.Font.Bold = true;
-        empSheet.Cell(1, 2).Style.Font.Bold = true;
-        empSheet.Cell(1, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#059669");
-        empSheet.Cell(1, 2).Style.Fill.BackgroundColor = XLColor.FromHtml("#059669");
-        empSheet.Cell(1, 1).Style.Font.FontColor = XLColor.White;
-        empSheet.Cell(1, 2).Style.Font.FontColor = XLColor.White;
-        var employees = _db.Employees.Where(e => !e.IsDeleted).OrderBy(e => e.EmployeeCode)
-            .Select(e => new { e.EmployeeCode, e.FirstName, e.LastName }).ToList();
-        for (int i = 0; i < employees.Count; i++)
-        {
-            empSheet.Cell(i + 2, 1).Value = employees[i].EmployeeCode;
-            empSheet.Cell(i + 2, 2).Value = $"{employees[i].FirstName} {employees[i].LastName}";
-        }
-        empSheet.Columns().AdjustToContents();
-
-        AddLookupSheet(wb, "LeaveTypes",
-            _db.LeaveTypes.Where(lt => !lt.IsDeleted && lt.IsActive)
-                .OrderBy(lt => lt.Name)
-                .Select(lt => new { lt.Name }).ToList().Select(lt => lt.Name));
-
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
         ms.Position = 0;
@@ -1093,7 +1070,20 @@ public partial class BulkUploadController : ControllerBase
 
         using var stream = file.OpenReadStream();
         using var wb = new XLWorkbook(stream);
-        var ws = wb.Worksheet(1);
+        var ws = wb.Worksheets.FirstOrDefault(s =>
+                string.Equals(s.Name, "LeaveBalances", StringComparison.OrdinalIgnoreCase))
+            ?? wb.Worksheets.FirstOrDefault(s =>
+            {
+                var headers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int c = 1; c <= (s.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
+                {
+                    var h = s.Cell(1, c).GetString().Trim();
+                    if (!string.IsNullOrEmpty(h)) headers.Add(h);
+                }
+                return headers.Contains("Employee Code") && headers.Contains("Leave Type") && headers.Contains("Year");
+            });
+        if (ws is null)
+            return BadRequest("Could not find a LeaveBalances sheet. Fill the LeaveBalances sheet (not Employees or LeaveTypes) and upload again.");
 
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int c = 1; c <= (ws.LastColumnUsed()?.ColumnNumber() ?? 0); c++)

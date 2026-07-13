@@ -2166,10 +2166,10 @@ function BalancesTab() {
 // ═══════════════════════════════════════════════════════════════
 
 function AssignLeaveTypeTab() {
-  const [employees, setEmployees] = useState<{ id: string; firstName: string; lastName: string; employeeCode?: string }[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [addEmployeeId, setAddEmployeeId] = useState("");
+  const [employeeSearchKey, setEmployeeSearchKey] = useState(0);
   const [addLeaveTypeId, setAddLeaveTypeId] = useState("");
   const [addPeriodKind, setAddPeriodKind] = useState<"year" | "custom">("year");
   const [addYear, setAddYear] = useState(new Date().getFullYear());
@@ -2181,17 +2181,6 @@ function AssignLeaveTypeTab() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  const addEmployeeFormOptions = useMemo<FormSelectOption[]>(
-    () => [
-      { value: "", label: "Select employee…" },
-      ...employees.map((e) => ({
-        value: e.id,
-        label: `${e.firstName} ${e.lastName}${e.employeeCode ? ` (${e.employeeCode})` : ""}`,
-      })),
-    ],
-    [employees]
-  );
 
   const addLeaveTypeFormOptions = useMemo<FormSelectOption[]>(
     () => [
@@ -2205,20 +2194,22 @@ function AssignLeaveTypeTab() {
 
   useEffect(() => {
     setCatalogLoading(true);
-    Promise.all([
-      apiFetch<{ items: { id: string; firstName: string; lastName: string; employeeCode?: string }[] }>("/api/employees?pageSize=500").then((r) => r.items),
-      apiFetch<LeaveTypeItem[]>("/api/leave/types"),
-    ])
-      .then(([emps, types]) => {
-        setEmployees(emps);
-        setLeaveTypes(types);
-      })
-      .catch(() => setFormError("Could not load employees or leave types."))
+    apiFetch<LeaveTypeItem[]>("/api/leave/types")
+      .then(setLeaveTypes)
+      .catch(() => setFormError("Could not load leave types."))
       .finally(() => setCatalogLoading(false));
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!addEmployeeId) {
+      setFormError("Please search and select an employee.");
+      return;
+    }
+    if (!addLeaveTypeId) {
+      setFormError("Please select a leave type.");
+      return;
+    }
     if (addPeriodKind === "custom" && (!addPeriodStart || !addPeriodEnd)) {
       setFormError("Please enter both period start and end dates.");
       return;
@@ -2249,6 +2240,7 @@ function AssignLeaveTypeTab() {
         body: JSON.stringify(payload),
       });
       setAddEmployeeId("");
+      setEmployeeSearchKey((k) => k + 1);
       setAddLeaveTypeId("");
       setAddPeriodKind("year");
       setAddYear(new Date().getFullYear());
@@ -2274,20 +2266,20 @@ function AssignLeaveTypeTab() {
           <span className="font-medium"> Leave Balances</span> to view the grid and run recalculation.
         </p>
         {catalogLoading ? (
-          <p className="py-8 text-center text-sm text-slate-500">Loading employees and leave types…</p>
+          <p className="py-8 text-center text-sm text-slate-500">Loading leave types…</p>
         ) : (
           <form onSubmit={handleSubmit} className="max-w-2xl space-y-4">
             <FormErrorAlert message={formError} onDismiss={() => setFormError(null)} className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" />
             {successMsg && <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{successMsg}</div>}
           <div>
             <label className={labelClass}>Employee *</label>
-            <FormSelect
+            <EmployeeSearchCombobox
+              key={employeeSearchKey}
               value={addEmployeeId}
-              onValueChange={setAddEmployeeId}
-              options={addEmployeeFormOptions}
-              placeholder="Select employee…"
-              required
+              placeholder="Type name or employee code…"
+              onPick={(emp) => setAddEmployeeId(emp?.id ?? "")}
             />
+            <p className="mt-1 text-xs text-slate-500">Start typing to search; pick a name from the list.</p>
           </div>
           <div>
             <label className={labelClass}>Leave Type *</label>
