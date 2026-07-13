@@ -18,6 +18,9 @@ export type DateTimePickerFieldProps = {
   className?: string;
   /** Applied to the outer row (date + time). */
   rowClassName?: string;
+  minuteStep?: number;
+  hourStart?: number;
+  hourEnd?: number;
 };
 
 export function DateTimePickerField({
@@ -32,6 +35,9 @@ export function DateTimePickerField({
   required,
   className = "",
   rowClassName = "",
+  minuteStep,
+  hourStart,
+  hourEnd,
 }: DateTimePickerFieldProps) {
   const isControlled = valueProp !== undefined;
   const [internal, setInternal] = React.useState(defaultValue);
@@ -50,6 +56,8 @@ export function DateTimePickerField({
   );
 
   const { date: datePart, time: timePart } = splitDateTime(full);
+  const minParts = splitDateTime(min ?? "");
+  const timeMin = datePart && minParts.date && datePart === minParts.date ? minParts.time : undefined;
 
   const setDate = React.useCallback(
     (isoDate: string) => {
@@ -85,6 +93,10 @@ export function DateTimePickerField({
         onChange={setTime}
         disabled={disabled}
         className="w-[8.5rem]"
+        minuteStep={minuteStep}
+        hourStart={hourStart}
+        hourEnd={hourEnd}
+        minTime={timeMin}
       />
     </div>
   );

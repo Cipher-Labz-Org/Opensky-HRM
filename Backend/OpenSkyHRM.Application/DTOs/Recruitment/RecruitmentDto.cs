@@ -31,6 +31,7 @@ public class RequisitionDto
     public int? ExperienceMax { get; set; }
     public decimal? SalaryMin { get; set; }
     public decimal? SalaryMax { get; set; }
+    public string? SalaryCurrency { get; set; }
     public string? Skills { get; set; }
     public DateTime? ClosedAt { get; set; }
     public string? DepartmentName { get; set; }
@@ -44,6 +45,11 @@ public class RequisitionDto
     public string? PositionTitle { get; set; }
     public Guid? PositionId { get; set; }
     public int CandidateCount { get; set; }
+
+    /// <summary>False when active candidates remain (must reject or hire to employee first).</summary>
+    public bool CanDelete { get; set; } = true;
+
+    public int BlockingCandidateCount { get; set; }
 
     public List<RequisitionTimelineEntryDto> Timeline { get; set; } = new();
     public string? SupportingPdfOriginalFileName { get; set; }
@@ -69,6 +75,7 @@ public class PublicRequisitionDto
     public int? ExperienceMax { get; set; }
     public decimal? SalaryMin { get; set; }
     public decimal? SalaryMax { get; set; }
+    public string? SalaryCurrency { get; set; }
     public string? Skills { get; set; }
     public string? DepartmentName { get; set; }
     public Guid DepartmentId { get; set; }
@@ -96,11 +103,14 @@ public class CreateRequisitionDto
     public int? ExperienceMax { get; set; }
     public decimal? SalaryMin { get; set; }
     public decimal? SalaryMax { get; set; }
+    public string? SalaryCurrency { get; set; }
     public string? Skills { get; set; }
     public Guid DepartmentId { get; set; }
     public Guid? JobTitleId { get; set; }
     public Guid? HiringManagerId { get; set; }
     public Guid? LocationId { get; set; }
+    /// <summary>Free-text work location (required on create/update).</summary>
+    public string? WorkLocation { get; set; }
     public Guid? PositionId { get; set; }
 
     /// <summary>Inbox for new candidate applications (optional; else global Recruitment:ApplicationNotificationEmail).</summary>
@@ -317,6 +327,9 @@ public class OfferDto
     public DateTime? AcceptedAt { get; set; }
     public DateTime? RejectedAt { get; set; }
     public string? RejectionReason { get; set; }
+    public DateTime? SentAt { get; set; }
+    public DateTime? NegotiationRequestedAt { get; set; }
+    public string? NegotiationMessage { get; set; }
     public Guid CandidateId { get; set; }
     public string? CandidateName { get; set; }
     public Guid? PositionId { get; set; }
@@ -371,6 +384,31 @@ public class RejectOfferDto
     public string? Reason { get; set; }
 }
 
+/// <summary>Candidate-facing offer summary (public response link).</summary>
+public class PublicOfferResponseDto
+{
+    public string CandidateName { get; set; } = string.Empty;
+    public string PositionTitle { get; set; } = string.Empty;
+    public decimal SalaryOffered { get; set; }
+    public string? Currency { get; set; }
+    public DateTime? JoiningDate { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public bool CanRespond { get; set; }
+    public bool IsAccepted { get; set; }
+    public bool IsRejected { get; set; }
+    public bool HasNegotiationRequest { get; set; }
+    public string? NegotiationMessage { get; set; }
+    public DateTime? NegotiationRequestedAt { get; set; }
+    public string? LetterHtml { get; set; }
+    public string? ResponseMessage { get; set; }
+}
+
+public class PublicNegotiateOfferDto
+{
+    public string Message { get; set; } = string.Empty;
+}
+
 public class OfferHistoryDto
 {
     public Guid Id { get; set; }
@@ -415,6 +453,7 @@ public class CandidateActivityDto
     public Guid Id { get; set; }
     public string ActivityType { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string? CandidateName { get; set; }
     public string? PerformedBy { get; set; }
     public DateTime PerformedAt { get; set; }
 }

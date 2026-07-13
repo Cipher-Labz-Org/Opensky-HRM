@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
+import { InlinePageAlert } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
 import { ROUTES } from "@/config/routes";
+import { sanitizeSearchInput } from "@/lib/input-validation";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 
 interface PeopleAuditChange {
@@ -96,7 +98,9 @@ export default function PeopleAuditTrailPage() {
   }, [load]);
 
   function applyEmployeeFilter() {
-    employeeFilter.apply();
+    const next = sanitizeSearchInput(employeeFilter.input).trim();
+    employeeFilter.setApplied(next);
+    employeeFilter.setInput(next);
     setPage(1);
   }
 
@@ -138,18 +142,6 @@ export default function PeopleAuditTrailPage() {
         >
           Apply
         </button>
-        {employeeFilter.hasApplied && (
-          <button
-            type="button"
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-500 shadow-sm hover:border-slate-300"
-            onClick={() => {
-              employeeFilter.clear();
-              setPage(1);
-            }}
-          >
-            Clear
-          </button>
-        )}
         <Link
           href={ROUTES.people}
           className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700"
@@ -158,9 +150,26 @@ export default function PeopleAuditTrailPage() {
         </Link>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+      {employeeFilter.hasApplied && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-medium text-slate-500">Showing results for:</span>
+          <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800">
+            {employeeFilter.applied}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              employeeFilter.clear();
+              setPage(1);
+            }}
+            className="text-[11px] font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
+          >
+            Clear filter
+          </button>
+        </div>
       )}
+
+      <InlinePageAlert message={error} className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 scroll-mt-20" />
 
       {loading ? (
         <div className="flex justify-center py-16 text-slate-500">Loading…</div>
@@ -290,7 +299,8 @@ export default function PeopleAuditTrailPage() {
 
           <div className="mt-4 flex items-center justify-between text-[13px] text-slate-600">
             <span>
-              Page {data.page} of {data.totalPages} ({data.totalCount} events)
+              Page {data.page} of {data.totalPages} ({data.totalCount} events
+              {employeeFilter.hasApplied ? ` matching "${employeeFilter.applied}"` : ""})
             </span>
             <div className="flex gap-2">
               <button

@@ -8,11 +8,15 @@ import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
-import { type EmploymentTypeCatalogItem, employmentTypeDisplayName } from "@/lib/employment-types";
-import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
+import { displayWorkEmail } from "@/lib/employee-email";
 import { Modal } from "@/components/ui/Modal";
-import { ListAutocompleteInput, SectionRecordHeaderActions } from "@/components/ui";
+import { ListAutocompleteInput, SectionRecordHeaderActions, InlinePageAlert } from "@/components/ui";
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
+import { sanitizeSearchInput } from "@/lib/input-validation";
+import {
+  type EmploymentTypeCatalogItem,
+  employmentTypeDisplayName,
+} from "@/lib/employment-types";
 
 function dash(v: string | null | undefined): string {
   const s = v?.trim();
@@ -51,6 +55,12 @@ interface EmployeeSearchHit {
   jobTitleName: string | null;
   positionTitle: string | null;
   departmentName: string | null;
+  profileImageUrl?: string | null;
+}
+
+interface DepartmentLookup {
+  id: string;
+  name: string;
 }
 
 interface EmployeeDetail {
@@ -261,12 +271,22 @@ interface ImmigrationItem {
 }
 
 interface BenefitData {
+  id: string;
   insuranceProvider: string | null;
   coverageExtendedMedical: boolean;
   coverageDental: boolean;
   coverageVision: boolean;
   spousalCoverage: boolean;
   dependentsCovered: boolean;
+}
+
+interface DriverLicenseItem {
+  id: string;
+  number: string | null;
+  licenseType: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  issuingCountry: string | null;
 }
 
 const card =
@@ -355,19 +375,24 @@ function DataTable({
 }
 
 export default function EmployeeProfilePage() {
-  const { user, isLoading: authLoading, getPeopleReadScope, hasPermission } = useAuth();
+  const { user, isLoading: authLoading, getPeopleReadScope, hasPermission, isAdmin } = useAuth();
   const employeeId = user?.employeeId ?? null;
   const peopleScope = getPeopleReadScope();
   const canSearchOthers = peopleScope === "Team" || peopleScope === "All";
+  const canFilterByDepartment = isAdmin && canSearchOthers;
 
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [dirSearch, setDirSearch] = useState("");
+  const [dirDepartmentId, setDirDepartmentId] = useState("");
+  const [departments, setDepartments] = useState<DepartmentLookup[]>([]);
   const [dirResults, setDirResults] = useState<EmployeeSearchHit[]>([]);
   const [dirOpen, setDirOpen] = useState(false);
   const [dirLoading, setDirLoading] = useState(false);
+  const [activeEmployeeCount, setActiveEmployeeCount] = useState<number | null>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
-  const birthdaysAnchorRef = useRef<HTMLDivElement>(null);
   const dirSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirSearchRef = useRef("");
+  const dirDepartmentIdRef = useRef("");
 
   const effectiveEmployeeId = selectedEmployeeId ?? employeeId;
   const isOwnProfile = !!employeeId && effectiveEmployeeId === employeeId;
@@ -388,10 +413,14 @@ export default function EmployeeProfilePage() {
   const [skillYears, setSkillYears] = useState("");
   const [skillComments, setSkillComments] = useState("");
   const [skillMasterList, setSkillMasterList] = useState<SkillMasterItem[]>([]);
-  const skillCatalogNames = useMemo(
-    () => skillMasterList.map((s) => s.name).sort((a, b) => a.localeCompare(b)),
-    [skillMasterList],
-  );
+  const skillCatalogNames = useMemo(() => {
+    const names = new Set(skillMasterList.map((s) => s.name.trim()).filter(Boolean));
+    skills.forEach((s) => {
+      const n = s.skill.trim();
+      if (n) names.add(n);
+    });
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [skillMasterList, skills]);
   const [certRows, setCertRows] = useState<EmployeeCertRow[]>([]);
   const [languages, setLanguages] = useState<LanguageItem[]>([]);
   const [workExperiences, setWorkExperiences] = useState<WorkExperienceItem[]>([]);
@@ -403,7 +432,8 @@ export default function EmployeeProfilePage() {
   const [matrixRows, setMatrixRows] = useState<SkillMatrixRow[]>([]);
   const [immigrations, setImmigrations] = useState<ImmigrationItem[]>([]);
   const [immDocs, setImmDocs] = useState<Attachment[]>([]);
-  const [benefit, setBenefit] = useState<BenefitData | null>(null);
+  const [benefits, setBenefits] = useState<BenefitData[]>([]);
+  const [driverLicenses, setDriverLicenses] = useState<DriverLicenseItem[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
 
   const resetProfileState = useCallback(() => {
@@ -423,7 +453,8 @@ export default function EmployeeProfilePage() {
     setMatrixRows([]);
     setImmigrations([]);
     setImmDocs([]);
-    setBenefit(null);
+    setBenefits([]);
+    setDriverLicenses([]);
   }, []);
 
   const load = useCallback(async (id: string) => {
@@ -449,6 +480,7 @@ export default function EmployeeProfilePage() {
         imm,
         idocs,
         ben,
+        dls,
       ] = await Promise.all([
         apiFetch<EmergencyContactItem[]>(`/api/employees/${id}/emergency-contacts`).catch(() => []),
         apiFetch<DependentItem[]>(`/api/employees/${id}/dependents`).catch(() => []),
@@ -464,7 +496,8 @@ export default function EmployeeProfilePage() {
         apiFetch<TrainingAssignmentRow[]>(`/api/employees/${id}/training-assignments`).catch(() => []),
         apiFetch<ImmigrationItem[]>(`/api/employees/${id}/immigrations`).catch(() => []),
         apiFetch<Attachment[]>(`/api/employees/${id}/immigration-documents`).catch(() => []),
-        apiFetch<BenefitData>(`/api/employees/${id}/benefit`).catch(() => null),
+        apiFetch<BenefitData[]>(`/api/employees/${id}/benefits`).catch(() => []),
+        apiFetch<DriverLicenseItem[]>(`/api/employees/${id}/driver-licenses`).catch(() => []),
       ]);
 
       setEmergencyContacts(ec);
@@ -481,7 +514,8 @@ export default function EmployeeProfilePage() {
       setTrainingRows(train);
       setImmigrations(imm);
       setImmDocs(idocs);
-      setBenefit(ben);
+      setBenefits(ben);
+      setDriverLicenses(dls);
 
       apiFetch<SkillMasterItem[]>("/api/employees/skills-catalog")
         .then((rows) => setSkillMasterList(rows.filter((r) => r.isActive !== false)))
@@ -524,12 +558,12 @@ export default function EmployeeProfilePage() {
   }
 
   async function saveSkill() {
-    if (!effectiveEmployeeId || !skillName.trim()) return;
+    if (!effectiveEmployeeId || !skillName.trim() || !skillYears.trim()) return;
     setSkillSaving(true);
     try {
       const body = {
         skill: skillName.trim(),
-        yearsOfExperience: skillYears || null,
+        yearsOfExperience: skillYears.trim(),
         comments: skillComments || null,
       };
       if (editingSkill) {
@@ -571,6 +605,30 @@ export default function EmployeeProfilePage() {
   }, []);
 
   useEffect(() => {
+    if (!canFilterByDepartment) {
+      setDepartments([]);
+      setDirDepartmentId("");
+      dirDepartmentIdRef.current = "";
+      setActiveEmployeeCount(null);
+      return;
+    }
+    apiFetch<DepartmentLookup[]>("/api/organization/departments")
+      .then(setDepartments)
+      .catch(() => setDepartments([]));
+    apiFetch<{ totalCount: number }>("/api/employees?pageSize=1&excludeTerminated=true")
+      .then((res) => setActiveEmployeeCount(res.totalCount ?? 0))
+      .catch(() => setActiveEmployeeCount(null));
+  }, [canFilterByDepartment]);
+
+  useEffect(() => {
+    dirSearchRef.current = dirSearch;
+  }, [dirSearch]);
+
+  useEffect(() => {
+    dirDepartmentIdRef.current = dirDepartmentId;
+  }, [dirDepartmentId]);
+
+  useEffect(() => {
     if (authLoading) return;
     if (!effectiveEmployeeId) {
       setLoading(false);
@@ -590,41 +648,54 @@ export default function EmployeeProfilePage() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [dirOpen]);
 
-  useEffect(() => {
-    if (typeof window === "undefined" || loading || !emp) return;
-    function scrollToBirthdaysWidget() {
-      if (window.location.hash !== "#birthdays-notices") return;
-      window.setTimeout(() => {
-        birthdaysAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 120);
-    }
-    scrollToBirthdaysWidget();
-    window.addEventListener("hashchange", scrollToBirthdaysWidget);
-    return () => window.removeEventListener("hashchange", scrollToBirthdaysWidget);
-  }, [loading, emp]);
-
-  function handleDirSearchInput(query: string) {
-    setDirSearch(query);
-    if (dirSearchTimer.current) clearTimeout(dirSearchTimer.current);
-    if (!query.trim()) {
+  const fetchDirectoryResults = useCallback(async (query: string, departmentId: string) => {
+    const trimmed = query.trim();
+    if (!trimmed && !departmentId) {
       setDirResults([]);
       setDirOpen(false);
       return;
     }
-    dirSearchTimer.current = setTimeout(async () => {
-      setDirLoading(true);
-      try {
-        const res = await apiFetch<{ items: EmployeeSearchHit[] }>(
-          `/api/employees?search=${encodeURIComponent(query.trim())}&pageSize=10`
-        );
-        setDirResults(res.items ?? []);
-        setDirOpen(true);
-      } catch {
-        setDirResults([]);
-      } finally {
-        setDirLoading(false);
-      }
+    setDirLoading(true);
+    try {
+      const params = new URLSearchParams({ pageSize: "10" });
+      if (trimmed) params.set("search", trimmed);
+      if (departmentId) params.set("departmentId", departmentId);
+      const res = await apiFetch<{ items: EmployeeSearchHit[] }>(`/api/employees?${params}`);
+      setDirResults(res.items ?? []);
+      setDirOpen(true);
+    } catch {
+      setDirResults([]);
+      setDirOpen(false);
+    } finally {
+      setDirLoading(false);
+    }
+  }, []);
+
+  function handleDirSearchInput(query: string) {
+    const sanitized = sanitizeSearchInput(query);
+    setDirSearch(sanitized);
+    dirSearchRef.current = sanitized;
+    if (dirSearchTimer.current) clearTimeout(dirSearchTimer.current);
+    dirSearchTimer.current = setTimeout(() => {
+      void fetchDirectoryResults(sanitized, dirDepartmentIdRef.current);
     }, 300);
+  }
+
+  function handleDirDepartmentChange(departmentId: string) {
+    setDirDepartmentId(departmentId);
+    dirDepartmentIdRef.current = departmentId;
+    if (dirSearchTimer.current) clearTimeout(dirSearchTimer.current);
+    void fetchDirectoryResults(dirSearchRef.current, departmentId);
+  }
+
+  function clearDirectoryFilters() {
+    setDirSearch("");
+    setDirDepartmentId("");
+    dirSearchRef.current = "";
+    dirDepartmentIdRef.current = "";
+    setDirResults([]);
+    setDirOpen(false);
+    if (dirSearchTimer.current) clearTimeout(dirSearchTimer.current);
   }
 
   function pickDirectoryEmployee(hit: EmployeeSearchHit) {
@@ -654,7 +725,9 @@ export default function EmployeeProfilePage() {
 
   const pageSubtitle = (() => {
     if (!effectiveEmployeeId && canSearchOthers) {
-      return "Search for an employee to view their read-only bio.";
+      return canFilterByDepartment
+        ? "Search by name or employee code, and filter by department to open a read-only bio."
+        : "Search for an employee to view their read-only bio.";
     }
     if (!effectiveEmployeeId) {
       return "Your HR record at a glance.";
@@ -673,13 +746,20 @@ export default function EmployeeProfilePage() {
     canSearchOthers &&
     (selectedEmployeeId != null || (effectiveEmployeeId != null && effectiveEmployeeId !== employeeId));
 
+  const showDirectoryReset =
+    canFilterByDepartment && (dirSearch.trim().length > 0 || dirDepartmentId.length > 0);
+
+  const hasDirectoryFilters = dirSearch.trim().length > 0 || dirDepartmentId.length > 0;
+  const selectedDepartmentName =
+    departments.find((d) => d.id === dirDepartmentId)?.name ?? null;
+
   const directorySearchBar = !canSearchOthers ? null : (
     <div
       ref={searchWrapRef}
       className={`relative mb-6 rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur-sm ${dirOpen ? "z-50" : "z-20"}`}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="relative min-w-0 flex-1 overflow-visible">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <div className="relative w-full overflow-visible sm:w-72">
           <label htmlFor="emp-bio-search" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
             Find employee
           </label>
@@ -692,8 +772,8 @@ export default function EmployeeProfilePage() {
             onChange={(e) => handleDirSearchInput(e.target.value)}
             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-[#2B7DE9] focus:ring-2 focus:ring-[#2B7DE9]/20"
           />
-          {dirOpen && (
-            <ul className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl ring-1 ring-slate-900/5">
+          {dirOpen && effectiveEmployeeId && (
+            <ul className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl ring-1 ring-slate-900/5 sm:min-w-[18rem]">
               {dirLoading && <li className="px-4 py-3 text-sm text-slate-500">Searching…</li>}
               {!dirLoading && dirResults.length === 0 && (
                 <li className="px-4 py-3 text-sm text-slate-500">No matches</li>
@@ -720,16 +800,197 @@ export default function EmployeeProfilePage() {
             </ul>
           )}
         </div>
-        {showMyRecordButton && (
-          <button
-            type="button"
-            onClick={clearToMyRecord}
-            className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#2B7DE9]/40 hover:text-[#1565C9]"
-          >
-            View my record
-          </button>
+        {canFilterByDepartment && (
+          <div className="w-full sm:w-52">
+            <label htmlFor="emp-bio-department" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Department
+            </label>
+            <select
+              id="emp-bio-department"
+              value={dirDepartmentId}
+              onChange={(e) => handleDirDepartmentChange(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-[#2B7DE9] focus:ring-2 focus:ring-[#2B7DE9]/20"
+            >
+              <option value="">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
         )}
+        <div className="flex flex-wrap items-center gap-2">
+          {showDirectoryReset && (
+            <button
+              type="button"
+              onClick={clearDirectoryFilters}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#2B7DE9]/40 hover:text-[#1565C9]"
+            >
+              Reset filters
+            </button>
+          )}
+          {showMyRecordButton && (
+            <button
+              type="button"
+              onClick={clearToMyRecord}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#2B7DE9]/40 hover:text-[#1565C9]"
+            >
+              View my record
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  );
+
+  const employeeBioLandingPanel = (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+      <section className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm">
+        <div className="flex items-start gap-4">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2B7DE9] to-indigo-600 text-xl text-white shadow-sm">
+            👤
+          </span>
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Find a read-only employee bio</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Search by name or employee code{canFilterByDepartment ? ", or narrow by department" : ""}, then open the summary below.
+            </p>
+          </div>
+        </div>
+        <ol className="mt-6 space-y-3">
+          <li className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2B7DE9]/10 text-xs font-bold text-[#1565C9]">1</span>
+            <div>
+              <p className="text-sm font-medium text-slate-800">Search for an employee</p>
+              <p className="mt-0.5 text-xs text-slate-500">Type a name, code, or email fragment in the field above.</p>
+            </div>
+          </li>
+          {canFilterByDepartment && (
+            <li className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2B7DE9]/10 text-xs font-bold text-[#1565C9]">2</span>
+              <div>
+                <p className="text-sm font-medium text-slate-800">Filter by department</p>
+                <p className="mt-0.5 text-xs text-slate-500">Use the department dropdown to focus on one team.</p>
+              </div>
+            </li>
+          )}
+          <li className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2B7DE9]/10 text-xs font-bold text-[#1565C9]">
+              {canFilterByDepartment ? "3" : "2"}
+            </span>
+            <div>
+              <p className="text-sm font-medium text-slate-800">Open the bio summary</p>
+              <p className="mt-0.5 text-xs text-slate-500">Select a person from the matching results to view their record.</p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm">
+        <h3 className="text-sm font-semibold text-slate-900">Quick links</h3>
+        <p className="mt-1 text-xs text-slate-500">Jump to related People modules.</p>
+        <div className="mt-4 grid gap-2.5">
+          <Link
+            href={ROUTES.people}
+            className="group flex items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-3 transition hover:border-[#2B7DE9]/35 hover:bg-white hover:shadow-sm"
+          >
+            <div>
+              <div className="text-sm font-semibold text-slate-800">People Hub</div>
+              <p className="mt-0.5 text-xs text-slate-500">Full profiles, edits, and HR actions</p>
+            </div>
+            <span className="text-slate-400 transition group-hover:text-[#1565C9]">→</span>
+          </Link>
+          <Link
+            href={ROUTES.orgStructure}
+            className="group flex items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-3 transition hover:border-[#2B7DE9]/35 hover:bg-white hover:shadow-sm"
+          >
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Org Structure</div>
+              <p className="mt-0.5 text-xs text-slate-500">Departments, locations, and reporting lines</p>
+            </div>
+            <span className="text-slate-400 transition group-hover:text-[#1565C9]">→</span>
+          </Link>
+          <Link
+            href={ROUTES.reports}
+            className="group flex items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-3 transition hover:border-[#2B7DE9]/35 hover:bg-white hover:shadow-sm"
+          >
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Reports</div>
+              <p className="mt-0.5 text-xs text-slate-500">Workforce listings and exports</p>
+            </div>
+            <span className="text-slate-400 transition group-hover:text-[#1565C9]">→</span>
+          </Link>
+        </div>
+        {canFilterByDepartment && (activeEmployeeCount != null || departments.length > 0) && (
+          <div className="mt-5 grid grid-cols-2 gap-2.5">
+            {activeEmployeeCount != null && (
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-center">
+                <div className="text-lg font-bold text-slate-900">{activeEmployeeCount}</div>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Active employees</div>
+              </div>
+            )}
+            {departments.length > 0 && (
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-center">
+                <div className="text-lg font-bold text-slate-900">{departments.length}</div>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Departments</div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {hasDirectoryFilters && (
+        <section className="rounded-2xl border border-slate-200/80 bg-white shadow-sm lg:col-span-2">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h3 className="text-sm font-semibold text-slate-900">Matching employees</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {dirSearch.trim()
+                ? `Results for “${dirSearch.trim()}”`
+                : selectedDepartmentName
+                  ? `Employees in ${selectedDepartmentName}`
+                  : "Filtered results"}
+            </p>
+          </div>
+          {dirLoading ? (
+            <div className="flex min-h-[160px] items-center justify-center py-8">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-[#2B7DE9]" />
+            </div>
+          ) : dirResults.length === 0 ? (
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm font-medium text-slate-800">No employees match your filters.</p>
+              <p className="mt-1 text-sm text-slate-500">Try another search term or department.</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {dirResults.map((hit) => (
+                <li key={hit.id}>
+                  <button
+                    type="button"
+                    onClick={() => pickDirectoryEmployee(hit)}
+                    className="flex w-full items-center gap-3 px-5 py-3 text-left transition hover:bg-slate-50"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2B7DE9] to-indigo-600 text-xs font-bold text-white">
+                      {`${hit.firstName[0] ?? ""}${hit.lastName[0] ?? ""}`.toUpperCase() || "?"}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-slate-900">{hit.fullName}</span>
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">
+                        {hit.employeeCode}
+                        {hit.jobTitleName || hit.positionTitle
+                          ? ` · ${hit.jobTitleName ?? hit.positionTitle}`
+                          : ""}
+                        {hit.departmentName ? ` · ${hit.departmentName}` : ""}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold text-[#1565C9]">Open bio →</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 
@@ -738,7 +999,6 @@ export default function EmployeeProfilePage() {
     : "?";
 
   const toc = [
-    { id: "birthdays-notices", label: "Birthdays" },
     { id: "bio-personal", label: "Personal" },
     { id: "bio-contact", label: "Contact" },
     { id: "bio-job", label: "Job" },
@@ -794,16 +1054,7 @@ export default function EmployeeProfilePage() {
       <>
         <AppTopbar title={pageTitle} subtitle={pageSubtitle} />
         {directorySearchBar}
-        <div className="mx-auto max-w-lg rounded-2xl border border-slate-200/80 bg-slate-50/50 px-6 py-10 text-center">
-          <p className="text-sm font-medium text-slate-800">No employee selected</p>
-          <p className="mt-2 text-sm text-slate-600">Use the search above to open someone&apos;s read-only bio.</p>
-          <Link
-            href={ROUTES.people}
-            className="mt-5 inline-flex rounded-xl border border-[#2B7DE9]/30 bg-white/80 px-4 py-2 text-sm font-semibold text-[#1565C9] shadow-sm backdrop-blur-sm transition hover:bg-white"
-          >
-            Open People Hub
-          </Link>
-        </div>
+        {employeeBioLandingPanel}
       </>
     );
   }
@@ -825,7 +1076,7 @@ export default function EmployeeProfilePage() {
       <>
         <AppTopbar title={pageTitle} subtitle={pageSubtitle} />
         {directorySearchBar}
-        <div className="rounded-2xl border border-red-200 bg-red-50/60 px-5 py-4 text-sm text-red-800">{error ?? "Profile unavailable."}</div>
+        <InlinePageAlert message={error ?? "Profile unavailable."} className="rounded-2xl border border-red-200 bg-red-50/60 px-5 py-4 text-sm text-red-800 scroll-mt-20" />
       </>
     );
   }
@@ -909,10 +1160,6 @@ export default function EmployeeProfilePage() {
         </div>
       </div>
 
-      <div id="birthdays-notices" ref={birthdaysAnchorRef} className="mb-6 scroll-mt-36">
-        <BirthdaysCompanyNoticesWidget />
-      </div>
-
       <div className="space-y-6 pb-12">
         <BioSection id="bio-personal" title="Personal & identity">
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -931,7 +1178,7 @@ export default function EmployeeProfilePage() {
         <BioSection id="bio-contact" title="Contact details">
           <h3 className="mb-4 text-xs font-bold uppercase tracking-wide text-slate-400">Reach you</h3>
           <div className="mb-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="Work email">{dash(emp.email)}</Field>
+            <Field label="Work email">{dash(displayWorkEmail(emp.email) || null)}</Field>
             <Field label="Personal email">{dash(emp.otherEmail)}</Field>
             <Field label="Mobile">{dash(emp.phone)}</Field>
             <Field label="Home telephone">{dash(emp.homeTelephone)}</Field>
@@ -1300,18 +1547,25 @@ export default function EmployeeProfilePage() {
         </BioSection>
 
         <BioSection id="bio-benefits" title="Benefits snapshot">
-          {benefit ? (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label="Insurance provider">{dash(benefit.insuranceProvider)}</Field>
-              <Field label="Extended medical">{benefit.coverageExtendedMedical ? "Yes" : "No"}</Field>
-              <Field label="Dental">{benefit.coverageDental ? "Yes" : "No"}</Field>
-              <Field label="Vision">{benefit.coverageVision ? "Yes" : "No"}</Field>
-              <Field label="Spousal coverage">{benefit.spousalCoverage ? "Yes" : "No"}</Field>
-              <Field label="Dependents covered">{benefit.dependentsCovered ? "Yes" : "No"}</Field>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400">No benefits data available.</p>
-          )}
+          <DataTable
+            empty="No benefits data available."
+            columns={[
+              { key: "provider", header: "Insurance provider" },
+              { key: "coverage", header: "Coverage" },
+              { key: "spousal", header: "Spousal" },
+              { key: "deps", header: "Dependents" },
+            ]}
+            rows={benefits.map((b) => ({
+              provider: dash(b.insuranceProvider),
+              coverage: [
+                b.coverageExtendedMedical ? "Extended Medical" : null,
+                b.coverageDental ? "Dental" : null,
+                b.coverageVision ? "Vision" : null,
+              ].filter(Boolean).join(", ") || "—",
+              spousal: b.spousalCoverage ? "Yes" : "No",
+              deps: b.dependentsCovered ? "Yes" : "No",
+            }))}
+          />
         </BioSection>
 
         <BioSection id="bio-license" title="EPF / ETF & driver’s license">
@@ -1319,13 +1573,23 @@ export default function EmployeeProfilePage() {
             <Field label="EPF number">{dash(emp.epfNumber)}</Field>
             <Field label="ETF number">{dash(emp.etfNumber)}</Field>
           </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="License number">{dash(emp.driversLicenseNumber)}</Field>
-            <Field label="License type">{dash(emp.driversLicenseType)}</Field>
-            <Field label="Issue date">{emp.licenseIssueDate ? formatDate(emp.licenseIssueDate) : "—"}</Field>
-            <Field label="Expiry date">{emp.licenseExpiryDate ? formatDate(emp.licenseExpiryDate) : "—"}</Field>
-            <Field label="Issuing country">{dash(emp.driversLicenseIssuingCountry)}</Field>
-          </div>
+          <DataTable
+            empty="No driver's license records."
+            columns={[
+              { key: "num", header: "Number" },
+              { key: "type", header: "Type" },
+              { key: "iss", header: "Issue date" },
+              { key: "exp", header: "Expiry date" },
+              { key: "country", header: "Issuing country" },
+            ]}
+            rows={driverLicenses.map((dl) => ({
+              num: dash(dl.number),
+              type: dash(dl.licenseType),
+              iss: dl.issueDate ? formatDate(dl.issueDate) : "—",
+              exp: dl.expiryDate ? formatDate(dl.expiryDate) : "—",
+              country: dash(dl.issuingCountry),
+            }))}
+          />
         </BioSection>
 
         <BioSection id="bio-immigration" title="Immigration">
@@ -1436,11 +1700,25 @@ export default function EmployeeProfilePage() {
                 options={skillCatalogNames}
                 className={skillInputClass}
                 placeholder={skillCatalogNames.length ? "Choose from list or type a skill" : "Type a skill name"}
+                showAllOnFocus
+                maxSuggestions={200}
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-slate-600">Years of Experience</label>
-              <input value={skillYears} onChange={(e) => setSkillYears(e.target.value)} className={skillInputClass} />
+              <label className="mb-1 block text-sm font-semibold text-slate-600">
+                Years of Experience<span className="text-red-500">*</span>
+              </label>
+              <input
+                value={skillYears}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "" || /^\d+$/.test(v)) setSkillYears(v);
+                }}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                className={skillInputClass}
+                required
+              />
             </div>
           </div>
           <div className="mt-4">
@@ -1465,7 +1743,7 @@ export default function EmployeeProfilePage() {
               <button
                 type="button"
                 onClick={() => void saveSkill()}
-                disabled={!skillName.trim() || skillSaving}
+                disabled={!skillName.trim() || !skillYears.trim() || skillSaving}
                 className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50"
               >
                 {skillSaving ? "Saving..." : "Save"}

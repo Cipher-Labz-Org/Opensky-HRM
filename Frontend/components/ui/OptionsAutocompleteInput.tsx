@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormSelectOption } from "./FormSelect";
+import { sanitizeSearchInput } from "@/lib/input-validation";
 
 const MAX_SUGGESTIONS = 12;
 
@@ -48,9 +49,10 @@ export function OptionsAutocompleteInput({
   }, [inputText, options]);
 
   function onInputChange(next: string) {
-    setInputText(next);
+    const sanitized = sanitizeSearchInput(next);
+    setInputText(sanitized);
     setOpen(true);
-    const exact = options.find((o) => o.label.toLowerCase() === next.trim().toLowerCase());
+    const exact = options.find((o) => o.label.toLowerCase() === sanitized.trim().toLowerCase());
     onChange(exact?.value ?? "");
   }
 

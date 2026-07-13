@@ -6,14 +6,17 @@ using System.Threading;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
+using OpenSkyHRM.Api.Infrastructure;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using OpenSkyHRM.Api.Infrastructure;
 using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Api.Services.Storage;
 using OpenSkyHRM.Application;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Application.Options;
 using OpenSkyHRM.Persistence;
 using OpenSkyHRM.Persistence.Auditing;
 using OpenSkyHRM.Persistence.Seeders;
@@ -78,6 +81,13 @@ builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddApplication();
 
+builder.Services.Configure<FileStorageOptions>(builder.Configuration.GetSection(FileStorageOptions.SectionName));
+var fileStorageProvider = builder.Configuration[$"{FileStorageOptions.SectionName}:Provider"] ?? "Local";
+if (string.Equals(fileStorageProvider, "S3", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddSingleton<IFileStorageService, S3FileStorageService>();
+else
+    builder.Services.AddSingleton<IFileStorageService, LocalFileStorageService>();
+
 // --- Data Protection ---
 // Persist the key ring to a folder that travels with the app instead of the
 // per-user DPAPI store. Under IIS the app-pool identity often has no loaded
@@ -124,6 +134,11 @@ builder.Services.AddControllers()
         // Do not camelCase dictionary keys — report row keys and analytics group labels must match display names.
         o.JsonSerializerOptions.Converters.Add(new ApiDateTimeJsonConverter());
     });
+
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = ApiValidationResponses.CreateResponse;
+});
 
 // --- Swagger ---
 builder.Services.AddEndpointsApiExplorer();
@@ -262,6 +277,7 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync();
+        await BankAccountSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, app.Configuration);
     }
     catch (Exception ex)
@@ -316,10 +332,15 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await LicensingSeeder.EnsureAsync(db);
+        await OrganizationSeeder.RepairNullEmployeeEmailsAsync(db);
+        await OrganizationSeeder.EnsureSampleEmployeesIfEmptyAsync(db);
         await PayrollSeeder.EnsureStatutoryFormulasAsync(db);
         if (app.Environment.IsDevelopment())
             await PayrollSeeder.EnsureDemoSalary100kAsync(db);
         await OpenSkyHRM.Persistence.Seeders.EmployeeLifecycleTemplateSeeder.EnsureAsync(db);
+        await DocumentTemplateSeeder.SeedAsync(db);
+        await DocumentTemplateSeeder.EnsureLetterPackAsync(db);
+        await TransactionalEmailTemplateSeeder.EnsureAsync(db);
         await db.SaveChangesAsync();
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureCatalogLeaveTypesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);
@@ -366,6 +387,24 @@ if (dbAvailable)
 }
 
 // --- Middleware Pipeline ---
+var fileStorageSettings = app.Configuration.GetSection(FileStorageOptions.SectionName).Get<FileStorageOptions>() ?? new FileStorageOptions();
+FileStoragePathHelper.EnsureCompanyFolders(app.Environment.ContentRootPath, fileStorageSettings);
+app.Logger.LogInformation(
+    "Company storage folders ready under wwwroot/uploads/{Root}/{Company}/",
+    FileStoragePathHelper.SanitizeSegment(fileStorageSettings.RootFolder),
+    FileStoragePathHelper.SanitizeSegment(fileStorageSettings.ResolvedCompanyFolder));
+app.MapGet("/uploads/{**path}", async (string path, IFileStorageService storage, CancellationToken cancellationToken) =>
+{
+    var logicalPath = "/" + path.Replace('\\', '/').TrimStart('/');
+    if (!logicalPath.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+        logicalPath = "/uploads/" + path.Replace('\\', '/').TrimStart('/');
+    var file = await storage.OpenReadAsync(logicalPath, cancellationToken);
+    if (file is null)
+        return Results.NotFound();
+
+    return Results.File(file.Stream, file.ContentType ?? "application/octet-stream");
+});
+
 var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
 Directory.CreateDirectory(wwwrootPath);
 app.UseStaticFiles(new StaticFileOptions

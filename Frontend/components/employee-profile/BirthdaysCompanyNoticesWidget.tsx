@@ -15,6 +15,7 @@ type BirthdayPerson = {
   occasionDate: string;
   isToday: boolean;
   daysUntil: number;
+  alreadyWished?: boolean;
 };
 
 type BirthdaySummary = {
@@ -221,6 +222,8 @@ function BirthdaysCompanyNoticesWidgetInner() {
   const menuRef = React.useRef<HTMLDivElement>(null);
   const [wishHighlightId, setWishHighlightId] = React.useState<string | null>(null);
   const [wishesPanelOpen, setWishesPanelOpen] = React.useState(false);
+  const [selectedWishEmployeeId, setSelectedWishEmployeeId] = React.useState<string | null>(null);
+  const [wishedEmployeeIds, setWishedEmployeeIds] = React.useState<Set<string>>(() => new Set());
   const [noticesExpanded, setNoticesExpanded] = React.useState(false);
 
   const upcomingStripRef = React.useRef<HTMLDivElement>(null);
@@ -245,6 +248,13 @@ function BirthdaysCompanyNoticesWidgetInner() {
         today: Array.isArray(bd.today) ? bd.today : [],
         upcoming: Array.isArray(bd.upcoming) ? bd.upcoming : [],
       });
+      setWishedEmployeeIds(
+        new Set(
+          (Array.isArray(bd.today) ? bd.today : [])
+            .filter((p) => p.alreadyWished)
+            .map((p) => p.employeeId)
+        )
+      );
       const items = Array.isArray(inbox.items) ? inbox.items : [];
       const sorted = sortNoticesForDisplay(items.filter((n) => !inboxHiddenCategories.has(n.category)));
       setNotices(sorted);
@@ -277,7 +287,10 @@ function BirthdaysCompanyNoticesWidgetInner() {
   React.useEffect(() => {
     if (!wishFocusParam) return;
     const t = summary?.today ?? [];
-    if (t.some((p) => p.employeeId === wishFocusParam)) setWishesPanelOpen(true);
+    if (t.some((p) => p.employeeId === wishFocusParam)) {
+      setSelectedWishEmployeeId(wishFocusParam);
+      setWishesPanelOpen(true);
+    }
   }, [wishFocusParam, summary?.today]);
 
   React.useEffect(() => {
@@ -317,6 +330,45 @@ function BirthdaysCompanyNoticesWidgetInner() {
 
   const today = summary?.today ?? [];
   const upcoming = summary?.upcoming ?? [];
+
+  const isWishablePerson = React.useCallback(
+    (employeeId: string) => {
+      if (myEmployeeId && employeeId === myEmployeeId) return false;
+      return !wishedEmployeeIds.has(employeeId);
+    },
+    [myEmployeeId, wishedEmployeeIds]
+  );
+
+  const pendingWishCount = React.useMemo(
+    () => today.filter((p) => isWishablePerson(p.employeeId)).length,
+    [today, isWishablePerson]
+  );
+
+  const selectedWishPerson = React.useMemo(
+    () => (selectedWishEmployeeId ? today.find((p) => p.employeeId === selectedWishEmployeeId) ?? null : null),
+    [selectedWishEmployeeId, today]
+  );
+
+  const openWishPanelFor = React.useCallback(
+    (employeeId: string) => {
+      if (!isWishablePerson(employeeId)) return;
+      setSelectedWishEmployeeId(employeeId);
+      setWishesPanelOpen(true);
+    },
+    [isWishablePerson]
+  );
+
+  const toggleWishesPanel = React.useCallback(() => {
+    setWishesPanelOpen((open) => {
+      const next = !open;
+      if (next && !selectedWishEmployeeId) {
+        const first = today.find((p) => isWishablePerson(p.employeeId));
+        if (first) setSelectedWishEmployeeId(first.employeeId);
+      }
+      if (!next) setSelectedWishEmployeeId(null);
+      return next;
+    });
+  }, [selectedWishEmployeeId, today, isWishablePerson]);
 
   const insertWishEmoji = React.useCallback((employeeId: string, emoji: string) => {
     if (wishBusyId === employeeId) return;
@@ -402,10 +454,27 @@ function BirthdaysCompanyNoticesWidgetInner() {
         (typeof res.notificationsCreated === "number" && res.notificationsCreated > 0);
       if (delivered) {
         setWishHint("Wish sent.");
+        setWishedEmployeeIds((prev) => {
+          const nextSet = new Set([...prev, employeeId]);
+          const nextPerson = today.find(
+            (p) => p.employeeId !== employeeId && !nextSet.has(p.employeeId) && p.employeeId !== myEmployeeId
+          );
+          if (nextPerson) setSelectedWishEmployeeId(nextPerson.employeeId);
+          else {
+            setSelectedWishEmployeeId(null);
+            setWishesPanelOpen(false);
+          }
+          return nextSet;
+        });
       } else if (res.reason === "noLinkedUser") setWishHint("This person has no linked login yet.");
       else if (res.reason === "noOtherRecipients")
         setWishHint("There is no other login linked to this employee to notify (you cannot wish yourself).");
-      else setWishHint("Already sent today, or could not deliver.");
+      else {
+        setWishHint("Already sent today, or could not deliver.");
+        setWishedEmployeeIds((prev) => new Set([...prev, employeeId]));
+        setSelectedWishEmployeeId(null);
+        setWishesPanelOpen(false);
+      }
       // Clear draft whenever the server returns 2xx (including noLinkedUser / dedupe cases).
       setWishNoteByEmployee((prev) => ({ ...prev, [employeeId]: "" }));
     } catch (e) {
@@ -478,7 +547,7 @@ function BirthdaysCompanyNoticesWidgetInner() {
 
   const hasUnreadNotices = notices.some((n) => !n.readAt);
   const noticesUnreadCount = notices.filter((n) => !n.readAt).length;
-  const canSendWishesToOthers = today.some((p) => !(myEmployeeId && p.employeeId === myEmployeeId));
+  const canSendWishesToOthers = pendingWishCount > 0;
 
   const renderNoticeRow = (n: NoticeItem) => {
     const kind = classifyNotice(n.category);
@@ -684,7 +753,7 @@ function BirthdaysCompanyNoticesWidgetInner() {
                 </span>
                 <h3 className="text-[15px] font-bold text-violet-800">Today&apos;s Birthdays</h3>
                 <span className="inline-flex min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-violet-100 px-2 text-xs font-bold text-violet-900">
-                  {today.length}
+                  {pendingWishCount}
                 </span>
               </div>
               {today.length === 0 ? (
@@ -693,13 +762,31 @@ function BirthdaysCompanyNoticesWidgetInner() {
                 </p>
               ) : (
                 <ul className="flex flex-col gap-2.5">
-                  {today.map((p) => (
+                  {today.map((p) => {
+                    const wished = wishedEmployeeIds.has(p.employeeId);
+                    const isSelf = Boolean(myEmployeeId && p.employeeId === myEmployeeId);
+                    const canSelect = isWishablePerson(p.employeeId);
+                    const selected = selectedWishEmployeeId === p.employeeId;
+                    return (
                     <li
                       key={`${p.employeeId}-${p.occasionDate}`}
                       id={`birthday-wish-target-${p.employeeId}`}
-                      className={`flex items-center gap-3 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm ${
-                        wishHighlightId === p.employeeId ? "ring-2 ring-violet-500 ring-offset-2" : ""
+                      role={canSelect ? "button" : undefined}
+                      tabIndex={canSelect ? 0 : undefined}
+                      onClick={() => openWishPanelFor(p.employeeId)}
+                      onKeyDown={(e) => {
+                        if (!canSelect) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openWishPanelFor(p.employeeId);
+                        }
+                      }}
+                      className={`flex items-center gap-3 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm transition ${
+                        wished || isSelf ? "opacity-55" : "cursor-pointer hover:border-violet-300 hover:bg-violet-50/40"
+                      } ${
+                        wishHighlightId === p.employeeId || selected ? "ring-2 ring-violet-500 ring-offset-2" : ""
                       }`}
+                      aria-disabled={wished || isSelf || undefined}
                     >
                       {p.profileImageUrl ? (
                         <img
@@ -718,14 +805,21 @@ function BirthdaysCompanyNoticesWidgetInner() {
                         </div>
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-bold text-slate-900">{p.fullName}</p>
+                        <p className={`truncate font-bold ${wished ? "text-slate-500" : "text-slate-900"}`}>{p.fullName}</p>
                         <p className="truncate text-sm text-slate-500">{p.departmentName?.trim() || "—"}</p>
                       </div>
+                      {wished ? (
+                        <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
+                          Sent
+                        </span>
+                      ) : (
                       <span className="shrink-0 text-lg leading-none text-violet-400" aria-hidden title="Birthday today">
                         🎂
                       </span>
+                      )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
               {today.length > 0 ? (
@@ -733,7 +827,7 @@ function BirthdaysCompanyNoticesWidgetInner() {
                   type="button"
                   disabled={!canSendWishesToOthers}
                   title={!canSendWishesToOthers ? "No other recipients to wish today." : undefined}
-                  onClick={() => setWishesPanelOpen((o) => !o)}
+                  onClick={toggleWishesPanel}
                   className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 py-3 text-sm font-bold text-violet-800 shadow-sm transition hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span aria-hidden>🎉</span>
@@ -847,65 +941,52 @@ function BirthdaysCompanyNoticesWidgetInner() {
           </div>
 
           {/* Collapsible: compose wishes */}
-          {wishesPanelOpen && today.length > 0 ? (
+          {wishesPanelOpen && selectedWishPerson && isWishablePerson(selectedWishPerson.employeeId) ? (
             <div className="border-t border-slate-100 bg-violet-50/40 px-5 py-4 sm:px-6">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-violet-800/80">Personal wishes</p>
-              <ul className="flex flex-col gap-4">
-                {today.map((p) => (
-                  <li
-                    key={`wish-panel-${p.employeeId}`}
-                    className="rounded-xl border border-violet-200/80 bg-white p-3 shadow-sm"
-                  >
-                    <p className="text-sm font-bold text-slate-900">{p.fullName}</p>
-                    {myEmployeeId && p.employeeId === myEmployeeId ? (
-                      <p className="mt-2 text-xs text-slate-500">Others can send you a wish from their account.</p>
-                    ) : (
-                      <>
-                        <label htmlFor={`birthday-wish-note-${p.employeeId}`} className="sr-only">
-                          Personal message for {p.fullName} (optional)
-                        </label>
-                        <textarea
-                          id={`birthday-wish-note-${p.employeeId}`}
-                          rows={2}
-                          maxLength={500}
-                          value={wishNoteByEmployee[p.employeeId] ?? ""}
-                          onChange={(e) =>
-                            setWishNoteByEmployee((prev) => ({ ...prev, [p.employeeId]: e.target.value }))
-                          }
-                          disabled={wishBusyId === p.employeeId}
-                          placeholder="Optional message (max 500 characters)…"
-                          className="mt-2 min-h-[2.75rem] w-full resize-y rounded-lg border border-slate-200 bg-slate-50/90 px-2.5 py-1.5 text-xs leading-snug text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 disabled:opacity-60"
-                        />
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1" role="toolbar" aria-label="Insert emoji into wish message">
-                          {WISH_QUICK_EMOJIS.map((em) => (
-                            <button
-                              key={em}
-                              type="button"
-                              disabled={wishBusyId === p.employeeId}
-                              title={`Insert ${em}`}
-                              onClick={() => insertWishEmoji(p.employeeId, em)}
-                              className="grid h-8 min-w-[2rem] shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-lg leading-none transition hover:border-violet-300 hover:bg-violet-50 disabled:pointer-events-none disabled:opacity-40"
-                            >
-                              <span aria-hidden>{em}</span>
-                            </button>
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          disabled={wishBusyId === p.employeeId}
-                          onClick={() => void sendWish(p.employeeId)}
-                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg border-2 border-violet-600 bg-violet-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
-                        >
-                          Send Wish
-                          <span className="text-sm leading-none" aria-hidden>
-                            🎂
-                          </span>
-                        </button>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-violet-800/80">Personal wish</p>
+              <div className="rounded-xl border border-violet-200/80 bg-white p-3 shadow-sm">
+                <p className="text-sm font-bold text-slate-900">{selectedWishPerson.fullName}</p>
+                <label htmlFor={`birthday-wish-note-${selectedWishPerson.employeeId}`} className="sr-only">
+                  Personal message for {selectedWishPerson.fullName} (optional)
+                </label>
+                <textarea
+                  id={`birthday-wish-note-${selectedWishPerson.employeeId}`}
+                  rows={2}
+                  maxLength={500}
+                  value={wishNoteByEmployee[selectedWishPerson.employeeId] ?? ""}
+                  onChange={(e) =>
+                    setWishNoteByEmployee((prev) => ({ ...prev, [selectedWishPerson.employeeId]: e.target.value }))
+                  }
+                  disabled={wishBusyId === selectedWishPerson.employeeId}
+                  placeholder="Optional message (max 500 characters)…"
+                  className="mt-2 min-h-[2.75rem] w-full resize-y rounded-lg border border-slate-200 bg-slate-50/90 px-2.5 py-1.5 text-xs leading-snug text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 disabled:opacity-60"
+                />
+                <div className="mt-1.5 flex flex-wrap items-center gap-1" role="toolbar" aria-label="Insert emoji into wish message">
+                  {WISH_QUICK_EMOJIS.map((em) => (
+                    <button
+                      key={em}
+                      type="button"
+                      disabled={wishBusyId === selectedWishPerson.employeeId}
+                      title={`Insert ${em}`}
+                      onClick={() => insertWishEmoji(selectedWishPerson.employeeId, em)}
+                      className="grid h-8 min-w-[2rem] shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-lg leading-none transition hover:border-violet-300 hover:bg-violet-50 disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      <span aria-hidden>{em}</span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  disabled={wishBusyId === selectedWishPerson.employeeId}
+                  onClick={() => void sendWish(selectedWishPerson.employeeId)}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border-2 border-violet-600 bg-violet-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
+                >
+                  Send Wish
+                  <span className="text-sm leading-none" aria-hidden>
+                    🎂
+                  </span>
+                </button>
+              </div>
             </div>
           ) : null}
 

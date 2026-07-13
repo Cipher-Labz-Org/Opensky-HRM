@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
@@ -41,7 +41,7 @@ type LetterTemplatesContentProps = {
   onTemplatesChange?: (templates: TemplateListItem[]) => void;
 };
 
-/** HR letters (PDF/Word from People → Create Document); all `DocumentTemplates` rows whose key does not start with `Email_`. */
+/** HR letters (PDF/Word from People ΓåÆ Create Document); all `DocumentTemplates` rows whose key does not start with `Email_`. */
 export function LetterTemplatesContent({ onTemplatesChange }: LetterTemplatesContentProps) {
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [editingTemplate, setEditingTemplate] = useState<TemplateDetail | null>(null);
@@ -186,7 +186,7 @@ export function LetterTemplatesContent({ onTemplatesChange }: LetterTemplatesCon
                     disabled={deletingId === tpl.id}
                     className="text-sm font-medium text-rose-600 hover:underline disabled:opacity-50"
                   >
-                    {deletingId === tpl.id ? "Deleting…" : "Delete"}
+                    {deletingId === tpl.id ? "DeletingΓÇª" : "Delete"}
                   </button>
                 </div>
               </div>
@@ -200,7 +200,7 @@ export function LetterTemplatesContent({ onTemplatesChange }: LetterTemplatesCon
           <div className="max-h-[80vh] overflow-y-auto pr-1">
             <p className="mb-4 text-sm text-slate-600">
               <span className="font-medium text-slate-800">{editingTemplate.name}</span>
-              <span className="text-slate-400"> · </span>
+              <span className="text-slate-400"> ┬╖ </span>
               <code className="text-xs text-slate-600">{editingTemplate.templateKey}</code>
             </p>
             <div className="space-y-4">

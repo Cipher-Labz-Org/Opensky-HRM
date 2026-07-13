@@ -7,6 +7,7 @@ import {
   resolveAuthApiPath,
   tenantBackendUrl,
 } from "@/config/constants";
+import { resolveHttpErrorMessage } from "@/lib/api-errors";
 
 const PROFILE_FETCH_MS = 10_000;
 const LOGIN_FETCH_MS = 20_000;
@@ -214,29 +215,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const text = await res.text();
     if (!res.ok) {
-      let msg = "Login failed";
-      if (/42P01|relation ["']?Instanc/i.test(text)) {
-        msg =
-          "Database is missing licensing tables. From the Backend folder run: dotnet ef database update --project OpenSkyHRM.Persistence --startup-project OpenSkyHRM.Api, then restart the API.";
-      } else {
-        try {
-          const errBody = JSON.parse(text) as { message?: string; detail?: string; title?: string };
-          msg = errBody.message || errBody.title || msg;
-          const detail = errBody.detail;
-          if (
-            detail &&
-            detail.length < 280 &&
-            !/Npgsql\.| at |\n|Exception \(0x/i.test(detail) &&
-            (msg === "Login failed" ||
-              /sign-in failed|database|migration|schema/i.test(msg))
-          ) {
-            msg = `${msg} ${detail}`.trim();
-          }
-        } catch {
-          if (text.trim()) msg = text.trim().slice(0, 200);
-        }
-      }
-      throw new Error(msg || "Invalid credentials");
+      throw new Error(
+        resolveHttpErrorMessage(text, {
+          status: res.status,
+          endpoint: "/api/auth/login",
+          backendUrl: tenantBackendUrl() || getApiBaseUrl() || API_BASE_URL,
+        }),
+      );
     }
 
     let data: { token: string; user: UserProfile };

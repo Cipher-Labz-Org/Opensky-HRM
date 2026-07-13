@@ -6,6 +6,7 @@ import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { FormErrorAlert } from "@/components/ui";
 
 export default function ChangePasswordPage() {
   const { user, refreshProfile } = useAuth();
@@ -91,11 +92,7 @@ export default function ChangePasswordPage() {
           />
         </label>
 
-        {error ? (
-          <p className="text-sm text-red-600" role="alert">
-            {error}
-          </p>
-        ) : null}
+        <FormErrorAlert message={error} onDismiss={() => setError("")} className="text-sm text-red-600" />
 
         <Button type="submit" className="w-full py-2.5 text-sm font-semibold" disabled={submitting}>
           {submitting ? "Saving…" : "Save new password"}

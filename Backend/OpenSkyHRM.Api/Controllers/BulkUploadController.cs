@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Api.Filters;
@@ -416,23 +417,26 @@ public partial class BulkUploadController : ControllerBase
                 continue;
             }
 
-            if (emailsSeenInFile.Contains(resolvedEmail))
+            if (!string.IsNullOrEmpty(resolvedEmail))
             {
-                skipped++;
-                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
-                    new List<string> { $"Duplicate email in this file: '{resolvedEmail}' appears on more than one row." }));
-                continue;
-            }
+                if (emailsSeenInFile.Contains(resolvedEmail))
+                {
+                    skipped++;
+                    results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
+                        new List<string> { $"Duplicate email in this file: '{resolvedEmail}' appears on more than one row." }));
+                    continue;
+                }
 
-            if (existingEmailSet.Contains(resolvedEmail))
-            {
-                skipped++;
-                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
-                    new List<string> { $"Email '{resolvedEmail}' is already used (each employee must have a unique work email)." }));
-                continue;
-            }
+                if (existingEmailSet.Contains(resolvedEmail))
+                {
+                    skipped++;
+                    results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
+                        new List<string> { $"Email '{resolvedEmail}' is already used (each employee must have a unique work email)." }));
+                    continue;
+                }
 
-            emailsSeenInFile.Add(resolvedEmail);
+                emailsSeenInFile.Add(resolvedEmail);
+            }
 
             ValidateEmployeeImportFieldLengths(
                 errors,
@@ -442,6 +446,21 @@ public partial class BulkUploadController : ControllerBase
                 Cell(row, "Work Telephone"),
                 Cell(row, "Zip/Postal Code"),
                 Cell(row, "Permanent Zip/Postal Code"));
+
+            InputValidators.ValidateEmployeeImportAddressFields(
+                errors,
+                Cell(row, "Address Street 1"),
+                Cell(row, "Address Street 2"),
+                Cell(row, "City"),
+                Cell(row, "Zip/Postal Code"),
+                Cell(row, "Polling Division"),
+                Cell(row, "Distance to Office"),
+                Cell(row, "Permanent Street 1"),
+                Cell(row, "Permanent Street 2"),
+                Cell(row, "Permanent City"),
+                Cell(row, "Permanent Zip/Postal Code"),
+                Cell(row, "Permanent Polling Division"),
+                Cell(row, "Permanent Distance to Office"));
 
             if (errors.Count > 0)
             {
@@ -530,7 +549,8 @@ public partial class BulkUploadController : ControllerBase
 
             existingCodesForGeneration.Add(empCode!);
             reservedEmployeeCodes.Add(empCode!);
-            existingEmailSet.Add(resolvedEmail);
+            if (!string.IsNullOrEmpty(resolvedEmail))
+                existingEmailSet.Add(resolvedEmail);
             if (!managerLookup.ContainsKey(empCode!))
                 managerLookup[empCode!] = employee.Id;
             created++;
@@ -671,15 +691,11 @@ public partial class BulkUploadController : ControllerBase
         }
     }
 
-    private static string ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
+    private static string? ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
     {
         var work = NormalizeImportEmail(workEmail);
         if (work != null) return work;
-        var personal = NormalizeImportEmail(personalEmail);
-        if (personal != null) return personal;
-        var local = SanitizeUsernameSegment(employeeCode);
-        if (string.IsNullOrEmpty(local)) local = "employee";
-        return $"{local}@import.openskyhrm.local";
+        return NormalizeImportEmail(personalEmail);
     }
 
     /// <summary>Treat Excel placeholders and non-email text as empty so import does not store "-" or "#N/A" as work email.</summary>
@@ -695,6 +711,8 @@ public partial class BulkUploadController : ControllerBase
             || s.Equals("n/a", StringComparison.Ordinal))
             return null;
         if (s.IndexOf('@') < 1 || s.IndexOf('.') <= s.IndexOf('@'))
+            return null;
+        if (!InputValidators.IsValidEmailInput(s))
             return null;
         return s;
     }

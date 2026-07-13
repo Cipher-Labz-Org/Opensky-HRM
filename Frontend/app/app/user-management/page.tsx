@@ -4,12 +4,22 @@ import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { FormSelect, TablePagination, FormErrorAlert, type FormSelectOption } from "@/components/ui";
+import { FormSelect, TablePagination, FormErrorAlert, UsernameInput, EmailInput, type FormSelectOption } from "@/components/ui";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
 import { useApplyFilter } from "@/lib/use-apply-filter";
+import {
+  sanitizeUsernameInput,
+  isValidUsername,
+  isValidEmailInput,
+  isValidEmailFormat,
+  USERNAME_VALIDATION_MESSAGE,
+  EMAIL_INPUT_VALIDATION_MESSAGE,
+  EMAIL_FORMAT_VALIDATION_MESSAGE,
+} from "@/lib/input-validation";
+import { modalShellWidthClass } from "@/lib/modal-layout";
 
 interface UserItem {
   id: string;
@@ -73,6 +83,7 @@ export default function UserManagementPage() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mustChangePassword, setMustChangePassword] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [employeeId, setEmployeeId] = useState("");
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
@@ -124,6 +135,7 @@ export default function UserManagementPage() {
     setUsername("");
     setEmail("");
     setPassword("");
+    setMustChangePassword(true);
     setIsActive(true);
     setEmployeeId("");
     setSelectedRoles([]);
@@ -164,11 +176,26 @@ export default function UserManagementPage() {
 
   async function handleSave() {
     setError("");
-    if (!username.trim()) {
+    const normalizedUsername = sanitizeUsernameInput(username.trim());
+    if (!normalizedUsername) {
       setError("Username is required.");
       return;
     }
+    if (!isValidUsername(normalizedUsername)) {
+      setError(USERNAME_VALIDATION_MESSAGE);
+      return;
+    }
+    const trimmedEmail = email.trim();
+    if (trimmedEmail && !isValidEmailInput(trimmedEmail)) {
+      setError(EMAIL_INPUT_VALIDATION_MESSAGE);
+      return;
+    }
+    if (trimmedEmail && !isValidEmailFormat(trimmedEmail)) {
+      setError(EMAIL_FORMAT_VALIDATION_MESSAGE);
+      return;
+    }
     if (!editUser && !password) { setError("Password is required for new users."); return; }
+    if (!editUser && password.length < 6) { setError("Password must be at least 6 characters."); return; }
     if (selectedRoles.length === 0) { setError("At least one role is required."); return; }
 
     setSaving(true);
@@ -177,7 +204,7 @@ export default function UserManagementPage() {
         await apiFetch(`/api/user/${editUser.id}`, {
           method: "PUT",
           body: JSON.stringify({
-            username,
+            username: normalizedUsername,
             email,
             isActive,
             employeeId: employeeId || null,
@@ -192,10 +219,11 @@ export default function UserManagementPage() {
         await apiFetch("/api/user", {
           method: "POST",
           body: JSON.stringify({
-            username,
+            username: normalizedUsername,
             email,
             password,
             isActive,
+            mustChangePassword,
             employeeId: employeeId || null,
             roleIds: selectedRoles,
             assignedLocationIds: selectedLocationIds.length > 0 ? selectedLocationIds : undefined,
@@ -537,7 +565,7 @@ export default function UserManagementPage() {
 
       {showModal && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className={`w-full ${modalShellWidthClass()} max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl`}>
             <div className="mb-4 flex items-start justify-between gap-3">
               <h3 className="text-lg font-semibold text-slate-900">{editUser ? "Edit user" : "Create user"}</h3>
               <button
@@ -560,14 +588,12 @@ export default function UserManagementPage() {
 
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
-                <div><label className={labelClass}>Username *</label><input value={username} onChange={(e) => setUsername(e.target.value)} className={inputClass} /></div>
+                <div><label className={labelClass}>Username *</label><UsernameInput value={username} onChange={(e) => setUsername(e.target.value)} className={inputClass} /></div>
                 <div>
               <label className={labelClass}>Email</label>
-              <input
+              <EmailInput
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                type="email"
-                pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}"
                 title="Optional. When set, must be a valid email (e.g. name@company.com)"
                 className={inputClass}
               />
@@ -575,7 +601,23 @@ export default function UserManagementPage() {
               </div>
 
               {!editUser && (
-                <div><label className={labelClass}>Password *</label><input value={password} onChange={(e) => setPassword(e.target.value)} type="password" className={inputClass} /></div>
+                <>
+                  <div><label className={labelClass}>Password *</label><input value={password} onChange={(e) => setPassword(e.target.value)} type="password" className={inputClass} /></div>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={mustChangePassword}
+                      onChange={(e) => setMustChangePassword(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[var(--primary)] accent-[var(--primary)]"
+                    />
+                    <span className="text-sm leading-relaxed text-slate-700">
+                      <span className="font-medium text-slate-900">Require password change on first sign-in</span>
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        The user must set a new password before they can use the app.
+                      </span>
+                    </span>
+                  </label>
+                </>
               )}
 
               <div className="grid gap-3 sm:grid-cols-2">

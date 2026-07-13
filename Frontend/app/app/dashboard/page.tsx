@@ -3,15 +3,23 @@
 import { appAlert } from "@/components/ui/appDialogs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
+import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
 import { apiFetch } from "@/lib/api";
 import { formatBusinessDateTime } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
-import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
+import { formatRecruitmentActivityDescription } from "@/lib/recruitment-activity";
 
 /** Solid brand/accent colors (no gradients). */
-const DASH_WORKFORCE_ROW_COLORS: string[] = ["#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5", "#1a92d5"];
+const DASH_WORKFORCE_ROW_COLORS: string[] = [
+  "#1a92d5", // blue
+  "#F97316", // orange
+  "#10B981", // green
+  "#8B5CF6", // violet
+  "#F59E0B", // amber
+  "#F43F5E", // rose
+];
 
 const DASH_ACTIVITY_DAY_COLORS: [string, string][] = [
   ["#22C55E", "#22C55E"],
@@ -71,6 +79,7 @@ interface RecruitmentDashboardDto {
   recentActivities: Array<{
     description: string;
     activityType: string;
+    candidateName?: string | null;
     performedBy: string | null;
     performedAt: string;
   }>;
@@ -181,10 +190,11 @@ export default function DashboardPage() {
     type Item = { at: string; title: string; body: string };
     const items: Item[] = [];
     recruitDash?.recentActivities?.forEach((a) => {
+      const body = formatRecruitmentActivityDescription(a);
       items.push({
         at: a.performedAt,
         title: a.activityType || "Recruitment activity",
-        body: a.description + (a.performedBy ? ` · ${a.performedBy}` : ""),
+        body: body + (a.performedBy ? ` · ${a.performedBy}` : ""),
       });
     });
     leaveDash?.recentRequests?.forEach((r) => {
@@ -304,7 +314,7 @@ export default function DashboardPage() {
 
   const headcountMix = useMemo(() => {
     const rows = [
-      { label: "Active", value: activeCount ?? 0, color: "#F97316" },
+      { label: "Active", value: activeCount ?? 0, color: "#7eb8e8" },
       { label: "Terminated (records)", value: terminatedCount ?? 0, color: "#F97316" },
     ].filter((r) => r.value > 0);
     return rows;

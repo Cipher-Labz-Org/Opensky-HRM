@@ -32,8 +32,15 @@ public class ReportsController : ControllerBase
     [HttpGet("{category}/{reportKey}")]
     public async Task<IActionResult> RunReport(string category, string reportKey, [FromQuery] Dictionary<string, string>? filters = null)
     {
-        var result = await _reportService.RunReportAsync(category, reportKey, filters);
-        return new JsonResult(result, ReportJsonOptions);
+        try
+        {
+            var result = await _reportService.RunReportAsync(category, reportKey, filters);
+            return new JsonResult(result, ReportJsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpGet("{category}/{reportKey}/csv")]

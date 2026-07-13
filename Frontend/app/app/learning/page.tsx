@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useClientPagination } from "@/lib/use-client-pagination";
@@ -167,6 +168,7 @@ function pct(n: number, d: number) {
 // ──────────────────────────── Page ────────────────────────────
 
 export default function LearningPage() {
+  const searchParams = useSearchParams();
   const [pageTab, setPageTab] = useState<PageTab>("dashboard");
   const [showCreate, setShowCreate] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -225,6 +227,24 @@ export default function LearningPage() {
   const [assignDue, setAssignDue] = useState("");
   const [assignStatus, setAssignStatus] = useState("Assigned");
   const [assignNotes, setAssignNotes] = useState("");
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab && PAGE_TABS.some((t) => t.key === tab)) {
+      setPageTab(tab as PageTab);
+    }
+    const employeeId = searchParams.get("employeeId");
+    if (employeeId) setAssignEmployeeId(employeeId);
+  }, [searchParams]);
+
+  const filterEmployeeId = searchParams.get("employeeId") ?? "";
+  const filteredTrainingAssignments = useMemo(
+    () =>
+      filterEmployeeId
+        ? trainingAssignments.filter((t) => t.employeeId === filterEmployeeId)
+        : trainingAssignments,
+    [trainingAssignments, filterEmployeeId],
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -285,7 +305,7 @@ export default function LearningPage() {
   const certCatalogPager = useClientPagination(certCatalog);
   const employeeCertsPager = useClientPagination(employeeCerts);
   const skillsCatalogPager = useClientPagination(skillsCatalog);
-  const trainingAssignmentsPager = useClientPagination(trainingAssignments);
+  const trainingAssignmentsPager = useClientPagination(filteredTrainingAssignments);
 
   const employeeFormOptions = useMemo<FormSelectOption[]>(
     () => employeeOptions.map((e) => ({ value: e.id, label: employeeLabel(e) })),
@@ -748,9 +768,7 @@ export default function LearningPage() {
         ))}
       </div>
 
-      {loadErr && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{loadErr}</div>
-      )}
+      <InlinePageAlert message={loadErr} className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 scroll-mt-20" />
 
       <CreateCourseModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={() => refresh()} />
 

@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -22,12 +21,18 @@ public class LeaveController : ControllerBase
     private readonly ILeaveService _leaveService;
     private readonly ILeaveEntitlementService _entitlementService;
     private readonly AppDbContext _db;
+    private readonly IFileStorageService _files;
 
-    public LeaveController(ILeaveService leaveService, ILeaveEntitlementService entitlementService, AppDbContext db)
+    public LeaveController(
+        ILeaveService leaveService,
+        ILeaveEntitlementService entitlementService,
+        AppDbContext db,
+        IFileStorageService files)
     {
         _leaveService = leaveService;
         _entitlementService = entitlementService;
         _db = db;
+        _files = files;
     }
 
     // ───── Dashboard ─────
@@ -106,8 +111,7 @@ public class LeaveController : ControllerBase
         [FromForm] decimal totalDays,
         [FromForm] string? reason,
         [FromForm] string? coveragePerson,
-        IFormFile? medicalCertificate,
-        [FromServices] IWebHostEnvironment env)
+        IFormFile? medicalCertificate)
     {
         var scope = LeaveAccessHelper.ResolveScope(User, "Create");
         if (scope == "Own")
@@ -127,12 +131,11 @@ public class LeaveController : ControllerBase
                 return BadRequest(new { message = "Medical certificate must be a PDF file." });
 
             var token = Guid.NewGuid();
-            var dir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "leave-certificates", token.ToString());
-            Directory.CreateDirectory(dir);
-            var physicalPath = Path.Combine(dir, "medical-certificate.pdf");
-            await using (var stream = System.IO.File.Create(physicalPath))
-                await medicalCertificate.CopyToAsync(stream);
-            medicalUrl = $"/uploads/leave-certificates/{token}/medical-certificate.pdf";
+            medicalUrl = _files.BuildLogicalPath($"leave-certificates/{token}", "medical-certificate.pdf");
+            await using (var stream = medicalCertificate.OpenReadStream())
+            {
+                await _files.SaveAsync(medicalUrl, stream, "application/pdf");
+            }
         }
 
         var dto = new CreateLeaveRequestDto

@@ -5,6 +5,7 @@ public interface IEmailService
     /// <summary>Sends offer email with the letter as a PDF attachment. Returns PDF bytes when generated.</summary>
     Task<byte[]?> SendOfferEmailAsync(string toEmail, string candidateName, string positionTitle,
         decimal salary, string currency, DateTime? joiningDate, string? remarks, string? customLetterHtml = null,
+        string? offerResponseUrl = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Sends a confirmation to the employee who submitted the leave request.</summary>

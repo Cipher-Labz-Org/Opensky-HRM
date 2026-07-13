@@ -4,8 +4,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { PhoneInput, FlashMessageBanner, type FlashMessage } from "@/components/ui";
-import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import { PhoneInput, EmailInput, FlashMessageBanner, type FlashMessage } from "@/components/ui";
+import { isValidPhone, isValidEmailInput, isValidEmailFormat, PHONE_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal";
 import { apiFetch } from "@/lib/api";
@@ -162,6 +162,17 @@ export default function SettingsPage() {
     setCompanyMsg("");
     if (companyPhone.trim() && !isValidPhone(companyPhone)) {
       setCompanyMsg(PHONE_VALIDATION_MESSAGE);
+      setCompanySaving(false);
+      return;
+    }
+    const trimmedCompanyEmail = companyEmail.trim();
+    if (trimmedCompanyEmail && !isValidEmailInput(trimmedCompanyEmail)) {
+      setCompanyMsg(EMAIL_INPUT_VALIDATION_MESSAGE);
+      setCompanySaving(false);
+      return;
+    }
+    if (trimmedCompanyEmail && !isValidEmailFormat(trimmedCompanyEmail)) {
+      setCompanyMsg(EMAIL_FORMAT_VALIDATION_MESSAGE);
       setCompanySaving(false);
       return;
     }
@@ -579,7 +590,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Email</label>
-              <input value={companyEmail} onChange={(e) => setCompanyEmail(e.target.value)} type="email"
+              <EmailInput value={companyEmail} onChange={(e) => setCompanyEmail(e.target.value)}
                 className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20" />
             </div>
             <div>
