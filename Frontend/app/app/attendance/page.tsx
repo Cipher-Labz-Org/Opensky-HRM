@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } fro
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, DateTimePickerField, FormSelect, TablePagination, TimePickerField, InlinePageAlert, FormErrorAlert, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, DateTimePickerField, FormErrorAlert, FormSelect, TablePagination, TimePickerField, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
@@ -1750,10 +1750,12 @@ function ShiftsTab() {
   const [saving, setSaving] = useState(false);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [formShiftType, setFormShiftType] = useState("Regular");
   const [formTimes, setFormTimes] = useState(() => buildShiftFormTimes(null));
   const [appliesOnDays, setAppliesOnDays] = useState(() => buildAppliesOnDays(null));
   const editingIdRef = useRef<string | null>(null);
+  const formErrorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (showModal) {
@@ -1761,6 +1763,15 @@ function ShiftsTab() {
       setFormTimes(buildShiftFormTimes(editing, editing?.shiftType ?? "Regular"));
     }
   }, [showModal, editing]);
+
+  useEffect(() => {
+    if (!formError) return;
+    formErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const overlay = formErrorRef.current?.closest(".overflow-y-auto");
+    if (overlay instanceof HTMLElement) {
+      overlay.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [formError]);
 
   const load = useCallback(() => {
     setError(null);
@@ -1775,46 +1786,53 @@ function ShiftsTab() {
     editingIdRef.current = null;
     setEditing(null);
     setFormShiftType("Regular");
-    setError(null);
+    setFormError(null);
     setShowModal(true);
   }
   function openEdit(item: ShiftItem) {
     editingIdRef.current = item.id;
     setEditing(item);
     setFormShiftType(item.shiftType || "Regular");
-    setError(null);
+    setFormError(null);
     setShowModal(true);
+  }
+
+  function closeModal() {
+    editingIdRef.current = null;
+    setEditing(null);
+    setFormError(null);
+    setShowModal(false);
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
-    setError(null);
+    setFormError(null);
     const fd = new FormData(e.currentTarget);
     const st = (fd.get("shiftType") as string) || "Regular";
     if (st !== "Open") {
       if (st === "Flexi") {
         if (!formTimes.flexiWindowStart || !formTimes.flexiWindowEnd) {
-          setError("Window start and end time are required.");
+          setFormError("Window start and end time are required.");
           setSaving(false);
           return;
         }
       } else {
         if (!formTimes.startTime || !formTimes.endTime) {
-          setError("Start and end time are required.");
+          setFormError("Start and end time are required.");
           setSaving(false);
           return;
         }
       }
       if (st === "Split" && (!formTimes.session2StartTime || !formTimes.session2EndTime)) {
-        setError("Session 2 start and end time are required.");
+        setFormError("Session 2 start and end time are required.");
         setSaving(false);
         return;
       }
     }
     const applicableDaysError = validateApplicableDays(appliesOnDays, formTimes.dayTimes);
     if (applicableDaysError) {
-      setError(applicableDaysError);
+      setFormError(applicableDaysError);
       setSaving(false);
       return;
     }
@@ -1825,7 +1843,7 @@ function ShiftsTab() {
       startTime: timeInputToSpan(formTimes.startTime || "00:00"),
       endTime: timeInputToSpan(formTimes.endTime || "00:00"),
       breakHours: Number(fd.get("breakHours")) || 0,
-      isNightShift: fd.get("isNightShift") === "on",
+      isNightShift: false,
       isActive: fd.get("isActive") === "on",
       lateGraceMinutes: Number(fd.get("lateGraceMinutes")) || 5,
       earlyDepartureGraceMinutes: Number(fd.get("earlyDepartureGraceMinutes")) || 5,
@@ -1877,9 +1895,10 @@ function ShiftsTab() {
       editingIdRef.current = null;
       setShowModal(false);
       setEditing(null);
+      setFormError(null);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setFormError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
     }
@@ -1909,8 +1928,6 @@ function ShiftsTab() {
   const showTimes = formShiftType !== "Open";
   const showSession2 = formShiftType === "Split";
   const showFlexi = formShiftType === "Flexi";
-  const showNight = formShiftType === "Regular" || formShiftType === "Rotational" || formShiftType === "Split";
-
   function toggleAppliesOnDay(key: string, checked: boolean) {
     setAppliesOnDays((prev) => ({ ...prev, [key]: checked }));
     if (checked) {
@@ -2023,15 +2040,18 @@ function ShiftsTab() {
 
       <Modal
           open={showModal}
-          onClose={() => {
-            editingIdRef.current = null;
-            setEditing(null);
-            setShowModal(false);
-          }}
+          onClose={closeModal}
           title={editing ? "Edit Shift" : "Add Shift"}
           wide
         >
         <form key={editing?.id ?? "new-shift"} onSubmit={handleSubmit} className="space-y-4">
+          <div ref={formErrorRef} className="scroll-mt-4">
+            <FormErrorAlert
+              message={formError}
+              onDismiss={() => setFormError(null)}
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            />
+          </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <div><label className={labelClass}>Name *</label><input name="name" required defaultValue={editing?.name ?? ""} className={inputClass} /></div>
             <div><label className={labelClass}>Code *</label><input name="code" required defaultValue={editing?.code ?? ""} className={inputClass} /></div>
@@ -2098,12 +2118,6 @@ function ShiftsTab() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div><label className={labelClass}>Break (hours)</label><input name="breakHours" type="number" min={0} step={0.5} defaultValue={editing?.breakHours ?? 1} className={inputClass} /></div>
             <div className="flex flex-wrap items-center gap-4 pt-6">
-              {showNight && (
-                <label className="flex items-center gap-2 text-sm text-slate-600">
-                  <input name="isNightShift" type="checkbox" defaultChecked={editing?.isNightShift ?? false} className="h-4 w-4 rounded border-slate-300" />
-                  Night shift
-                </label>
-              )}
               <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input name="isActive" type="checkbox" defaultChecked={editing?.isActive ?? true} className="h-4 w-4 rounded border-slate-300" />
                 Active
@@ -2202,11 +2216,7 @@ function ShiftsTab() {
           <div className="flex justify-end gap-3 pt-2">
             <Button
               variant="secondary"
-              onClick={() => {
-                editingIdRef.current = null;
-                setEditing(null);
-                setShowModal(false);
-              }}
+              onClick={closeModal}
               type="button"
             >
               Cancel

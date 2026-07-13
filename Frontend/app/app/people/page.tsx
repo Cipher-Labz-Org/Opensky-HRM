@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { TablePagination } from "@/components/ui";
+import { FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
 import { CreateEmployeeModal } from "@/components/forms/CreateEmployeeModal";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
@@ -134,6 +134,32 @@ const employmentTypeLabels: Record<string, string> = {
 const employmentTypeOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
 const PEOPLE_PAGE_SIZE = 10;
 
+type EmployeeListStatusFilter = "active" | "all" | "terminated";
+
+const EMPLOYEE_LIST_STATUS_OPTIONS: FormSelectOption[] = [
+  { value: "active", label: "Active" },
+  { value: "all", label: "All" },
+  { value: "terminated", label: "Terminated" },
+];
+
+const peopleFilterLabelClass = "mb-1 block text-xs font-medium text-slate-500";
+
+function applyEmployeeListStatusParams(
+  params: URLSearchParams,
+  statusFilter: EmployeeListStatusFilter,
+  f: Filters,
+) {
+  if (f.status) {
+    params.set("status", f.status);
+    return;
+  }
+  if (statusFilter === "terminated") {
+    params.set("status", "Terminated");
+  } else if (statusFilter === "active") {
+    params.set("excludeTerminated", "true");
+  }
+}
+
 export default function PeoplePage() {
   const router = useRouter();
   const { hasPermission, isAdmin, getPeopleReadScope, user } = useAuth();
@@ -156,7 +182,7 @@ export default function PeoplePage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [activeOnly, setActiveOnly] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<EmployeeListStatusFilter>("active");
   const [sortBy, setSortBy] = useState<PeopleSortKey>("employeeCode");
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -198,7 +224,7 @@ export default function PeoplePage() {
   const loadEmployees = useCallback(async (
     f: Filters,
     p: number,
-    exclTerminated: boolean,
+    listStatusFilter: EmployeeListStatusFilter,
     sortKey: PeopleSortKey,
     asc: boolean,
   ) => {
@@ -210,13 +236,12 @@ export default function PeoplePage() {
     params.set("sortDir", asc ? "asc" : "desc");
     if (f.search) params.set("search", f.search);
     if (f.employeeCode) params.set("search", f.employeeCode);
-    if (f.status) params.set("status", f.status);
     if (f.employmentType) params.set("employmentType", f.employmentType);
     if (f.departmentId) params.set("departmentId", f.departmentId);
     if (f.jobTitleId) params.set("jobTitleId", f.jobTitleId);
     if (f.locationId) params.set("locationId", f.locationId);
     if (f.managerId) params.set("managerId", f.managerId);
-    if (exclTerminated) params.set("excludeTerminated", "true");
+    applyEmployeeListStatusParams(params, listStatusFilter, f);
     try {
       const r = await apiFetch<{ items: Employee[]; totalCount: number; totalPages: number }>(
         `/api/employees?${params.toString()}`
@@ -232,8 +257,8 @@ export default function PeoplePage() {
   }, []);
 
   useEffect(() => {
-    loadEmployees(appliedFilters, page, activeOnly, sortBy, sortAsc);
-  }, [appliedFilters, page, activeOnly, sortBy, sortAsc, loadEmployees]);
+    loadEmployees(appliedFilters, page, statusFilter, sortBy, sortAsc);
+  }, [appliedFilters, page, statusFilter, sortBy, sortAsc, loadEmployees]);
 
   function handleQuickSearch() {
     const term = quickSearch.trim();
@@ -334,8 +359,8 @@ export default function PeoplePage() {
         const params = new URLSearchParams({
           pageSize: "8",
           search: q,
-          excludeTerminated: activeOnly ? "true" : "false",
         });
+        applyEmployeeListStatusParams(params, statusFilter, emptyFilters);
         const r = await apiFetch<{ items: Employee[]; totalCount: number }>(
           `/api/employees?${params.toString()}`
         );
@@ -351,7 +376,7 @@ export default function PeoplePage() {
     return () => {
       if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
     };
-  }, [quickSearch, activeOnly]);
+  }, [quickSearch, statusFilter]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -455,13 +480,17 @@ export default function PeoplePage() {
       </div>
 
       {/* Search & Filters Bar */}
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="relative" ref={searchRef}>
+      <div className="mb-5 flex items-end justify-between gap-3">
+        <div className="flex items-end gap-2">
+          <div className="relative">
+            <span className={`${peopleFilterLabelClass} invisible block`} aria-hidden="true">
+              Status
+            </span>
+            <div className="relative" ref={searchRef}>
             <input
               type="text"
               placeholder="Search employees… (Enter)"
-              className="w-[280px] rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-[13px] text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              className="h-9 w-[280px] rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               value={quickSearch}
               onChange={(e) => { setQuickSearch(sanitizeSearchInput(e.target.value)); setShowSuggestions(true); }}
               onFocus={() => setShowSuggestions(true)}
@@ -477,10 +506,11 @@ export default function PeoplePage() {
                 </div>
                 {!suggestionsLoading && searchSuggestions.length === 0 && (
                   <div className="px-3 py-3 text-[12px] text-slate-500">
-                    No employees found{activeOnly ? " (active only)" : ""}.
-                    {activeOnly && (
+                    No employees found
+                    {statusFilter === "active" ? " (active only)" : statusFilter === "terminated" ? " (terminated only)" : ""}.
+                    {statusFilter === "active" && (
                       <span className="mt-1 block text-[11px] text-slate-400">
-                        Enable &quot;Include terminated / inactive employees&quot; in filters to widen results.
+                        Switch to All or Terminated in the status filter to widen results.
                       </span>
                     )}
                   </div>
@@ -521,6 +551,23 @@ export default function PeoplePage() {
                 )}
               </div>
             )}
+            </div>
+          </div>
+          <div className="w-36 shrink-0">
+            <label className={peopleFilterLabelClass} htmlFor="people-status-filter">
+              Status
+            </label>
+            <FormSelect
+              id="people-status-filter"
+              value={statusFilter}
+              onValueChange={(value) => {
+                setStatusFilter(value as EmployeeListStatusFilter);
+                setPage(1);
+              }}
+              options={EMPLOYEE_LIST_STATUS_OPTIONS}
+              clearable={false}
+              className="!h-9 min-h-9 text-[13px]"
+            />
           </div>
           <button
             onClick={() => (showFilters ? setShowFilters(false) : openFilters())}
@@ -580,7 +627,7 @@ export default function PeoplePage() {
       <CreateEmployeeModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        onCreated={() => { loadEmployees(appliedFilters, page, activeOnly, sortBy, sortAsc); }}
+        onCreated={() => { loadEmployees(appliedFilters, page, statusFilter, sortBy, sortAsc); }}
       />
       )}
 
@@ -690,19 +737,8 @@ export default function PeoplePage() {
               </select>
             </div>
           </div>
-          <div className="mt-4 px-1">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!activeOnly}
-                onChange={(e) => { setActiveOnly(!e.target.checked); setPage(1); }}
-                className="h-4 w-4 rounded border-slate-300 text-[#2B7DE9] focus:ring-[#2B7DE9]"
-              />
-              <span className="text-xs font-medium text-slate-600">Include terminated / inactive employees</span>
-            </label>
-          </div>
           <div className="mt-4 flex items-center justify-center gap-3">
-            <Button variant="secondary" onClick={handleReset}>Reset</Button>
+            <Button variant="secondary" onClick={() => { handleReset(); setStatusFilter("active"); }}>Reset</Button>
             <Button variant="secondary" onClick={() => setShowFilters(false)}>Cancel</Button>
             <Button onClick={handleSearch}>Search</Button>
           </div>
