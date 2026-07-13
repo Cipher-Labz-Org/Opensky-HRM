@@ -82,14 +82,14 @@ export function isValidDrivingLicense(value: string, required = false): boolean 
   return DRIVING_LICENSE_PATTERN.test(trimmed);
 }
 
-/** Passport / visa document numbers: uppercase letters and digits only. */
-export const PASSPORT_NUMBER_PATTERN = /^[A-Z0-9]+$/;
+/** Passport / visa document numbers: letters, digits, hyphens and spaces. */
+export const PASSPORT_NUMBER_PATTERN = /^[A-Za-z0-9\-\s]+$/;
 
 export const PASSPORT_NUMBER_VALIDATION_MESSAGE =
-  "Can only contain uppercase letters (A–Z) and numbers (0–9)";
+  "Can only contain letters, numbers, hyphens, and spaces";
 
 export function sanitizePassportNumberInput(value: string): string {
-  return value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  return value.replace(/[^A-Za-z0-9\-\s]/g, "");
 }
 
 export function isValidPassportNumber(value: string, required = false): boolean {
@@ -249,17 +249,17 @@ export const isValidEtfNumber = isValidStatutoryFundNumber;
 export const sanitizeEpfInput = sanitizeStatutoryFundNumberInput;
 export const sanitizeEtfInput = sanitizeStatutoryFundNumberInput;
 
-/** Street, city, polling division: letters, numbers, spaces, and . , - ' : & only. */
-export const ADDRESS_TEXT_PATTERN = /^[\p{L}\p{N}\s.,'\-:&]+$/u;
+/** Street, city, polling division: letters, numbers, spaces, and common address chars. */
+export const ADDRESS_TEXT_PATTERN = /^[\p{L}\p{N}\s.,'\-:&/#()[\]\\@]+$/u;
 
 export const ADDRESS_TEXT_VALIDATION_MESSAGE =
-  "Can only contain letters, numbers, spaces, and . , - ' : &";
+  "Can only contain letters, numbers, spaces, and . , - ' : & / # ( )";
 
 /** Postal / ZIP codes: same character set as address text. */
-export const POSTAL_CODE_PATTERN = /^[\p{L}\p{N}\s.,'\-:&]+$/u;
+export const POSTAL_CODE_PATTERN = /^[\p{L}\p{N}\s.,'\-:&/#()[\]\\@]+$/u;
 
 export const POSTAL_CODE_VALIDATION_MESSAGE =
-  "Can only contain letters, numbers, spaces, and . , - ' : &";
+  "Can only contain letters, numbers, spaces, and . , - ' : & / # ( )";
 
 /** Distance in KM: positive number, optional decimal. */
 export const DISTANCE_KM_PATTERN = /^\d+(\.\d+)?$/;
@@ -268,11 +268,11 @@ export const DISTANCE_KM_VALIDATION_MESSAGE =
   "Enter a valid distance in KM (e.g. 15 or 12.5)";
 
 export function sanitizeAddressTextInput(value: string): string {
-  return value.replace(/[^\p{L}\p{N}\s.,'\-:&]/gu, "");
+  return value.replace(/[^\p{L}\p{N}\s.,'\-:&/#()[\]\\@]/gu, "");
 }
 
 export function sanitizePostalCodeInput(value: string): string {
-  return value.replace(/[^\p{L}\p{N}\s.,'\-:&]/gu, "");
+  return value.replace(/[^\p{L}\p{N}\s.,'\-:&/#()[\]\\@]/gu, "");
 }
 
 export function sanitizeDistanceKmInput(value: string): string {
