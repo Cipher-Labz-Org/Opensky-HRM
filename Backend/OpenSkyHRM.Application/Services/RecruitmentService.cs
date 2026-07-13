@@ -1205,29 +1205,17 @@ public class RecruitmentService : IRecruitmentService
     private string ResolveCareersBaseUrl()
     {
         var configured = _configuration["Recruitment:CareersBaseUrl"]?.TrimEnd('/');
-        // Explicit config wins — but ignore placeholder localhost values in production
-        if (!string.IsNullOrEmpty(configured)
-            && !configured.Contains("localhost", StringComparison.OrdinalIgnoreCase)
-            && !configured.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(configured))
             return configured;
 
         var corsOrigins = _configuration.GetSection("Cors:Origins").Get<string[]>();
-
-        // Prefer the first live HTTPS origin that is not a backend URL
-        var liveFrontend = corsOrigins?
-            .Where(o => o.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            .FirstOrDefault(o => !o.Contains("backend", StringComparison.OrdinalIgnoreCase));
-        if (!string.IsNullOrWhiteSpace(liveFrontend))
-            return liveFrontend.TrimEnd('/');
-
-        // Dev fallback: use localhost
         var localFrontend = corsOrigins?
             .FirstOrDefault(o => o.Contains("localhost:3000", StringComparison.OrdinalIgnoreCase)
                 || o.Contains("127.0.0.1:3000", StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(localFrontend))
             return localFrontend.TrimEnd('/');
 
-        return configured ?? "http://localhost:3000";
+        return "http://localhost:3000";
     }
 
     private async Task<Offer> FindOfferByResponseTokenAsync(Guid token)

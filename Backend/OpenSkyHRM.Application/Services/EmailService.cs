@@ -125,9 +125,7 @@ public class EmailService : IEmailService
                 : OfferLetterHelper.BuildOfferActionsHtml(offerResponseUrl);
             var letterForEmail = OfferLetterHelper.InjectOfferActions(letterHtml, actionsHtml);
             pdfBytes = await _htmlToPdf.ConvertHtmlToPdfAsync(WrapOfferLetterHtmlForPdf(letterForEmail), cancellationToken);
-            emailHtml = !string.IsNullOrWhiteSpace(customLetterHtml)
-                ? WrapOfferLetterHtmlForPdf(letterForEmail)
-                : BuildOfferEmailCoverHtml(candidateName, positionTitle, offerResponseUrl);
+            emailHtml = BuildOfferEmailCoverHtml(candidateName, positionTitle, offerResponseUrl);
         }
         catch (Exception ex)
         {
