@@ -3329,7 +3329,8 @@ export default function EmployeeDetailPage() {
     const nic = ((payload.nationalId as string) ?? "").trim();
     const dl = ((payload.driversLicenseNumber as string) ?? "").trim();
     const tin = sanitizeTinInput(((payload.tinNumber as string) ?? "").trim());
-    if ((nic && !isValidNic(nic)) || (dl && !isValidDrivingLicense(dl)) || (tin && !isValidTin(tin))) {
+    const isIdTab = pageTab === "personal" || pageTab === "driversLicense";
+    if (isIdTab && ((nic && !isValidNic(nic)) || (dl && !isValidDrivingLicense(dl)) || (tin && !isValidTin(tin)))) {
       setSaving(false);
       setShowIdValidationErrors(true);
       setMsg({
