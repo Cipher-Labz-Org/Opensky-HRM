@@ -57,8 +57,64 @@ function normalizeOfferLetterHeader(html: string, branding: CompanyBranding): st
   return html.slice(0, headerStart) + normalizedHeader + html.slice(bodyStart);
 }
 
+function injectOfferActionsPreview(html: string): string {
+  if (html.toLowerCase().includes("accept offer</a>") || html.includes("Accept offer</span>")) return html;
+  const previewActions = `<div style="margin: 28px 0 12px; padding: 24px; background: #f8f9fe; border-radius: 12px; text-align: center;">
+    <p style="margin: 0 0 16px; font-size: 15px; font-weight: 600; color: #1a1a2e;">Your response</p>
+    <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #555;">When emailed, the candidate can accept, negotiate, or decline from this offer.</p>
+    <span style="display:inline-block;margin:6px;padding:12px 20px;background:#16a34a;color:#fff;border-radius:8px;font-weight:600;font-size:14px;">Accept offer</span>
+    <span style="display:inline-block;margin:6px;padding:12px 20px;background:#2563eb;color:#fff;border-radius:8px;font-weight:600;font-size:14px;">Negotiate</span>
+    <span style="display:inline-block;margin:6px;padding:12px 20px;background:#dc2626;color:#fff;border-radius:8px;font-weight:600;font-size:14px;">Decline</span>
+  </div>`;
+  const marker = "Please review the details and let us know your decision at your earliest convenience.";
+  if (html.includes(marker)) return html.replace(marker, marker + previewActions);
+  return html + previewActions;
+}
+
 /** Ensures the offer letter header matches the job requisition layout when previewing in the app. */
 export function prepareOfferLetterHtmlForDisplay(html: string, branding: CompanyBranding): string {
   if (!html.trim()) return html;
-  return normalizeOfferLetterHeader(rewriteOfferLetterAssetUrls(html), branding);
+  const normalized = normalizeOfferLetterHeader(rewriteOfferLetterAssetUrls(html), branding);
+  return injectOfferActionsPreview(normalized);
+}
+
+function injectOfferResponseLinks(html: string, responseBaseUrl: string): string {
+  if (html.toLowerCase().includes("accept offer</a>")) return html;
+
+  const acceptUrl = escapeHtmlAttr(`${responseBaseUrl}?action=accept`);
+  const negotiateUrl = escapeHtmlAttr(`${responseBaseUrl}?action=negotiate`);
+  const rejectUrl = escapeHtmlAttr(`${responseBaseUrl}?action=reject`);
+
+  const actions = `<div style="margin: 28px 0 12px; padding: 24px; background: #f8f9fe; border-radius: 12px; text-align: center;">
+    <p style="margin: 0 0 16px; font-size: 15px; font-weight: 600; color: #1a1a2e;">Your response</p>
+    <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #555;">Please choose how you would like to proceed with this offer.</p>
+    <a href="${acceptUrl}" style="display:inline-block;margin:6px;padding:12px 20px;background:#16a34a;color:#fff;border-radius:8px;font-weight:600;font-size:14px;text-decoration:none;">Accept offer</a>
+    <a href="${negotiateUrl}" style="display:inline-block;margin:6px;padding:12px 20px;background:#2563eb;color:#fff;border-radius:8px;font-weight:600;font-size:14px;text-decoration:none;">Negotiate</a>
+    <a href="${rejectUrl}" style="display:inline-block;margin:6px;padding:12px 20px;background:#dc2626;color:#fff;border-radius:8px;font-weight:600;font-size:14px;text-decoration:none;">Decline</a>
+  </div>`;
+
+  const marker = "Please review the details and let us know your decision at your earliest convenience.";
+  const withoutPreview = html.replace(
+    /<div style="margin: 28px 0 12px; padding: 24px; background: #f8f9fe; border-radius: 12px; text-align: center;">[\s\S]*?(?:When emailed, the candidate can accept|Please choose how you would like to proceed)[\s\S]*?<\/div>/i,
+    "",
+  );
+  if (withoutPreview.includes(marker)) return withoutPreview.replace(marker, marker + actions);
+  return withoutPreview + actions;
+}
+
+/** Public candidate page: show the letter with optional working response links. */
+export function prepareOfferLetterHtmlForPublicResponse(
+  html: string,
+  branding: CompanyBranding,
+  responseBaseUrl?: string,
+): string {
+  if (!html.trim()) return html;
+  const normalized = normalizeOfferLetterHeader(rewriteOfferLetterAssetUrls(html), branding);
+  if (!responseBaseUrl) {
+    return normalized.replace(
+      /<div style="margin: 28px 0 12px; padding: 24px; background: #f8f9fe; border-radius: 12px; text-align: center;">[\s\S]*?<\/div>/i,
+      "",
+    );
+  }
+  return injectOfferResponseLinks(normalized, responseBaseUrl);
 }

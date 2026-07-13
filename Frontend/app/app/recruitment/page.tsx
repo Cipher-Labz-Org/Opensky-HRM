@@ -1,7 +1,7 @@
 "use client";
 
 import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
@@ -192,6 +192,11 @@ export default function RecruitmentPage() {
   const [filterReqPriority, setFilterReqPriority] = useState("");
   const [filterCandReq, setFilterCandReq] = useState("");
   const candSearchFilter = useApplyFilter();
+  const [candSuggestions, setCandSuggestions] = useState<Candidate[]>([]);
+  const [candSuggestOpen, setCandSuggestOpen] = useState(false);
+  const [candSuggestIdx, setCandSuggestIdx] = useState(-1);
+  const candSuggestRef = useRef<HTMLDivElement>(null);
+  const candInputRef = useRef<HTMLInputElement>(null);
   const [candidateView, setCandidateView] = useState<"kanban" | "table">("kanban");
   const [dragCandidate, setDragCandidate] = useState<string | null>(null);
   const [editReq, setEditReq] = useState<Requisition | null>(null);
@@ -366,6 +371,33 @@ export default function RecruitmentPage() {
 
   useEffect(() => { setReqPage(1); }, [filterReqStatus, filterReqPriority]);
   useEffect(() => { setCandPage(1); }, [filterCandReq, candSearchFilter.applied, candidateView]);
+
+  useEffect(() => {
+    const q = candSearchFilter.input.trim();
+    if (q.length < 2) { setCandSuggestions([]); setCandSuggestOpen(false); return; }
+    const handle = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ page: "1", pageSize: "8", search: q });
+        if (filterCandReq) params.set("requisitionId", filterCandReq);
+        const res = await apiFetch<{ items: Candidate[] }>(`/api/recruitment/candidates?${params}`);
+        setCandSuggestions(res.items ?? []);
+        setCandSuggestOpen((res.items ?? []).length > 0);
+        setCandSuggestIdx(-1);
+      } catch { /* */ }
+    }, 220);
+    return () => clearTimeout(handle);
+  }, [candSearchFilter.input, filterCandReq]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (candSuggestRef.current && !candSuggestRef.current.contains(e.target as Node) &&
+          candInputRef.current && !candInputRef.current.contains(e.target as Node)) {
+        setCandSuggestOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleApproveReq = async (id: string) => {
     if (!(await appConfirm("Approve this requisition? Approved roles can proceed in the hiring pipeline."))) return;
@@ -774,19 +806,92 @@ export default function RecruitmentPage() {
       {tab === "Candidates" && (
         <div className="mt-6 space-y-4">
           <div className={`flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm`}>
-            <div className="w-52 shrink-0">
-              <input
-                placeholder="Search candidates… (Enter)"
-                value={candSearchFilter.input}
-                onChange={(e) => candSearchFilter.setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    candSearchFilter.apply();
-                    setCandPage(1);
-                  }
-                }}
-                className={inputClass}
-              />
+            <div className="flex shrink-0 items-center gap-1.5">
+              <div className="relative w-60">
+                <input
+                  ref={candInputRef}
+                  placeholder="Search candidates…"
+                  value={candSearchFilter.input}
+                  autoComplete="off"
+                  onChange={(e) => { candSearchFilter.setInput(e.target.value); }}
+                  onFocus={() => { if (candSuggestions.length > 0) setCandSuggestOpen(true); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setCandSuggestIdx((i) => Math.min(i + 1, candSuggestions.length - 1));
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setCandSuggestIdx((i) => Math.max(i - 1, -1));
+                    } else if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (candSuggestIdx >= 0 && candSuggestions[candSuggestIdx]) {
+                        const name = candSuggestions[candSuggestIdx].fullName;
+                        candSearchFilter.setInput(name);
+                        candSearchFilter.setApplied(name);
+                      } else {
+                        candSearchFilter.setApplied(candSearchFilter.input);
+                      }
+                      setCandSuggestOpen(false);
+                      setCandPage(1);
+                    } else if (e.key === "Escape") {
+                      setCandSuggestOpen(false);
+                    }
+                  }}
+                  className={inputClass}
+                />
+                {candSearchFilter.input && (
+                  <button
+                    type="button"
+                    onClick={() => { candSearchFilter.clear(); setCandSuggestions([]); setCandSuggestOpen(false); setCandPage(1); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-base leading-none"
+                    aria-label="Clear search"
+                  >
+                    ×
+                  </button>
+                )}
+                {candSuggestOpen && candSuggestions.length > 0 && (
+                  <div
+                    ref={candSuggestRef}
+                    className="absolute left-0 top-full z-50 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                  >
+                    {candSuggestions.map((s, i) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          candSearchFilter.setInput(s.fullName);
+                          candSearchFilter.setApplied(s.fullName);
+                          setCandSuggestOpen(false);
+                          setCandPage(1);
+                        }}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
+                          i === candSuggestIdx ? "bg-[#2E7BBF]/10 text-[#2E7BBF]" : "text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="flex-1 truncate font-medium">{s.fullName}</span>
+                        <span className="shrink-0 text-xs text-slate-400">{s.stage}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { candSearchFilter.setApplied(candSearchFilter.input); setCandSuggestOpen(false); setCandPage(1); }}
+                className="rounded-xl border border-[#2E7BBF] bg-[#2E7BBF] px-3 py-2 text-sm font-medium text-white transition hover:bg-[#2463a0] active:scale-95"
+              >
+                Search
+              </button>
+              {candSearchFilter.applied && (
+                <button
+                  type="button"
+                  onClick={() => { candSearchFilter.clear(); setCandSuggestions([]); setCandSuggestOpen(false); setCandPage(1); }}
+                  className="text-xs text-slate-500 hover:text-red-500 hover:underline"
+                >
+                  Clear
+                </button>
+              )}
             </div>
             <div className="w-48 shrink-0">
               <FormSelect

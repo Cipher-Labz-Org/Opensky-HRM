@@ -614,6 +614,8 @@ public class RecruitmentController : ControllerBase
         if (!string.Equals(offer.Status, "Approved", StringComparison.OrdinalIgnoreCase))
             return BadRequest(new { message = "Offer must be approved before it can be emailed to the candidate." });
 
+        var responseUrl = await _svc.EnsureOfferResponseUrlAsync(id);
+
         var pdfBytes = await emailService.SendOfferEmailAsync(
             offer.CandidateEmail,
             offer.CandidateName,
@@ -622,12 +624,52 @@ public class RecruitmentController : ControllerBase
             offer.Currency ?? "LKR",
             offer.JoiningDate,
             offer.Remarks,
-            offer.LetterHtml);
+            offer.LetterHtml,
+            responseUrl);
 
         if (pdfBytes != null)
             await _svc.SaveOfferLetterPdfAsync(id, pdfBytes);
 
-        return Ok(new { message = "Offer email sent successfully with PDF attachment.", emailConfigured = await emailService.IsConfiguredAsync() });
+        return Ok(new { message = "Offer email sent successfully with PDF attachment.", emailConfigured = await emailService.IsConfiguredAsync(), responseUrl });
+    }
+
+    [AllowAnonymous]
+    [HttpGet("public/offers/{token:guid}")]
+    public async Task<IActionResult> GetPublicOffer(Guid token)
+    {
+        try
+        {
+            var offer = await _svc.GetPublicOfferByTokenAsync(token);
+            return offer == null ? NotFound() : Ok(offer);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [AllowAnonymous]
+    [HttpPost("public/offers/{token:guid}/accept")]
+    public async Task<IActionResult> AcceptPublicOffer(Guid token)
+    {
+        try { return Ok(await _svc.AcceptOfferByTokenAsync(token)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [AllowAnonymous]
+    [HttpPost("public/offers/{token:guid}/reject")]
+    public async Task<IActionResult> RejectPublicOffer(Guid token, [FromBody] RejectOfferDto? dto)
+    {
+        try { return Ok(await _svc.RejectOfferByTokenAsync(token, dto?.Reason)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [AllowAnonymous]
+    [HttpPost("public/offers/{token:guid}/negotiate")]
+    public async Task<IActionResult> NegotiatePublicOffer(Guid token, [FromBody] PublicNegotiateOfferDto dto)
+    {
+        try { return Ok(await _svc.NegotiateOfferByTokenAsync(token, dto.Message)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     // ── Dashboard & Pipeline ─────────────────────────────────────

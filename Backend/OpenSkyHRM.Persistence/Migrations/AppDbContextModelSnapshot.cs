@@ -3770,6 +3770,18 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<string>("Remarks")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("NegotiationRequestedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("NegotiationMessage")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ResponseToken")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<decimal>("SalaryOffered")
                         .HasColumnType("numeric");
 
@@ -3792,6 +3804,10 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.HasIndex("JobTitleId");
 
                     b.HasIndex("PositionId");
+
+                    b.HasIndex("ResponseToken")
+                        .IsUnique()
+                        .HasFilter("\"ResponseToken\" IS NOT NULL");
 
                     b.ToTable("Offers");
                 });

@@ -5,6 +5,7 @@ using System.Net.Mail;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -60,6 +61,7 @@ public class EmailService : IEmailService
 
     public async Task<byte[]?> SendOfferEmailAsync(string toEmail, string candidateName, string positionTitle,
         decimal salary, string currency, DateTime? joiningDate, string? remarks, string? customLetterHtml = null,
+        string? offerResponseUrl = null,
         CancellationToken cancellationToken = default)
     {
         string letterHtml;
@@ -115,9 +117,17 @@ public class EmailService : IEmailService
         }
 
         byte[] pdfBytes;
+        string emailHtml;
         try
         {
-            pdfBytes = await _htmlToPdf.ConvertHtmlToPdfAsync(WrapOfferLetterHtmlForPdf(letterHtml), cancellationToken);
+            var actionsHtml = string.IsNullOrWhiteSpace(offerResponseUrl)
+                ? ""
+                : OfferLetterHelper.BuildOfferActionsHtml(offerResponseUrl);
+            var letterForEmail = OfferLetterHelper.InjectOfferActions(letterHtml, actionsHtml);
+            pdfBytes = await _htmlToPdf.ConvertHtmlToPdfAsync(WrapOfferLetterHtmlForPdf(letterForEmail), cancellationToken);
+            emailHtml = !string.IsNullOrWhiteSpace(customLetterHtml)
+                ? WrapOfferLetterHtmlForPdf(letterForEmail)
+                : BuildOfferEmailCoverHtml(candidateName, positionTitle, offerResponseUrl);
         }
         catch (Exception ex)
         {
@@ -125,7 +135,6 @@ public class EmailService : IEmailService
             throw new InvalidOperationException("Could not generate the offer letter PDF. Please try again.", ex);
         }
 
-        var coverHtml = BuildOfferEmailCoverHtml(candidateName, positionTitle);
         var attachmentName = BuildOfferPdfFileName(candidateName, positionTitle);
         var attachment = new EmailAttachment(attachmentName, "application/pdf", pdfBytes);
 
@@ -133,7 +142,7 @@ public class EmailService : IEmailService
             toEmail,
             candidateName,
             subject,
-            coverHtml,
+            emailHtml,
             CategoryRecruitmentOffer,
             new[] { attachment },
             cancellationToken);
@@ -380,6 +389,9 @@ public class EmailService : IEmailService
     {
         var apiUrl = _config["SendGrid:ApiUrl"] ?? "https://api.sendgrid.com/v3/mail/send";
         var fromName = _config["SendGrid:FromName"] ?? _config["Smtp:FromName"] ?? "OpenSky HRM";
+        var replyToEmail = _config["SendGrid:ReplyTo"]?.Trim();
+        if (string.IsNullOrWhiteSpace(replyToEmail))
+            replyToEmail = fromEmail;
 
         object[]? sendGridAttachments = null;
         if (attachments is { Count: > 0 })
@@ -395,6 +407,7 @@ public class EmailService : IEmailService
                 .ToArray();
         }
 
+        var plainText = HtmlToPlainText(htmlBody);
         var payload = new
         {
             Personalizations = new[]
@@ -402,9 +415,26 @@ public class EmailService : IEmailService
                 new { To = new[] { new { Email = toEmail, Name = toName } } },
             },
             From = new { Email = fromEmail, Name = fromName },
+            ReplyTo = new { Email = replyToEmail, Name = fromName },
             Subject = subject,
-            Content = new[] { new { Type = "text/html", Value = htmlBody } },
+            Content = new object[]
+            {
+                new { Type = "text/plain", Value = plainText },
+                new { Type = "text/html", Value = htmlBody },
+            },
             Attachments = sendGridAttachments,
+            Categories = new[] { category },
+            MailSettings = new
+            {
+                Footer = new { Enable = false },
+                SandboxMode = new { Enable = false },
+            },
+            TrackingSettings = new
+            {
+                ClickTracking = new { Enable = false, EnableText = false },
+                OpenTracking = new { Enable = false },
+                SubscriptionTracking = new { Enable = false },
+            },
         };
 
         var json = JsonSerializer.Serialize(payload, JsonOpts);
@@ -476,8 +506,9 @@ public class EmailService : IEmailService
         msg.From = new MailAddress(from, fromName);
         msg.To.Add(new MailAddress(toEmail, toDisplayName));
         msg.Subject = subject;
-        msg.Body = body;
         msg.IsBodyHtml = true;
+        msg.Body = body;
+        msg.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(HtmlToPlainText(body), null, "text/plain"));
 
         if (attachments is { Count: > 0 })
         {
@@ -508,6 +539,23 @@ public class EmailService : IEmailService
             _logger.LogWarning(ex, "SMTP send failed to {Recipient} via {Host}:{Port}", toEmail, host, portStr);
             throw;
         }
+    }
+
+    private static string HtmlToPlainText(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return string.Empty;
+
+        var text = html;
+        text = Regex.Replace(text, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</p>", "\n\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</div>", "\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<a[^>]+href=""([^""]+)""[^>]*>([^<]*)</a>", "$2 ($1)", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, "<[^>]+>", string.Empty);
+        text = WebUtility.HtmlDecode(text);
+        text = Regex.Replace(text, @"[ \t]+\n", "\n");
+        text = Regex.Replace(text, @"\n{3,}", "\n\n");
+        return text.Trim();
     }
 
     /// <summary>Human-readable SMTP failure for logs (OutboundEmailLogs.ErrorDetail is capped at 4000 chars).</summary>
@@ -726,17 +774,20 @@ public class EmailService : IEmailService
             """;
     }
 
-    private static string BuildOfferEmailCoverHtml(string candidateName, string positionTitle)
+    private static string BuildOfferEmailCoverHtml(string candidateName, string positionTitle, string? offerResponseUrl = null)
     {
         var safeName = WebUtility.HtmlEncode(candidateName);
         var safePos = WebUtility.HtmlEncode(positionTitle);
+        var actionsHtml = string.IsNullOrWhiteSpace(offerResponseUrl)
+            ? ""
+            : OfferLetterHelper.BuildOfferActionsHtml(offerResponseUrl);
         return $"""
             <!DOCTYPE html>
             <html>
             <head><meta charset="utf-8"></head>
             <body style="font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f6fa;">
               <div style="max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
-                <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 24px 32px; color: white;">
+                <div style="background: linear-gradient(90deg, #1a3a6e 0%, #1e4a8c 50%, #2e78e6 100%); padding: 24px 32px; color: white;">
                   <h1 style="margin: 0; font-size: 20px; font-weight: 600;">Offer of Employment</h1>
                   <p style="margin: 8px 0 0; opacity: 0.85; font-size: 14px;">OpenSky HRM</p>
                 </div>
@@ -745,9 +796,10 @@ public class EmailService : IEmailService
                   <p style="font-size: 15px; line-height: 1.6; margin: 0 0 16px;">
                     Please find attached your offer of employment for the position of <strong>{safePos}</strong> as a PDF document.
                   </p>
-                  <p style="font-size: 14px; line-height: 1.6; color: #555; margin: 0;">
-                    Open the attachment to review salary, joining date, and other details. Contact HR if you have any questions.
+                  <p style="font-size: 14px; line-height: 1.6; color: #555; margin: 0 0 16px;">
+                    Open the attachment to review salary, joining date, and other details. You can accept, negotiate, or decline using the buttons below.
                   </p>
+                  {actionsHtml}
                 </div>
                 <div style="background: #f5f6fa; padding: 16px 32px; text-align: center; font-size: 12px; color: #999;">
                   This is an automated email from OpenSky HRM.

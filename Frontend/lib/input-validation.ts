@@ -67,13 +67,13 @@ export function isValidNic(value: string, required = false): boolean {
   return NIC_PATTERN.test(trimmed);
 }
 
-export const DRIVING_LICENSE_PATTERN = /^[A-Za-z0-9]+$/;
+export const DRIVING_LICENSE_PATTERN = /^[A-Za-z0-9\s\-/]+$/;
 
 export const DRIVING_LICENSE_VALIDATION_MESSAGE =
-  "Can only contain letters and numbers";
+  "Can only contain letters, numbers, spaces, hyphens, and slashes";
 
 export function sanitizeDrivingLicenseInput(value: string): string {
-  return value.replace(/[^A-Za-z0-9]/g, "");
+  return value.replace(/[^A-Za-z0-9\s\-/]/g, "");
 }
 
 export function isValidDrivingLicense(value: string, required = false): boolean {
