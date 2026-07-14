@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { APP_NAME } from "@/config/constants";
+import { CompanyLogoDisplay } from "@/components/branding/CompanyLogoDisplay";
 import {
   fetchCompanyBranding,
   resolveCompanyLogoSrc,
@@ -39,12 +40,11 @@ export function RequisitionDocumentHeader({
     <header className={`${REQUISITION_GRADIENT_BAR_CLASS} ${className}`.trim()}>
       <div className="flex items-center gap-5 sm:gap-6">
         {logoSrc ? (
-          <img
+          <CompanyLogoDisplay
             src={logoSrc}
             alt={`${branding.companyName} logo`}
             className="h-16 w-auto max-w-[10.5rem] shrink-0 object-contain object-left sm:h-20 sm:max-w-[12.5rem]"
-            decoding="sync"
-            loading="eager"
+            pdfClassName="h-16 w-[10.5rem] shrink-0 border-0 bg-transparent sm:h-20 sm:w-[12.5rem]"
           />
         ) : null}
         <div className="min-w-0 flex-1">

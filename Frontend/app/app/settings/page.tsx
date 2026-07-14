@@ -3,18 +3,31 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
-import { Button } from "@/components/ui/Button";
+import { CompanyLogoDisplay } from "@/components/branding/CompanyLogoDisplay";
 import { PhoneInput, EmailInput, FlashMessageBanner, type FlashMessage } from "@/components/ui";
 import { isValidPhone, isValidEmailInput, isValidEmailFormat, PHONE_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
-import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal";
 import { apiFetch } from "@/lib/api";
 import { getSystemSetting } from "@/lib/system-settings";
+import {
+  clampLogoOffset,
+  clampLogoScale,
+  isAllowedCompanyLogoFile,
+  isPdfLogoUrl,
+  LOGO_OFFSET_MAX,
+  LOGO_OFFSET_MIN,
+  LOGO_SCALE_MAX,
+  LOGO_SCALE_MIN,
+  normalizeLogoDisplaySettings,
+  parseLogoDisplaySettings,
+  resolveCompanyLogoSrc,
+} from "@/lib/company-branding";
+import { normalizeCompanyLogoUpload, pdfUrlToPngFile } from "@/lib/render-pdf-logo";
 import { API_BASE_URL } from "@/config/constants";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
-import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
+import { formatInt } from "@/lib/workspace-charts";
 
 interface CountSummary {
   businessUnits: number;
@@ -30,7 +43,6 @@ interface CountSummary {
 export default function SettingsPage() {
   const { isAdmin } = useAuth();
   const searchParams = useSearchParams();
-  const [showCreate, setShowCreate] = useState(false);
   const [editBU, setEditBU] = useState(false);
   const [editGrades, setEditGrades] = useState(false);
   const [editJobs, setEditJobs] = useState(false);
@@ -53,6 +65,11 @@ export default function SettingsPage() {
   const [approvalConfigSaving, setApprovalConfigSaving] = useState(false);
 
   const [companyLogoUrl, setCompanyLogoUrl] = useState("");
+  const [logoLoginScale, setLogoLoginScale] = useState(100);
+  const [logoLoginOffsetX, setLogoLoginOffsetX] = useState(0);
+  const [logoLoginOffsetY, setLogoLoginOffsetY] = useState(0);
+  const [logoDisplaySaving, setLogoDisplaySaving] = useState(false);
+  const logoDragRef = useRef<{ startX: number; startY: number; startOffsetX: number; startOffsetY: number } | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoFlash, setLogoFlash] = useState<FlashMessage | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -94,6 +111,31 @@ export default function SettingsPage() {
     );
   }, [editBU, editGrades, editJobs, editLocations, editStatuses, editEmpStatuses, editSkills, editAttachmentTypes]);
 
+  async function persistLogoDisplaySettings(display: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  }) {
+    await Promise.all([
+      apiFetch("/api/system-settings/CompanyLogoLoginScale", {
+        method: "PUT",
+        body: JSON.stringify({ value: String(display.scale) }),
+      }),
+      apiFetch("/api/system-settings/CompanyLogoLoginOffsetX", {
+        method: "PUT",
+        body: JSON.stringify({ value: String(display.offsetX) }),
+      }),
+      apiFetch("/api/system-settings/CompanyLogoLoginOffsetY", {
+        method: "PUT",
+        body: JSON.stringify({ value: String(display.offsetY) }),
+      }),
+      apiFetch("/api/system-settings/CompanyLogoLoginFit", {
+        method: "PUT",
+        body: JSON.stringify({ value: "contain" }),
+      }),
+    ]);
+  }
+
   function applySystemSettings(settings: Record<string, string>) {
     const autoGen = getSystemSetting(settings, "EmployeeCodeAutoGenerate");
     if (autoGen !== undefined) setCodeAutoGen(autoGen !== "false");
@@ -102,6 +144,18 @@ export default function SettingsPage() {
     const prefix = getSystemSetting(settings, "EmployeeCodePrefix");
     if (prefix !== undefined) setCodePrefix(prefix);
     setCompanyLogoUrl(getSystemSetting(settings, "CompanyLogoUrl") ?? "");
+    const parsed = parseLogoDisplaySettings({
+      CompanyLogoLoginScale: getSystemSetting(settings, "CompanyLogoLoginScale"),
+      CompanyLogoLoginOffsetX: getSystemSetting(settings, "CompanyLogoLoginOffsetX"),
+      CompanyLogoLoginOffsetY: getSystemSetting(settings, "CompanyLogoLoginOffsetY"),
+    });
+    const { settings: logoDisplay, repaired } = normalizeLogoDisplaySettings(parsed);
+    setLogoLoginScale(logoDisplay.scale);
+    setLogoLoginOffsetX(logoDisplay.offsetX);
+    setLogoLoginOffsetY(logoDisplay.offsetY);
+    if (repaired && getSystemSetting(settings, "CompanyLogoUrl")) {
+      void persistLogoDisplaySettings(logoDisplay);
+    }
     setCompanyName(getSystemSetting(settings, "CompanyName") ?? "");
     setCompanyAddress1(getSystemSetting(settings, "CompanyAddress1") ?? "");
     setCompanyAddress2(getSystemSetting(settings, "CompanyAddress2") ?? "");
@@ -121,39 +175,130 @@ export default function SettingsPage() {
       .catch(() => {});
   }, []);
 
+  async function uploadLogoFile(file: File, successMessage: string) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    const res = await fetch(`${API_BASE_URL}/api/system-settings/company-logo`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Upload failed" }));
+      throw new Error(err.error || "Upload failed");
+    }
+    const data = await res.json();
+    setCompanyLogoUrl(data.logoUrl);
+    setLogoLoginScale(100);
+    setLogoLoginOffsetX(0);
+    setLogoLoginOffsetY(0);
+    await persistLogoDisplaySettings({ scale: 100, offsetX: 0, offsetY: 0 }).catch(() => {});
+    setLogoFlash({ type: "ok", text: successMessage });
+  }
+
   async function handleLogoUpload(file: File) {
+    if (!isAllowedCompanyLogoFile(file)) {
+      setLogoFlash({ type: "err", text: "Use PNG, JPEG, WebP, GIF, SVG, or PDF." });
+      return;
+    }
     setLogoUploading(true);
     setLogoFlash(null);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-      const res = await fetch(`${API_BASE_URL}/api/system-settings/company-logo`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Upload failed" }));
-        throw new Error(err.error || "Upload failed");
-      }
-      const data = await res.json();
-      setCompanyLogoUrl(data.logoUrl);
-      setLogoFlash({ type: "ok", text: "Logo uploaded successfully" });
+      const wasPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      const uploadFile = await normalizeCompanyLogoUpload(file);
+      await uploadLogoFile(
+        uploadFile,
+        wasPdf
+          ? "PDF converted to image and uploaded — logo is ready for the sign-in circle"
+          : "Logo uploaded successfully",
+      );
     } catch (e: unknown) {
-      setLogoFlash({ type: "err", text: e instanceof Error ? e.message : "Upload failed" });
+      setLogoFlash({
+        type: "err",
+        text: e instanceof Error ? e.message : "Upload failed",
+      });
     } finally {
       setLogoUploading(false);
     }
   }
 
+  /** Convert an existing PDF logo to PNG once so the circle works reliably. */
+  useEffect(() => {
+    if (!companyLogoUrl || !isPdfLogoUrl(companyLogoUrl)) return;
+    let cancelled = false;
+    (async () => {
+      setLogoUploading(true);
+      setLogoFlash({ type: "ok", text: "Converting PDF logo to image for the sign-in circle…" });
+      try {
+        const png = await pdfUrlToPngFile(
+          resolveCompanyLogoSrc(companyLogoUrl) ?? companyLogoUrl,
+          "company_logo.png",
+        );
+        if (cancelled) return;
+        await uploadLogoFile(png, "PDF logo converted to image — sign-in circle is fixed");
+      } catch {
+        if (!cancelled) {
+          setLogoFlash({
+            type: "err",
+            text: "Could not convert PDF logo. Click Replace and upload a PNG/JPG instead.",
+          });
+        }
+      } finally {
+        if (!cancelled) setLogoUploading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyLogoUrl]);
+
   async function handleLogoRemove() {
     try {
       await apiFetch("/api/system-settings/company-logo", { method: "DELETE" });
       setCompanyLogoUrl("");
+      setLogoLoginScale(100);
+      setLogoLoginOffsetX(0);
+      setLogoLoginOffsetY(0);
       setLogoFlash({ type: "ok", text: "Logo removed successfully" });
     } catch {
       setLogoFlash({ type: "err", text: "Failed to remove logo" });
+    }
+  }
+
+  async function saveLogoDisplaySettings() {
+    setLogoDisplaySaving(true);
+    setLogoFlash(null);
+    const display = {
+      scale: clampLogoScale(logoLoginScale),
+      offsetX: logoLoginOffsetX,
+      offsetY: logoLoginOffsetY,
+    };
+    setLogoLoginScale(display.scale);
+    try {
+      await persistLogoDisplaySettings(display);
+      setLogoFlash({ type: "ok", text: "Login logo display saved" });
+    } catch {
+      setLogoFlash({ type: "err", text: "Failed to save logo display settings" });
+    } finally {
+      setLogoDisplaySaving(false);
+    }
+  }
+
+  async function resetLogoDisplaySettings() {
+    setLogoLoginScale(100);
+    setLogoLoginOffsetX(0);
+    setLogoLoginOffsetY(0);
+    setLogoDisplaySaving(true);
+    setLogoFlash(null);
+    try {
+      await persistLogoDisplaySettings({ scale: 100, offsetX: 0, offsetY: 0 });
+      setLogoFlash({ type: "ok", text: "Logo display reset to center" });
+    } catch {
+      setLogoFlash({ type: "err", text: "Failed to reset logo display" });
+    } finally {
+      setLogoDisplaySaving(false);
     }
   }
 
@@ -278,58 +423,9 @@ export default function SettingsPage() {
     [totalMasterRecords, approvalLevels, codeAutoGen]
   );
 
-  const masterDataDistributionBars = useMemo(() => {
-    const colors = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#64748b", "#eab308"];
-    const rows = [
-      { label: "Business units", value: counts.businessUnits },
-      { label: "Grades", value: counts.grades },
-      { label: "Job titles", value: counts.jobTitles },
-      { label: "Locations", value: counts.locations },
-      { label: "Employment types", value: counts.statuses },
-      { label: "Employee statuses", value: counts.empStatuses },
-      { label: "Skills", value: counts.skills },
-      { label: "Attachment types", value: counts.attachmentTypes },
-    ].sort((a, b) => b.value - a.value);
-    return rows.map((r, i) => ({ ...r, color: colors[i % colors.length] }));
-  }, [counts]);
-
-  const masterDataDonut = useMemo(() => {
-    const palette = ["#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6"];
-    return [
-      { label: "Business units", value: counts.businessUnits },
-      { label: "Grades", value: counts.grades },
-      { label: "Job titles", value: counts.jobTitles },
-      { label: "Locations", value: counts.locations },
-      { label: "Employment types", value: counts.statuses },
-      { label: "Employee statuses", value: counts.empStatuses },
-      { label: "Skills", value: counts.skills },
-      { label: "Attachments", value: counts.attachmentTypes },
-    ]
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 6)
-      .map((c, i) => ({
-        label: c.label.length > 20 ? `${c.label.slice(0, 18)}…` : c.label,
-        value: c.value,
-        color: palette[i % palette.length],
-      }));
-  }, [counts]);
-
   return (
     <>
       <AppTopbar title="Policy, Security & Configuration" />
-
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Security roles</p>
-        </div>
-        <Button onClick={() => setShowCreate(true)}>+ New Security Role</Button>
-      </div>
-
-      <CreateRoleModal
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-        onCreated={() => window.location.reload()}
-      />
 
       {isAdmin && (
         <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -357,25 +453,6 @@ export default function SettingsPage() {
             <div className="mt-2 text-2xl font-semibold leading-tight text-slate-900">{kpi.value}</div>
           </div>
         ))}
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Master data footprint</h3>
-          </div>
-          <HorizontalCompareBars items={masterDataDistributionBars} />
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Catalog mix</h3>
-          </div>
-          {masterDataDonut.some((d) => d.value > 0) ? (
-            <DonutMixChart values={masterDataDonut} />
-          ) : (
-            <p className="py-10 text-center text-sm text-slate-500">Add master data rows to see a distribution chart.</p>
-          )}
-        </div>
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -476,58 +553,230 @@ export default function SettingsPage() {
         <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="text-base font-semibold text-slate-900">Company logo</h3>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              Upload your logo and adjust how it appears in the sign-in circle.
+            </p>
           </div>
         </div>
 
         <FlashMessageBanner msg={logoFlash} onClear={() => setLogoFlash(null)} className="mt-4" />
 
-        <div className="mt-6 flex max-w-[280px] flex-col items-stretch gap-4">
-          <div className="flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white/80 px-6 py-10 shadow-inner">
-            {companyLogoUrl ? (
-              <img
-                src={`${API_BASE_URL}${companyLogoUrl}`}
-                alt="Company logo preview"
-                className="max-h-36 max-w-full object-contain"
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-3 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/10 to-rose-500/10 text-slate-400">
-                  <svg className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth={1.25} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-                  </svg>
-                </div>
-                <p className="text-sm font-medium text-slate-600">No logo yet</p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
+          <div className="flex flex-col gap-4">
+            <div className="overflow-hidden rounded-2xl bg-gradient-to-b from-[#5ba4e5] to-[#3a86ca] px-6 py-8 text-center shadow-inner">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-white/80">Sign-in preview</p>
+              <p className="mb-4 text-[11px] text-white/70">Drag to move · scroll to zoom</p>
+              <div
+                className="mx-auto h-[104px] w-[104px] cursor-grab touch-none overflow-hidden rounded-full bg-white shadow-[0_12px_32px_rgba(15,76,120,0.25)] ring-2 ring-white/70 active:cursor-grabbing"
+                onPointerDown={(e) => {
+                  if (!companyLogoUrl) return;
+                  logoDragRef.current = {
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    startOffsetX: logoLoginOffsetX,
+                    startOffsetY: logoLoginOffsetY,
+                  };
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                  if (!logoDragRef.current) return;
+                  const dx = e.clientX - logoDragRef.current.startX;
+                  const dy = e.clientY - logoDragRef.current.startY;
+                  setLogoLoginOffsetX(clampLogoOffset(logoDragRef.current.startOffsetX + dx));
+                  setLogoLoginOffsetY(clampLogoOffset(logoDragRef.current.startOffsetY + dy));
+                }}
+                onPointerUp={() => {
+                  logoDragRef.current = null;
+                }}
+                onPointerCancel={() => {
+                  logoDragRef.current = null;
+                }}
+                onWheel={(e) => {
+                  if (!companyLogoUrl) return;
+                  e.preventDefault();
+                  setLogoLoginScale((s) => clampLogoScale(s + (e.deltaY > 0 ? -5 : 5)));
+                }}
+              >
+                {companyLogoUrl ? (
+                  <CompanyLogoDisplay
+                    src={resolveCompanyLogoSrc(companyLogoUrl)}
+                    alt="Login logo preview"
+                    fit="circle"
+                    scale={logoLoginScale}
+                    offsetX={logoLoginOffsetX}
+                    offsetY={logoLoginOffsetY}
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center rounded-full bg-slate-100 text-xs text-slate-400">
+                    No logo
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+
+            <div className="flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white/80 px-6 py-8 shadow-inner">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Document preview</p>
+              {companyLogoUrl ? (
+                <div className="flex h-28 w-full max-w-full items-center justify-center overflow-hidden">
+                  <CompanyLogoDisplay
+                    src={resolveCompanyLogoSrc(companyLogoUrl)}
+                    alt="Company logo preview"
+                    className="max-h-28 max-w-full object-contain"
+                    pdfClassName="h-36 w-full min-w-[10rem] border-0 bg-white"
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/10 to-rose-500/10 text-slate-400">
+                    <svg className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth={1.25} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-medium text-slate-600">No logo yet</p>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="flex w-full flex-col items-stretch gap-2">
-            <input
-              ref={logoInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files?.[0]) handleLogoUpload(e.target.files[0]);
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => logoInputRef.current?.click()}
-              disabled={logoUploading}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-[#2B7DE9] hover:text-[#2B7DE9] disabled:opacity-60"
-            >
-              {logoUploading ? "Uploading…" : companyLogoUrl ? "Replace logo" : "Upload logo"}
-            </button>
+          <div className="flex flex-col gap-5">
             {companyLogoUrl ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-slate-900">Edit sign-in display</h4>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  Wide logos are auto-centered in a square for the circle. Drag the preview, scroll to zoom, then save.
+                </p>
+
+                <div className="mt-5 space-y-5">
+                  <div>
+                    <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-600">
+                      <label htmlFor="logo-login-scale">Zoom</label>
+                      <input
+                        id="logo-login-scale-num"
+                        type="number"
+                        min={LOGO_SCALE_MIN}
+                        max={LOGO_SCALE_MAX}
+                        value={logoLoginScale}
+                        onChange={(e) =>
+                          setLogoLoginScale(clampLogoScale(Number(e.target.value) || LOGO_SCALE_MIN))
+                        }
+                        className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-right text-xs"
+                      />
+                    </div>
+                    <input
+                      id="logo-login-scale"
+                      type="range"
+                      min={LOGO_SCALE_MIN}
+                      max={LOGO_SCALE_MAX}
+                      step={1}
+                      value={logoLoginScale}
+                      onChange={(e) => setLogoLoginScale(clampLogoScale(Number(e.target.value)))}
+                      className="w-full accent-[#2B7DE9]"
+                    />
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-600">
+                        <label htmlFor="logo-login-offset-x">Horizontal (px)</label>
+                        <input
+                          type="number"
+                          min={LOGO_OFFSET_MIN}
+                          max={LOGO_OFFSET_MAX}
+                          value={logoLoginOffsetX}
+                          onChange={(e) => setLogoLoginOffsetX(clampLogoOffset(Number(e.target.value) || 0))}
+                          className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-right text-xs"
+                        />
+                      </div>
+                      <input
+                        id="logo-login-offset-x"
+                        type="range"
+                        min={LOGO_OFFSET_MIN}
+                        max={LOGO_OFFSET_MAX}
+                        step={1}
+                        value={logoLoginOffsetX}
+                        onChange={(e) => setLogoLoginOffsetX(Number(e.target.value))}
+                        className="w-full accent-[#2B7DE9]"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-600">
+                        <label htmlFor="logo-login-offset-y">Vertical (px)</label>
+                        <input
+                          type="number"
+                          min={LOGO_OFFSET_MIN}
+                          max={LOGO_OFFSET_MAX}
+                          value={logoLoginOffsetY}
+                          onChange={(e) => setLogoLoginOffsetY(clampLogoOffset(Number(e.target.value) || 0))}
+                          className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-right text-xs"
+                        />
+                      </div>
+                      <input
+                        id="logo-login-offset-y"
+                        type="range"
+                        min={LOGO_OFFSET_MIN}
+                        max={LOGO_OFFSET_MAX}
+                        step={1}
+                        value={logoLoginOffsetY}
+                        onChange={(e) => setLogoLoginOffsetY(Number(e.target.value))}
+                        className="w-full accent-[#2B7DE9]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={saveLogoDisplaySettings}
+                      disabled={logoDisplaySaving}
+                      className="rounded-xl bg-[#2B7DE9] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2569c7] disabled:opacity-60"
+                    >
+                      {logoDisplaySaving ? "Saving…" : "Save display"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetLogoDisplaySettings}
+                      disabled={logoDisplaySaving}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 disabled:opacity-60"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-2 sm:max-w-xs">
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,application/pdf,.pdf"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.[0]) handleLogoUpload(e.target.files[0]);
+                }}
+              />
               <button
                 type="button"
-                onClick={handleLogoRemove}
-                className="w-full rounded-xl border border-red-100 bg-red-50/80 px-4 py-3 text-sm font-semibold text-red-600 transition hover:border-red-200 hover:bg-red-50"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoUploading}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-[#2B7DE9] hover:text-[#2B7DE9] disabled:opacity-60"
               >
-                Remove logo
+                {logoUploading ? "Uploading…" : companyLogoUrl ? (isPdfLogoUrl(companyLogoUrl) ? "Replace PDF logo" : "Replace logo") : "Upload logo"}
               </button>
-            ) : null}
+              {companyLogoUrl ? (
+                <button
+                  type="button"
+                  onClick={handleLogoRemove}
+                  className="w-full rounded-xl border border-red-100 bg-red-50/80 px-4 py-3 text-sm font-semibold text-red-600 transition hover:border-red-200 hover:bg-red-50"
+                >
+                  Remove logo
+                </button>
+              ) : null}
+              <p className="text-xs text-[var(--text-muted)]">
+                PDF uploads are converted to PNG automatically so the sign-in circle displays correctly.
+              </p>
+            </div>
           </div>
         </div>
       </div>

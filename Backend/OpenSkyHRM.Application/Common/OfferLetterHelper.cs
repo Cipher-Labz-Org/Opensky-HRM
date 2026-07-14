@@ -16,7 +16,7 @@ public static partial class OfferLetterHelper
         var encodedName = WebUtility.HtmlEncode(resolvedCompanyName);
 
         var logoHtml = "";
-        if (!string.IsNullOrWhiteSpace(logoUrl))
+        if (!string.IsNullOrWhiteSpace(logoUrl) && !logoUrl.TrimEnd().EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
         {
             var encodedUrl = WebUtility.HtmlEncode(logoUrl);
             var alt = WebUtility.HtmlEncode($"{resolvedCompanyName} logo");

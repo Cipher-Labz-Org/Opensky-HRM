@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
@@ -59,9 +59,13 @@ OpenSky HRM`;
 
 /** Strip tags for easy editing while keeping line breaks and {{placeholders}}. */
 function htmlToEditableText(html: string): string {
-  const raw = html.trim();
+  let raw = html.trim();
   if (!raw) return "";
   if (!/<[a-z][\s\S]*>/i.test(raw)) return raw;
+
+  raw = raw
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "");
 
   let text = raw
     .replace(/\r\n/g, "\n")

@@ -3,14 +3,19 @@
 import { useState, useEffect, useRef, type FormEvent, type CSSProperties } from "react";
 import React from "react";
 import Link from "next/link";
+import { CompanyLogoDisplay } from "@/components/branding/CompanyLogoDisplay";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { useAuth } from "../../contexts/auth-context";
-import { getAssetBaseUrl, resolveAuthApiPath } from "../../config/constants";
+import { resolveAuthApiPath } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
+import { resolveCompanyLogoSrc, parseLogoDisplaySettings } from "@/lib/company-branding";
 
 type Branding = {
   companyName: string;
   companyLogoUrl: string | null;
+  loginLogoScale: number;
+  loginLogoOffsetX: number;
+  loginLogoOffsetY: number;
 };
 
 const LOGIN_MOTIVATION_SLIDES: readonly { headline: string; sub: string }[] = [
@@ -69,13 +74,11 @@ export function LoginLandingExperience() {
   const [branding, setBranding] = useState<Branding>({
     companyName: "",
     companyLogoUrl: null,
+    loginLogoScale: 100,
+    loginLogoOffsetX: 0,
+    loginLogoOffsetY: 0,
   });
-  const rawLogo = branding.companyLogoUrl?.trim() ?? "";
-  const companyLogoSrc = rawLogo
-    ? /^https?:\/\//i.test(rawLogo)
-      ? rawLogo
-      : `${getAssetBaseUrl()}${rawLogo}`
-    : null;
+  const companyLogoSrc = resolveCompanyLogoSrc(branding.companyLogoUrl);
 
   useEffect(() => {
     setMounted(true);
@@ -93,11 +96,22 @@ export function LoginLandingExperience() {
         if (!res.ok) return null;
         return res.json();
       })
-      .then((data: { companyName?: string; companyLogoUrl?: string } | null) => {
+      .then((data: {
+        companyName?: string;
+        companyLogoUrl?: string;
+        loginLogoScale?: number;
+        loginLogoOffsetX?: number;
+        loginLogoOffsetY?: number;
+        loginLogoFit?: string;
+      } | null) => {
         if (!isMounted || !data) return;
+        const display = parseLogoDisplaySettings(data);
         setBranding({
           companyName: (data.companyName ?? "").trim(),
           companyLogoUrl: data.companyLogoUrl?.trim() ? data.companyLogoUrl : null,
+          loginLogoScale: display.scale,
+          loginLogoOffsetX: display.offsetX,
+          loginLogoOffsetY: display.offsetY,
         });
       })
       .catch(() => {});
@@ -320,11 +334,15 @@ export function LoginLandingExperience() {
 
             <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-8 py-11 text-center sm:px-10 sm:py-14 md:min-h-[min(520px,88vh)] md:py-16">
               <div className="mb-7 flex shrink-0 justify-center sm:mb-8">
-                <div className="flex h-[98px] w-[98px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/95 p-3 shadow-[0_12px_32px_rgba(15,76,120,0.25)] ring-2 ring-white/70 sm:h-[108px] sm:w-[108px]">
-                  <img
-                    src={companyLogoSrc || "/brand-logo.svg"}
-                    alt={branding.companyName || "OpenSky HRM"}
-                    className="max-h-full max-w-full object-contain"
+                <div className="flex h-[104px] w-[104px] shrink-0 overflow-hidden rounded-full bg-white shadow-[0_12px_32px_rgba(15,76,120,0.25)] ring-2 ring-white/70 sm:h-[116px] sm:w-[116px]">
+                  <CompanyLogoDisplay
+                      src={companyLogoSrc}
+                      alt={branding.companyName || "OpenSky HRM"}
+                      fit="circle"
+                      scale={branding.loginLogoScale}
+                      offsetX={branding.loginLogoOffsetX}
+                      offsetY={branding.loginLogoOffsetY}
+                      fallbackSrc="/brand-logo.svg"
                   />
                 </div>
               </div>

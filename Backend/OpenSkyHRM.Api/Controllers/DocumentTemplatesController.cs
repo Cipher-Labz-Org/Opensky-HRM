@@ -29,6 +29,7 @@ public class DocumentTemplatesController : ControllerBase
     {
         await TransactionalEmailTemplateSeeder.EnsureAsync(_db);
         await DocumentTemplateSeeder.EnsureLetterPackAsync(_db);
+        await DocumentTemplateSeeder.RefreshLetterPackHtmlAsync(_db);
         var templates = await _db.DocumentTemplates
             .OrderBy(t => t.Name)
             .Select(t => new TemplateListDto(t.Id, t.Name, t.TemplateKey, t.IsActive))
