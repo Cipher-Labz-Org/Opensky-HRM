@@ -33,6 +33,7 @@ export function HelpTopicPage({ slug }: { slug: string }) {
 
   const doc = HELP_CONTENT_BY_SLUG[slug];
   const openLabel = topic.title.replace(/&/g, "and");
+  const showModuleLink = slug !== "people-audit-trail";
 
   return (
     <div>
@@ -43,7 +44,11 @@ export function HelpTopicPage({ slug }: { slug: string }) {
           {slug === "people" ? (
             <PeopleHubHelpContent openModuleHref={topic.moduleHref} openModuleLabel={openLabel} />
           ) : doc ? (
-            <ModuleHelpContent doc={doc} openModuleHref={topic.moduleHref} openModuleLabel={openLabel} />
+            <ModuleHelpContent
+              doc={doc}
+              openModuleHref={showModuleLink ? topic.moduleHref : undefined}
+              openModuleLabel={showModuleLink ? openLabel : undefined}
+            />
           ) : (
             <div className="rounded-2xl border border-slate-200/90 bg-white px-5 py-4 text-sm text-slate-600 shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
               <p>Documentation for this module is coming soon.</p>

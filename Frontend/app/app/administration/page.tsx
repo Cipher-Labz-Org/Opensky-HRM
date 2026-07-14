@@ -107,7 +107,7 @@ export default function AdministrationPage() {
     <>
       <AppTopbar
         title="Administration"
-        subtitle="Bulk Excel import for people data, leave balances, and direct deposit (bank accounts). Download a template before you upload."
+        subtitle="Bulk Excel import for people data, leave balances, and bank details. Download a template before you upload."
       />
 
       <div className="space-y-6">
@@ -203,7 +203,7 @@ export default function AdministrationPage() {
                 : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
             }`}
           >
-            Direct deposit import
+            Bank details import
           </button>
         </div>
 
@@ -560,8 +560,8 @@ function LeaveBalanceUploadSection() {
             <h4 className="mb-2 text-sm font-semibold text-slate-800">How to import leave balances</h4>
             <ol className="list-inside list-decimal space-y-1 text-xs text-slate-600">
               <li>Click <strong>Download template</strong> to get the Excel file with pre-formatted columns.</li>
-              <li>The template includes an <strong>Employees</strong> sheet with all employee codes and a <strong>LeaveTypes</strong> sheet with valid leave types.</li>
-              <li>Fill in: <strong>Employee Code, Leave Type, Year, Entitled</strong> (required). Used and Carried Forward default to 0.</li>
+              <li>Fill the <strong>LeaveBalances</strong> sheet: <strong>Employee Code, Leave Type, Year, Entitled</strong> (required). Used and Carried Forward default to 0.</li>
+              <li>Use exact employee codes and leave type names as they appear in the system.</li>
               <li>If a balance already exists for the same employee + leave type + year, it will be <strong>updated</strong>.</li>
               <li>Upload the completed file below.</li>
             </ol>
@@ -653,7 +653,7 @@ function LeaveBalanceUploadSection() {
   );
 }
 
-// ──── Direct deposit (payroll bulk) upload ────
+// ──── Bank details (payroll bulk) upload ────
 
 function PayrollUploadSection() {
   const [file, setFile] = useState<File | null>(null);
@@ -692,7 +692,7 @@ function PayrollUploadSection() {
     if (!result) return;
     const rows = result.directDeposits.errors.map((e) => [String(e.row), e.employeeCode ?? "", e.message]);
     if (rows.length === 0) return;
-    downloadCsv("direct-deposit-import-errors.csv", ["Row", "Employee Code", "Message"], rows);
+    downloadCsv("bank-details-import-errors.csv", ["Row", "Employee Code", "Message"], rows);
   }
 
   const totalCreated = result ? result.directDeposits.created : 0;
@@ -710,7 +710,7 @@ function PayrollUploadSection() {
               </svg>
             </div>
             <div>
-              <h2 className="text-base font-semibold text-slate-800">Direct deposit bulk import</h2>
+              <h2 className="text-base font-semibold text-slate-800">Bank details bulk import</h2>
               <p className="text-xs text-slate-500">Bank accounts / splits on the employee profile — keyed by employee code (same columns as People → bank accounts)</p>
             </div>
           </div>
@@ -719,7 +719,7 @@ function PayrollUploadSection() {
             className="gap-2"
             onClick={async () => {
               try {
-                await downloadTemplate("/api/bulkupload/payroll-template", "DirectDepositImportTemplate.xlsx");
+                await downloadTemplate("/api/bulkupload/payroll-template", "BankDetailsImportTemplate.xlsx");
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Template download failed");
               }
@@ -733,7 +733,7 @@ function PayrollUploadSection() {
         </div>
         <div className="p-6">
           <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-            <h4 className="mb-2 text-sm font-semibold text-slate-800">How to import direct deposits</h4>
+            <h4 className="mb-2 text-sm font-semibold text-slate-800">How to import bank details</h4>
             <ol className="list-inside list-decimal space-y-1 text-xs text-slate-600">
               <li>
                 The file contains one sheet, <strong>DirectDeposits</strong>, with the same header style as the employee import template (navy row, white text).
@@ -763,7 +763,7 @@ function PayrollUploadSection() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-slate-800">Import results</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Created, skipped, and row-level errors for DirectDeposits</p>
+                <p className="mt-0.5 text-xs text-slate-500">Created, skipped, and row-level errors for bank details</p>
               </div>
               {totalErrors > 0 && (
                 <Button variant="secondary" className="gap-2" onClick={downloadErrorRows}>
@@ -791,7 +791,7 @@ function PayrollUploadSection() {
               </div>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-              <h3 className="text-sm font-semibold text-slate-800">DirectDeposits sheet</h3>
+              <h3 className="text-sm font-semibold text-slate-800">Bank details sheet</h3>
               <p className="mt-2 text-xs text-slate-600">
                 Created <strong className="text-emerald-700">{result.directDeposits.created}</strong> · Skipped{" "}
                 <strong className="text-rose-700">{result.directDeposits.skipped}</strong> · Errors{" "}

@@ -82,6 +82,38 @@ export function isValidDrivingLicense(value: string, required = false): boolean 
   return DRIVING_LICENSE_PATTERN.test(trimmed);
 }
 
+/** Department names: letters, digits, spaces, and limited punctuation (& - . ' / ()). */
+export const DEPARTMENT_NAME_PATTERN = /^[A-Za-z0-9\s'&./()-]+$/;
+
+export const DEPARTMENT_NAME_VALIDATION_MESSAGE =
+  "Use letters, numbers, spaces, and & - . ' / ( ) only";
+
+export function sanitizeDepartmentName(value: string): string {
+  return value.replace(/[^A-Za-z0-9\s'&./()-]/g, "").slice(0, 150);
+}
+
+export function isValidDepartmentName(value: string, required = true): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return !required;
+  return DEPARTMENT_NAME_PATTERN.test(trimmed);
+}
+
+/** Org codes (department, etc.): letters, digits, hyphen, underscore, ampersand. */
+export const ORG_CODE_PATTERN = /^[A-Za-z0-9_&-]+$/;
+
+export const ORG_CODE_VALIDATION_MESSAGE =
+  "Use letters, numbers, hyphen, underscore, and & only";
+
+export function sanitizeOrgCode(value: string, maxLength = 20): string {
+  return value.replace(/[^A-Za-z0-9_&-]/g, "").slice(0, maxLength);
+}
+
+export function isValidOrgCode(value: string, required = true): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return !required;
+  return ORG_CODE_PATTERN.test(trimmed);
+}
+
 /** Passport / visa document numbers: letters, digits, hyphens and spaces. */
 export const PASSPORT_NUMBER_PATTERN = /^[A-Za-z0-9\-\s]+$/;
 

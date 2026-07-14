@@ -11,12 +11,6 @@ import { ROUTES } from "@/config/routes";
 import { sanitizeSearchInput } from "@/lib/input-validation";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 
-interface PeopleAuditChange {
-  field: string;
-  previous: string | null;
-  current: string | null;
-}
-
 interface PeopleAuditEntry {
   id: string;
   entityName: string;
@@ -27,9 +21,6 @@ interface PeopleAuditEntry {
   userId: string | null;
   userName: string | null;
   timestamp: string;
-  oldValues: string | null;
-  newValues: string | null;
-  changes: PeopleAuditChange[] | null;
 }
 
 interface PagedAudit {
@@ -42,15 +33,6 @@ interface PagedAudit {
   hasPreviousPage?: boolean;
 }
 
-function formatJson(s: string | null): string {
-  if (!s?.trim()) return "—";
-  try {
-    return JSON.stringify(JSON.parse(s), null, 2);
-  } catch {
-    return s;
-  }
-}
-
 export default function PeopleAuditTrailPage() {
   const { hasPermission, isAdmin } = useAuth();
   const canView = isAdmin || hasPermission("People", "Read");
@@ -60,7 +42,6 @@ export default function PeopleAuditTrailPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const employeeFilter = useApplyFilter();
-  const [expanded, setExpanded] = useState<string | null>(null);
 
   const pageSize = 25;
 
@@ -142,6 +123,16 @@ export default function PeopleAuditTrailPage() {
         >
           Apply
         </button>
+        <button
+          type="button"
+          className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"
+          onClick={() => {
+            employeeFilter.clear();
+            setPage(1);
+          }}
+        >
+          Cancel
+        </button>
         <Link
           href={ROUTES.people}
           className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700"
@@ -156,16 +147,6 @@ export default function PeopleAuditTrailPage() {
           <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800">
             {employeeFilter.applied}
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              employeeFilter.clear();
-              setPage(1);
-            }}
-            className="text-[11px] font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
-          >
-            Clear filter
-          </button>
         </div>
       )}
 
@@ -182,21 +163,27 @@ export default function PeopleAuditTrailPage() {
       ) : (
         <>
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-            <table className="hris-table text-[13px]">
+            <table className="hris-table w-full table-fixed text-[13px]">
+              <colgroup>
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "20%" }} />
+              </colgroup>
               <thead>
                 <tr>
-                  <th>When (office)</th>
+                  <th className="!pl-6">When (office)</th>
                   <th>Action</th>
                   <th>Entity</th>
-                  <th>Employee</th>
-                  <th>By</th>
-                  <th />
+                  <th className="!pr-16">Employee</th>
+                  <th className="!pl-10">By</th>
                 </tr>
               </thead>
               <tbody>
                 {data.items.map((row) => (
                   <tr key={row.id}>
-                    <td className="whitespace-nowrap text-slate-600">
+                    <td className="!pl-6 text-slate-600">
                       {formatDateTime(row.timestamp)}
                     </td>
                     <td>
@@ -212,11 +199,11 @@ export default function PeopleAuditTrailPage() {
                         {row.action}
                       </span>
                     </td>
-                    <td>
+                    <td className="truncate">
                       <span className="font-medium text-slate-800">{row.entityName}</span>
                       <span className="ml-1 text-[11px] text-slate-400">{row.entityId.slice(0, 8)}…</span>
                     </td>
-                    <td className="text-[12px] text-slate-700">
+                    <td className="truncate !pr-16 text-[12px] text-slate-700">
                       {row.subjectEmployeeId ? (
                         <Link className="text-blue-600 hover:underline" href={`/app/people/${row.subjectEmployeeId}`}>
                           {row.subjectEmployeeLabel ?? `${row.subjectEmployeeId.slice(0, 8)}…`}
@@ -225,77 +212,12 @@ export default function PeopleAuditTrailPage() {
                         "—"
                       )}
                     </td>
-                    <td className="text-slate-600">{row.userName ?? row.userId ?? "—"}</td>
-                    <td className="text-right">
-                      <button
-                        type="button"
-                        className="text-[12px] font-medium text-blue-600 hover:underline"
-                        onClick={() => setExpanded((id) => (id === row.id ? null : row.id))}
-                      >
-                        {expanded === row.id ? "Hide" : "Details"}
-                      </button>
-                    </td>
+                    <td className="truncate !pl-10 text-slate-600">{row.userName ?? row.userId ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-
-          {expanded && (
-            <div className="mt-4 md:col-span-2">
-              {data.items
-                .filter((r) => r.id === expanded)
-                .map((row) => (
-                  <div key={`d-${row.id}`} className="space-y-4">
-                    {row.changes && row.changes.length > 0 ? (
-                      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-                        <table className="hris-table text-[12px]">
-                          <thead>
-                            <tr>
-                              <th>Field</th>
-                              <th>Previous</th>
-                              <th>Current</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {row.changes.map((c, idx) => (
-                              <tr key={`${row.id}-${idx}`}>
-                                <td className="whitespace-nowrap font-medium text-slate-800">{c.field}</td>
-                                <td className="max-w-[min(40vw,22rem)] whitespace-pre-wrap text-slate-600">
-                                  {c.previous ?? "—"}
-                                </td>
-                                <td className="max-w-[min(40vw,22rem)] whitespace-pre-wrap text-slate-800">
-                                  {c.current ?? "—"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-500">No parsed change rows (legacy audit entry).</p>
-                    )}
-                    {(row.oldValues || row.newValues) && (
-                      <details className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
-                        <summary className="cursor-pointer font-medium text-slate-700">Raw JSON (technical)</summary>
-                        <div className="mt-2 grid gap-2 md:grid-cols-2">
-                          {row.oldValues && (
-                            <pre className="max-h-48 overflow-auto rounded border border-slate-200 bg-white p-2 leading-relaxed">
-                              {row.oldValues}
-                            </pre>
-                          )}
-                          {row.newValues && (
-                            <pre className="max-h-48 overflow-auto rounded border border-slate-200 bg-white p-2 leading-relaxed">
-                              {row.newValues}
-                            </pre>
-                          )}
-                        </div>
-                      </details>
-                    )}
-                  </div>
-                ))}
-            </div>
-          )}
 
           <div className="mt-4 flex items-center justify-between text-[13px] text-slate-600">
             <span>

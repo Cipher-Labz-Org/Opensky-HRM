@@ -566,7 +566,19 @@ export default function UserManagementPage() {
       {showModal && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className={`w-full ${modalShellWidthClass()} max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl`}>
-            <h3 className="mb-4 text-lg font-semibold text-slate-900">{editUser ? "Edit user" : "Create user"}</h3>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h3 className="text-lg font-semibold text-slate-900">{editUser ? "Edit user" : "Create user"}</h3>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Close"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
 
             <FormErrorAlert
               message={error}
@@ -858,11 +870,6 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   const [permissions, setPermissions] = useState<Record<string, Record<string, { enabled: boolean; scope: string }>>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [showCreateRole, setShowCreateRole] = useState(false);
-  const [newRoleName, setNewRoleName] = useState("");
-  const [newRoleCode, setNewRoleCode] = useState("");
-  const [newRoleDescription, setNewRoleDescription] = useState("");
-  const [creatingRole, setCreatingRole] = useState(false);
 
   useEffect(() => {
     apiFetch<{ module: string; label: string }[]>("/api/auth/roles/available-modules")
@@ -911,35 +918,6 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
     }));
   }
 
-  async function handleCreateRole() {
-    const name = newRoleName.trim();
-    if (!name) {
-      setError("Role name is required.");
-      return;
-    }
-    setError("");
-    setCreatingRole(true);
-    try {
-      const created = await apiFetch<RoleItem>("/api/auth/roles", {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          code: newRoleCode.trim() || undefined,
-          description: newRoleDescription.trim() || undefined,
-        }),
-      });
-      setShowCreateRole(false);
-      setNewRoleName("");
-      setNewRoleCode("");
-      setNewRoleDescription("");
-      await onSaved();
-      setSelectedRoleId(created.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create role");
-    }
-    setCreatingRole(false);
-  }
-
   async function handleSave() {
     if (!selectedRoleId) return;
     setError("");
@@ -970,19 +948,8 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
       </div>
       <div className="flex flex-col lg:flex-row min-h-[400px]">
         <div className="w-full lg:w-56 border-b lg:border-b-0 lg:border-r border-slate-100 p-4">
-          <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="mb-2">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Select Role</p>
-            <Button
-              type="button"
-              variant="secondary"
-              className="!h-8 !min-h-8 px-2.5 text-xs"
-              onClick={() => {
-                setError("");
-                setShowCreateRole(true);
-              }}
-            >
-              + New role
-            </Button>
           </div>
           <div className="space-y-1">
             {roles.map((r) => (
@@ -1062,62 +1029,6 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
           )}
         </div>
       </div>
-
-      {showCreateRole && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <h3 className="text-base font-semibold text-slate-800">Create new role</h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Code is auto-generated from the name if left blank (e.g. Payroll Clerk → PAYROLL_CLERK).
-            </p>
-            <FormErrorAlert
-              message={error}
-              onDismiss={() => setError("")}
-              className="mt-3 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800"
-            />
-            <div className="mt-4 space-y-3">
-              <label className="block text-sm">
-                <span className="font-medium text-slate-700">Role name *</span>
-                <input
-                  type="text"
-                  value={newRoleName}
-                  onChange={(e) => setNewRoleName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="e.g. Payroll Clerk"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-medium text-slate-700">Code (optional)</span>
-                <input
-                  type="text"
-                  value={newRoleCode}
-                  onChange={(e) => setNewRoleCode(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="e.g. PAYROLL_CLERK"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-medium text-slate-700">Description</span>
-                <input
-                  type="text"
-                  value={newRoleDescription}
-                  onChange={(e) => setNewRoleDescription(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="Optional"
-                />
-              </label>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => setShowCreateRole(false)}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={handleCreateRole} disabled={creatingRole}>
-                {creatingRole ? "Creating…" : "Create role"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
