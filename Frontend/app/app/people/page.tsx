@@ -290,7 +290,7 @@ export default function PeoplePage() {
     setPage(1);
     setSortBy("employeeCode");
     setSortAsc(true);
-    setActiveOnly(true);
+    setStatusFilter("active");
   }
 
   function openFilters() {
@@ -342,7 +342,7 @@ export default function PeoplePage() {
     }
   }
 
-  const activeFilterCount = activeFilterEntries.length + (!activeOnly ? 1 : 0);
+  const activeFilterCount = activeFilterEntries.length + (statusFilter !== "active" ? 1 : 0);
 
   useEffect(() => {
     if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
@@ -602,14 +602,14 @@ export default function PeoplePage() {
               <span aria-hidden>×</span>
             </button>
           ))}
-          {!activeOnly && (
+          {statusFilter !== "active" && (
             <button
               type="button"
-              onClick={() => { setActiveOnly(true); setPage(1); }}
+              onClick={() => { setStatusFilter("active"); setPage(1); }}
               className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-900"
               title="Remove filter"
             >
-              Including inactive employees
+              {statusFilter === "terminated" ? "Terminated only" : "All statuses"}
               <span aria-hidden>×</span>
             </button>
           )}
@@ -738,7 +738,7 @@ export default function PeoplePage() {
             </div>
           </div>
           <div className="mt-4 flex items-center justify-center gap-3">
-            <Button variant="secondary" onClick={() => { handleReset(); setStatusFilter("active"); }}>Reset</Button>
+            <Button variant="secondary" onClick={handleReset}>Reset</Button>
             <Button variant="secondary" onClick={() => setShowFilters(false)}>Cancel</Button>
             <Button onClick={handleSearch}>Search</Button>
           </div>
