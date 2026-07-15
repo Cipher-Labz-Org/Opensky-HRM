@@ -414,8 +414,12 @@ public class EmployeeService : IEmployeeService
         InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
         InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
         InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
-        InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
-        InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
+        var nicChanged = !string.Equals(dto.NationalId?.Trim(), employee.NationalId?.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (nicChanged)
+            InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
+        var dlChanged = !string.Equals(dto.DriversLicenseNumber?.Trim(), employee.DriversLicenseNumber?.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (dlChanged)
+            InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
         InputValidators.ValidateTin(dto.TinNumber, "TIN number", required: false);
 
         var epfChanged = !InputValidators.StatutoryFundNumbersEqual(dto.EpfNumber, employee.EpfNumber);
