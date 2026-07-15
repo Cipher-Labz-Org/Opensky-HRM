@@ -8,8 +8,8 @@ import { Modal } from "@/components/ui/Modal";
 import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, PassportNumberInput, TinInput, EpfInput, EtfInput, EmailInput, CountryAutocompleteInput, NationalityAutocompleteInput, OptionsAutocompleteInput, ListAutocompleteInput, AddressTextInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, FlashMessageBanner, FormErrorAlert, type FormSelectOption } from "@/components/ui";
 import { EmployeeAddressSections } from "@/components/workforce/EmployeeAddressSections";
 import { useClientPagination } from "@/lib/use-client-pagination";
-import { isValidPhone, isValidNic, isValidDrivingLicense, isValidPassportNumber, isValidTin, isValidEpfNumber, isValidEtfNumber, isValidEmailInput, isValidEmailFormat, isValidAddressText, sanitizeTinInput, sanitizeEpfInput, sanitizeEtfInput, sanitizePassportNumberInput, PHONE_VALIDATION_MESSAGE, NIC_VALIDATION_MESSAGE, DRIVING_LICENSE_VALIDATION_MESSAGE, PASSPORT_NUMBER_VALIDATION_MESSAGE, TIN_VALIDATION_MESSAGE, EPF_VALIDATION_MESSAGE, ETF_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
-import { sanitizeEmployeeAddressFields, validateEmployeeAddressFields } from "@/lib/employee-address";
+import { isValidPhone, isValidNic, isValidDrivingLicense, isValidPassportNumber, isValidTin, isValidEpfNumber, isValidEtfNumber, isValidEmailInput, isValidEmailFormat, isValidAddressText, sanitizeTinInput, sanitizeEpfInput, sanitizeEtfInput, sanitizePassportNumberInput, sanitizePhoneInput, validateEmployeeAddressFieldsIfChanged, PHONE_VALIDATION_MESSAGE, NIC_VALIDATION_MESSAGE, DRIVING_LICENSE_VALIDATION_MESSAGE, PASSPORT_NUMBER_VALIDATION_MESSAGE, TIN_VALIDATION_MESSAGE, EPF_VALIDATION_MESSAGE, ETF_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import { sanitizeEmployeeAddressFields } from "@/lib/employee-address";
 import { displayWorkEmail } from "@/lib/employee-email";
 import { inferStateFromDistrict } from "@/lib/geo-regions";
 import { apiFetch, apiFetchBlob } from "@/lib/api";
@@ -3268,124 +3268,154 @@ export default function EmployeeDetailPage() {
 
     const workEmail = displayWorkEmail((payload.email as string) ?? "");
     const personalEmail = ((payload.otherEmail as string) ?? "").trim();
+    const savingTab = pageTab;
 
-    if (workEmail && !isValidEmailInput(workEmail)) {
-      setSaving(false);
-      setMsg({ type: "err", text: `Work Email: ${EMAIL_INPUT_VALIDATION_MESSAGE}` });
-      return;
-    }
-    if (personalEmail && !isValidEmailInput(personalEmail)) {
-      setSaving(false);
-      setMsg({ type: "err", text: `Personal Email: ${EMAIL_INPUT_VALIDATION_MESSAGE}` });
-      return;
-    }
-    if (workEmail && !isValidEmailFormat(workEmail)) {
-      setSaving(false);
-      setMsg({ type: "err", text: `Work Email: ${EMAIL_FORMAT_VALIDATION_MESSAGE}` });
-      return;
-    }
-    if (personalEmail && !isValidEmailFormat(personalEmail)) {
-      setSaving(false);
-      setMsg({ type: "err", text: `Personal Email: ${EMAIL_FORMAT_VALIDATION_MESSAGE}` });
-      return;
-    }
+    const fieldChanged = (next: string | null | undefined, current: string | null | undefined) =>
+      (next ?? "").trim().toLowerCase() !== (current ?? "").trim().toLowerCase();
 
-    const addressError = validateEmployeeAddressFields({
-      addressStreet1: (payload.addressStreet1 as string) ?? null,
-      addressStreet2: (payload.addressStreet2 as string) ?? null,
-      city: (payload.city as string) ?? null,
-      zipPostalCode: (payload.zipPostalCode as string) ?? null,
-      pollingDivision: (payload.pollingDivision as string) ?? null,
-      distanceToOffice: (payload.distanceToOffice as string) ?? null,
-      permanentStreet1: (payload.permanentStreet1 as string) ?? null,
-      permanentStreet2: (payload.permanentStreet2 as string) ?? null,
-      permanentCity: (payload.permanentCity as string) ?? null,
-      permanentZipPostalCode: (payload.permanentZipPostalCode as string) ?? null,
-      permanentPollingDivision: (payload.permanentPollingDivision as string) ?? null,
-      permanentDistanceToOffice: (payload.permanentDistanceToOffice as string) ?? null,
-    });
-    if (addressError) {
-      setSaving(false);
-      setShowAddressValidationErrors(true);
-      setMsg({ type: "err", text: addressError });
-      return;
-    }
-    setShowAddressValidationErrors(false);
-    Object.assign(payload, sanitizeEmployeeAddressFields({
-      addressStreet1: payload.addressStreet1 as string | null,
-      addressStreet2: payload.addressStreet2 as string | null,
-      city: payload.city as string | null,
-      zipPostalCode: payload.zipPostalCode as string | null,
-      pollingDivision: payload.pollingDivision as string | null,
-      distanceToOffice: payload.distanceToOffice as string | null,
-      permanentStreet1: payload.permanentStreet1 as string | null,
-      permanentStreet2: payload.permanentStreet2 as string | null,
-      permanentCity: payload.permanentCity as string | null,
-      permanentZipPostalCode: payload.permanentZipPostalCode as string | null,
-      permanentPollingDivision: payload.permanentPollingDivision as string | null,
-      permanentDistanceToOffice: payload.permanentDistanceToOffice as string | null,
-    }));
+    if (savingTab === "contactDetails") {
+      const phoneFields = [
+        { label: "Home telephone", value: sanitizePhoneInput(((payload.homeTelephone as string) ?? "").trim()), current: emp.homeTelephone },
+        { label: "Mobile phone", value: sanitizePhoneInput(((payload.phone as string) ?? "").trim()), current: emp.phone },
+        { label: "Work telephone", value: sanitizePhoneInput(((payload.workTelephone as string) ?? "").trim()), current: emp.workTelephone },
+      ];
+      for (const phone of phoneFields) {
+        if (!fieldChanged(phone.value, phone.current)) continue;
+        if (phone.value && !isValidPhone(phone.value)) {
+          setSaving(false);
+          setMsg({ type: "err", text: `${phone.label}: ${PHONE_VALIDATION_MESSAGE}` });
+          return;
+        }
+      }
 
-    const nic = ((payload.nationalId as string) ?? "").trim();
-    const dl = ((payload.driversLicenseNumber as string) ?? "").trim();
-    const tin = sanitizeTinInput(((payload.tinNumber as string) ?? "").trim());
-    if ((nic && !isValidNic(nic)) || (dl && !isValidDrivingLicense(dl)) || (tin && !isValidTin(tin))) {
-      setSaving(false);
-      setShowIdValidationErrors(true);
-      setMsg({
-        type: "err",
-        text: nic && !isValidNic(nic)
-          ? NIC_VALIDATION_MESSAGE
-          : dl && !isValidDrivingLicense(dl)
-            ? DRIVING_LICENSE_VALIDATION_MESSAGE
-            : TIN_VALIDATION_MESSAGE,
+      if (fieldChanged(workEmail, displayWorkEmail(emp.email)) && workEmail && !isValidEmailInput(workEmail)) {
+        setSaving(false);
+        setMsg({ type: "err", text: `Work Email: ${EMAIL_INPUT_VALIDATION_MESSAGE}` });
+        return;
+      }
+      if (fieldChanged(personalEmail, emp.otherEmail) && personalEmail && !isValidEmailInput(personalEmail)) {
+        setSaving(false);
+        setMsg({ type: "err", text: `Personal Email: ${EMAIL_INPUT_VALIDATION_MESSAGE}` });
+        return;
+      }
+      if (fieldChanged(workEmail, displayWorkEmail(emp.email)) && workEmail && !isValidEmailFormat(workEmail)) {
+        setSaving(false);
+        setMsg({ type: "err", text: `Work Email: ${EMAIL_FORMAT_VALIDATION_MESSAGE}` });
+        return;
+      }
+      if (fieldChanged(personalEmail, emp.otherEmail) && personalEmail && !isValidEmailFormat(personalEmail)) {
+        setSaving(false);
+        setMsg({ type: "err", text: `Personal Email: ${EMAIL_FORMAT_VALIDATION_MESSAGE}` });
+        return;
+      }
+
+      const addressError = validateEmployeeAddressFieldsIfChanged({
+        addressStreet1: (payload.addressStreet1 as string) ?? null,
+        addressStreet2: (payload.addressStreet2 as string) ?? null,
+        city: (payload.city as string) ?? null,
+        zipPostalCode: (payload.zipPostalCode as string) ?? null,
+        pollingDivision: (payload.pollingDivision as string) ?? null,
+        distanceToOffice: (payload.distanceToOffice as string) ?? null,
+        permanentStreet1: (payload.permanentStreet1 as string) ?? null,
+        permanentStreet2: (payload.permanentStreet2 as string) ?? null,
+        permanentCity: (payload.permanentCity as string) ?? null,
+        permanentZipPostalCode: (payload.permanentZipPostalCode as string) ?? null,
+        permanentPollingDivision: (payload.permanentPollingDivision as string) ?? null,
+        permanentDistanceToOffice: (payload.permanentDistanceToOffice as string) ?? null,
+      }, {
+        addressStreet1: emp.addressStreet1,
+        addressStreet2: emp.addressStreet2,
+        city: emp.city,
+        zipPostalCode: emp.zipPostalCode,
+        pollingDivision: emp.pollingDivision,
+        distanceToOffice: emp.distanceToOffice,
+        permanentStreet1: emp.permanentStreet1,
+        permanentStreet2: emp.permanentStreet2,
+        permanentCity: emp.permanentCity,
+        permanentZipPostalCode: emp.permanentZipPostalCode,
+        permanentPollingDivision: emp.permanentPollingDivision,
+        permanentDistanceToOffice: emp.permanentDistanceToOffice,
       });
-      return;
+      if (addressError) {
+        setSaving(false);
+        setShowAddressValidationErrors(true);
+        setMsg({ type: "err", text: addressError });
+        return;
+      }
+      setShowAddressValidationErrors(false);
+      Object.assign(payload, sanitizeEmployeeAddressFields({
+        addressStreet1: payload.addressStreet1 as string | null,
+        addressStreet2: payload.addressStreet2 as string | null,
+        city: payload.city as string | null,
+        zipPostalCode: payload.zipPostalCode as string | null,
+        pollingDivision: payload.pollingDivision as string | null,
+        distanceToOffice: payload.distanceToOffice as string | null,
+        permanentStreet1: payload.permanentStreet1 as string | null,
+        permanentStreet2: payload.permanentStreet2 as string | null,
+        permanentCity: payload.permanentCity as string | null,
+        permanentZipPostalCode: payload.permanentZipPostalCode as string | null,
+        permanentPollingDivision: payload.permanentPollingDivision as string | null,
+        permanentDistanceToOffice: payload.permanentDistanceToOffice as string | null,
+      }));
     }
+
+    if (savingTab === "personal") {
+      const nic = ((payload.nationalId as string) ?? "").trim();
+      const tin = sanitizeTinInput(((payload.tinNumber as string) ?? "").trim());
+      if (fieldChanged(nic, emp.nationalId) && nic && !isValidNic(nic)) {
+        setSaving(false);
+        setShowIdValidationErrors(true);
+        setMsg({ type: "err", text: NIC_VALIDATION_MESSAGE });
+        return;
+      }
+      if (fieldChanged(tin, emp.tinNumber) && tin && !isValidTin(tin)) {
+        setSaving(false);
+        setShowIdValidationErrors(true);
+        setMsg({ type: "err", text: TIN_VALIDATION_MESSAGE });
+        return;
+      }
+      setShowIdValidationErrors(false);
+      payload.tinNumber = tin || null;
+    }
+
+    if (savingTab === "job") {
+      const jd = payload.joinDate ? (payload.joinDate as string).split("T")[0] : "";
+      const pe = payload.probationEndDate ? (payload.probationEndDate as string).split("T")[0] : "";
+      const dp = payload.dateOfPermanency ? (payload.dateOfPermanency as string).split("T")[0] : "";
+
+      if (pe && jd && pe <= jd) {
+        setSaving(false);
+        setMsg({ type: "err", text: "Probation End Date must be after the Joined Date." });
+        return;
+      }
+      if (dp && jd && dp <= jd) {
+        setSaving(false);
+        setMsg({ type: "err", text: "Date of Permanency must be after the Joined Date." });
+        return;
+      }
+      if (dp && pe && dp < pe) {
+        setSaving(false);
+        setMsg({ type: "err", text: "Date of Permanency must be on or after the Probation End Date." });
+        return;
+      }
+    }
+
     // Send "" (not null) when no work email — null fails ASP.NET binding on UpdateEmployeeDto.Email.
     payload.email = workEmail;
-    payload.tinNumber = tin || null;
-    setShowIdValidationErrors(false);
-
-    const jd = payload.joinDate ? (payload.joinDate as string).split("T")[0] : "";
-    const pe = payload.probationEndDate ? (payload.probationEndDate as string).split("T")[0] : "";
-    const dp = payload.dateOfPermanency ? (payload.dateOfPermanency as string).split("T")[0] : "";
-
-    if (pe && jd && pe <= jd) {
-      setSaving(false);
-      setMsg({ type: "err", text: "Probation End Date must be after the Joined Date." });
-      return;
-    }
-    if (dp && jd && dp <= jd) {
-      setSaving(false);
-      setMsg({ type: "err", text: "Date of Permanency must be after the Joined Date." });
-      return;
-    }
-    if (dp && pe && dp < pe) {
-      setSaving(false);
-      setMsg({ type: "err", text: "Date of Permanency must be on or after the Probation End Date." });
-      return;
-    }
-
-    const licIssue = (payload.licenseIssueDate as string)?.trim() ?? "";
-    const licExpiry = (payload.licenseExpiryDate as string)?.trim() ?? "";
-    const todayLocal = dateInputMaxTodayLocal();
-    if (licIssue && licIssue > todayLocal) {
-      setSaving(false);
-      setMsg({ type: "err", text: "License issue date cannot be in the future." });
-      return;
-    }
-    if (licIssue && licExpiry && licExpiry < licIssue) {
-      setSaving(false);
-      setMsg({ type: "err", text: "License expiry date must be on or after the issue date." });
-      return;
+    if (savingTab !== "personal") {
+      payload.tinNumber = sanitizeTinInput(((payload.tinNumber as string) ?? "").trim()) || null;
     }
 
     try {
       const updated = await apiFetch<EmployeeDetail>(`/api/employees/${id}`, { method: "PUT", body: JSON.stringify(payload) });
       setEmp(updated);
       void loadLifecycleTimeline();
-      setMsg({ type: "ok", text: "Updated successfully." });
+      const successByTab: Partial<Record<PageTab, string>> = {
+        job: "Job details updated successfully.",
+        contactDetails: "Contact details updated successfully.",
+        personal: "Personal details updated successfully.",
+      };
+      setMsg({ type: "ok", text: successByTab[savingTab] ?? "Updated successfully." });
     } catch (err: unknown) { setMsg({ type: "err", text: err instanceof Error ? err.message : "Failed to save." }); }
     finally { setSaving(false); }
   }

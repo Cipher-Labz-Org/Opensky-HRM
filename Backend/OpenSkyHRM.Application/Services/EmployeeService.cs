@@ -408,19 +408,44 @@ public class EmployeeService : IEmployeeService
 
         await ClearPlaceholderWorkEmailAsync(employee);
 
-        InputValidators.ValidatePersonName(dto.FirstName, "First name");
-        InputValidators.ValidatePersonName(dto.MiddleName, "Middle name", required: false);
-        InputValidators.ValidatePersonName(dto.LastName, "Last name");
-        InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
-        InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
-        InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
-        var nicChanged = !string.Equals(dto.NationalId?.Trim(), employee.NationalId?.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (!InputValidators.ValuesEqual(dto.FirstName, employee.FirstName))
+            InputValidators.ValidatePersonName(dto.FirstName, "First name");
+        if (!InputValidators.ValuesEqual(dto.MiddleName, employee.MiddleName))
+            InputValidators.ValidatePersonName(dto.MiddleName, "Middle name", required: false);
+        if (!InputValidators.ValuesEqual(dto.LastName, employee.LastName))
+            InputValidators.ValidatePersonName(dto.LastName, "Last name");
+
+        var phoneChanged = !InputValidators.ValuesEqual(dto.Phone, employee.Phone);
+        var homePhoneChanged = !InputValidators.ValuesEqual(dto.HomeTelephone, employee.HomeTelephone);
+        var workPhoneChanged = !InputValidators.ValuesEqual(dto.WorkTelephone, employee.WorkTelephone);
+        if (phoneChanged)
+        {
+            dto.Phone = InputValidators.NormalizePhone(dto.Phone);
+            InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
+        }
+        if (homePhoneChanged)
+        {
+            dto.HomeTelephone = InputValidators.NormalizePhone(dto.HomeTelephone);
+            InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
+        }
+        if (workPhoneChanged)
+        {
+            dto.WorkTelephone = InputValidators.NormalizePhone(dto.WorkTelephone);
+            InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
+        }
+
+        var nicChanged = !InputValidators.ValuesEqual(dto.NationalId, employee.NationalId);
         if (nicChanged)
             InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
-        var dlChanged = !string.Equals(dto.DriversLicenseNumber?.Trim(), employee.DriversLicenseNumber?.Trim(), StringComparison.OrdinalIgnoreCase);
+        var dlChanged = !InputValidators.ValuesEqual(dto.DriversLicenseNumber, employee.DriversLicenseNumber);
         if (dlChanged)
             InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
-        InputValidators.ValidateTin(dto.TinNumber, "TIN number", required: false);
+
+        var tinChanged = !InputValidators.ValuesEqual(
+            InputValidators.NormalizeTin(dto.TinNumber),
+            InputValidators.NormalizeTin(employee.TinNumber));
+        if (tinChanged)
+            InputValidators.ValidateTin(dto.TinNumber, "TIN number", required: false);
 
         var epfChanged = !InputValidators.StatutoryFundNumbersEqual(dto.EpfNumber, employee.EpfNumber);
         var etfChanged = !InputValidators.StatutoryFundNumbersEqual(dto.EtfNumber, employee.EtfNumber);
@@ -429,9 +454,16 @@ public class EmployeeService : IEmployeeService
         if (etfChanged)
             InputValidators.ValidateEtfNumber(dto.EtfNumber, "ETF number", required: false);
 
-        InputValidators.ValidateEmailInput(dto.Email, "Work email", required: false);
-        InputValidators.ValidateEmailInput(dto.OtherEmail, "Personal email", required: false);
-        InputValidators.ValidateEmployeeAddressFields(
+        var workEmailChanged = !InputValidators.ValuesEqual(
+            EmployeeEmailHelper.NormalizeForSave(dto.Email),
+            EmployeeEmailHelper.NormalizeForSave(employee.Email));
+        var personalEmailChanged = !InputValidators.ValuesEqual(dto.OtherEmail, employee.OtherEmail);
+        if (workEmailChanged)
+            InputValidators.ValidateEmailInput(dto.Email, "Work email", required: false);
+        if (personalEmailChanged)
+            InputValidators.ValidateEmailInput(dto.OtherEmail, "Personal email", required: false);
+
+        InputValidators.ValidateEmployeeAddressFieldsIfChanged(
             dto.AddressStreet1,
             dto.AddressStreet2,
             dto.City,
@@ -443,8 +475,22 @@ public class EmployeeService : IEmployeeService
             dto.PermanentCity,
             dto.PermanentZipPostalCode,
             dto.PermanentPollingDivision,
-            dto.PermanentDistanceToOffice);
-        dto.TinNumber = InputValidators.NormalizeTin(dto.TinNumber);
+            dto.PermanentDistanceToOffice,
+            employee.AddressStreet1,
+            employee.AddressStreet2,
+            employee.City,
+            employee.ZipPostalCode,
+            employee.PollingDivision,
+            employee.DistanceToOffice,
+            employee.PermanentStreet1,
+            employee.PermanentStreet2,
+            employee.PermanentCity,
+            employee.PermanentZipPostalCode,
+            employee.PermanentPollingDivision,
+            employee.PermanentDistanceToOffice);
+        dto.TinNumber = tinChanged
+            ? InputValidators.NormalizeTin(dto.TinNumber)
+            : employee.TinNumber;
         dto.EpfNumber = epfChanged
             ? InputValidators.NormalizeStatutoryFundNumber(dto.EpfNumber)
             : employee.EpfNumber;

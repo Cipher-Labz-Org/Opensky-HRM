@@ -387,3 +387,54 @@ export function validateEmployeeAddressFields(fields: {
 
   return null;
 }
+
+export function validateEmployeeAddressFieldsIfChanged(
+  fields: {
+    addressStreet1?: string | null;
+    addressStreet2?: string | null;
+    city?: string | null;
+    zipPostalCode?: string | null;
+    pollingDivision?: string | null;
+    distanceToOffice?: string | null;
+    permanentStreet1?: string | null;
+    permanentStreet2?: string | null;
+    permanentCity?: string | null;
+    permanentZipPostalCode?: string | null;
+    permanentPollingDivision?: string | null;
+    permanentDistanceToOffice?: string | null;
+  },
+  current: {
+    addressStreet1?: string | null;
+    addressStreet2?: string | null;
+    city?: string | null;
+    zipPostalCode?: string | null;
+    pollingDivision?: string | null;
+    distanceToOffice?: string | null;
+    permanentStreet1?: string | null;
+    permanentStreet2?: string | null;
+    permanentCity?: string | null;
+    permanentZipPostalCode?: string | null;
+    permanentPollingDivision?: string | null;
+    permanentDistanceToOffice?: string | null;
+  },
+): string | null {
+  const valuesEqual = (a?: string | null, b?: string | null) =>
+    (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+
+  const next = {
+    addressStreet1: valuesEqual(fields.addressStreet1, current.addressStreet1) ? null : fields.addressStreet1,
+    addressStreet2: valuesEqual(fields.addressStreet2, current.addressStreet2) ? null : fields.addressStreet2,
+    city: valuesEqual(fields.city, current.city) ? null : fields.city,
+    zipPostalCode: valuesEqual(fields.zipPostalCode, current.zipPostalCode) ? null : fields.zipPostalCode,
+    pollingDivision: valuesEqual(fields.pollingDivision, current.pollingDivision) ? null : fields.pollingDivision,
+    distanceToOffice: valuesEqual(fields.distanceToOffice, current.distanceToOffice) ? null : fields.distanceToOffice,
+    permanentStreet1: valuesEqual(fields.permanentStreet1, current.permanentStreet1) ? null : fields.permanentStreet1,
+    permanentStreet2: valuesEqual(fields.permanentStreet2, current.permanentStreet2) ? null : fields.permanentStreet2,
+    permanentCity: valuesEqual(fields.permanentCity, current.permanentCity) ? null : fields.permanentCity,
+    permanentZipPostalCode: valuesEqual(fields.permanentZipPostalCode, current.permanentZipPostalCode) ? null : fields.permanentZipPostalCode,
+    permanentPollingDivision: valuesEqual(fields.permanentPollingDivision, current.permanentPollingDivision) ? null : fields.permanentPollingDivision,
+    permanentDistanceToOffice: valuesEqual(fields.permanentDistanceToOffice, current.permanentDistanceToOffice) ? null : fields.permanentDistanceToOffice,
+  };
+
+  return validateEmployeeAddressFields(next);
+}
