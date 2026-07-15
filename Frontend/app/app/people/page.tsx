@@ -200,6 +200,22 @@ export default function PeoplePage() {
     [employmentTypes]
   );
 
+  function filterLookupsByAllowedIds(items: Lookup[], allowedIds: string[] | undefined): Lookup[] {
+    if (!allowedIds?.length) return items;
+    const allowed = new Set(allowedIds);
+    return items.filter((item) => allowed.has(item.id));
+  }
+
+  const visibleLocations = useMemo(
+    () => filterLookupsByAllowedIds(locations, user?.assignedLocationIds),
+    [locations, user?.assignedLocationIds],
+  );
+
+  const visibleJobTitles = useMemo(
+    () => filterLookupsByAllowedIds(jobTitles, user?.assignedJobTitleIds),
+    [jobTitles, user?.assignedJobTitleIds],
+  );
+
   useEffect(() => {
     Promise.all([
       apiFetch<Lookup[]>("/api/organization/departments").catch(() => []),
@@ -713,7 +729,7 @@ export default function PeoplePage() {
                 onChange={(e) => setFilters((f) => ({ ...f, jobTitleId: e.target.value }))}
               >
                 <option value="">All</option>
-                {jobTitles.map((j) => (
+                {visibleJobTitles.map((j) => (
                   <option key={j.id} value={j.id}>{j.name}</option>
                 ))}
               </select>
@@ -739,7 +755,7 @@ export default function PeoplePage() {
                 onChange={(e) => setFilters((f) => ({ ...f, locationId: e.target.value }))}
               >
                 <option value="">All</option>
-                {locations.map((l) => (
+                {visibleLocations.map((l) => (
                   <option key={l.id} value={l.id}>{l.name}</option>
                 ))}
               </select>
