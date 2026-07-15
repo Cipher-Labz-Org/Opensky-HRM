@@ -62,6 +62,9 @@ interface UserProfile {
   licensedModules?: string[];
   /** When set and non-empty, People APIs limit this user to employees at these work locations. */
   assignedLocationIds?: string[];
+  assignedBusinessUnitIds?: string[];
+  assignedGradeIds?: string[];
+  assignedJobTitleIds?: string[];
   /** When true, app layout forces password change before other pages. */
   mustChangePassword?: boolean;
 }
@@ -80,6 +83,8 @@ interface AuthContextType {
   getLeaveReadScope: () => "Own" | "Team" | "All" | null;
   hasRole: (roleCode: string) => boolean;
   isAdmin: boolean;
+  /** True when the user has any People dimension scope (location, BU, grade, or job catalog). */
+  hasPeopleDimensionRestrictions: () => boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -97,6 +102,7 @@ const AuthContext = createContext<AuthContextType>({
   getLeaveReadScope: () => null,
   hasRole: () => false,
   isAdmin: false,
+  hasPeopleDimensionRestrictions: () => false,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -276,6 +282,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAdmin = user ? roleListMatches(user.roles, "ADMIN") : false;
 
+  const hasPeopleDimensionRestrictions = (): boolean => {
+    if (!user) return false;
+    return (
+      (user.assignedLocationIds?.length ?? 0) > 0
+      || (user.assignedBusinessUnitIds?.length ?? 0) > 0
+      || (user.assignedGradeIds?.length ?? 0) > 0
+      || (user.assignedJobTitleIds?.length ?? 0) > 0
+    );
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -291,6 +307,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         getLeaveReadScope,
         hasRole,
         isAdmin,
+        hasPeopleDimensionRestrictions,
       }}
     >
       {children}

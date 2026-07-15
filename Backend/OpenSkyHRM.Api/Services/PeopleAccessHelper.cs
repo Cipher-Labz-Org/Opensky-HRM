@@ -11,14 +11,41 @@ namespace OpenSkyHRM.Api.Services;
 /// assignment rows (<see cref="UserAssignedLocation"/>, <see cref="UserAssignedBusinessUnit"/>, <see cref="UserAssignedGrade"/>,
 /// <see cref="UserAssignedJobTitle"/>). When any assignment set is non-empty for a dimension, the employee must match
 /// that dimension (non-null field value in the allowed set). Multiple dimensions combine with AND.
+/// Dimension restrictions always apply — ADMIN / People:All cannot bypass them.
 /// </summary>
 public static class PeopleAccessHelper
 {
     private static Guid? GetCurrentUserAccountId(ClaimsPrincipal user)
     {
         var s = user.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? user.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            ?? user.FindFirstValue(JwtRegisteredClaimNames.Sub)
+            ?? user.FindFirstValue("sub");
         return Guid.TryParse(s, out var id) ? id : null;
+    }
+
+    private static bool UserHasRole(ClaimsPrincipal user, string roleCode)
+    {
+        if (user.IsInRole(roleCode)) return true;
+        foreach (var c in user.FindAll(ClaimTypes.Role))
+        {
+            if (string.Equals(c.Value, roleCode, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        foreach (var c in user.FindAll("role"))
+        {
+            if (string.Equals(c.Value, roleCode, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        if (string.Equals(roleCode, "ADMIN", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var c in user.FindAll(ClaimTypes.Role).Concat(user.FindAll("role")))
+            {
+                if (string.Equals(c.Value, "Admin", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -105,58 +132,21 @@ public static class PeopleAccessHelper
         return locs.Contains(locationId.Value);
     }
 
-    public static async Task<IReadOnlyList<Guid>?> GetAllowedEmployeeIdsAsync(
-        ClaimsPrincipal user,
+    /// <summary>
+    /// Returns employee IDs matching configured dimension assignments, or null when no dimension restrictions exist.
+    /// </summary>
+    private static async Task<List<Guid>?> BuildDimensionFilteredEmployeeIdsAsync(
         AppDbContext db,
-        string action = "Read")
+        IReadOnlyList<Guid>? assignedLocs,
+        IReadOnlyList<Guid>? assignedBus,
+        IReadOnlyList<Guid>? assignedGrades,
+        IReadOnlyList<Guid>? assignedJobTitles)
     {
-        var assignedLocs = await GetAssignedLocationIdsAsync(user, db);
-        var assignedBus = await GetAssignedBusinessUnitIdsAsync(user, db);
-        var assignedGrades = await GetAssignedGradeIdsAsync(user, db);
-        var assignedJobTitles = await GetAssignedJobTitleIdsAsync(user, db);
-
-        IReadOnlyList<Guid>? scopeIds;
-        if (user.IsInRole("ADMIN"))
-        {
-            scopeIds = null;
-        }
-        else
-        {
-            var permissions = user.FindAll("permission").Select(c => c.Value).ToList();
-            var scope = ResolvePeopleScope(permissions, action);
-
-            if (scope == "All")
-                scopeIds = null;
-            else if (scope == "Own")
-            {
-                if (!Guid.TryParse(user.FindFirstValue("employeeId"), out var ownId))
-                    scopeIds = Array.Empty<Guid>();
-                else
-                    scopeIds = new[] { ownId };
-            }
-            else if (scope == "Team")
-            {
-                if (!Guid.TryParse(user.FindFirstValue("employeeId"), out var tid))
-                    scopeIds = Array.Empty<Guid>();
-                else
-                {
-                    var teamIds = await db.Employees
-                        .AsNoTracking()
-                        .Where(e => e.Id == tid || e.ManagerId == tid)
-                        .Select(e => e.Id)
-                        .ToListAsync();
-                    scopeIds = teamIds;
-                }
-            }
-            else
-                scopeIds = Array.Empty<Guid>();
-        }
-
         var hasAssignmentFilters =
             assignedLocs != null || assignedBus != null || assignedGrades != null || assignedJobTitles != null;
 
         if (!hasAssignmentFilters)
-            return scopeIds;
+            return null;
 
         var q = db.Employees.AsNoTracking().AsQueryable();
 
@@ -172,12 +162,72 @@ public static class PeopleAccessHelper
         if (assignedJobTitles != null)
             q = q.Where(e => e.JobTitleId.HasValue && assignedJobTitles.Contains(e.JobTitleId.Value));
 
-        var filteredIds = await q.Select(e => e.Id).ToListAsync();
+        return await q.Select(e => e.Id).ToListAsync();
+    }
 
-        if (scopeIds == null)
-            return filteredIds;
+    /// <summary>
+    /// Resolves RBAC People scope (Own / Team / All). Returns null for unrestricted RBAC scope (All / ADMIN).
+    /// </summary>
+    private static async Task<IReadOnlyList<Guid>?> ResolveRbacScopeIdsAsync(
+        ClaimsPrincipal user,
+        AppDbContext db,
+        string action)
+    {
+        if (UserHasRole(user, "ADMIN"))
+            return null;
 
-        return scopeIds.Where(id => filteredIds.Contains(id)).ToList();
+        var permissions = user.FindAll("permission").Select(c => c.Value).ToList();
+        var scope = ResolvePeopleScope(permissions, action);
+
+        if (scope == "All")
+            return null;
+
+        if (scope == "Own")
+        {
+            if (!Guid.TryParse(user.FindFirstValue("employeeId"), out var ownId))
+                return Array.Empty<Guid>();
+            return new[] { ownId };
+        }
+
+        if (scope == "Team")
+        {
+            if (!Guid.TryParse(user.FindFirstValue("employeeId"), out var tid))
+                return Array.Empty<Guid>();
+
+            var teamIds = await db.Employees
+                .AsNoTracking()
+                .Where(e => e.Id == tid || e.ManagerId == tid)
+                .Select(e => e.Id)
+                .ToListAsync();
+            return teamIds;
+        }
+
+        return Array.Empty<Guid>();
+    }
+
+    public static async Task<IReadOnlyList<Guid>?> GetAllowedEmployeeIdsAsync(
+        ClaimsPrincipal user,
+        AppDbContext db,
+        string action = "Read")
+    {
+        var assignedLocs = await GetAssignedLocationIdsAsync(user, db);
+        var assignedBus = await GetAssignedBusinessUnitIdsAsync(user, db);
+        var assignedGrades = await GetAssignedGradeIdsAsync(user, db);
+        var assignedJobTitles = await GetAssignedJobTitleIdsAsync(user, db);
+
+        var dimensionIds = await BuildDimensionFilteredEmployeeIdsAsync(
+            db, assignedLocs, assignedBus, assignedGrades, assignedJobTitles);
+
+        var scopeIds = await ResolveRbacScopeIdsAsync(user, db, action);
+
+        if (dimensionIds != null)
+        {
+            if (scopeIds == null)
+                return dimensionIds;
+            return scopeIds.Where(id => dimensionIds.Contains(id)).ToList();
+        }
+
+        return scopeIds;
     }
 
     public static string ResolvePeopleScope(IEnumerable<string> permissions, string action)
