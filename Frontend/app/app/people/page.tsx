@@ -132,7 +132,7 @@ const employmentTypeLabels: Record<string, string> = {
   PartTimeContract: "Part-Time Contract", PartTimeInternship: "Part-Time Internship", PartTimePermanent: "Part-Time Permanent",
 };
 const employmentTypeOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
-const PEOPLE_PAGE_SIZE = 10;
+const PEOPLE_PAGE_SIZE = 25;
 
 type EmployeeListStatusFilter = "active" | "all" | "terminated";
 
@@ -180,6 +180,7 @@ export default function PeoplePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [totalEmployees, setTotalEmployees] = useState(0);
   const [page, setPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(PEOPLE_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<EmployeeListStatusFilter>("active");
@@ -224,6 +225,7 @@ export default function PeoplePage() {
   const loadEmployees = useCallback(async (
     f: Filters,
     p: number,
+    pageSize: number,
     listStatusFilter: EmployeeListStatusFilter,
     sortKey: PeopleSortKey,
     asc: boolean,
@@ -231,7 +233,7 @@ export default function PeoplePage() {
     setLoading(true);
     const params = new URLSearchParams();
     params.set("page", String(p));
-    params.set("pageSize", String(PEOPLE_PAGE_SIZE));
+    params.set("pageSize", String(pageSize));
     params.set("sortBy", sortKey);
     params.set("sortDir", asc ? "asc" : "desc");
     if (f.search) params.set("search", f.search);
@@ -257,8 +259,13 @@ export default function PeoplePage() {
   }, []);
 
   useEffect(() => {
-    loadEmployees(appliedFilters, page, statusFilter, sortBy, sortAsc);
-  }, [appliedFilters, page, statusFilter, sortBy, sortAsc, loadEmployees]);
+    loadEmployees(appliedFilters, page, listPageSize, statusFilter, sortBy, sortAsc);
+  }, [appliedFilters, page, listPageSize, statusFilter, sortBy, sortAsc, loadEmployees]);
+
+  function resetEmployeeListPaging() {
+    setPage(1);
+    setListPageSize(PEOPLE_PAGE_SIZE);
+  }
 
   function handleQuickSearch() {
     const term = quickSearch.trim();
@@ -271,6 +278,7 @@ export default function PeoplePage() {
     setFilters(next);
     setAppliedFilters(next);
     setPage(1);
+    setListPageSize(PEOPLE_PAGE_SIZE);
     setShowSuggestions(false);
   }
 
@@ -279,7 +287,7 @@ export default function PeoplePage() {
     setAppliedFilters(next);
     setFilters(next);
     setQuickSearch(next.search);
-    setPage(1);
+    resetEmployeeListPaging();
     setShowFilters(false);
   }
 
@@ -287,7 +295,7 @@ export default function PeoplePage() {
     setFilters(emptyFilters);
     setAppliedFilters(emptyFilters);
     setQuickSearch("");
-    setPage(1);
+    resetEmployeeListPaging();
     setSortBy("employeeCode");
     setSortAsc(true);
     setStatusFilter("active");
@@ -304,7 +312,7 @@ export default function PeoplePage() {
     setAppliedFilters(next);
     setFilters(next);
     if (key === "search") setQuickSearch("");
-    setPage(1);
+    resetEmployeeListPaging();
   }
 
   function filterLabel(key: keyof Filters, value: string): string {
@@ -562,7 +570,7 @@ export default function PeoplePage() {
               value={statusFilter}
               onValueChange={(value) => {
                 setStatusFilter(value as EmployeeListStatusFilter);
-                setPage(1);
+                resetEmployeeListPaging();
               }}
               options={EMPLOYEE_LIST_STATUS_OPTIONS}
               clearable={false}
@@ -605,7 +613,7 @@ export default function PeoplePage() {
           {statusFilter !== "active" && (
             <button
               type="button"
-              onClick={() => { setStatusFilter("active"); setPage(1); }}
+              onClick={() => { setStatusFilter("active"); resetEmployeeListPaging(); }}
               className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-900"
               title="Remove filter"
             >
@@ -847,8 +855,19 @@ export default function PeoplePage() {
               page={page}
               totalPages={totalPages}
               totalCount={totalEmployees}
-              pageSize={PEOPLE_PAGE_SIZE}
+              pageSize={listPageSize}
               onPageChange={setPage}
+              showSeeAll={totalEmployees > PEOPLE_PAGE_SIZE}
+              seeAllActive={listPageSize >= totalEmployees && totalEmployees > PEOPLE_PAGE_SIZE}
+              onSeeAll={() => {
+                setListPageSize(totalEmployees);
+                setPage(1);
+              }}
+              onShowPaged={() => {
+                setListPageSize(PEOPLE_PAGE_SIZE);
+                setPage(1);
+              }}
+              showPagePicker={!(listPageSize >= totalEmployees && totalEmployees > PEOPLE_PAGE_SIZE)}
             />
           </>
         )}
