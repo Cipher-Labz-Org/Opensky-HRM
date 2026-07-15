@@ -211,6 +211,36 @@ export default function PublicOfferResponsePage() {
 
             {error ? <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
+            {offer.canRespond && !mode && !successMessage ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center">
+                <p className="text-base font-semibold text-slate-900 mb-1">Your response</p>
+                <p className="text-sm text-slate-500 mb-5">Please choose how you would like to proceed with this offer.</p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setMode("accept")}
+                    className="rounded-xl bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 transition-colors"
+                  >
+                    Accept offer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode("negotiate")}
+                    className="rounded-xl bg-[#2563eb] px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+                  >
+                    Negotiate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode("reject")}
+                    className="rounded-xl bg-red-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             {letterHtml ? (
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div className="p-4" dangerouslySetInnerHTML={{ __html: letterHtml }} />
