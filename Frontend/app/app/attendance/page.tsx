@@ -945,16 +945,17 @@ function AttendanceListTab() {
   }, [employeesLoaded]);
 
   const load = useCallback(
-    (options?: { silent?: boolean; sortKey?: AttendanceSortKey; sortAscending?: boolean; pageNum?: number }) => {
+    (options?: { silent?: boolean; sortKey?: AttendanceSortKey; sortAscending?: boolean; pageNum?: number; employeeId?: string }) => {
       const silent = options?.silent ?? false;
       const activeSortBy = options?.sortKey ?? sortBy;
       const activeSortAsc = options?.sortAscending ?? sortAsc;
       const activePage = options?.pageNum ?? page;
+      const activeEmployeeId = options?.employeeId !== undefined ? options.employeeId : filterEmployee;
       if (silent) setRefreshing(true);
       else setLoading(true);
       setError(null);
       const params = new URLSearchParams({ page: String(activePage), pageSize: String(pageSize) });
-      if (filterEmployee) params.set("employeeId", filterEmployee);
+      if (activeEmployeeId) params.set("employeeId", activeEmployeeId);
       if (filterFrom) params.set("from", filterFrom);
       if (filterTo) params.set("to", filterTo);
       if (filterDepartmentId) params.set("departmentId", filterDepartmentId);
@@ -1025,18 +1026,24 @@ function AttendanceListTab() {
     }
   }
 
-  function applyEmployeeFilter() {
-    const q = employeeSearchFilter.apply().toLowerCase();
-    if (!q) {
-      setFilterEmployee("");
-      setPage(1);
-      return;
-    }
+  function resolveEmployeeIdFromInput(input: string): string {
+    const q = input.trim().toLowerCase();
+    if (!q) return "";
     const matched =
       employeeOptions.find((opt) => opt.label.toLowerCase() === q) ??
       employeeOptions.find((opt) => opt.label.toLowerCase().includes(q));
-    setFilterEmployee(matched?.id ?? "");
+    return matched?.id ?? "";
+  }
+
+  function handleSearch() {
+    const q = employeeSearchFilter.input.trim();
+    const employeeId = q ? resolveEmployeeIdFromInput(q) : filterEmployee;
+    if (q) {
+      employeeSearchFilter.clear();
+      setFilterEmployee(employeeId);
+    }
     setPage(1);
+    load({ pageNum: 1, employeeId });
   }
 
   const activeEmployeeLabel = filterEmployee
@@ -1096,10 +1103,10 @@ function AttendanceListTab() {
               onFocus={loadEmployees}
               onChange={(e) => employeeSearchFilter.setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") applyEmployeeFilter();
+                if (e.key === "Enter") handleSearch();
               }}
               list="attendance-employee-filter-options"
-              placeholder="Name or code… (Enter)"
+              placeholder="Name or code…"
               className={`${filterControlClass} w-full`}
             />
             <datalist id="attendance-employee-filter-options">
@@ -1135,8 +1142,11 @@ function AttendanceListTab() {
               </span>
             )}
           </button>
+          <Button className="shrink-0" onClick={handleSearch} disabled={loading || refreshing}>
+            Search
+          </Button>
           <Button variant="secondary" className="shrink-0" onClick={clearAllFilters}>Clear</Button>
-          <Button variant="secondary" className="shrink-0" onClick={() => load()} disabled={loading || refreshing}>
+          <Button variant="secondary" className="shrink-0" onClick={handleSearch} disabled={loading || refreshing}>
             Refresh
           </Button>
         </div>
