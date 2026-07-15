@@ -9,15 +9,9 @@ let workerConfigured = false;
 
 async function getPdfjs() {
   const pdfjs = await import("pdfjs-dist");
-  if (!workerConfigured) {
-    try {
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        "pdfjs-dist/build/pdf.worker.min.mjs",
-        import.meta.url,
-      ).toString();
-    } catch {
-      pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-    }
+  if (!workerConfigured && typeof window !== "undefined") {
+    // Use CDN worker — bundling pdf.worker.min.mjs via import.meta.url breaks Next/Terser production builds.
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
     workerConfigured = true;
   }
   return pdfjs;
@@ -96,7 +90,7 @@ async function renderPdfDataToCanvas(data: ArrayBuffer, scale = 3): Promise<HTML
   canvas.height = Math.max(1, Math.floor(viewport.height));
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas not supported");
-  await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+  await page.render({ canvasContext: ctx, viewport }).promise;
   return canvas;
 }
 

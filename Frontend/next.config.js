@@ -11,7 +11,12 @@ function apiUpstreamBase() {
 const nextConfig = {
   reactStrictMode: true,
   distDir: process.env.VERCEL ? ".next" : ".dist",
-  transpilePackages: ["jspdf", "jspdf-autotable"],
+  transpilePackages: ["jspdf", "jspdf-autotable", "pdfjs-dist"],
+  webpack: (config) => {
+    // pdfjs-dist references canvas in Node builds; not needed in the browser bundle.
+    config.resolve.alias = { ...config.resolve.alias, canvas: false };
+    return config;
+  },
   async rewrites() {
     const base = apiUpstreamBase();
 
