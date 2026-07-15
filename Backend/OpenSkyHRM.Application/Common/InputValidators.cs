@@ -253,6 +253,24 @@ public static class InputValidators
         return string.Equals(a?.Trim(), b?.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool ValuesEqual(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) && string.IsNullOrWhiteSpace(b)) return true;
+        return string.Equals(a?.Trim(), b?.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Strip spaces/dashes from phone input, matching frontend sanitizePhoneInput.</summary>
+    public static string? NormalizePhone(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var raw = new string(value.Where(c => char.IsDigit(c) || c == '+').ToArray());
+        if (raw.Length == 0) return null;
+        var startsWithPlus = raw.StartsWith('+');
+        var digits = new string(raw.Where(char.IsDigit).ToArray());
+        if (digits.Length == 0) return null;
+        return startsWithPlus ? $"+{digits}" : digits;
+    }
+
     private static readonly Regex AddressTextRegex =
         new(@"^[\p{L}\p{N}\s.,'\-:&/#()\[\]\\@]+$", RegexOptions.Compiled);
     private static readonly Regex PostalCodeRegex =
@@ -331,6 +349,59 @@ public static class InputValidators
         ValidateAddressText(permanentPollingDivision, "Permanent Polling Division", required: false);
         ValidatePostalCode(permanentZipPostalCode, "Permanent Zip/Postal Code", required: false);
         ValidateDistanceKm(permanentDistanceToOffice, "Permanent Distance to Office (KM)", required: false);
+    }
+
+    /// <summary>Validates only address fields whose values differ from the stored employee record.</summary>
+    public static void ValidateEmployeeAddressFieldsIfChanged(
+        string? addressStreet1,
+        string? addressStreet2,
+        string? city,
+        string? zipPostalCode,
+        string? pollingDivision,
+        string? distanceToOffice,
+        string? permanentStreet1,
+        string? permanentStreet2,
+        string? permanentCity,
+        string? permanentZipPostalCode,
+        string? permanentPollingDivision,
+        string? permanentDistanceToOffice,
+        string? currentAddressStreet1,
+        string? currentAddressStreet2,
+        string? currentCity,
+        string? currentZipPostalCode,
+        string? currentPollingDivision,
+        string? currentDistanceToOffice,
+        string? currentPermanentStreet1,
+        string? currentPermanentStreet2,
+        string? currentPermanentCity,
+        string? currentPermanentZipPostalCode,
+        string? currentPermanentPollingDivision,
+        string? currentPermanentDistanceToOffice)
+    {
+        if (!ValuesEqual(addressStreet1, currentAddressStreet1))
+            ValidateAddressText(addressStreet1, "Address Street 1", required: false);
+        if (!ValuesEqual(addressStreet2, currentAddressStreet2))
+            ValidateAddressText(addressStreet2, "Address Street 2", required: false);
+        if (!ValuesEqual(city, currentCity))
+            ValidateAddressText(city, "City", required: false);
+        if (!ValuesEqual(pollingDivision, currentPollingDivision))
+            ValidateAddressText(pollingDivision, "Polling Division", required: false);
+        if (!ValuesEqual(zipPostalCode, currentZipPostalCode))
+            ValidatePostalCode(zipPostalCode, "Zip/Postal Code", required: false);
+        if (!ValuesEqual(distanceToOffice, currentDistanceToOffice))
+            ValidateDistanceKm(distanceToOffice, "Distance to Office (KM)", required: false);
+        if (!ValuesEqual(permanentStreet1, currentPermanentStreet1))
+            ValidateAddressText(permanentStreet1, "Permanent Address Street 1", required: false);
+        if (!ValuesEqual(permanentStreet2, currentPermanentStreet2))
+            ValidateAddressText(permanentStreet2, "Permanent Address Street 2", required: false);
+        if (!ValuesEqual(permanentCity, currentPermanentCity))
+            ValidateAddressText(permanentCity, "Permanent City", required: false);
+        if (!ValuesEqual(permanentPollingDivision, currentPermanentPollingDivision))
+            ValidateAddressText(permanentPollingDivision, "Permanent Polling Division", required: false);
+        if (!ValuesEqual(permanentZipPostalCode, currentPermanentZipPostalCode))
+            ValidatePostalCode(permanentZipPostalCode, "Permanent Zip/Postal Code", required: false);
+        if (!ValuesEqual(permanentDistanceToOffice, currentPermanentDistanceToOffice))
+            ValidateDistanceKm(permanentDistanceToOffice, "Permanent Distance to Office (KM)", required: false);
     }
 
     public static void ValidateEmployeeImportAddressFields(
