@@ -635,7 +635,7 @@ export default function PeoplePage() {
       <CreateEmployeeModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        onCreated={() => { loadEmployees(appliedFilters, page, statusFilter, sortBy, sortAsc); }}
+        onCreated={() => { loadEmployees(appliedFilters, page, listPageSize, statusFilter, sortBy, sortAsc); }}
       />
       )}
 
