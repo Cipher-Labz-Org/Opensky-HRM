@@ -4,6 +4,7 @@ import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
+import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { FormSelect, TablePagination, FormErrorAlert, UsernameInput, EmailInput, type FormSelectOption } from "@/components/ui";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { useAuth } from "@/contexts/auth-context";
@@ -865,6 +866,7 @@ const SCOPES = [
 const SCOPE_FORM_OPTIONS: FormSelectOption[] = SCOPES.map((s) => ({ value: s.key, label: s.label }));
 
 function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSaved: () => void }) {
+  const [showCreateRole, setShowCreateRole] = useState(false);
   const [modules, setModules] = useState<{ module: string; label: string }[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string>("");
   const [permissions, setPermissions] = useState<Record<string, Record<string, { enabled: boolean; scope: string }>>>({});
@@ -941,11 +943,17 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   }
 
   return (
-    <div className={`${panelClass} overflow-hidden`}>
-      <div className="border-b border-slate-100 px-6 py-4">
-        <h2 className="text-base font-semibold text-slate-800">Roles & permissions</h2>
-        <p className="mt-1 text-xs text-slate-500">Configure which menus and actions each role can access. Read = menu visibility.</p>
-      </div>
+    <>
+      <div className={`${panelClass} overflow-hidden`}>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-800">Roles & permissions</h2>
+            <p className="mt-1 text-xs text-slate-500">Configure which menus and actions each role can access. Read = menu visibility.</p>
+          </div>
+          <Button type="button" onClick={() => setShowCreateRole(true)}>
+            + New Security Role
+          </Button>
+        </div>
       <div className="flex flex-col lg:flex-row min-h-[400px]">
         <div className="w-full lg:w-56 border-b lg:border-b-0 lg:border-r border-slate-100 p-4">
           <div className="mb-2">
@@ -1029,6 +1037,12 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
           )}
         </div>
       </div>
-    </div>
+      </div>
+      <CreateRoleModal
+        open={showCreateRole}
+        onClose={() => setShowCreateRole(false)}
+        onCreated={() => void onSaved()}
+      />
+    </>
   );
 }

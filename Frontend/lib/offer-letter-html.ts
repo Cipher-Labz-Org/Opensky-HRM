@@ -1,5 +1,5 @@
 import { getAssetBaseUrl } from "@/config/constants";
-import { resolveCompanyLogoSrc, type CompanyBranding } from "@/lib/company-branding";
+import { resolveCompanyLogoSrc, isPdfLogoUrl, type CompanyBranding } from "@/lib/company-branding";
 
 const OFFER_HEADER_GRADIENT =
   "background: linear-gradient(90deg, #1a3a6e 0%, #1e4a8c 50%, #2e78e6 100%); padding: 28px 36px; color: white;";
@@ -17,9 +17,10 @@ function escapeHtmlText(value: string): string {
 }
 
 export function buildOfferLetterHeaderHtml(logoSrc: string | null, companyName: string): string {
-  const logoBlock = logoSrc
-    ? `<img src="${escapeHtmlAttr(logoSrc)}" alt="${escapeHtmlAttr(`${companyName} logo`)}" style="height: 80px; max-width: 200px; width: auto; object-fit: contain; display: block; flex-shrink: 0;" />`
-    : "";
+  const logoBlock =
+    logoSrc && !isPdfLogoUrl(logoSrc)
+      ? `<img src="${escapeHtmlAttr(logoSrc)}" alt="${escapeHtmlAttr(`${companyName} logo`)}" style="height: 80px; max-width: 200px; width: auto; object-fit: contain; display: block; flex-shrink: 0;" />`
+      : "";
 
   return `<div style="display: flex; align-items: center; gap: 24px;">
     ${logoBlock}

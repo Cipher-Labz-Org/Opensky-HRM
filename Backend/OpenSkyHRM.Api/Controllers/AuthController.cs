@@ -45,10 +45,25 @@ public class AuthController : ControllerBase
         {
             var companyName = (await _systemSettings.GetAsync("CompanyName") ?? "").Trim();
             var logo = (await _systemSettings.GetAsync("CompanyLogoUrl") ?? "").Trim();
+            var scaleRaw = (await _systemSettings.GetAsync("CompanyLogoLoginScale") ?? "").Trim();
+            var offsetXRaw = (await _systemSettings.GetAsync("CompanyLogoLoginOffsetX") ?? "").Trim();
+            var offsetYRaw = (await _systemSettings.GetAsync("CompanyLogoLoginOffsetY") ?? "").Trim();
+            var fitRaw = (await _systemSettings.GetAsync("CompanyLogoLoginFit") ?? "").Trim().ToLowerInvariant();
+            _ = int.TryParse(scaleRaw, out var scale);
+            _ = int.TryParse(offsetXRaw, out var offsetX);
+            _ = int.TryParse(offsetYRaw, out var offsetY);
+            if (scale < 20 || scale > 500) scale = 100;
+            if (offsetX < -80 || offsetX > 80) offsetX = 0;
+            if (offsetY < -80 || offsetY > 80) offsetY = 0;
+            var fit = fitRaw == "cover" ? "cover" : "contain";
             return Ok(new
             {
                 companyName = string.IsNullOrEmpty(companyName) ? "OpenSky HRM" : companyName,
-                companyLogoUrl = string.IsNullOrEmpty(logo) ? null : logo
+                companyLogoUrl = string.IsNullOrEmpty(logo) ? null : logo,
+                loginLogoScale = scale,
+                loginLogoOffsetX = offsetX,
+                loginLogoOffsetY = offsetY,
+                loginLogoFit = fit,
             });
         }
         catch (Exception ex)

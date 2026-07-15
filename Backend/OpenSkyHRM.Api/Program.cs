@@ -361,6 +361,17 @@ if (dbAvailable)
     {
         Console.WriteLine($"WARNING: Licensing defaults could not be ensured: {ex.Message}");
     }
+
+    try
+    {
+        using var letterScope = app.Services.CreateScope();
+        var letterDb = letterScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await DocumentTemplateSeeder.EnsureLetterPackAsync(letterDb);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Letter templates could not be ensured: {ex.Message}");
+    }
 }
 
 // Birthday digest: run once at startup so the bell is not empty until Hangfire's daily cron.

@@ -66,21 +66,32 @@ public class SystemSettingsController : ControllerBase
         if (file is null || file.Length == 0)
             return BadRequest(new { error = "No file uploaded." });
 
-        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml" };
-        if (!allowedTypes.Contains(file.ContentType.ToLower()))
-            return BadRequest(new { error = "Only JPEG, PNG, WebP, GIF and SVG images are allowed." });
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (string.IsNullOrEmpty(ext))
+            ext = file.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ? ".pdf" : ".png";
+
+        var contentType = (file.ContentType ?? "").Trim().ToLowerInvariant();
+        var allowedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml", "application/pdf",
+        };
+        var allowedByExtension = ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" or ".svg" or ".pdf";
+
+        if (!allowedTypes.Contains(contentType) && !allowedByExtension)
+            return BadRequest(new { error = "Only JPEG, PNG, WebP, GIF, SVG images and PDF files are allowed." });
+
+        if (ext == ".pdf" && contentType is "" or "application/octet-stream")
+            contentType = "application/pdf";
 
         if (file.Length > 5 * 1024 * 1024)
             return BadRequest(new { error = "File size must be less than 5 MB." });
 
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (string.IsNullOrEmpty(ext)) ext = ".png";
         var fileName = $"company_logo_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
         var logoUrl = _files.BuildLogicalPath("branding", fileName);
 
         await using (var stream = file.OpenReadStream())
         {
-            await _files.SaveAsync(logoUrl, stream, file.ContentType);
+            await _files.SaveAsync(logoUrl, stream, contentType);
         }
 
         await _service.SetAsync("CompanyLogoUrl", logoUrl);
