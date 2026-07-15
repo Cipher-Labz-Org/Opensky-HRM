@@ -27,11 +27,21 @@ public class AnalyticsService : IAnalyticsService
     private static bool IsTerminated(string status) =>
         string.Equals(status, nameof(EmployeeStatus.Terminated), StringComparison.OrdinalIgnoreCase);
 
-    public async Task<HeadcountAnalyticsDto> GetHeadcountAnalyticsAsync(CancellationToken cancellationToken = default)
+    public async Task<HeadcountAnalyticsDto> GetHeadcountAnalyticsAsync(
+        IReadOnlyList<Guid>? allowedEmployeeIds = null,
+        CancellationToken cancellationToken = default)
     {
         var today = DateTime.UtcNow.Date;
-        var rows = await _db.Employees
-            .AsNoTracking()
+        var employeeQuery = _db.Employees.AsNoTracking().AsQueryable();
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                employeeQuery = employeeQuery.Where(_ => false);
+            else
+                employeeQuery = employeeQuery.Where(e => allowedEmployeeIds.Contains(e.Id));
+        }
+
+        var rows = await employeeQuery
             .Select(e => new
             {
                 e.Status,
@@ -41,12 +51,21 @@ public class AnalyticsService : IAnalyticsService
             })
             .ToListAsync(cancellationToken);
 
-        var onLeave = await _db.LeaveRequests
+        var leaveQuery = _db.LeaveRequests
             .AsNoTracking()
             .Where(r => !r.IsDeleted
                         && r.Status == ApprovalStatus.Approved
                         && r.StartDate.Date <= today
-                        && r.EndDate.Date >= today)
+                        && r.EndDate.Date >= today);
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                leaveQuery = leaveQuery.Where(_ => false);
+            else
+                leaveQuery = leaveQuery.Where(r => allowedEmployeeIds.Contains(r.EmployeeId));
+        }
+
+        var onLeave = await leaveQuery
             .Select(r => r.EmployeeId)
             .Distinct()
             .CountAsync(cancellationToken);
@@ -86,9 +105,11 @@ public class AnalyticsService : IAnalyticsService
             })
             .ToListAsync(cancellationToken);
 
-    public async Task<ExecutiveDashboardDto> GetExecutiveDashboardAsync(CancellationToken cancellationToken = default)
+    public async Task<ExecutiveDashboardDto> GetExecutiveDashboardAsync(
+        IReadOnlyList<Guid>? allowedEmployeeIds = null,
+        CancellationToken cancellationToken = default)
     {
-        var dto = await BuildExecutiveDashboardCoreAsync(cancellationToken);
+        var dto = await BuildExecutiveDashboardCoreAsync(allowedEmployeeIds, cancellationToken);
         dto.GeneratedAtUtc = DateTime.UtcNow;
         dto.SnapshotCapturedAtUtc = null;
         return dto;
@@ -115,7 +136,7 @@ public class AnalyticsService : IAnalyticsService
 
     public async Task RefreshExecutiveDashboardSnapshotAsync(CancellationToken cancellationToken = default)
     {
-        var dto = await BuildExecutiveDashboardCoreAsync(cancellationToken);
+        var dto = await BuildExecutiveDashboardCoreAsync(allowedEmployeeIds: null, cancellationToken);
         dto.GeneratedAtUtc = DateTime.UtcNow;
         dto.SnapshotCapturedAtUtc = null;
         var json = JsonSerializer.Serialize(dto, JsonOpts);
@@ -141,30 +162,65 @@ public class AnalyticsService : IAnalyticsService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<ExecutiveDashboardDto> BuildExecutiveDashboardCoreAsync(CancellationToken cancellationToken)
+    private async Task<ExecutiveDashboardDto> BuildExecutiveDashboardCoreAsync(
+        IReadOnlyList<Guid>? allowedEmployeeIds,
+        CancellationToken cancellationToken)
     {
-        var headcount = await GetHeadcountAnalyticsAsync(cancellationToken);
+        var headcount = await GetHeadcountAnalyticsAsync(allowedEmployeeIds, cancellationToken);
         var active = Math.Max(headcount.ActiveEmployees, 1);
         var today = DateTime.UtcNow.Date;
         var in90 = today.AddDays(90);
 
         var termCutoff = today.AddDays(-90);
-        var terminations90 = await _db.Employees.AsNoTracking()
-            .CountAsync(e => e.Status == nameof(EmployeeStatus.Terminated) && e.TerminationDate >= termCutoff, cancellationToken);
+        var termQuery = _db.Employees.AsNoTracking()
+            .Where(e => e.Status == nameof(EmployeeStatus.Terminated) && e.TerminationDate >= termCutoff);
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                termQuery = termQuery.Where(_ => false);
+            else
+                termQuery = termQuery.Where(e => allowedEmployeeIds.Contains(e.Id));
+        }
 
-        var pendingLeaveApprovals = await _db.LeaveRequests.AsNoTracking()
-            .CountAsync(r => !r.IsDeleted
-                              && (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2),
-                cancellationToken);
+        var terminations90 = await termQuery.CountAsync(cancellationToken);
+
+        var pendingLeaveQuery = _db.LeaveRequests.AsNoTracking()
+            .Where(r => !r.IsDeleted
+                        && (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2));
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                pendingLeaveQuery = pendingLeaveQuery.Where(_ => false);
+            else
+                pendingLeaveQuery = pendingLeaveQuery.Where(r => allowedEmployeeIds.Contains(r.EmployeeId));
+        }
+
+        var pendingLeaveApprovals = await pendingLeaveQuery.CountAsync(cancellationToken);
 
         var immQuery = _db.Immigrations.AsNoTracking().Where(i => !i.IsDeleted && i.ExpiryDate != null);
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                immQuery = immQuery.Where(_ => false);
+            else
+                immQuery = immQuery.Where(i => allowedEmployeeIds.Contains(i.EmployeeId));
+        }
         var immSoon = await immQuery.CountAsync(i => i.ExpiryDate <= in90, cancellationToken);
         var immOverdue = await immQuery.CountAsync(i => i.ExpiryDate < today, cancellationToken);
         var imm30 = await immQuery.CountAsync(i => i.ExpiryDate >= today && i.ExpiryDate <= today.AddDays(30), cancellationToken);
         var imm31_90 = await immQuery.CountAsync(i => i.ExpiryDate > today.AddDays(30) && i.ExpiryDate <= in90, cancellationToken);
 
-        var onboardingOverdue = await _db.OnboardingTasks.AsNoTracking()
-            .CountAsync(t => !t.IsDeleted && !t.IsCompleted && t.DueDate != null && t.DueDate < today, cancellationToken);
+        var onboardingQuery = _db.OnboardingTasks.AsNoTracking()
+            .Where(t => !t.IsDeleted && !t.IsCompleted && t.DueDate != null && t.DueDate < today);
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                onboardingQuery = onboardingQuery.Where(_ => false);
+            else
+                onboardingQuery = onboardingQuery.Where(t => allowedEmployeeIds.Contains(t.EmployeeId));
+        }
+
+        var onboardingOverdue = await onboardingQuery.CountAsync(cancellationToken);
 
         // Strains 0–1 (higher = more operational risk)
         var strainTerm = Math.Min(1d, terminations90 / Math.Max(active * 0.05, 1));
@@ -231,9 +287,9 @@ public class AnalyticsService : IAnalyticsService
                      && c.Stage.ToLower() != "rejected",
                 cancellationToken);
 
-        var payrollMonths = await BuildPayrollLastMonthsAsync(2, cancellationToken);
-        var movement = await BuildHeadcountMovementAsync(6, cancellationToken);
-        var attPulse = await BuildAttendancePulseAsync(today, active, cancellationToken);
+        var payrollMonths = await BuildPayrollLastMonthsAsync(2, allowedEmployeeIds, cancellationToken);
+        var movement = await BuildHeadcountMovementAsync(6, allowedEmployeeIds, cancellationToken);
+        var attPulse = await BuildAttendancePulseAsync(today, active, allowedEmployeeIds, cancellationToken);
 
         return new ExecutiveDashboardDto
         {
@@ -339,10 +395,22 @@ public class AnalyticsService : IAnalyticsService
         },
     ];
 
-    private async Task<List<PayrollMonthSummaryDto>> BuildPayrollLastMonthsAsync(int months, CancellationToken cancellationToken)
+    private async Task<List<PayrollMonthSummaryDto>> BuildPayrollLastMonthsAsync(
+        int months,
+        IReadOnlyList<Guid>? allowedEmployeeIds,
+        CancellationToken cancellationToken)
     {
-        var keys = await _db.PayStatements.AsNoTracking()
-            .Where(p => !p.IsDeleted && p.Status == PayStatementStatus.Finalized)
+        var payQuery = _db.PayStatements.AsNoTracking()
+            .Where(p => !p.IsDeleted && p.Status == PayStatementStatus.Finalized);
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                payQuery = payQuery.Where(_ => false);
+            else
+                payQuery = payQuery.Where(p => allowedEmployeeIds.Contains(p.EmployeeId));
+        }
+
+        var keys = await payQuery
             .GroupBy(p => new { p.Year, p.Month })
             .Select(g => new { g.Key.Year, g.Key.Month })
             .OrderByDescending(x => x.Year)
@@ -378,7 +446,10 @@ public class AnalyticsService : IAnalyticsService
         return list;
     }
 
-    private async Task<List<HeadcountMovementMonthDto>> BuildHeadcountMovementAsync(int monthCount, CancellationToken cancellationToken)
+    private async Task<List<HeadcountMovementMonthDto>> BuildHeadcountMovementAsync(
+        int monthCount,
+        IReadOnlyList<Guid>? allowedEmployeeIds,
+        CancellationToken cancellationToken)
     {
         var start = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(-(monthCount - 1));
         var list = new List<HeadcountMovementMonthDto>();
@@ -386,10 +457,26 @@ public class AnalyticsService : IAnalyticsService
         {
             var y = d.Year;
             var m = d.Month;
-            var joiners = await _db.Employees.AsNoTracking()
-                .CountAsync(e => e.JoinDate.Year == y && e.JoinDate.Month == m, cancellationToken);
-            var terms = await _db.Employees.AsNoTracking()
-                .CountAsync(e => e.TerminationDate != null && e.TerminationDate.Value.Year == y && e.TerminationDate.Value.Month == m, cancellationToken);
+            var joinerQuery = _db.Employees.AsNoTracking()
+                .Where(e => e.JoinDate.Year == y && e.JoinDate.Month == m);
+            var termQuery = _db.Employees.AsNoTracking()
+                .Where(e => e.TerminationDate != null && e.TerminationDate.Value.Year == y && e.TerminationDate.Value.Month == m);
+            if (allowedEmployeeIds != null)
+            {
+                if (allowedEmployeeIds.Count == 0)
+                {
+                    joinerQuery = joinerQuery.Where(_ => false);
+                    termQuery = termQuery.Where(_ => false);
+                }
+                else
+                {
+                    joinerQuery = joinerQuery.Where(e => allowedEmployeeIds.Contains(e.Id));
+                    termQuery = termQuery.Where(e => allowedEmployeeIds.Contains(e.Id));
+                }
+            }
+
+            var joiners = await joinerQuery.CountAsync(cancellationToken);
+            var terms = await termQuery.CountAsync(cancellationToken);
             list.Add(new HeadcountMovementMonthDto
             {
                 Year = y,
@@ -403,12 +490,24 @@ public class AnalyticsService : IAnalyticsService
         return list;
     }
 
-    private async Task<AttendancePulseDto> BuildAttendancePulseAsync(DateTime todayUtc, int activeBaseline, CancellationToken cancellationToken)
+    private async Task<AttendancePulseDto> BuildAttendancePulseAsync(
+        DateTime todayUtc,
+        int activeBaseline,
+        IReadOnlyList<Guid>? allowedEmployeeIds,
+        CancellationToken cancellationToken)
     {
         var from = todayUtc.AddDays(-14);
-        var absentDays = await _db.AttendanceRecords.AsNoTracking()
-            .Where(a => !a.IsDeleted && a.Date >= from && a.Status != null && a.Status.ToLower() == "absent")
-            .CountAsync(cancellationToken);
+        var absentQuery = _db.AttendanceRecords.AsNoTracking()
+            .Where(a => !a.IsDeleted && a.Date >= from && a.Status != null && a.Status.ToLower() == "absent");
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                absentQuery = absentQuery.Where(_ => false);
+            else
+                absentQuery = absentQuery.Where(a => allowedEmployeeIds.Contains(a.EmployeeId));
+        }
+
+        var absentDays = await absentQuery.CountAsync(cancellationToken);
         return new AttendancePulseDto
         {
             AbsentMarkedDaysLast14 = absentDays,

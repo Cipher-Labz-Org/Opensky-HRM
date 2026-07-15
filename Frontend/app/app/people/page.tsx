@@ -8,6 +8,7 @@ import { FormSelect, TablePagination, type FormSelectOption } from "@/components
 import { CreateEmployeeModal } from "@/components/forms/CreateEmployeeModal";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
+import { filterLookupsByAllowedIds } from "@/lib/people-scope-filters";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
@@ -199,12 +200,6 @@ export default function PeoplePage() {
     () => employmentTypeFilterOptions(employmentTypes),
     [employmentTypes]
   );
-
-  function filterLookupsByAllowedIds(items: Lookup[], allowedIds: string[] | undefined): Lookup[] {
-    if (!allowedIds?.length) return items;
-    const allowed = new Set(allowedIds);
-    return items.filter((item) => allowed.has(item.id));
-  }
 
   const visibleLocations = useMemo(
     () => filterLookupsByAllowedIds(locations, user?.assignedLocationIds),

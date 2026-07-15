@@ -166,6 +166,39 @@ public static class PeopleAccessHelper
     }
 
     /// <summary>
+    /// Returns employee IDs matching the user's dimension assignments, or null when no dimension restrictions exist.
+    /// </summary>
+    public static async Task<IReadOnlyList<Guid>?> GetDimensionFilteredEmployeeIdsAsync(
+        ClaimsPrincipal user,
+        AppDbContext db)
+    {
+        var assignedLocs = await GetAssignedLocationIdsAsync(user, db);
+        var assignedBus = await GetAssignedBusinessUnitIdsAsync(user, db);
+        var assignedGrades = await GetAssignedGradeIdsAsync(user, db);
+        var assignedJobTitles = await GetAssignedJobTitleIdsAsync(user, db);
+
+        return await BuildDimensionFilteredEmployeeIdsAsync(
+            db, assignedLocs, assignedBus, assignedGrades, assignedJobTitles);
+    }
+
+    /// <summary>
+    /// Combines two employee scope layers. Null means unrestricted for that layer; both lists are intersected.
+    /// </summary>
+    public static IReadOnlyList<Guid>? IntersectEmployeeScopes(
+        IReadOnlyList<Guid>? rbacScopeIds,
+        IReadOnlyList<Guid>? dimensionScopeIds)
+    {
+        if (dimensionScopeIds != null)
+        {
+            if (rbacScopeIds == null)
+                return dimensionScopeIds;
+            return rbacScopeIds.Where(id => dimensionScopeIds.Contains(id)).ToList();
+        }
+
+        return rbacScopeIds;
+    }
+
+    /// <summary>
     /// Resolves RBAC People scope (Own / Team / All). Returns null for unrestricted RBAC scope (All / ADMIN).
     /// </summary>
     private static async Task<IReadOnlyList<Guid>?> ResolveRbacScopeIdsAsync(
@@ -220,14 +253,7 @@ public static class PeopleAccessHelper
 
         var scopeIds = await ResolveRbacScopeIdsAsync(user, db, action);
 
-        if (dimensionIds != null)
-        {
-            if (scopeIds == null)
-                return dimensionIds;
-            return scopeIds.Where(id => dimensionIds.Contains(id)).ToList();
-        }
-
-        return scopeIds;
+        return IntersectEmployeeScopes(scopeIds, dimensionIds);
     }
 
     public static string ResolvePeopleScope(IEnumerable<string> permissions, string action)

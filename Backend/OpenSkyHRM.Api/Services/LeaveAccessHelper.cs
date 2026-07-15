@@ -5,7 +5,7 @@ using OpenSkyHRM.Persistence;
 namespace OpenSkyHRM.Api.Services;
 
 /// <summary>
-/// Resolves Leave module scope (Own, Team, All) from JWT permissions.
+/// Resolves Leave module scope (Own, Team, All) from JWT permissions, intersected with People dimension assignments.
 /// </summary>
 public static class LeaveAccessHelper
 {
@@ -14,10 +14,25 @@ public static class LeaveAccessHelper
     /// Team uses EmployeeSupervisors (employees who have this user as supervisor).
     /// When excludeSelfForApprovalList is true and scope is Team, returns only direct reports (excludes self)
     /// so supervisors do not see their own leave in the approval list.
+    /// Dimension restrictions from User Management always apply — ADMIN / Leave:All cannot bypass them.
     /// </summary>
     public static async Task<IReadOnlyList<Guid>?> GetAllowedEmployeeIdsAsync(ClaimsPrincipal user, AppDbContext db, string action = "Read", bool excludeSelfForApprovalList = false)
     {
-        if (user.IsInRole("ADMIN"))
+        var leaveRbacIds = await ResolveLeaveRbacScopeIdsAsync(user, db, action, excludeSelfForApprovalList);
+        var dimensionIds = await PeopleAccessHelper.GetDimensionFilteredEmployeeIdsAsync(user, db);
+        return PeopleAccessHelper.IntersectEmployeeScopes(leaveRbacIds, dimensionIds);
+    }
+
+    /// <summary>
+    /// Resolves Leave RBAC scope only (no dimension filtering). Returns null for unrestricted Leave scope (All / ADMIN).
+    /// </summary>
+    private static async Task<IReadOnlyList<Guid>?> ResolveLeaveRbacScopeIdsAsync(
+        ClaimsPrincipal user,
+        AppDbContext db,
+        string action,
+        bool excludeSelfForApprovalList)
+    {
+        if (UserHasRole(user, "ADMIN"))
             return null;
 
         var scope = ResolveScope(user, action);
@@ -38,7 +53,7 @@ public static class LeaveAccessHelper
                 .Select(es => es.EmployeeId)
                 .ToListAsync();
             if (excludeSelfForApprovalList)
-                return teamIds; // Only direct reports; supervisor's own leave goes to their supervisor
+                return teamIds;
             return teamIds.Union(new[] { currentId.Value }).ToList();
         }
 
@@ -71,7 +86,11 @@ public static class LeaveAccessHelper
             if (string.Equals(c.Value, roleCode, StringComparison.OrdinalIgnoreCase)) return true;
         foreach (var c in user.FindAll("role"))
             if (string.Equals(c.Value, roleCode, StringComparison.OrdinalIgnoreCase)) return true;
-        // Display names sometimes appear on legacy tokens or mapped claims
+        if (string.Equals(roleCode, "ADMIN", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var c in user.FindAll(ClaimTypes.Role).Concat(user.FindAll("role")))
+                if (string.Equals(c.Value, "Admin", StringComparison.OrdinalIgnoreCase)) return true;
+        }
         if (string.Equals(roleCode, "SUPERVISOR", StringComparison.OrdinalIgnoreCase))
         {
             foreach (var c in user.FindAll(ClaimTypes.Role).Concat(user.FindAll("role")))
@@ -83,7 +102,7 @@ public static class LeaveAccessHelper
 
     public static string ResolveScope(ClaimsPrincipal user, string action = "Read")
     {
-        if (user.IsInRole("ADMIN"))
+        if (UserHasRole(user, "ADMIN"))
             return "All";
 
         var permissions = user.FindAll("permission").Select(c => c.Value).ToList();

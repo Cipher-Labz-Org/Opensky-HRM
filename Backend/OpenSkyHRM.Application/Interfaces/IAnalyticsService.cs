@@ -4,11 +4,15 @@ namespace OpenSkyHRM.Application.Interfaces;
 
 public interface IAnalyticsService
 {
-    Task<HeadcountAnalyticsDto> GetHeadcountAnalyticsAsync(CancellationToken cancellationToken = default);
+    Task<HeadcountAnalyticsDto> GetHeadcountAnalyticsAsync(
+        IReadOnlyList<Guid>? allowedEmployeeIds = null,
+        CancellationToken cancellationToken = default);
 
     Task<List<ReportDefinitionDto>> GetReportsAsync(CancellationToken cancellationToken = default);
 
-    Task<ExecutiveDashboardDto> GetExecutiveDashboardAsync(CancellationToken cancellationToken = default);
+    Task<ExecutiveDashboardDto> GetExecutiveDashboardAsync(
+        IReadOnlyList<Guid>? allowedEmployeeIds = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Last nightly JSON snapshot; null if never captured.</summary>
     Task<ExecutiveDashboardDto?> GetCachedExecutiveDashboardAsync(CancellationToken cancellationToken = default);

@@ -94,14 +94,20 @@ public class RosterController : ControllerBase
         [FromQuery] Guid? rosterTemplateId,
         [FromQuery] DateTime? effectiveDate)
     {
-        return Ok(await _rosterService.GetAssignmentsAsync(employeeId, rosterTemplateId, effectiveDate));
+        if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
+            return Forbid();
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        return Ok(await _rosterService.GetAssignmentsAsync(employeeId, rosterTemplateId, effectiveDate, allowedIds));
     }
 
     [HttpGet("assignments/{id:guid}")]
     public async Task<IActionResult> GetAssignment(Guid id)
     {
         var a = await _rosterService.GetAssignmentByIdAsync(id);
-        return a is null ? NotFound() : Ok(a);
+        if (a is null) return NotFound();
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, a.EmployeeId, "Read"))
+            return Forbid();
+        return Ok(a);
     }
 
     [HttpPost("assignments/bulk")]

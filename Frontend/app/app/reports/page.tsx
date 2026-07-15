@@ -12,6 +12,8 @@ import { formatInt } from "@/lib/workspace-charts";
 import { getReportIconPaths } from "@/lib/report-icons";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { getApiBaseUrl } from "@/config/constants";
+import { useAuth } from "@/contexts/auth-context";
+import { filterLookupsByAllowedIds } from "@/lib/people-scope-filters";
 
 interface ReportItem {
   key: string;
@@ -252,6 +254,7 @@ export default function ReportsPage() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuth();
   const [catalog, setCatalog] = useState<ReportCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [selectedReport, setSelectedReport] = useState<string>("");
@@ -290,6 +293,11 @@ export default function ReportsPage() {
       .then((rows) => setLocations(Array.isArray(rows) ? rows.map((l) => ({ id: l.id, name: l.name })) : []))
       .catch(() => setLocations([]));
   }, []);
+
+  const visibleLocations = useMemo(
+    () => filterLookupsByAllowedIds(locations, user?.assignedLocationIds),
+    [locations, user?.assignedLocationIds],
+  );
 
   function syncFilterInputsFromParams(params: Record<string, string>) {
     setFilterDepartmentId(params.departmentId ?? "");
@@ -714,7 +722,7 @@ export default function ReportsPage() {
                     placeholder="All locations"
                     options={[
                       { value: "", label: "All locations" },
-                      ...locations.map((l) => ({ value: l.id, label: l.name })),
+                      ...visibleLocations.map((l) => ({ value: l.id, label: l.name })),
                     ]}
                   />
                 </div>
