@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Api.Helpers;
+using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
@@ -24,7 +26,13 @@ public class ReportsController : ControllerBase
     };
 
     private readonly IReportService _reportService;
-    public ReportsController(IReportService reportService) { _reportService = reportService; }
+    private readonly AppDbContext _db;
+
+    public ReportsController(IReportService reportService, AppDbContext db)
+    {
+        _reportService = reportService;
+        _db = db;
+    }
 
     [HttpGet("catalog")]
     public IActionResult GetCatalog() => Ok(_reportService.GetReportCatalog());
@@ -34,7 +42,8 @@ public class ReportsController : ControllerBase
     {
         try
         {
-            var result = await _reportService.RunReportAsync(category, reportKey, filters);
+            var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+            var result = await _reportService.RunReportAsync(category, reportKey, filters, allowedIds);
             return new JsonResult(result, ReportJsonOptions);
         }
         catch (Exception ex)
@@ -46,7 +55,8 @@ public class ReportsController : ControllerBase
     [HttpGet("{category}/{reportKey}/csv")]
     public async Task<IActionResult> ExportCsv(string category, string reportKey, [FromQuery] Dictionary<string, string>? filters = null)
     {
-        var result = await _reportService.RunReportAsync(category, reportKey, filters);
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var result = await _reportService.RunReportAsync(category, reportKey, filters, allowedIds);
         var sb = new StringBuilder();
         sb.AppendLine(string.Join(",", result.Columns.Select(EscapeCsv)));
         foreach (var row in result.Rows)
@@ -58,7 +68,8 @@ public class ReportsController : ControllerBase
     [HttpGet("{category}/{reportKey}/xlsx")]
     public async Task<IActionResult> ExportXlsx(string category, string reportKey, [FromQuery] Dictionary<string, string>? filters = null)
     {
-        var result = await _reportService.RunReportAsync(category, reportKey, filters);
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var result = await _reportService.RunReportAsync(category, reportKey, filters, allowedIds);
         var bytes = ReportExcelExport.BuildWorkbook(result);
         var filename = $"{result.ReportName.Replace(" ", "_")}_{DateTime.UtcNow:yyyy-MM-dd}.xlsx";
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename);

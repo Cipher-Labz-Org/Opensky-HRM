@@ -89,8 +89,12 @@ public class LeaveService : ILeaveService
             .Include(r => r.Level2Approver)
             .AsQueryable();
 
-        if (allowedEmployeeIds != null && allowedEmployeeIds.Count > 0)
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                return new PagedResult<LeaveRequestDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
             query = query.Where(r => allowedEmployeeIds.Contains(r.EmployeeId));
+        }
 
         if (excludeEmployeeId.HasValue)
             query = query.Where(r => r.EmployeeId != excludeEmployeeId.Value);

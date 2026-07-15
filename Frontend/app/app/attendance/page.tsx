@@ -14,6 +14,7 @@ import { formatBusinessTime, formatDate, formatDateTime } from "@/lib/date-utils
 import { formatLocalDateToIso, applyFromDateInRange, applyToDateInRange, isValidIsoDateRange } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import { useApplyFilter } from "@/lib/use-apply-filter";
+import { usePeopleScopedLookups } from "@/lib/people-scope-filters";
 
 // ──────────────────────────── Tabs ────────────────────────────
 
@@ -856,6 +857,7 @@ interface AttendanceRecord {
 }
 
 function AttendanceListTab() {
+  const { filterLocations } = usePeopleScopedLookups();
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -898,9 +900,11 @@ function AttendanceListTab() {
     [departments]
   );
 
+  const visibleLocations = useMemo(() => filterLocations(locations), [filterLocations, locations]);
+
   const locationOptions = useMemo<FormSelectOption[]>(
-    () => [{ value: "", label: "All locations" }, ...locations.map((l) => ({ value: l.id, label: l.name }))],
-    [locations]
+    () => [{ value: "", label: "All locations" }, ...visibleLocations.map((l) => ({ value: l.id, label: l.name }))],
+    [visibleLocations]
   );
 
   const advancedFilterCount = useMemo(

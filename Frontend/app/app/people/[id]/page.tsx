@@ -27,6 +27,7 @@ import {
 import { API_BASE_URL, getApiBaseUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
+import { usePeopleScopedLookups } from "@/lib/people-scope-filters";
 import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
 import { EmployeeTimesheetsWidget } from "@/components/employee-profile/EmployeeTimesheetsWidget";
 import {
@@ -901,6 +902,7 @@ export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { hasPermission, isAdmin } = useAuth();
+  const { filterLocations, filterBusinessUnits, filterGrades, filterJobTitles } = usePeopleScopedLookups();
 
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -966,6 +968,10 @@ export default function EmployeeDetailPage() {
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [grades, setGrades] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
+  const visibleJobTitles = useMemo(() => filterJobTitles(jobTitles), [filterJobTitles, jobTitles]);
+  const visibleBusinessUnits = useMemo(() => filterBusinessUnits(businessUnits), [filterBusinessUnits, businessUnits]);
+  const visibleGrades = useMemo(() => filterGrades(grades), [filterGrades, grades]);
+  const visibleLocations = useMemo(() => filterLocations(locations), [filterLocations, locations]);
   const [employeeStatuses, setEmployeeStatuses] = useState<StatusLookup[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   /** Job tab dates — controlled so the pickers stay editable when parent re-renders (defaultValue-only pickers could appear stuck). */
@@ -4655,12 +4661,12 @@ export default function EmployeeDetailPage() {
                 <div><label className={labelClass}>Joined Date *</label><DatePickerField name="joinDate" required className={inputClass} value={jobFormJoinDate} onChange={setJobFormJoinDate} /></div>
                 <div><label className={labelClass}>Probation End Date</label><DatePickerField name="probationEndDate" className={inputClass} value={jobFormProbationEnd} onChange={setJobFormProbationEnd} /></div>
                 <div><label className={labelClass}>Date of Permanency</label><DatePickerField name="dateOfPermanency" className={inputClass} value={jobFormPermanency} onChange={setJobFormPermanency} /></div>
-                <div><label className={labelClass}>Job Title</label><FormSelect name="jobTitleId" defaultValue={emp.jobTitleId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...jobTitles.map((j) => ({ value: j.id, label: j.name }))]} /></div>
+                <div><label className={labelClass}>Job Title</label><FormSelect name="jobTitleId" defaultValue={emp.jobTitleId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleJobTitles.map((j) => ({ value: j.id, label: j.name }))]} /></div>
                 <div><label className={labelClass}>Department *</label><FormSelect name="departmentId" required defaultValue={emp.departmentId} options={departments.map((d) => ({ value: d.id, label: d.name }))} /></div>
                 <div><label className={labelClass}>Employment Type *</label><FormSelect name="employmentType" required defaultValue={emp.employmentType} options={jobEmploymentTypeSelectOptions} /></div>
-                <div><label className={labelClass}>Business Unit</label><FormSelect name="businessUnitId" defaultValue={emp.businessUnitId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...businessUnits.map((b) => ({ value: b.id, label: b.name }))]} /></div>
-                <div><label className={labelClass}>Grade</label><FormSelect name="gradeId" defaultValue={emp.gradeId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...grades.map((g) => ({ value: g.id, label: g.name }))]} /></div>
-                <div><label className={labelClass}>Location</label><FormSelect name="locationId" defaultValue={emp.locationId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...locations.map((l) => ({ value: l.id, label: l.name }))]} /></div>
+                <div><label className={labelClass}>Business Unit</label><FormSelect name="businessUnitId" defaultValue={emp.businessUnitId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleBusinessUnits.map((b) => ({ value: b.id, label: b.name }))]} /></div>
+                <div><label className={labelClass}>Grade</label><FormSelect name="gradeId" defaultValue={emp.gradeId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleGrades.map((g) => ({ value: g.id, label: g.name }))]} /></div>
+                <div><label className={labelClass}>Location</label><FormSelect name="locationId" defaultValue={emp.locationId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleLocations.map((l) => ({ value: l.id, label: l.name }))]} /></div>
               </div>
               {/* Hidden fields */}
               <input type="hidden" name="firstName" value={emp.firstName} />

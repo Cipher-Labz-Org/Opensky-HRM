@@ -111,7 +111,11 @@ public class RosterService : IRosterService
         return true;
     }
 
-    public async Task<List<RosterAssignmentDto>> GetAssignmentsAsync(Guid? employeeId = null, Guid? rosterTemplateId = null, DateTime? effectiveDate = null)
+    public async Task<List<RosterAssignmentDto>> GetAssignmentsAsync(
+        Guid? employeeId = null,
+        Guid? rosterTemplateId = null,
+        DateTime? effectiveDate = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
         var query = _db.Set<RosterAssignment>()
             .Include(a => a.Employee)
@@ -125,6 +129,13 @@ public class RosterService : IRosterService
         {
             var d = effectiveDate.Value.Date;
             query = query.Where(a => a.EffectiveFrom <= d && (a.EffectiveTo == null || a.EffectiveTo >= d));
+        }
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                query = query.Where(_ => false);
+            else
+                query = query.Where(a => allowedEmployeeIds.Contains(a.EmployeeId));
         }
 
         return await query

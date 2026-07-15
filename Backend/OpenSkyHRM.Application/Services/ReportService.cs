@@ -10,6 +10,8 @@ namespace OpenSkyHRM.Application.Services;
 public class ReportService : IReportService
 {
     private readonly AppDbContext _db;
+    private IReadOnlyList<Guid>? _allowedEmployeeIds;
+
     public ReportService(AppDbContext db) { _db = db; }
 
     public List<ReportCategoryDto> GetReportCatalog()
@@ -189,8 +191,13 @@ public class ReportService : IReportService
         Tag("compliance", "offboarding-status", true, "none");
     }
 
-    public async Task<ReportResultDto> RunReportAsync(string category, string reportKey, Dictionary<string, string>? filters = null)
+    public async Task<ReportResultDto> RunReportAsync(
+        string category,
+        string reportKey,
+        Dictionary<string, string>? filters = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
+        _allowedEmployeeIds = allowedEmployeeIds;
         var fullKey = $"{category}/{reportKey}";
         return fullKey switch
         {
@@ -314,8 +321,25 @@ public class ReportService : IReportService
             || EF.Functions.ILike(e.EmployeeCode, pattern));
     }
 
-    private static IQueryable<Employee> ApplyEmployeeFilters(IQueryable<Employee> q, Dictionary<string, string>? filters)
+    private IQueryable<Employee> ScopedEmployees(IQueryable<Employee> q)
     {
+        if (_allowedEmployeeIds == null) return q;
+        return _allowedEmployeeIds.Count == 0
+            ? q.Where(_ => false)
+            : q.Where(e => _allowedEmployeeIds.Contains(e.Id));
+    }
+
+    private IEnumerable<Employee> ScopedEmployees(IEnumerable<Employee> source)
+    {
+        if (_allowedEmployeeIds == null) return source;
+        if (_allowedEmployeeIds.Count == 0) return Array.Empty<Employee>();
+        var allowed = _allowedEmployeeIds.ToHashSet();
+        return source.Where(e => allowed.Contains(e.Id));
+    }
+
+    private IQueryable<Employee> ApplyEmployeeFilters(IQueryable<Employee> q, Dictionary<string, string>? filters)
+    {
+        q = ScopedEmployees(q);
         if (filters == null) return q;
         if (TryGetDepartmentId(filters, out var deptId))
             q = q.Where(e => e.DepartmentId == deptId);
@@ -326,10 +350,10 @@ public class ReportService : IReportService
         return q;
     }
 
-    private static IEnumerable<Employee> ApplyEmployeeFilters(IEnumerable<Employee> source, Dictionary<string, string>? filters)
+    private IEnumerable<Employee> ApplyEmployeeFilters(IEnumerable<Employee> source, Dictionary<string, string>? filters)
     {
-        if (filters == null) return source;
-        IEnumerable<Employee> q = source;
+        var q = ScopedEmployees(source);
+        if (filters == null) return q;
         if (TryGetDepartmentId(filters, out var deptId))
             q = q.Where(e => e.DepartmentId == deptId);
         if (TryGetLocationId(filters, out var locId))
@@ -345,10 +369,11 @@ public class ReportService : IReportService
 
     private async Task<List<Guid>?> ResolveScopedEmployeeIdsAsync(Dictionary<string, string>? filters)
     {
-        if (!HasEmployeeScopeFilters(filters)) return null;
-        return await ApplyEmployeeFilters(_db.Employees.AsQueryable(), filters)
-            .Select(e => e.Id)
-            .ToListAsync();
+        if (!HasEmployeeScopeFilters(filters) && _allowedEmployeeIds == null)
+            return null;
+
+        var q = ApplyEmployeeFilters(_db.Employees.AsQueryable(), filters);
+        return await q.Select(e => e.Id).ToListAsync();
     }
 
     // ========== PEOPLE ==========
@@ -533,13 +558,10 @@ public class ReportService : IReportService
 
     private async Task<ReportResultDto> HeadcountSummaryReport(Dictionary<string, string>? filters)
     {
-        var all = await _db.Employees.Include(e => e.Department).Include(e => e.BusinessUnit).ToListAsync();
+        var allQuery = ScopedEmployees(_db.Employees.Include(e => e.Department).Include(e => e.BusinessUnit).AsQueryable());
+        var all = await allQuery.ToListAsync();
+        all = ApplyEmployeeFilters(all, filters).ToList();
         var active = all.Where(e => e.Status != "Terminated").ToList();
-        if (HasEmployeeScopeFilters(filters))
-        {
-            all = ApplyEmployeeFilters(all, filters).ToList();
-            active = all.Where(e => e.Status != "Terminated").ToList();
-        }
 
         var rows = new List<Dictionary<string, object?>>
         {
