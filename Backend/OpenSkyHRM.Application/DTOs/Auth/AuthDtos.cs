@@ -80,6 +80,8 @@ public class CreateUserDto
     public List<Guid>? AssignedBusinessUnitIds { get; set; }
     public List<Guid>? AssignedGradeIds { get; set; }
     public List<Guid>? AssignedJobTitleIds { get; set; }
+    /// <summary>When true, user must change password before using the app.</summary>
+    public bool MustChangePassword { get; set; }
 }
 
 public class UpdateUserDto

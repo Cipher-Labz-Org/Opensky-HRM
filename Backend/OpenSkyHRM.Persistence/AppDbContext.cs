@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<EmployeeSkill> EmployeeSkills => Set<EmployeeSkill>();
     public DbSet<EmployeeLanguage> EmployeeLanguages => Set<EmployeeLanguage>();
     public DbSet<EmployeeBenefit> EmployeeBenefits => Set<EmployeeBenefit>();
+    public DbSet<EmployeeDriverLicense> EmployeeDriverLicenses => Set<EmployeeDriverLicense>();
     public DbSet<Immigration> Immigrations => Set<Immigration>();
     public DbSet<ImmigrationDocument> ImmigrationDocuments => Set<ImmigrationDocument>();
     public DbSet<WorkExperience> WorkExperiences => Set<WorkExperience>();

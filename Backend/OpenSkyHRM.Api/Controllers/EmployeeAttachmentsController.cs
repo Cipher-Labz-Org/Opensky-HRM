@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Domain.Entities;
@@ -12,17 +13,17 @@ namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
-[RequireLicensedModule("People")]
+[RequireLicensedModuleAny("People", "Employee360")]
 [Route("api/employees/{employeeId:guid}/attachments")]
 public class EmployeeAttachmentsController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly IWebHostEnvironment _env;
+    private readonly IFileStorageService _files;
 
-    public EmployeeAttachmentsController(AppDbContext db, IWebHostEnvironment env)
+    public EmployeeAttachmentsController(AppDbContext db, IFileStorageService files)
     {
         _db = db;
-        _env = env;
+        _files = files;
     }
 
     private static EmployeeAttachmentDto MapToDto(EmployeeAttachment a) => new()
@@ -182,16 +183,13 @@ public class EmployeeAttachmentsController : ControllerBase
         var employee = await _db.Employees.FindAsync(employeeId);
         if (employee is null) return NotFound();
 
-        var uploadsDir = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads", "attachments");
-        Directory.CreateDirectory(uploadsDir);
-
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         var storedName = $"{employeeId}_{Guid.NewGuid():N}{ext}";
-        var filePath = Path.Combine(uploadsDir, storedName);
+        var logicalPath = _files.BuildLogicalPath("attachments", storedName);
 
-        await using (var stream = new FileStream(filePath, FileMode.Create))
+        await using (var stream = file.OpenReadStream())
         {
-            await file.CopyToAsync(stream);
+            await _files.SaveAsync(logicalPath, stream, file.ContentType ?? "application/octet-stream");
         }
 
         var attachment = new EmployeeAttachment
@@ -225,11 +223,11 @@ public class EmployeeAttachmentsController : ControllerBase
 
         if (attachment is null) return NotFound();
 
-        var filePath = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads", "attachments", attachment.StoredFileName);
-        if (!System.IO.File.Exists(filePath)) return NotFound(new { error = "File not found on disk." });
+        var logicalPath = _files.BuildLogicalPath("attachments", attachment.StoredFileName);
+        var stored = await _files.OpenReadAsync(logicalPath);
+        if (stored is null) return NotFound(new { error = "File not found." });
 
-        var bytes = await System.IO.File.ReadAllBytesAsync(filePath);
-        return File(bytes, attachment.ContentType, attachment.FileName);
+        return File(stored.Stream, stored.ContentType ?? attachment.ContentType, attachment.FileName);
     }
 
     [HttpPut("{attachmentId:guid}")]

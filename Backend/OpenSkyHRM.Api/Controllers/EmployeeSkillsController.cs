@@ -47,11 +47,20 @@ public class EmployeeSkillsController : ControllerBase
         var employee = await _db.Employees.FindAsync(employeeId);
         if (employee is null) return NotFound();
 
+        try
+        {
+            ValidateSkillRequest(req);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
         var skill = new EmployeeSkill
         {
             EmployeeId = employeeId,
-            Skill = req.Skill,
-            YearsOfExperience = req.YearsOfExperience,
+            Skill = req.Skill.Trim(),
+            YearsOfExperience = req.YearsOfExperience!.Trim(),
             Comments = req.Comments,
         };
 
@@ -71,8 +80,17 @@ public class EmployeeSkillsController : ControllerBase
 
         if (skill is null) return NotFound();
 
-        skill.Skill = req.Skill;
-        skill.YearsOfExperience = req.YearsOfExperience;
+        try
+        {
+            ValidateSkillRequest(req);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
+        skill.Skill = req.Skill.Trim();
+        skill.YearsOfExperience = req.YearsOfExperience!.Trim();
         skill.Comments = req.Comments;
         await _db.SaveChangesAsync();
 
@@ -102,6 +120,18 @@ public class EmployeeSkillsController : ControllerBase
         YearsOfExperience = s.YearsOfExperience,
         Comments = s.Comments,
     };
+
+    private static void ValidateSkillRequest(SkillRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Skill))
+            throw new InvalidOperationException("Skill is required.");
+        if (string.IsNullOrWhiteSpace(req.YearsOfExperience))
+            throw new InvalidOperationException("Years of experience is required.");
+        if (!System.Text.RegularExpressions.Regex.IsMatch(req.YearsOfExperience.Trim(), @"^\d+$"))
+            throw new InvalidOperationException("Years of experience must contain numbers only.");
+        if (req.YearsOfExperience.Trim().Length > 20)
+            throw new InvalidOperationException("Years of experience must be 20 characters or fewer.");
+    }
 }
 
 public class SkillDto

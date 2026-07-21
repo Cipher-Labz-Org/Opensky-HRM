@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
@@ -50,18 +50,83 @@ type TransactionalEmailTemplatesContentProps = {
   onTemplatesChange?: (templates: TemplateListItem[]) => void;
 };
 
-const DEFAULT_NEW_EMAIL_HTML = `<!DOCTYPE html>
+const DEFAULT_NEW_EMAIL_BODY = `Hi {{RecipientName}},
+
+Write your message here. You can use {{placeholders}} for dynamic values.
+
+Thank you,
+OpenSky HRM`;
+
+/** Strip tags for easy editing while keeping line breaks and {{placeholders}}. */
+function htmlToEditableText(html: string): string {
+  let raw = html.trim();
+  if (!raw) return "";
+  if (!/<[a-z][\s\S]*>/i.test(raw)) return raw;
+
+  raw = raw
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "");
+
+  let text = raw
+    .replace(/\r\n/g, "\n")
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\s*\/\s*p\s*>/gi, "\n\n")
+    .replace(/<\s*\/\s*div\s*>/gi, "\n")
+    .replace(/<\s*\/\s*h[1-6]\s*>/gi, "\n")
+    .replace(/<\s*li[^>]*>/gi, "• ")
+    .replace(/<\s*\/\s*li\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+
+  text = text
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return text;
+}
+
+function escapeEmailHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Wrap plain body text in a simple HTML email shell for sending. */
+function editableTextToEmailHtml(body: string, title = "OpenSky HRM"): string {
+  const trimmed = body.trim();
+  const paragraphs = trimmed
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const withBreaks = escapeEmailHtml(block).replace(/\n/g, "<br>\n");
+      return `<p style="font-size: 15px; line-height: 1.6; margin: 0 0 16px;">${withBreaks}</p>`;
+    })
+    .join("\n");
+
+  const safeTitle = escapeEmailHtml(title.trim() || "OpenSky HRM");
+
+  return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f6fa;">
   <div style="max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
     <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2B7DE9 100%); padding: 28px 36px; color: white;">
-      <h1 style="margin: 0; font-size: 22px; font-weight: 600;">Your email title</h1>
+      <h1 style="margin: 0; font-size: 22px; font-weight: 600;">${safeTitle}</h1>
       <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">OpenSky HRM</p>
     </div>
     <div style="padding: 28px 36px;">
-      <p style="font-size: 16px; margin: 0 0 16px;">Hi <strong>{{RecipientName}}</strong>,</p>
-      <p style="font-size: 15px; line-height: 1.6; margin: 0;">Write your message here. Use {{placeholders}} for dynamic values.</p>
+${paragraphs || `<p style="font-size: 15px; line-height: 1.6; margin: 0;"> </p>`}
     </div>
     <div style="background: #f5f6fa; padding: 16px 36px; text-align: center; font-size: 12px; color: #999;">
       This is an automated message from OpenSky HRM.
@@ -69,6 +134,7 @@ const DEFAULT_NEW_EMAIL_HTML = `<!DOCTYPE html>
   </div>
 </body>
 </html>`;
+}
 
 function slugEmailTemplateKey(name: string): string {
   const slug = name
@@ -85,6 +151,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
   const [tplName, setTplName] = useState("");
   const [tplSubject, setTplSubject] = useState("");
   const [tplHtml, setTplHtml] = useState("");
+  const [tplBody, setTplBody] = useState("");
   const [tplActive, setTplActive] = useState(true);
   const [tplSaving, setTplSaving] = useState(false);
   const [tplPreview, setTplPreview] = useState(false);
@@ -96,7 +163,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
   const [newName, setNewName] = useState("");
   const [newKey, setNewKey] = useState("");
   const [newSubject, setNewSubject] = useState("");
-  const [newHtml, setNewHtml] = useState(DEFAULT_NEW_EMAIL_HTML);
+  const [newBody, setNewBody] = useState(DEFAULT_NEW_EMAIL_BODY);
   const [newActive, setNewActive] = useState(true);
   const [createSaving, setCreateSaving] = useState(false);
   const [keyTouched, setKeyTouched] = useState(false);
@@ -135,6 +202,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
         setTplName(full.name);
         setTplSubject(full.subject ?? "");
         setTplHtml(full.htmlContent);
+        setTplBody(htmlToEditableText(full.htmlContent));
         setTplActive(full.isActive);
         setTplPreview(false);
       })
@@ -145,12 +213,17 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
 
   async function saveTemplate() {
     if (!editingTemplate?.id) return;
+    if (!tplBody.trim()) {
+      setBannerError("Email body is required.");
+      return;
+    }
     setTplSaving(true);
     setBannerError("");
+    const htmlContent = editableTextToEmailHtml(tplBody, tplName || editingTemplate.name);
     const body = JSON.stringify({
       name: tplName,
       subject: tplSubject.trim() || null,
-      htmlContent: tplHtml,
+      htmlContent,
       isActive: tplActive,
     });
     const url = `/api/documenttemplates/${editingTemplate.id}`;
@@ -196,7 +269,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
     setNewName("");
     setNewKey("");
     setNewSubject("");
-    setNewHtml(DEFAULT_NEW_EMAIL_HTML);
+    setNewBody(DEFAULT_NEW_EMAIL_BODY);
     setNewActive(true);
     setKeyTouched(false);
     setShowCreate(true);
@@ -213,8 +286,8 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
       setBannerError('Template key must start with "Email_".');
       return;
     }
-    if (!newHtml.trim()) {
-      setBannerError("HTML body is required.");
+    if (!newBody.trim()) {
+      setBannerError("Email body is required.");
       return;
     }
     setCreateSaving(true);
@@ -226,7 +299,7 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
           name,
           templateKey: key,
           subject: newSubject.trim() || null,
-          htmlContent: newHtml,
+          htmlContent: editableTextToEmailHtml(newBody, name),
           isActive: newActive,
         }),
       });
@@ -353,8 +426,17 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
                   <input type="checkbox" checked={tplActive} onChange={(e) => setTplActive(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
                   <span className="text-sm text-slate-600">Active</span>
                 </label>
-                <button type="button" onClick={() => setTplPreview(!tplPreview)} className="ml-auto text-sm font-medium text-blue-600 hover:underline">
-                  {tplPreview ? "Edit HTML" : "Preview & fill"}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!tplPreview) {
+                      setTplHtml(editableTextToEmailHtml(tplBody, tplName || editingTemplate.name));
+                    }
+                    setTplPreview(!tplPreview);
+                  }}
+                  className="ml-auto text-sm font-medium text-blue-600 hover:underline"
+                >
+                  {tplPreview ? "Edit body" : "Preview & fill"}
                 </button>
               </div>
               {tplPreview ? (
@@ -366,13 +448,17 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
                 />
               ) : (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500">HTML body</label>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">Email body</label>
                   <textarea
-                    value={tplHtml}
-                    onChange={(e) => setTplHtml(e.target.value)}
-                    rows={16}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 resize-y"
+                    value={tplBody}
+                    onChange={(e) => setTplBody(e.target.value)}
+                    rows={12}
+                    placeholder={"Hi {{RecipientName}},\n\nWrite your message here…"}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 resize-y"
                   />
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Write in plain text. Use {"{{placeholders}}"} for dynamic values (e.g. {"{{RecipientName}}"}).
+                  </p>
                 </div>
               )}
               <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-3">
@@ -433,13 +519,17 @@ export function TransactionalEmailTemplatesContent({ onTemplatesChange }: Transa
                 <span className="text-sm text-slate-600">Active</span>
               </label>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">HTML body</label>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Email body</label>
                 <textarea
-                  value={newHtml}
-                  onChange={(e) => setNewHtml(e.target.value)}
-                  rows={14}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 resize-y"
+                  value={newBody}
+                  onChange={(e) => setNewBody(e.target.value)}
+                  rows={10}
+                  placeholder={"Hi {{RecipientName}},\n\nWrite your message here…"}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 resize-y"
                 />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Write in plain text. Use {"{{placeholders}}"} for dynamic values (e.g. {"{{RecipientName}}"}).
+                </p>
               </div>
               <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-3">
                 <button type="button" onClick={() => setShowCreate(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">

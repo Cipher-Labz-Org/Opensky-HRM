@@ -29,14 +29,6 @@ public class EmployeeService : IEmployeeService
         _lifecycleService = lifecycleService;
     }
 
-    /// <summary>Stable local-part for placeholder work email when none is provided (employee code is unique).</summary>
-    private static string SanitizeForNoEmailLocalPart(string code)
-    {
-        if (string.IsNullOrWhiteSpace(code)) return $"e-{Guid.NewGuid():N}";
-        var s = Regex.Replace(code.Trim(), @"[^\w\-\.]", "_");
-        return string.IsNullOrEmpty(s) ? $"e-{Guid.NewGuid():N}" : s;
-    }
-
     private static bool IsProfileSetupIncomplete(Employee e, bool hasDirectSupervisor) =>
         (!e.IsTopOfHierarchy && !hasDirectSupervisor)
         || !e.JobTitleId.HasValue
@@ -106,16 +98,46 @@ public class EmployeeService : IEmployeeService
             .ToHashSet();
     }
 
-    private async Task<Dictionary<Guid, string>> GetDirectSupervisorMapAsync(IEnumerable<Guid> employeeIds)
+    private async Task<Dictionary<Guid, string>> GetAssignedSupervisorNamesMapAsync(IEnumerable<Guid> employeeIds)
     {
+        var idList = employeeIds.ToList();
+        if (idList.Count == 0)
+            return new Dictionary<Guid, string>();
+
         var supervisors = await _db.Set<EmployeeSupervisor>()
+            .AsNoTracking()
             .Include(s => s.Supervisor)
-            .Where(s => !s.IsDeleted && s.ReportingMethod == "Direct" && employeeIds.Contains(s.EmployeeId))
-            .Select(s => new { s.EmployeeId, SupervisorName = s.Supervisor.FirstName + " " + s.Supervisor.LastName })
+            .Where(s => !s.IsDeleted && idList.Contains(s.EmployeeId))
+            .OrderBy(s => s.Supervisor.LastName)
+            .ThenBy(s => s.Supervisor.FirstName)
+            .Select(s => new
+            {
+                s.EmployeeId,
+                SupervisorName = s.Supervisor.FirstName,
+            })
             .ToListAsync();
+
         return supervisors
             .GroupBy(s => s.EmployeeId)
-            .ToDictionary(g => g.Key, g => g.First().SupervisorName);
+            .ToDictionary(
+                g => g.Key,
+                g => string.Join(", ", g.Select(x => x.SupervisorName.Trim()).Where(n => n.Length > 0).Distinct()));
+    }
+
+    private async Task<HashSet<Guid>> GetEmployeesWithDirectSupervisorAsync(IEnumerable<Guid> employeeIds)
+    {
+        var idList = employeeIds.ToList();
+        if (idList.Count == 0)
+            return new HashSet<Guid>();
+
+        var ids = await _db.Set<EmployeeSupervisor>()
+            .AsNoTracking()
+            .Where(s => !s.IsDeleted && s.ReportingMethod == "Direct" && idList.Contains(s.EmployeeId))
+            .Select(s => s.EmployeeId)
+            .Distinct()
+            .ToListAsync();
+
+        return ids.ToHashSet();
     }
 
     public async Task<PagedResult<EmployeeDto>> GetAllAsync(
@@ -146,7 +168,7 @@ public class EmployeeService : IEmployeeService
                 (e.FirstName + " " + e.LastName).ToLower().Contains(term) ||
                 (e.MiddleName != null && (e.FirstName + " " + e.MiddleName + " " + e.LastName).ToLower().Contains(term)) ||
                 e.EmployeeCode.ToLower().Contains(term) ||
-                e.Email.ToLower().Contains(term) ||
+                (e.Email != null && e.Email.ToLower().Contains(term)) ||
                 (e.OtherEmail != null && e.OtherEmail.ToLower().Contains(term)));
         }
 
@@ -171,8 +193,12 @@ public class EmployeeService : IEmployeeService
         if (excludeTerminated && string.IsNullOrWhiteSpace(status))
             query = query.Where(e => e.Status != "Terminated");
 
-        if (allowedEmployeeIds != null && allowedEmployeeIds.Count > 0)
-            query = query.Where(e => allowedEmployeeIds.Contains(e.Id));
+        if (allowedEmployeeIds != null)
+        {
+            query = allowedEmployeeIds.Count == 0
+                ? query.Where(_ => false)
+                : query.Where(e => allowedEmployeeIds.Contains(e.Id));
+        }
 
         query = ApplyEmployeeListSort(query, sortBy, sortDir);
 
@@ -186,14 +212,18 @@ public class EmployeeService : IEmployeeService
         var items = entities.Select(e => MapToDto(e)).ToList();
 
         var empIds = items.Select(i => i.Id).ToList();
-        var supMap = await GetDirectSupervisorMapAsync(empIds);
+        var supMap = await GetAssignedSupervisorNamesMapAsync(empIds);
+        var directSupIds = await GetEmployeesWithDirectSupervisorAsync(empIds);
         var candidateLinkedIds = await GetCandidateLinkedEmployeeIdsAsync(empIds);
         for (var i = 0; i < items.Count; i++)
         {
             var item = items[i];
-            item.HasDirectSupervisor = supMap.ContainsKey(item.Id);
+            item.HasDirectSupervisor = directSupIds.Contains(item.Id);
             if (supMap.TryGetValue(item.Id, out var supName))
+            {
                 item.ManagerName = supName;
+                item.SupervisorNames = supName;
+            }
             item.NeedsProfileSetup = candidateLinkedIds.Contains(item.Id)
                 && IsProfileSetupIncomplete(entities[i], item.HasDirectSupervisor);
         }
@@ -209,8 +239,13 @@ public class EmployeeService : IEmployeeService
 
     public async Task<EmployeeDto?> GetByIdAsync(Guid id, IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
-        if (allowedEmployeeIds != null && allowedEmployeeIds.Count > 0 && !allowedEmployeeIds.Contains(id))
-            return null;
+        if (allowedEmployeeIds != null)
+        {
+            if (allowedEmployeeIds.Count == 0)
+                return null;
+            if (!allowedEmployeeIds.Contains(id))
+                return null;
+        }
 
         var employee = await _db.Employees
             .Include(e => e.Department)
@@ -224,11 +259,19 @@ public class EmployeeService : IEmployeeService
             .FirstOrDefaultAsync(e => e.Id == id);
 
         if (employee is null) return null;
+
+        if (await ClearPlaceholderWorkEmailAsync(employee))
+            await _db.SaveChangesAsync();
+
         var dto = MapToDto(employee);
-        var supMap = await GetDirectSupervisorMapAsync(new[] { employee.Id });
-        dto.HasDirectSupervisor = supMap.ContainsKey(employee.Id);
+        var supMap = await GetAssignedSupervisorNamesMapAsync(new[] { employee.Id });
+        var directSupIds = await GetEmployeesWithDirectSupervisorAsync(new[] { employee.Id });
+        dto.HasDirectSupervisor = directSupIds.Contains(employee.Id);
         if (supMap.TryGetValue(employee.Id, out var supName))
+        {
             dto.ManagerName = supName;
+            dto.SupervisorNames = supName;
+        }
         var candidateLinkedIds = await GetCandidateLinkedEmployeeIdsAsync(new[] { employee.Id });
         dto.NeedsProfileSetup = candidateLinkedIds.Contains(employee.Id)
             && IsProfileSetupIncomplete(employee, dto.HasDirectSupervisor);
@@ -245,6 +288,27 @@ public class EmployeeService : IEmployeeService
         InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
         InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
         InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
+        InputValidators.ValidateTin(dto.TinNumber, "TIN number", required: false);
+        InputValidators.ValidateEpfNumber(dto.EpfNumber, "EPF number", required: false);
+        InputValidators.ValidateEtfNumber(dto.EtfNumber, "ETF number", required: false);
+        InputValidators.ValidateEmailInput(dto.Email, "Work email", required: false);
+        InputValidators.ValidateEmailInput(dto.OtherEmail, "Personal email", required: false);
+        InputValidators.ValidateEmployeeAddressFields(
+            dto.AddressStreet1,
+            dto.AddressStreet2,
+            dto.City,
+            dto.ZipPostalCode,
+            dto.PollingDivision,
+            dto.DistanceToOffice,
+            dto.PermanentStreet1,
+            dto.PermanentStreet2,
+            dto.PermanentCity,
+            dto.PermanentZipPostalCode,
+            dto.PermanentPollingDivision,
+            dto.PermanentDistanceToOffice);
+        dto.TinNumber = InputValidators.NormalizeTin(dto.TinNumber);
+        dto.EpfNumber = InputValidators.NormalizeStatutoryFundNumber(dto.EpfNumber);
+        dto.EtfNumber = InputValidators.NormalizeStatutoryFundNumber(dto.EtfNumber);
 
         if (dto.DepartmentId == Guid.Empty)
             throw new InvalidOperationException("Department is required.");
@@ -253,9 +317,7 @@ public class EmployeeService : IEmployeeService
             ? await _settings.GenerateNextEmployeeCodeAsync()
             : dto.EmployeeCode.Trim();
 
-        var resolvedEmail = string.IsNullOrWhiteSpace(dto.Email)
-            ? $"{SanitizeForNoEmailLocalPart(code)}@employee.noemail.opensky.hrm"
-            : dto.Email.Trim();
+        var resolvedEmail = EmployeeEmailHelper.NormalizeForSave(dto.Email);
 
         await EmployeeUniqueness.ValidateForCreateAsync(_db, code, resolvedEmail);
 
@@ -344,14 +406,97 @@ public class EmployeeService : IEmployeeService
         var employee = await _db.Employees.FindAsync(id);
         if (employee is null) return null;
 
-        InputValidators.ValidatePersonName(dto.FirstName, "First name");
-        InputValidators.ValidatePersonName(dto.MiddleName, "Middle name", required: false);
-        InputValidators.ValidatePersonName(dto.LastName, "Last name");
-        InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
-        InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
-        InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
-        InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
-        InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
+        await ClearPlaceholderWorkEmailAsync(employee);
+
+        if (!InputValidators.ValuesEqual(dto.FirstName, employee.FirstName))
+            InputValidators.ValidatePersonName(dto.FirstName, "First name");
+        if (!InputValidators.ValuesEqual(dto.MiddleName, employee.MiddleName))
+            InputValidators.ValidatePersonName(dto.MiddleName, "Middle name", required: false);
+        if (!InputValidators.ValuesEqual(dto.LastName, employee.LastName))
+            InputValidators.ValidatePersonName(dto.LastName, "Last name");
+
+        var phoneChanged = !InputValidators.ValuesEqual(dto.Phone, employee.Phone);
+        var homePhoneChanged = !InputValidators.ValuesEqual(dto.HomeTelephone, employee.HomeTelephone);
+        var workPhoneChanged = !InputValidators.ValuesEqual(dto.WorkTelephone, employee.WorkTelephone);
+        if (phoneChanged)
+        {
+            dto.Phone = InputValidators.NormalizePhone(dto.Phone);
+            InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
+        }
+        if (homePhoneChanged)
+        {
+            dto.HomeTelephone = InputValidators.NormalizePhone(dto.HomeTelephone);
+            InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
+        }
+        if (workPhoneChanged)
+        {
+            dto.WorkTelephone = InputValidators.NormalizePhone(dto.WorkTelephone);
+            InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
+        }
+
+        var nicChanged = !InputValidators.ValuesEqual(dto.NationalId, employee.NationalId);
+        if (nicChanged)
+            InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
+        var dlChanged = !InputValidators.ValuesEqual(dto.DriversLicenseNumber, employee.DriversLicenseNumber);
+        if (dlChanged)
+            InputValidators.ValidateDrivingLicense(dto.DriversLicenseNumber, "Driving license number", required: false);
+
+        var tinChanged = !InputValidators.ValuesEqual(
+            InputValidators.NormalizeTin(dto.TinNumber),
+            InputValidators.NormalizeTin(employee.TinNumber));
+        if (tinChanged)
+            InputValidators.ValidateTin(dto.TinNumber, "TIN number", required: false);
+
+        var epfChanged = !InputValidators.StatutoryFundNumbersEqual(dto.EpfNumber, employee.EpfNumber);
+        var etfChanged = !InputValidators.StatutoryFundNumbersEqual(dto.EtfNumber, employee.EtfNumber);
+        if (epfChanged)
+            InputValidators.ValidateEpfNumber(dto.EpfNumber, "EPF number", required: false);
+        if (etfChanged)
+            InputValidators.ValidateEtfNumber(dto.EtfNumber, "ETF number", required: false);
+
+        var workEmailChanged = !InputValidators.ValuesEqual(
+            EmployeeEmailHelper.NormalizeForSave(dto.Email),
+            EmployeeEmailHelper.NormalizeForSave(employee.Email));
+        var personalEmailChanged = !InputValidators.ValuesEqual(dto.OtherEmail, employee.OtherEmail);
+        if (workEmailChanged)
+            InputValidators.ValidateEmailInput(dto.Email, "Work email", required: false);
+        if (personalEmailChanged)
+            InputValidators.ValidateEmailInput(dto.OtherEmail, "Personal email", required: false);
+
+        InputValidators.ValidateEmployeeAddressFieldsIfChanged(
+            dto.AddressStreet1,
+            dto.AddressStreet2,
+            dto.City,
+            dto.ZipPostalCode,
+            dto.PollingDivision,
+            dto.DistanceToOffice,
+            dto.PermanentStreet1,
+            dto.PermanentStreet2,
+            dto.PermanentCity,
+            dto.PermanentZipPostalCode,
+            dto.PermanentPollingDivision,
+            dto.PermanentDistanceToOffice,
+            employee.AddressStreet1,
+            employee.AddressStreet2,
+            employee.City,
+            employee.ZipPostalCode,
+            employee.PollingDivision,
+            employee.DistanceToOffice,
+            employee.PermanentStreet1,
+            employee.PermanentStreet2,
+            employee.PermanentCity,
+            employee.PermanentZipPostalCode,
+            employee.PermanentPollingDivision,
+            employee.PermanentDistanceToOffice);
+        dto.TinNumber = tinChanged
+            ? InputValidators.NormalizeTin(dto.TinNumber)
+            : employee.TinNumber;
+        dto.EpfNumber = epfChanged
+            ? InputValidators.NormalizeStatutoryFundNumber(dto.EpfNumber)
+            : employee.EpfNumber;
+        dto.EtfNumber = etfChanged
+            ? InputValidators.NormalizeStatutoryFundNumber(dto.EtfNumber)
+            : employee.EtfNumber;
 
         var snapJoin = employee.JoinDate;
         var snapEmploymentType = employee.EmploymentType;
@@ -364,7 +509,7 @@ public class EmployeeService : IEmployeeService
         employee.FirstName = dto.FirstName;
         employee.MiddleName = dto.MiddleName;
         employee.LastName = dto.LastName;
-        employee.Email = dto.Email.Trim();
+        employee.Email = EmployeeEmailHelper.NormalizeForSave(dto.Email);
         employee.Phone = dto.Phone;
         employee.DateOfBirth = dto.DateOfBirth;
         employee.Gender = Enum.Parse<Gender>(dto.Gender, true);
@@ -466,7 +611,7 @@ public class EmployeeService : IEmployeeService
 
     public async Task<string?> UpdateProfileImageAsync(Guid id, string imageUrl)
     {
-        var employee = await _db.Employees.FindAsync(id);
+        var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == id);
         if (employee is null) return null;
 
         employee.ProfileImageUrl = imageUrl;
@@ -576,6 +721,15 @@ public class EmployeeService : IEmployeeService
         };
     }
 
+    private static Task<bool> ClearPlaceholderWorkEmailAsync(Employee employee)
+    {
+        if (!EmployeeEmailHelper.IsPlaceholder(employee.Email))
+            return Task.FromResult(false);
+
+        employee.Email = null;
+        return Task.FromResult(true);
+    }
+
     private static EmployeeDto MapToDto(Employee e) => new()
     {
         Id = e.Id,
@@ -584,7 +738,7 @@ public class EmployeeService : IEmployeeService
         MiddleName = e.MiddleName,
         LastName = e.LastName,
         FullName = e.FullName,
-        Email = e.Email,
+        Email = EmployeeEmailHelper.ToDisplayEmail(e.Email) ?? string.Empty,
         Phone = e.Phone,
         AddressStreet1 = e.AddressStreet1,
         AddressStreet2 = e.AddressStreet2,

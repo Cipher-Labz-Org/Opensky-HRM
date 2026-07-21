@@ -10,7 +10,11 @@ public interface IRosterService
     Task<RosterTemplateDto?> UpdateTemplateAsync(Guid id, UpdateRosterTemplateDto dto);
     Task<bool> DeleteTemplateAsync(Guid id, bool deleteAssignments = false);
 
-    Task<List<RosterAssignmentDto>> GetAssignmentsAsync(Guid? employeeId = null, Guid? rosterTemplateId = null, DateTime? effectiveDate = null);
+    Task<List<RosterAssignmentDto>> GetAssignmentsAsync(
+        Guid? employeeId = null,
+        Guid? rosterTemplateId = null,
+        DateTime? effectiveDate = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null);
     Task<RosterAssignmentDto?> GetAssignmentByIdAsync(Guid id);
     Task<RosterAssignmentDto> CreateAssignmentAsync(CreateRosterAssignmentDto dto);
     Task<RosterAssignmentDto?> UpdateAssignmentAsync(Guid id, UpdateRosterAssignmentDto dto);

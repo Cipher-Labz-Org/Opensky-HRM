@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useClientPagination } from "@/lib/use-client-pagination";
@@ -141,14 +142,13 @@ function employeeLabel(e: EmployeeOption) {
   return e.employeeCode ? `${name} (${e.employeeCode})` : name;
 }
 
-type PageTab = "dashboard" | "courses" | "certifications" | "skills" | "assignments";
+type PageTab = "dashboard" | "courses" | "certifications" | "skills";
 
 const PAGE_TABS: { key: PageTab; label: string }[] = [
   { key: "dashboard", label: "Dashboard" },
   { key: "courses", label: "Course catalog" },
   { key: "certifications", label: "Certifications" },
   { key: "skills", label: "Skills & matrix" },
-  { key: "assignments", label: "Assignments" },
 ];
 
 function CardHeader({ title, children }: { title: string; children?: React.ReactNode }) {
@@ -168,6 +168,7 @@ function pct(n: number, d: number) {
 // ──────────────────────────── Page ────────────────────────────
 
 export default function LearningPage() {
+  const searchParams = useSearchParams();
   const [pageTab, setPageTab] = useState<PageTab>("dashboard");
   const [showCreate, setShowCreate] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -226,6 +227,24 @@ export default function LearningPage() {
   const [assignDue, setAssignDue] = useState("");
   const [assignStatus, setAssignStatus] = useState("Assigned");
   const [assignNotes, setAssignNotes] = useState("");
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab && PAGE_TABS.some((t) => t.key === tab)) {
+      setPageTab(tab as PageTab);
+    }
+    const employeeId = searchParams.get("employeeId");
+    if (employeeId) setAssignEmployeeId(employeeId);
+  }, [searchParams]);
+
+  const filterEmployeeId = searchParams.get("employeeId") ?? "";
+  const filteredTrainingAssignments = useMemo(
+    () =>
+      filterEmployeeId
+        ? trainingAssignments.filter((t) => t.employeeId === filterEmployeeId)
+        : trainingAssignments,
+    [trainingAssignments, filterEmployeeId],
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -286,7 +305,7 @@ export default function LearningPage() {
   const certCatalogPager = useClientPagination(certCatalog);
   const employeeCertsPager = useClientPagination(employeeCerts);
   const skillsCatalogPager = useClientPagination(skillsCatalog);
-  const trainingAssignmentsPager = useClientPagination(trainingAssignments);
+  const trainingAssignmentsPager = useClientPagination(filteredTrainingAssignments);
 
   const employeeFormOptions = useMemo<FormSelectOption[]>(
     () => employeeOptions.map((e) => ({ value: e.id, label: employeeLabel(e) })),
@@ -382,14 +401,9 @@ export default function LearningPage() {
 
   async function openEmpCertModal(item?: EmployeeCertListItem) {
     try {
-      const emps = employeeOptions.length ? employeeOptions : await loadEmployeeOptions();
       const types = certCatalog.filter((c) => c.isActive);
       if (!item && types.length === 0) {
         await appAlert("Add a certification type first.");
-        return;
-      }
-      if (!item && emps.length === 0) {
-        await appAlert("No employees available.");
         return;
       }
       if (item) {
@@ -402,7 +416,7 @@ export default function LearningPage() {
         setEmpCertStatus(item.status || "Active");
       } else {
         setEditingEmpCert(null);
-        setEmpCertEmployeeId(emps[0]!.id);
+        setEmpCertEmployeeId("");
         setEmpCertTypeId(types[0]!.id);
         setEmpCertObtained("");
         setEmpCertExpiry("");
@@ -411,7 +425,7 @@ export default function LearningPage() {
       }
       setShowEmpCertModal(true);
     } catch {
-      await appAlert("Could not load employees.");
+      await appAlert("Could not open assign certification.");
     }
   }
 
@@ -734,7 +748,7 @@ export default function LearningPage() {
     <>
       <AppTopbar
         title="Learning & Skills"
-        subtitle="Course catalog, training assignments, certifications, and skill matrix."
+        subtitle="Course catalog, course assignments, certifications, and skill matrix."
       />
 
       <div className="mt-6 mb-6 flex flex-wrap gap-2">
@@ -754,9 +768,7 @@ export default function LearningPage() {
         ))}
       </div>
 
-      {loadErr && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{loadErr}</div>
-      )}
+      <InlinePageAlert message={loadErr} className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 scroll-mt-20" />
 
       <CreateCourseModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={() => refresh()} />
 
@@ -848,12 +860,12 @@ export default function LearningPage() {
                     <div>
                       <h3 className="text-base font-semibold text-slate-900">Recent assignments</h3>
                     </div>
-                    <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => setPageTab("assignments")}>
+                    <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => setPageTab("courses")}>
                       All assignments
                     </Button>
                   </div>
                   {assignmentTimeline.length === 0 ? (
-                    <p className="py-10 text-center text-sm text-slate-500">No training assignments yet.</p>
+                    <p className="py-10 text-center text-sm text-slate-500">No course assignments yet.</p>
                   ) : (
                     <div className="space-y-2.5">
                       {assignmentTimeline.map((ev, i) => (
@@ -882,8 +894,7 @@ export default function LearningPage() {
                   <div className="grid gap-2.5">
                     {(
                       [
-                        ["courses", "Course catalog", "View and add courses"],
-                        ["assignments", "Assignments", "Review training status"],
+                        ["courses", "Course catalog", "Courses and course assignments"],
                         ["certifications", "Certifications", "Compliance and expiry"],
                         ["skills", "Skills & matrix", "Coverage and proficiency"],
                       ] as const
@@ -910,7 +921,7 @@ export default function LearningPage() {
 
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div className="border-b border-slate-100 px-5 py-4">
-                  <h4 className="text-base font-semibold text-slate-900">Open training assignments</h4>
+                  <h4 className="text-base font-semibold text-slate-900">Open course assignments</h4>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -953,7 +964,9 @@ export default function LearningPage() {
       {pageTab === "courses" && (
         <div className="space-y-6">
           <div className="mb-6 flex items-center justify-between">
-            <div className="text-sm text-slate-500">{activeCourses.length} active in catalog</div>
+            <div className="text-sm text-slate-500">
+              {activeCourses.length} active in catalog · {trainingAssignments.length} assignment{trainingAssignments.length === 1 ? "" : "s"}
+            </div>
             <div className="flex gap-2">
               <Button type="button" variant="secondary" onClick={() => refresh()}>
                 Refresh
@@ -998,6 +1011,43 @@ export default function LearningPage() {
               </table>
             </div>
             <TablePagination page={coursesPager.page} totalPages={coursesPager.totalPages} totalCount={coursesPager.totalCount} pageSize={coursesPager.pageSize} onPageChange={coursesPager.setPage} />
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <CardHeader title="Course assignments">
+              <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => void openAssignModal()}>+ New assignment</Button>
+            </CardHeader>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-left">
+                    <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Course</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Status</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Due</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600">Assigned</th>
+                    <th className="px-4 py-2.5 text-right font-semibold text-slate-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {trainingAssignments.length === 0 ? (
+                    <tr><td colSpan={6} className="px-6 py-6 text-center text-slate-400">No assignments.</td></tr>
+                  ) : (
+                    trainingAssignmentsPager.pageItems.map((t) => (
+                      <tr key={t.id} className="hover:bg-slate-50/50">
+                        <td className="px-6 py-3 font-medium text-slate-700">{t.employeeName}</td>
+                        <td className="px-4 py-3 text-slate-600">{t.courseTitle}</td>
+                        <td className="px-4 py-3 text-slate-600">{t.status}</td>
+                        <td className="px-4 py-3 text-slate-600">{formatDate(t.dueDate)}</td>
+                        <td className="px-4 py-3 text-slate-600">{formatDateTime(t.assignedAt)}</td>
+                        <td className="px-4 py-3"><RowActions onEdit={() => void openAssignModal(t)} onDelete={() => void deleteAssignment(t)} /></td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <TablePagination page={trainingAssignmentsPager.page} totalPages={trainingAssignmentsPager.totalPages} totalCount={trainingAssignmentsPager.totalCount} pageSize={trainingAssignmentsPager.pageSize} onPageChange={trainingAssignmentsPager.setPage} />
           </div>
         </div>
       )}
@@ -1210,45 +1260,6 @@ export default function LearningPage() {
         </div>
       )}
 
-      {pageTab === "assignments" && (
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <CardHeader title="Training assignments">
-            <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => void openAssignModal()}>+ New assignment</Button>
-          </CardHeader>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 text-left">
-                  <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>
-                  <th className="px-4 py-2.5 font-semibold text-slate-600">Course</th>
-                  <th className="px-4 py-2.5 font-semibold text-slate-600">Status</th>
-                  <th className="px-4 py-2.5 font-semibold text-slate-600">Due</th>
-                  <th className="px-4 py-2.5 font-semibold text-slate-600">Assigned</th>
-                  <th className="px-4 py-2.5 text-right font-semibold text-slate-600">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {trainingAssignments.length === 0 ? (
-                  <tr><td colSpan={6} className="px-6 py-6 text-center text-slate-400">No assignments.</td></tr>
-                ) : (
-                  trainingAssignmentsPager.pageItems.map((t) => (
-                    <tr key={t.id} className="hover:bg-slate-50/50">
-                      <td className="px-6 py-3 font-medium text-slate-700">{t.employeeName}</td>
-                      <td className="px-4 py-3 text-slate-600">{t.courseTitle}</td>
-                      <td className="px-4 py-3 text-slate-600">{t.status}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatDate(t.dueDate)}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatDateTime(t.assignedAt)}</td>
-                      <td className="px-4 py-3"><RowActions onEdit={() => void openAssignModal(t)} onDelete={() => void deleteAssignment(t)} /></td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          <TablePagination page={trainingAssignmentsPager.page} totalPages={trainingAssignmentsPager.totalPages} totalCount={trainingAssignmentsPager.totalCount} pageSize={trainingAssignmentsPager.pageSize} onPageChange={trainingAssignmentsPager.setPage} />
-        </div>
-      )}
-
       <Modal open={showCertTypeModal} onClose={() => setShowCertTypeModal(false)} title={editingCertType ? "Edit certification type" : "New certification type"}>
         <div className="space-y-4">
           <div><label className={labelClass}>Name *</label><input value={certTypeName} onChange={(e) => setCertTypeName(e.target.value)} className={inputClass} /></div>
@@ -1266,7 +1277,16 @@ export default function LearningPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           {!editingEmpCert && (
             <>
-              <div className="sm:col-span-2"><label className={labelClass}>Employee *</label><FormSelect value={empCertEmployeeId} onValueChange={setEmpCertEmployeeId} options={employeeFormOptions} placeholder="-- Select --" /></div>
+              <div className="sm:col-span-2">
+                <label className={labelClass}>Employee *</label>
+                <EmployeeSearchCombobox
+                  key={showEmpCertModal ? "emp-cert-open" : "emp-cert-closed"}
+                  value={empCertEmployeeId}
+                  placeholder="Type name or employee code…"
+                  onPick={(emp) => setEmpCertEmployeeId(emp?.id ?? "")}
+                />
+                <p className="mt-1 text-xs text-slate-500">Start typing to search; pick a name from the list.</p>
+              </div>
               <div className="sm:col-span-2"><label className={labelClass}>Certification type *</label><FormSelect value={empCertTypeId} onValueChange={setEmpCertTypeId} options={activeCertTypeOptions} placeholder="-- Select --" /></div>
             </>
           )}
@@ -1280,7 +1300,7 @@ export default function LearningPage() {
         </div>
         <div className="mt-4 flex justify-end gap-3">
           <Button variant="secondary" onClick={() => setShowEmpCertModal(false)}>Cancel</Button>
-          <Button onClick={() => void saveEmpCert()} disabled={!empCertObtained.trim() || empCertSaving}>{empCertSaving ? "Saving…" : "Save"}</Button>
+          <Button onClick={() => void saveEmpCert()} disabled={!empCertObtained.trim() || empCertSaving || (!editingEmpCert && (!empCertEmployeeId || !empCertTypeId))}>{empCertSaving ? "Saving…" : "Save"}</Button>
         </div>
       </Modal>
 

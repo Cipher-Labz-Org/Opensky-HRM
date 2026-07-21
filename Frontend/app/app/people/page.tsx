@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { TablePagination } from "@/components/ui";
+import { FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
 import { CreateEmployeeModal } from "@/components/forms/CreateEmployeeModal";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
+import { filterLookupsByAllowedIds } from "@/lib/people-scope-filters";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
@@ -17,10 +18,13 @@ import {
   employmentTypeDisplayName,
   employmentTypeFilterOptions,
 } from "@/lib/employment-types";
+import { sanitizeSearchInput } from "@/lib/input-validation";
+import { formatFirstNameOnly, formatSupervisorFirstNames } from "@/lib/person-display";
 
 interface Employee {
   id: string;
   employeeCode: string;
+  firstName: string;
   fullName: string;
   departmentName: string | null;
   jobTitleName: string | null;
@@ -28,6 +32,7 @@ interface Employee {
   status: string;
   employmentType: string;
   managerName: string | null;
+  supervisorNames: string | null;
   locationName: string | null;
   isTopOfHierarchy: boolean;
   hasDirectSupervisor: boolean;
@@ -128,7 +133,33 @@ const employmentTypeLabels: Record<string, string> = {
   PartTimeContract: "Part-Time Contract", PartTimeInternship: "Part-Time Internship", PartTimePermanent: "Part-Time Permanent",
 };
 const employmentTypeOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
-const PEOPLE_PAGE_SIZE = 10;
+const PEOPLE_PAGE_SIZE = 25;
+
+type EmployeeListStatusFilter = "active" | "all" | "terminated";
+
+const EMPLOYEE_LIST_STATUS_OPTIONS: FormSelectOption[] = [
+  { value: "active", label: "Active" },
+  { value: "all", label: "All" },
+  { value: "terminated", label: "Terminated" },
+];
+
+const peopleFilterLabelClass = "mb-1 block text-xs font-medium text-slate-500";
+
+function applyEmployeeListStatusParams(
+  params: URLSearchParams,
+  statusFilter: EmployeeListStatusFilter,
+  f: Filters,
+) {
+  if (f.status) {
+    params.set("status", f.status);
+    return;
+  }
+  if (statusFilter === "terminated") {
+    params.set("status", "Terminated");
+  } else if (statusFilter === "active") {
+    params.set("excludeTerminated", "true");
+  }
+}
 
 export default function PeoplePage() {
   const router = useRouter();
@@ -150,9 +181,10 @@ export default function PeoplePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [totalEmployees, setTotalEmployees] = useState(0);
   const [page, setPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(PEOPLE_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [activeOnly, setActiveOnly] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<EmployeeListStatusFilter>("active");
   const [sortBy, setSortBy] = useState<PeopleSortKey>("employeeCode");
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -167,6 +199,16 @@ export default function PeoplePage() {
   const employmentTypeFilterOpts = useMemo(
     () => employmentTypeFilterOptions(employmentTypes),
     [employmentTypes]
+  );
+
+  const visibleLocations = useMemo(
+    () => filterLookupsByAllowedIds(locations, user?.assignedLocationIds),
+    [locations, user?.assignedLocationIds],
+  );
+
+  const visibleJobTitles = useMemo(
+    () => filterLookupsByAllowedIds(jobTitles, user?.assignedJobTitleIds),
+    [jobTitles, user?.assignedJobTitleIds],
   );
 
   useEffect(() => {
@@ -194,25 +236,25 @@ export default function PeoplePage() {
   const loadEmployees = useCallback(async (
     f: Filters,
     p: number,
-    exclTerminated: boolean,
+    pageSize: number,
+    listStatusFilter: EmployeeListStatusFilter,
     sortKey: PeopleSortKey,
     asc: boolean,
   ) => {
     setLoading(true);
     const params = new URLSearchParams();
     params.set("page", String(p));
-    params.set("pageSize", String(PEOPLE_PAGE_SIZE));
+    params.set("pageSize", String(pageSize));
     params.set("sortBy", sortKey);
     params.set("sortDir", asc ? "asc" : "desc");
     if (f.search) params.set("search", f.search);
     if (f.employeeCode) params.set("search", f.employeeCode);
-    if (f.status) params.set("status", f.status);
     if (f.employmentType) params.set("employmentType", f.employmentType);
     if (f.departmentId) params.set("departmentId", f.departmentId);
     if (f.jobTitleId) params.set("jobTitleId", f.jobTitleId);
     if (f.locationId) params.set("locationId", f.locationId);
     if (f.managerId) params.set("managerId", f.managerId);
-    if (exclTerminated) params.set("excludeTerminated", "true");
+    applyEmployeeListStatusParams(params, listStatusFilter, f);
     try {
       const r = await apiFetch<{ items: Employee[]; totalCount: number; totalPages: number }>(
         `/api/employees?${params.toString()}`
@@ -228,15 +270,18 @@ export default function PeoplePage() {
   }, []);
 
   useEffect(() => {
-    loadEmployees(appliedFilters, page, activeOnly, sortBy, sortAsc);
-  }, [appliedFilters, page, activeOnly, sortBy, sortAsc, loadEmployees]);
+    loadEmployees(appliedFilters, page, listPageSize, statusFilter, sortBy, sortAsc);
+  }, [appliedFilters, page, listPageSize, statusFilter, sortBy, sortAsc, loadEmployees]);
+
+  function resetEmployeeListPaging() {
+    setPage(1);
+    setListPageSize(PEOPLE_PAGE_SIZE);
+  }
 
   function handleQuickSearch() {
     const term = quickSearch.trim();
     if (!term) {
-      setAppliedFilters(emptyFilters);
-      setFilters(emptyFilters);
-      setPage(1);
+      handleReset();
       setShowSuggestions(false);
       return;
     }
@@ -244,13 +289,16 @@ export default function PeoplePage() {
     setFilters(next);
     setAppliedFilters(next);
     setPage(1);
+    setListPageSize(PEOPLE_PAGE_SIZE);
     setShowSuggestions(false);
   }
 
   function handleSearch() {
-    setAppliedFilters({ ...filters });
-    setFilters(emptyFilters);
-    setPage(1);
+    const next = { ...filters };
+    setAppliedFilters(next);
+    setFilters(next);
+    setQuickSearch(next.search);
+    resetEmployeeListPaging();
     setShowFilters(false);
   }
 
@@ -258,10 +306,51 @@ export default function PeoplePage() {
     setFilters(emptyFilters);
     setAppliedFilters(emptyFilters);
     setQuickSearch("");
-    setPage(1);
+    resetEmployeeListPaging();
     setSortBy("employeeCode");
     setSortAsc(true);
+    setStatusFilter("active");
   }
+
+  function openFilters() {
+    setFilters({ ...appliedFilters });
+    setQuickSearch(appliedFilters.search);
+    setShowFilters(true);
+  }
+
+  function removeAppliedFilter(key: keyof Filters) {
+    const next = { ...appliedFilters, [key]: "" };
+    setAppliedFilters(next);
+    setFilters(next);
+    if (key === "search") setQuickSearch("");
+    resetEmployeeListPaging();
+  }
+
+  function filterLabel(key: keyof Filters, value: string): string {
+    switch (key) {
+      case "search":
+        return `Name: ${value}`;
+      case "employeeCode":
+        return `Employee ID: ${value}`;
+      case "status":
+        return `Status: ${value}`;
+      case "employmentType":
+        return `Employment type: ${employmentTypeLabels[value] ?? employmentTypeDisplayName(employmentTypes, value) ?? value}`;
+      case "departmentId":
+        return `Department: ${departments.find((d) => d.id === value)?.name ?? value}`;
+      case "jobTitleId":
+        return `Job title: ${jobTitles.find((j) => j.id === value)?.name ?? value}`;
+      case "locationId":
+        return `Location: ${locations.find((l) => l.id === value)?.name ?? value}`;
+      case "managerId":
+        return `Supervisor: ${managers.find((m) => m.id === value)?.name ?? value}`;
+      default:
+        return value;
+    }
+  }
+
+  const activeFilterEntries = (Object.entries(appliedFilters) as [keyof Filters, string][])
+    .filter(([, value]) => Boolean(value));
 
   function handleSortColumn(key: PeopleSortKey) {
     setPage(1);
@@ -272,7 +361,7 @@ export default function PeoplePage() {
     }
   }
 
-  const activeFilterCount = Object.values(appliedFilters).filter(Boolean).length;
+  const activeFilterCount = activeFilterEntries.length + (statusFilter !== "active" ? 1 : 0);
 
   useEffect(() => {
     if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
@@ -289,8 +378,8 @@ export default function PeoplePage() {
         const params = new URLSearchParams({
           pageSize: "8",
           search: q,
-          excludeTerminated: activeOnly ? "true" : "false",
         });
+        applyEmployeeListStatusParams(params, statusFilter, emptyFilters);
         const r = await apiFetch<{ items: Employee[]; totalCount: number }>(
           `/api/employees?${params.toString()}`
         );
@@ -306,7 +395,7 @@ export default function PeoplePage() {
     return () => {
       if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
     };
-  }, [quickSearch, activeOnly]);
+  }, [quickSearch, statusFilter]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -410,15 +499,19 @@ export default function PeoplePage() {
       </div>
 
       {/* Search & Filters Bar */}
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="relative" ref={searchRef}>
+      <div className="mb-5 flex items-end justify-between gap-3">
+        <div className="flex items-end gap-2">
+          <div className="relative">
+            <span className={`${peopleFilterLabelClass} invisible block`} aria-hidden="true">
+              Status
+            </span>
+            <div className="relative" ref={searchRef}>
             <input
               type="text"
               placeholder="Search employees… (Enter)"
-              className="w-[280px] rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-[13px] text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              className="h-9 w-[280px] rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               value={quickSearch}
-              onChange={(e) => { setQuickSearch(e.target.value); setShowSuggestions(true); }}
+              onChange={(e) => { setQuickSearch(sanitizeSearchInput(e.target.value)); setShowSuggestions(true); }}
               onFocus={() => setShowSuggestions(true)}
               onKeyDown={(e) => { if (e.key === "Enter") { handleQuickSearch(); } if (e.key === "Escape") setShowSuggestions(false); }}
             />
@@ -432,10 +525,11 @@ export default function PeoplePage() {
                 </div>
                 {!suggestionsLoading && searchSuggestions.length === 0 && (
                   <div className="px-3 py-3 text-[12px] text-slate-500">
-                    No employees found{activeOnly ? " (active only)" : ""}.
-                    {activeOnly && (
+                    No employees found
+                    {statusFilter === "active" ? " (active only)" : statusFilter === "terminated" ? " (terminated only)" : ""}.
+                    {statusFilter === "active" && (
                       <span className="mt-1 block text-[11px] text-slate-400">
-                        Enable &quot;Include terminated / inactive employees&quot; in filters to widen results.
+                        Switch to All or Terminated in the status filter to widen results.
                       </span>
                     )}
                   </div>
@@ -476,9 +570,26 @@ export default function PeoplePage() {
                 )}
               </div>
             )}
+            </div>
+          </div>
+          <div className="w-36 shrink-0">
+            <label className={peopleFilterLabelClass} htmlFor="people-status-filter">
+              Status
+            </label>
+            <FormSelect
+              id="people-status-filter"
+              value={statusFilter}
+              onValueChange={(value) => {
+                setStatusFilter(value as EmployeeListStatusFilter);
+                resetEmployeeListPaging();
+              }}
+              options={EMPLOYEE_LIST_STATUS_OPTIONS}
+              clearable={false}
+              className="!h-9 min-h-9 text-[13px]"
+            />
           </div>
           <button
-            onClick={() => setShowFilters(!showFilters)}
+            onClick={() => (showFilters ? setShowFilters(false) : openFilters())}
             className={`relative flex h-9 w-9 items-center justify-center rounded-xl border shadow-sm transition ${showFilters ? "border-blue-400 bg-blue-50 text-blue-600" : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600"}`}
             title={showFilters ? "Hide Filters" : "Filters"}
           >
@@ -495,11 +606,47 @@ export default function PeoplePage() {
         <span className="text-[11px] text-slate-400">{totalEmployees} records{activeFilterCount > 0 ? " (filtered)" : ""}</span>
       </div>
 
+      {activeFilterCount > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-medium text-slate-500">Active filters:</span>
+          {activeFilterEntries.map(([key, value]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => removeAppliedFilter(key)}
+              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-900"
+              title="Remove filter"
+            >
+              {filterLabel(key, value)}
+              <span aria-hidden>×</span>
+            </button>
+          ))}
+          {statusFilter !== "active" && (
+            <button
+              type="button"
+              onClick={() => { setStatusFilter("active"); resetEmployeeListPaging(); }}
+              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-900"
+              title="Remove filter"
+            >
+              {statusFilter === "terminated" ? "Terminated only" : "All statuses"}
+              <span aria-hidden>×</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleReset}
+            className="text-[11px] font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
       {canCreateEmployee && (
       <CreateEmployeeModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        onCreated={() => { loadEmployees(appliedFilters, page, activeOnly, sortBy, sortAsc); }}
+        onCreated={() => { loadEmployees(appliedFilters, page, listPageSize, statusFilter, sortBy, sortAsc); }}
       />
       )}
 
@@ -577,7 +724,7 @@ export default function PeoplePage() {
                 onChange={(e) => setFilters((f) => ({ ...f, jobTitleId: e.target.value }))}
               >
                 <option value="">All</option>
-                {jobTitles.map((j) => (
+                {visibleJobTitles.map((j) => (
                   <option key={j.id} value={j.id}>{j.name}</option>
                 ))}
               </select>
@@ -603,25 +750,14 @@ export default function PeoplePage() {
                 onChange={(e) => setFilters((f) => ({ ...f, locationId: e.target.value }))}
               >
                 <option value="">All</option>
-                {locations.map((l) => (
+                {visibleLocations.map((l) => (
                   <option key={l.id} value={l.id}>{l.name}</option>
                 ))}
               </select>
             </div>
           </div>
-          <div className="mt-4 px-1">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!activeOnly}
-                onChange={(e) => { setActiveOnly(!e.target.checked); setPage(1); }}
-                className="h-4 w-4 rounded border-slate-300 text-[#2B7DE9] focus:ring-[#2B7DE9]"
-              />
-              <span className="text-xs font-medium text-slate-600">Include terminated / inactive employees</span>
-            </label>
-          </div>
           <div className="mt-4 flex items-center justify-center gap-3">
-            <Button variant="secondary" onClick={() => { handleReset(); setActiveOnly(true); }}>Reset</Button>
+            <Button variant="secondary" onClick={handleReset}>Reset</Button>
             <Button variant="secondary" onClick={() => setShowFilters(false)}>Cancel</Button>
             <Button onClick={handleSearch}>Search</Button>
           </div>
@@ -686,7 +822,9 @@ export default function PeoplePage() {
                         <td className="py-2 px-3 text-[12px] font-mono text-slate-500">{emp.employeeCode}</td>
                         <td className="py-2 px-3">
                           <div className="flex items-center gap-1">
-                            <span className="text-[12px] font-medium text-slate-800">{emp.fullName}</span>
+                            <span className="text-[12px] font-medium text-slate-800">
+                              {formatFirstNameOnly(emp.firstName || emp.fullName)}
+                            </span>
                             {emp.isTopOfHierarchy && (
                               <span title="Top of Hierarchy" className="inline-flex shrink-0">
                                 <svg className="h-3 w-3 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005Z" clipRule="evenodd" /></svg>
@@ -715,7 +853,9 @@ export default function PeoplePage() {
                         </td>
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.departmentName ?? "—"}</td>
                         <td className="py-2 px-3 text-[12px] text-slate-600">{emp.locationName ?? "—"}</td>
-                        <td className="py-2 px-3 pr-5 text-[12px] text-slate-600">{emp.managerName ?? "—"}</td>
+                        <td className="py-2 px-3 pr-5 text-[12px] text-slate-600">
+                          {formatSupervisorFirstNames(emp.supervisorNames ?? emp.managerName)}
+                        </td>
                       </tr>
                     );
                   })}
@@ -726,8 +866,19 @@ export default function PeoplePage() {
               page={page}
               totalPages={totalPages}
               totalCount={totalEmployees}
-              pageSize={PEOPLE_PAGE_SIZE}
+              pageSize={listPageSize}
               onPageChange={setPage}
+              showSeeAll={totalEmployees > PEOPLE_PAGE_SIZE}
+              seeAllActive={listPageSize >= totalEmployees && totalEmployees > PEOPLE_PAGE_SIZE}
+              onSeeAll={() => {
+                setListPageSize(totalEmployees);
+                setPage(1);
+              }}
+              onShowPaged={() => {
+                setListPageSize(PEOPLE_PAGE_SIZE);
+                setPage(1);
+              }}
+              showPagePicker={!(listPageSize >= totalEmployees && totalEmployees > PEOPLE_PAGE_SIZE)}
             />
           </>
         )}

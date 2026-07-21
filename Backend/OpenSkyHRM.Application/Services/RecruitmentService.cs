@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Recruitment;
@@ -19,7 +18,7 @@ public class RecruitmentService : IRecruitmentService
     private readonly ISystemSettingService _settings;
     private readonly IEmailService _email;
     private readonly ILogger<RecruitmentService> _logger;
-    private readonly IHostEnvironment _hostEnv;
+    private readonly IFileStorageService _files;
     private readonly IConfiguration _configuration;
 
     public RecruitmentService(
@@ -27,22 +26,22 @@ public class RecruitmentService : IRecruitmentService
         ISystemSettingService settings,
         IEmailService email,
         ILogger<RecruitmentService> logger,
-        IHostEnvironment hostEnv,
+        IFileStorageService files,
         IConfiguration configuration)
     {
         _db = db;
         _settings = settings;
         _email = email;
         _logger = logger;
-        _hostEnv = hostEnv;
+        _files = files;
         _configuration = configuration;
     }
 
-    private bool ResumeFileExists(Guid candidateId)
-    {
-        var path = Path.Combine(_hostEnv.ContentRootPath, "wwwroot", "uploads", "candidates", candidateId.ToString(), "resume.pdf");
-        return File.Exists(path);
-    }
+    private string CandidateResumePath(Guid candidateId) =>
+        _files.BuildLogicalPath($"candidates/{candidateId}", "resume.pdf");
+
+    private Task<bool> ResumeFileExistsAsync(Guid candidateId) =>
+        _files.ExistsAsync(CandidateResumePath(candidateId));
 
     private static bool CandidateAllowsSelfServiceEdit(string stage) =>
         !string.Equals(stage, "Rejected", StringComparison.OrdinalIgnoreCase)
@@ -52,7 +51,7 @@ public class RecruitmentService : IRecruitmentService
     private static DateTime AsStoredUtc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
-    private PublicCandidateApplicationDto MapPublicApplication(Candidate c) => new()
+    private async Task<PublicCandidateApplicationDto> MapPublicApplicationAsync(Candidate c) => new()
     {
         Id = c.Id,
         FirstName = c.FirstName,
@@ -63,7 +62,7 @@ public class RecruitmentService : IRecruitmentService
         AppliedAt = AsStoredUtc(c.AppliedAt),
         RequisitionId = c.RequisitionId,
         RequisitionTitle = c.Requisition?.Title,
-        HasUploadedResume = ResumeFileExists(c.Id),
+        HasUploadedResume = await ResumeFileExistsAsync(c.Id),
         ResumeFileName = c.ResumeUrl,
         CanEdit = CandidateAllowsSelfServiceEdit(c.Stage),
     };
@@ -104,10 +103,11 @@ public class RecruitmentService : IRecruitmentService
             query = query.Where(r => r.Priority == priority);
 
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(r => r.CreatedAt)
+        var rows = await query.OrderByDescending(r => r.CreatedAt)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(r => MapRequisition(r))
             .ToListAsync();
+        await SyncAutoCloseRequisitionsAsync(rows);
+        var items = rows.Select(MapRequisition).ToList();
 
         return new PagedResult<RequisitionDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
@@ -119,7 +119,11 @@ public class RecruitmentService : IRecruitmentService
             .Include(x => x.HiringManager).Include(x => x.Location)
             .Include(x => x.Position).Include(x => x.Candidates)
             .FirstOrDefaultAsync(x => x.Id == id);
-        return r == null ? null : MapRequisition(r);
+        if (r == null) return null;
+        await TryAutoCloseRequisitionIfFilledAsync(r.Id);
+        await _db.SaveChangesAsync();
+        await _db.Entry(r).ReloadAsync();
+        return MapRequisition(r);
     }
 
     public async Task<bool> RequisitionAcceptsPublicApplicationsAsync(Guid id)
@@ -150,6 +154,8 @@ public class RecruitmentService : IRecruitmentService
 
     public async Task<RequisitionDto> CreateRequisitionAsync(CreateRequisitionDto dto)
     {
+        InputValidators.ValidateEmailInput(dto.ApplicationNotificationEmail, "Application notification email", required: false);
+        ValidateRequisitionRequiredFields(dto);
         ValidateRequisitionExperience(dto.ExperienceMin, dto.ExperienceMax);
         var salaryCurrency = await ResolveSalaryCurrencyAsync(dto.SalaryCurrency);
         var req = new Requisition
@@ -160,7 +166,10 @@ public class RecruitmentService : IRecruitmentService
             ExperienceMin = dto.ExperienceMin, ExperienceMax = dto.ExperienceMax,
             SalaryMin = dto.SalaryMin, SalaryMax = dto.SalaryMax, SalaryCurrency = salaryCurrency, Skills = dto.Skills,
             DepartmentId = dto.DepartmentId, JobTitleId = dto.JobTitleId,
-            HiringManagerId = dto.HiringManagerId, LocationId = dto.LocationId, PositionId = dto.PositionId,
+            HiringManagerId = dto.HiringManagerId,
+            LocationId = null,
+            WorkLocation = NormalizeWorkLocation(dto.WorkLocation),
+            PositionId = dto.PositionId,
             ApplicationNotificationEmail = string.IsNullOrWhiteSpace(dto.ApplicationNotificationEmail)
                 ? null
                 : dto.ApplicationNotificationEmail.Trim(),
@@ -175,13 +184,18 @@ public class RecruitmentService : IRecruitmentService
         ValidateRequisitionExperience(dto.ExperienceMin, dto.ExperienceMax);
         var req = await _db.Requisitions.FindAsync(dto.Id)
             ?? throw new InvalidOperationException("Requisition not found");
+        InputValidators.ValidateEmailInput(dto.ApplicationNotificationEmail, "Application notification email", required: false);
+        ValidateRequisitionRequiredFields(dto);
         req.Title = dto.Title; req.Code = dto.Code; req.Description = dto.Description;
         req.Vacancies = dto.Vacancies; req.TargetDate = dto.TargetDate; req.Priority = dto.Priority;
         req.EmploymentType = dto.EmploymentType; req.ExperienceMin = dto.ExperienceMin;
         req.ExperienceMax = dto.ExperienceMax; req.SalaryMin = dto.SalaryMin; req.SalaryMax = dto.SalaryMax;
         req.SalaryCurrency = await ResolveSalaryCurrencyAsync(dto.SalaryCurrency);
         req.Skills = dto.Skills; req.DepartmentId = dto.DepartmentId; req.JobTitleId = dto.JobTitleId;
-        req.HiringManagerId = dto.HiringManagerId; req.LocationId = dto.LocationId; req.PositionId = dto.PositionId;
+        req.HiringManagerId = dto.HiringManagerId;
+        req.LocationId = null;
+        req.WorkLocation = NormalizeWorkLocation(dto.WorkLocation);
+        req.PositionId = dto.PositionId;
         req.ApplicationNotificationEmail = string.IsNullOrWhiteSpace(dto.ApplicationNotificationEmail)
             ? null
             : dto.ApplicationNotificationEmail.Trim();
@@ -193,6 +207,7 @@ public class RecruitmentService : IRecruitmentService
     {
         var req = await _db.Requisitions.FindAsync(id)
             ?? throw new InvalidOperationException("Requisition not found");
+        await EnsureRequisitionCanBeDeletedAsync(id);
         req.IsDeleted = true;
         await _db.SaveChangesAsync();
     }
@@ -274,8 +289,14 @@ public class RecruitmentService : IRecruitmentService
         if (!string.IsNullOrWhiteSpace(stage))
             query = query.Where(c => c.Stage == stage);
         if (!string.IsNullOrWhiteSpace(search))
+        {
+            var searchLower = search.Trim().ToLower();
             query = query.Where(c =>
-                c.FirstName.Contains(search) || c.LastName.Contains(search) || c.Email.Contains(search));
+                c.FirstName.ToLower().Contains(searchLower) ||
+                c.LastName.ToLower().Contains(searchLower) ||
+                c.Email.ToLower().Contains(searchLower) ||
+                (c.FirstName.ToLower() + " " + c.LastName.ToLower()).Contains(searchLower));
+        }
 
         var total = await query.CountAsync();
         var rows = await query.OrderByDescending(c => c.CreatedAt)
@@ -329,6 +350,7 @@ public class RecruitmentService : IRecruitmentService
         InputValidators.ValidatePersonName(dto.FirstName, "First name");
         InputValidators.ValidatePersonName(dto.LastName, "Last name");
         InputValidators.ValidatePhone(dto.Phone, "Phone", required: false);
+        InputValidators.ValidateEmailInput(dto.Email, "Email", required: true);
 
         var candidate = new Candidate
         {
@@ -350,7 +372,7 @@ public class RecruitmentService : IRecruitmentService
     public async Task<PublicCandidateApplicationDto?> GetPublicApplicationAsync(Guid candidateId, string email)
     {
         var c = await FindCandidateForSelfServiceAsync(candidateId, email);
-        return c == null ? null : MapPublicApplication(c);
+        return c == null ? null : await MapPublicApplicationAsync(c);
     }
 
     public async Task<PublicCandidateApplicationDto?> LookupPublicApplicationAsync(Guid requisitionId, string email)
@@ -365,7 +387,7 @@ public class RecruitmentService : IRecruitmentService
             .OrderByDescending(x => x.AppliedAt)
             .FirstOrDefaultAsync();
 
-        return c == null ? null : MapPublicApplication(c);
+        return c == null ? null : await MapPublicApplicationAsync(c);
     }
 
     public async Task<PublicCandidateApplicationDto> UpdatePublicApplicationAsync(
@@ -393,7 +415,7 @@ public class RecruitmentService : IRecruitmentService
             c.ResumeUrl = resumeFileName.Trim();
 
         await _db.SaveChangesAsync();
-        return MapPublicApplication(c);
+        return await MapPublicApplicationAsync(c);
     }
 
     public async Task<JobApplicationEmailNotificationResultDto> NotifyJobApplicationSubmittedAsync(Guid candidateId)
@@ -437,7 +459,7 @@ public class RecruitmentService : IRecruitmentService
 
         var reqTitle = c.Requisition?.Title?.Trim() ?? "Position";
         var reqCode = c.Requisition?.Code?.Trim() ?? "—";
-        var resumeUploaded = ResumeFileExists(candidateId);
+        var resumeUploaded = await ResumeFileExistsAsync(candidateId);
 
         try
         {
@@ -480,6 +502,7 @@ public class RecruitmentService : IRecruitmentService
         InputValidators.ValidatePersonName(dto.FirstName, "First name");
         InputValidators.ValidatePersonName(dto.LastName, "Last name");
         InputValidators.ValidatePhone(dto.Phone, "Phone", required: false);
+        InputValidators.ValidateEmailInput(dto.Email, "Email", required: true);
 
         c.FirstName = dto.FirstName; c.LastName = dto.LastName; c.Email = dto.Email;
         c.Phone = dto.Phone; c.ResumeUrl = dto.ResumeUrl; c.Source = dto.Source;
@@ -507,6 +530,11 @@ public class RecruitmentService : IRecruitmentService
         c.Stage = stage;
         LogActivity(c.Id, "StageChange", $"Stage changed from {oldStage} to {stage}");
         await _db.SaveChangesAsync();
+        if (string.Equals(stage, "Hired", StringComparison.OrdinalIgnoreCase))
+        {
+            await TryAutoCloseRequisitionIfFilledAsync(c.RequisitionId);
+            await _db.SaveChangesAsync();
+        }
         return MapCandidate(c);
     }
 
@@ -610,6 +638,8 @@ public class RecruitmentService : IRecruitmentService
         }
 
         LogActivity(c.Id, "Hired", $"Candidate converted to employee {employee.FullName}");
+        await _db.SaveChangesAsync();
+        await TryAutoCloseRequisitionIfFilledAsync(c.RequisitionId);
         await _db.SaveChangesAsync();
         return new HireCandidateResult(employee.Id, CreatedNewEmployee: true);
     }
@@ -952,15 +982,23 @@ public class RecruitmentService : IRecruitmentService
     {
         var offer = await _db.Offers.FindAsync(dto.Id)
             ?? throw new InvalidOperationException("Offer not found");
-        if (offer.Status != ApprovalStatus.Pending)
-            throw new InvalidOperationException("Only pending offers can be edited.");
-        offer.SalaryOffered = dto.SalaryOffered; offer.Currency = dto.Currency;
-        offer.OfferDate = dto.OfferDate; offer.ExpiryDate = dto.ExpiryDate;
-        offer.Remarks = dto.Remarks; offer.JoiningDate = dto.JoiningDate;
-        offer.PositionId = dto.PositionId; offer.JobTitleId = dto.JobTitleId;
-        offer.DepartmentId = dto.DepartmentId;
-        if (dto.LetterHtml != null)
-            offer.LetterHtml = dto.LetterHtml;
+        if (offer.Status == ApprovalStatus.Rejected)
+            throw new InvalidOperationException("Rejected offers cannot be edited.");
+        if (offer.AcceptedAt.HasValue)
+            throw new InvalidOperationException("Accepted offers cannot be edited.");
+
+        if (offer.Status == ApprovalStatus.Pending)
+        {
+            offer.SalaryOffered = dto.SalaryOffered; offer.Currency = dto.Currency;
+            offer.OfferDate = dto.OfferDate; offer.ExpiryDate = dto.ExpiryDate;
+            offer.Remarks = dto.Remarks; offer.PositionId = dto.PositionId;
+            offer.JobTitleId = dto.JobTitleId; offer.DepartmentId = dto.DepartmentId;
+            if (dto.LetterHtml != null)
+                offer.LetterHtml = dto.LetterHtml;
+        }
+
+        offer.JoiningDate = dto.JoiningDate;
+
         await _db.SaveChangesAsync();
         return MapOffer(offer);
     }
@@ -987,6 +1025,9 @@ public class RecruitmentService : IRecruitmentService
         var templateHtml = string.IsNullOrWhiteSpace(dto.TemplateHtml)
             ? await GetOfferLetterTemplateHtmlAsync()
             : dto.TemplateHtml!;
+        templateHtml = OfferLetterHelper.EnsureBrandingPlaceholders(templateHtml);
+
+        var (companyName, companyHeaderHtml) = await GetOfferLetterBrandingAsync();
 
         var replacements = OfferLetterHelper.BuildReplacements(
             candidate.FullName,
@@ -996,9 +1037,23 @@ public class RecruitmentService : IRecruitmentService
             dto.JoiningDate,
             dto.OfferDate,
             dto.ExpiryDate,
-            dto.Remarks);
+            dto.Remarks,
+            companyName,
+            companyHeaderHtml);
 
-        return OfferLetterHelper.Merge(templateHtml, replacements);
+        var merged = OfferLetterHelper.Merge(templateHtml, replacements);
+        return OfferLetterHelper.InjectBrandingIntoHtml(merged, companyName, companyHeaderHtml);
+    }
+
+    private async Task<(string companyName, string companyHeaderHtml)> GetOfferLetterBrandingAsync()
+    {
+        var companyName = (await _settings.GetAsync("CompanyName") ?? "").Trim();
+        if (string.IsNullOrEmpty(companyName))
+            companyName = OfferLetterHelper.DefaultCompanyName;
+
+        var logoPath = OfferLetterHelper.NormalizeUploadPath(await _settings.GetAsync("CompanyLogoUrl"));
+        var companyHeaderHtml = OfferLetterHelper.BuildOfferLetterHeaderHtml(logoPath, companyName);
+        return (companyName, companyHeaderHtml);
     }
 
     public async Task<OfferDto> UpdateOfferLetterAsync(Guid offerId, string? letterHtml)
@@ -1027,12 +1082,10 @@ public class RecruitmentService : IRecruitmentService
         var offer = await _db.Offers.FirstOrDefaultAsync(o => o.Id == offerId)
             ?? throw new InvalidOperationException("Offer not found.");
 
-        var dir = Path.Combine(_hostEnv.ContentRootPath, "wwwroot", "uploads", "offers", offerId.ToString());
-        Directory.CreateDirectory(dir);
-        var fileName = "offer-letter.pdf";
-        var physicalPath = Path.Combine(dir, fileName);
-        await File.WriteAllBytesAsync(physicalPath, pdfBytes);
-        offer.OfferLetterUrl = $"/uploads/offers/{offerId}/{fileName}";
+        var logicalPath = _files.BuildLogicalPath($"offers/{offerId}", "offer-letter.pdf");
+        await using var stream = new MemoryStream(pdfBytes);
+        await _files.SaveAsync(logicalPath, stream, "application/pdf");
+        offer.OfferLetterUrl = logicalPath;
         await _db.SaveChangesAsync();
     }
 
@@ -1056,22 +1109,17 @@ public class RecruitmentService : IRecruitmentService
             ?? throw new InvalidOperationException("Offer not found");
         if (offer.AcceptedAt.HasValue)
             return MapOffer(offer);
-        if (offer.Status != ApprovalStatus.Approved)
-            throw new InvalidOperationException("Offer must be approved before it can be marked as accepted.");
-        offer.Status = ApprovalStatus.Approved;
-        offer.AcceptedAt = DateTime.UtcNow;
+        await AcceptOfferCoreAsync(offer);
+        await _db.SaveChangesAsync();
         if (offer.Candidate != null)
-        {
-            offer.Candidate.Stage = "Hired";
-            LogActivity(offer.CandidateId, "StageChange", "Offer accepted — candidate moved to Hired");
-        }
+            await TryAutoCloseRequisitionIfFilledAsync(offer.Candidate.RequisitionId);
         await _db.SaveChangesAsync();
         return MapOffer(offer);
     }
 
     public async Task<OfferDto> RejectOfferAsync(Guid id, string? reason)
     {
-        var offer = await _db.Offers.FindAsync(id)
+        var offer = await _db.Offers.Include(o => o.Candidate).FirstOrDefaultAsync(o => o.Id == id)
             ?? throw new InvalidOperationException("Offer not found");
         if (offer.Status == ApprovalStatus.Rejected)
             return MapOffer(offer);
@@ -1082,9 +1130,130 @@ public class RecruitmentService : IRecruitmentService
         offer.Status = ApprovalStatus.Rejected;
         offer.RejectedAt = DateTime.UtcNow;
         offer.RejectionReason = reason;
+        if (offer.Candidate != null && string.Equals(offer.Candidate.Stage, "Offer", StringComparison.OrdinalIgnoreCase))
+            offer.Candidate.Stage = "Rejected";
         LogActivity(offer.CandidateId, "OfferSent", $"Offer rejected: {reason}");
         await _db.SaveChangesAsync();
         return MapOffer(offer);
+    }
+
+    public async Task<string> EnsureOfferResponseUrlAsync(Guid offerId)
+    {
+        var offer = await _db.Offers.FirstOrDefaultAsync(o => o.Id == offerId)
+            ?? throw new InvalidOperationException("Offer not found.");
+        if (offer.ResponseToken is null || offer.ResponseToken == Guid.Empty)
+            offer.ResponseToken = Guid.NewGuid();
+        offer.SentAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return $"{ResolveCareersBaseUrl()}/careers/offer/{offer.ResponseToken:D}";
+    }
+
+    public async Task<PublicOfferResponseDto?> GetPublicOfferByTokenAsync(Guid token)
+    {
+        var offer = await FindOfferByResponseTokenAsync(token);
+        return MapPublicOffer(offer);
+    }
+
+    public async Task<PublicOfferResponseDto> AcceptOfferByTokenAsync(Guid token)
+    {
+        var offer = await FindOfferByResponseTokenAsync(token);
+        ValidateOfferCanRespond(offer);
+        await AcceptOfferCoreAsync(offer);
+        await _db.SaveChangesAsync();
+        if (offer.Candidate != null)
+            await TryAutoCloseRequisitionIfFilledAsync(offer.Candidate.RequisitionId);
+        await _db.SaveChangesAsync();
+        var mapped = MapPublicOffer(offer);
+        mapped.ResponseMessage = "Thank you for accepting the offer. Our HR team will contact you with next steps.";
+        return mapped;
+    }
+
+    public async Task<PublicOfferResponseDto> RejectOfferByTokenAsync(Guid token, string? reason)
+    {
+        var offer = await FindOfferByResponseTokenAsync(token);
+        ValidateOfferCanRespond(offer);
+        offer.Status = ApprovalStatus.Rejected;
+        offer.RejectedAt = DateTime.UtcNow;
+        offer.RejectionReason = string.IsNullOrWhiteSpace(reason) ? "Declined by candidate" : reason.Trim();
+        if (offer.Candidate != null)
+        {
+            offer.Candidate.Stage = "Rejected";
+            LogActivity(offer.CandidateId, "OfferSent", $"Candidate declined offer: {offer.RejectionReason}");
+        }
+        await _db.SaveChangesAsync();
+        var mapped = MapPublicOffer(offer);
+        mapped.ResponseMessage = "Your response has been recorded. Thank you for letting us know.";
+        return mapped;
+    }
+
+    public async Task<PublicOfferResponseDto> NegotiateOfferByTokenAsync(Guid token, string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            throw new InvalidOperationException("Please describe what you would like to negotiate.");
+
+        var offer = await FindOfferByResponseTokenAsync(token);
+        ValidateOfferCanRespond(offer);
+        offer.NegotiationMessage = message.Trim();
+        offer.NegotiationRequestedAt = DateTime.UtcNow;
+        LogActivity(offer.CandidateId, "OfferSent", $"Candidate requested negotiation: {offer.NegotiationMessage}");
+        await _db.SaveChangesAsync();
+        var mapped = MapPublicOffer(offer);
+        mapped.ResponseMessage = "Your negotiation request has been sent to HR. We will get back to you soon.";
+        return mapped;
+    }
+
+    private string ResolveCareersBaseUrl()
+    {
+        var configured = _configuration["Recruitment:CareersBaseUrl"]?.TrimEnd('/');
+        if (!string.IsNullOrEmpty(configured))
+            return configured;
+
+        var corsOrigins = _configuration.GetSection("Cors:Origins").Get<string[]>();
+        var localFrontend = corsOrigins?
+            .FirstOrDefault(o => o.Contains("localhost:3000", StringComparison.OrdinalIgnoreCase)
+                || o.Contains("127.0.0.1:3000", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(localFrontend))
+            return localFrontend.TrimEnd('/');
+
+        return "http://localhost:3000";
+    }
+
+    private async Task<Offer> FindOfferByResponseTokenAsync(Guid token)
+    {
+        var offer = await _db.Offers
+            .Include(o => o.Candidate).ThenInclude(c => c.Requisition)
+            .Include(o => o.Position)
+            .Include(o => o.JobTitle)
+            .FirstOrDefaultAsync(o => o.ResponseToken == token && !o.IsDeleted)
+            ?? throw new InvalidOperationException("This offer link is invalid or has expired.");
+        return offer;
+    }
+
+    private static void ValidateOfferCanRespond(Offer offer)
+    {
+        if (offer.AcceptedAt.HasValue)
+            throw new InvalidOperationException("This offer has already been accepted.");
+        if (offer.Status == ApprovalStatus.Rejected)
+            throw new InvalidOperationException("This offer is no longer available.");
+        if (offer.Status != ApprovalStatus.Approved)
+            throw new InvalidOperationException("This offer is not ready for a response yet.");
+        if (offer.ExpiryDate.HasValue && offer.ExpiryDate.Value.Date < DateTime.UtcNow.Date)
+            throw new InvalidOperationException("This offer has expired.");
+    }
+
+    private async Task AcceptOfferCoreAsync(Offer offer)
+    {
+        if (offer.AcceptedAt.HasValue)
+            return;
+        if (offer.Status != ApprovalStatus.Approved)
+            throw new InvalidOperationException("Offer must be approved before it can be marked as accepted.");
+        offer.AcceptedAt = DateTime.UtcNow;
+        if (offer.Candidate != null)
+        {
+            offer.Candidate.Stage = "Hired";
+            LogActivity(offer.CandidateId, "StageChange", $"{offer.Candidate.FullName} — offer accepted, moved to Hired");
+        }
+        await Task.CompletedTask;
     }
 
     public async Task<List<OfferHistoryDto>> GetOfferHistoryAsync(int page = 1, int pageSize = 50)
@@ -1147,18 +1316,41 @@ public class RecruitmentService : IRecruitmentService
         var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var weekEnd = now.AddDays(7);
 
-        var openReqs = await _db.Requisitions.CountAsync(r => r.Status == ApprovalStatus.Approved && r.ClosedAt == null);
-        var totalCandidates = await _db.Candidates.CountAsync();
-        var interviewsThisWeek = await _db.Interviews.CountAsync(i => i.ScheduledAt >= now && i.ScheduledAt <= weekEnd && i.Status == "Scheduled");
-        var offersExtended = await _db.Offers.CountAsync(o => o.Status == ApprovalStatus.Pending || o.Status == ApprovalStatus.Approved);
-        var hiredThisMonth = await _db.Candidates.CountAsync(c => c.Stage == "Hired" && c.UpdatedAt >= monthStart);
+        // Open = not formally closed (matches requisitions visible for hiring work; excludes cancelled only).
+        var openReqs = await _db.Requisitions.CountAsync(r =>
+            r.ClosedAt == null && r.Status != ApprovalStatus.Cancelled);
 
-        var allOffers = await _db.Offers.CountAsync();
-        var acceptedOffers = await _db.Offers.CountAsync(o => o.AcceptedAt != null);
-        var offerAcceptanceRate = allOffers > 0 ? Math.Round((double)acceptedOffers / allOffers * 100, 1) : 0;
+        // Active pipeline = candidates still moving through hiring (exclude terminal outcomes).
+        var totalCandidates = await _db.Candidates.CountAsync(c =>
+            !c.IsDeleted
+            && c.Stage.ToLower() != "hired"
+            && c.Stage.ToLower() != "rejected"
+            && c.Stage.ToLower() != "withdrawn");
+
+        var interviewsThisWeek = await _db.Interviews.CountAsync(i =>
+            !i.IsDeleted
+            && i.ScheduledAt >= now
+            && i.ScheduledAt <= weekEnd
+            && i.Status == "Scheduled");
+
+        // Offers approved and sent to candidates, still awaiting accept/reject.
+        var offersExtended = await _db.Offers.CountAsync(o =>
+            !o.IsDeleted
+            && o.Status == ApprovalStatus.Approved
+            && o.AcceptedAt == null
+            && o.RejectedAt == null);
+
+        var hiredThisMonth = await _db.Candidates.CountAsync(c =>
+            !c.IsDeleted && c.Stage == "Hired" && c.UpdatedAt >= monthStart);
+
+        var approvedOffers = await _db.Offers.CountAsync(o => !o.IsDeleted && o.Status == ApprovalStatus.Approved);
+        var acceptedOffers = await _db.Offers.CountAsync(o => !o.IsDeleted && o.AcceptedAt != null);
+        var offerAcceptanceRate = approvedOffers > 0
+            ? Math.Round((double)acceptedOffers / approvedOffers * 100, 1)
+            : 0;
 
         var hiredCandidates = await _db.Candidates
-            .Where(c => c.Stage == "Hired" && c.EmployeeId != null)
+            .Where(c => !c.IsDeleted && c.Stage == "Hired")
             .Select(c => new { c.AppliedAt, c.UpdatedAt })
             .ToListAsync();
         var avgTimeToHire = hiredCandidates.Count > 0
@@ -1168,7 +1360,7 @@ public class RecruitmentService : IRecruitmentService
         var stages = new[] { "Sourced", "Screening", "Interview", "Evaluation", "Offer", "Hired", "Rejected", "Withdrawn" };
         var pipelineByStage = new Dictionary<string, int>();
         foreach (var st in stages)
-            pipelineByStage[st] = await _db.Candidates.CountAsync(c => c.Stage == st);
+            pipelineByStage[st] = await _db.Candidates.CountAsync(c => !c.IsDeleted && c.Stage == st);
 
         var upcoming = await GetUpcomingInterviewsAsync();
 
@@ -1177,8 +1369,12 @@ public class RecruitmentService : IRecruitmentService
             .Take(10)
             .Select(a => new CandidateActivityDto
             {
-                Id = a.Id, ActivityType = a.ActivityType, Description = a.Description,
-                PerformedBy = a.PerformedBy, PerformedAt = AsStoredUtc(a.PerformedAt),
+                Id = a.Id,
+                ActivityType = a.ActivityType,
+                Description = a.Description,
+                CandidateName = a.Candidate.FirstName + " " + a.Candidate.LastName,
+                PerformedBy = a.PerformedBy,
+                PerformedAt = AsStoredUtc(a.PerformedAt),
             })
             .ToListAsync();
 
@@ -1249,18 +1445,116 @@ public class RecruitmentService : IRecruitmentService
         }
     }
 
+    private static string NormalizeSalaryCurrency(string? currency) =>
+        string.IsNullOrWhiteSpace(currency) ? "LKR" : currency.Trim().ToUpperInvariant();
+
+    private static string? NormalizeWorkLocation(string? workLocation) =>
+        string.IsNullOrWhiteSpace(workLocation) ? null : workLocation.Trim();
+
+    private static string? ResolveRequisitionLocationName(Requisition r) =>
+        NormalizeWorkLocation(r.WorkLocation) ?? r.Location?.Name;
+
+    /// <summary>
+    /// Candidates still in the hiring pipeline block requisition deletion until rejected or hired as an employee.
+    /// </summary>
+    private static bool CandidateBlocksRequisitionDeletion(Candidate c)
+    {
+        if (c.IsDeleted) return false;
+        return CandidateBlocksRequisitionDeletion(c.Stage, c.EmployeeId);
+    }
+
+    private static bool CandidateBlocksRequisitionDeletion(string? stage, Guid? employeeId)
+    {
+        var s = (stage ?? "").Trim().ToLowerInvariant();
+        if (s is "rejected" or "withdrawn") return false;
+        if (s == "hired" && employeeId.HasValue) return false;
+        return true;
+    }
+
+    private async Task EnsureRequisitionCanBeDeletedAsync(Guid requisitionId)
+    {
+        var blocking = await _db.Candidates
+            .Where(c => c.RequisitionId == requisitionId && !c.IsDeleted)
+            .Select(c => new { c.Stage, c.EmployeeId })
+            .ToListAsync();
+        if (blocking.Any(c => CandidateBlocksRequisitionDeletion(c.Stage, c.EmployeeId)))
+        {
+            throw new InvalidOperationException(
+                "This requisition cannot be deleted while it has active candidates. Reject each candidate or convert them to employees first.");
+        }
+    }
+
+    /// <summary>When hired placements meet or exceed vacancies, mark the requisition closed.</summary>
+    private async Task TryAutoCloseRequisitionIfFilledAsync(Guid requisitionId)
+    {
+        var req = await _db.Requisitions.FindAsync(requisitionId);
+        if (req == null || req.ClosedAt.HasValue || req.Status != ApprovalStatus.Approved)
+            return;
+
+        if (req.Vacancies < 1)
+            return;
+
+        var filledCount = await _db.Candidates.CountAsync(c =>
+            c.RequisitionId == requisitionId
+            && !c.IsDeleted
+            && c.Stage.ToLower() == "hired");
+
+        if (filledCount >= req.Vacancies)
+            req.ClosedAt = DateTime.UtcNow;
+    }
+
+    private async Task SyncAutoCloseRequisitionsAsync(IReadOnlyList<Requisition> requisitions)
+    {
+        if (requisitions.Count == 0) return;
+
+        foreach (var r in requisitions)
+        {
+            if (r.Status != ApprovalStatus.Approved || r.ClosedAt.HasValue)
+                continue;
+            await TryAutoCloseRequisitionIfFilledAsync(r.Id);
+        }
+
+        await _db.SaveChangesAsync();
+        var ids = requisitions.Select(r => r.Id).ToList();
+        var closedMap = await _db.Requisitions.AsNoTracking()
+            .Where(r => ids.Contains(r.Id))
+            .Select(r => new { r.Id, r.ClosedAt })
+            .ToDictionaryAsync(x => x.Id, x => x.ClosedAt);
+        foreach (var r in requisitions)
+            r.ClosedAt = closedMap.GetValueOrDefault(r.Id);
+    }
+
+    private static string ResolveRequisitionDisplayStatus(Requisition r) =>
+        r.ClosedAt.HasValue ? "Closed" : r.Status.ToString();
+
+    private static void ValidateRequisitionRequiredFields(CreateRequisitionDto dto)
+    {
+        if (!dto.ExperienceMin.HasValue)
+            throw new InvalidOperationException("Experience minimum (years) is required.");
+        if (dto.ExperienceMin.Value < 0)
+            throw new InvalidOperationException("Experience minimum cannot be negative.");
+        if (NormalizeWorkLocation(dto.WorkLocation) is null)
+            throw new InvalidOperationException("Location is required.");
+        if (string.IsNullOrWhiteSpace(dto.Skills))
+            throw new InvalidOperationException("At least one skill is required.");
+    }
+
     private static RequisitionDto MapRequisition(Requisition r) => new()
     {
         Id = r.Id, Title = r.Title, Code = r.Code, Description = r.Description,
-        Vacancies = r.Vacancies, Status = r.Status.ToString(), TargetDate = r.TargetDate, Priority = r.Priority,
+        Vacancies = r.Vacancies, Status = ResolveRequisitionDisplayStatus(r), TargetDate = r.TargetDate, Priority = r.Priority,
         EmploymentType = r.EmploymentType, ExperienceMin = r.ExperienceMin, ExperienceMax = r.ExperienceMax,
-        SalaryMin = r.SalaryMin, SalaryMax = r.SalaryMax, SalaryCurrency = r.SalaryCurrency, Skills = r.Skills, ClosedAt = r.ClosedAt,
+        SalaryMin = r.SalaryMin, SalaryMax = r.SalaryMax,
+        SalaryCurrency = NormalizeSalaryCurrency(r.SalaryCurrency),
+        Skills = r.Skills, ClosedAt = r.ClosedAt,
         DepartmentName = r.Department?.Name, DepartmentId = r.DepartmentId,
         JobTitleName = r.JobTitle?.Title, JobTitleId = r.JobTitleId,
         HiringManagerName = r.HiringManager != null ? r.HiringManager.FullName : null, HiringManagerId = r.HiringManagerId,
-        LocationName = r.Location?.Name, LocationId = r.LocationId,
+        LocationName = ResolveRequisitionLocationName(r), LocationId = r.LocationId,
         PositionTitle = r.Position?.Title, PositionId = r.PositionId,
         CandidateCount = r.Candidates?.Count ?? 0,
+        BlockingCandidateCount = r.Candidates?.Count(CandidateBlocksRequisitionDeletion) ?? 0,
+        CanDelete = !(r.Candidates?.Any(CandidateBlocksRequisitionDeletion) ?? false),
         Timeline = DeserializeTimeline(r.RoleTimelineJson),
         SupportingPdfOriginalFileName = r.SupportingPdfOriginalFileName,
         HasSupportingPdf = !string.IsNullOrEmpty(r.SupportingPdfStoredFileName),
@@ -1282,7 +1576,7 @@ public class RecruitmentService : IRecruitmentService
         ExperienceMax = r.ExperienceMax,
         SalaryMin = r.SalaryMin,
         SalaryMax = r.SalaryMax,
-        SalaryCurrency = r.SalaryCurrency,
+        SalaryCurrency = NormalizeSalaryCurrency(r.SalaryCurrency),
         Skills = r.Skills,
         DepartmentName = r.Department?.Name,
         DepartmentId = r.DepartmentId,
@@ -1290,7 +1584,7 @@ public class RecruitmentService : IRecruitmentService
         JobTitleId = r.JobTitleId,
         HiringManagerName = r.HiringManager != null ? r.HiringManager.FullName : null,
         HiringManagerId = r.HiringManagerId,
-        LocationName = r.Location?.Name,
+        LocationName = ResolveRequisitionLocationName(r),
         LocationId = r.LocationId,
         PositionTitle = r.Position?.Title,
         PositionId = r.PositionId,
@@ -1306,7 +1600,7 @@ public class RecruitmentService : IRecruitmentService
         Rating = c.Rating, RejectionReason = c.RejectionReason, Tags = c.Tags,
         RequisitionId = c.RequisitionId, RequisitionTitle = c.Requisition?.Title,
         EmployeeId = c.EmployeeId,
-        HasUploadedResume = ResumeFileExists(c.Id),
+        HasUploadedResume = !string.IsNullOrWhiteSpace(c.ResumeUrl),
     };
 
     private static InterviewDto MapInterview(Interview i) => new()
@@ -1333,9 +1627,39 @@ public class RecruitmentService : IRecruitmentService
         Remarks = o.Remarks, JoiningDate = o.JoiningDate, OfferLetterUrl = o.OfferLetterUrl,
         LetterHtml = o.LetterHtml,
         AcceptedAt = o.AcceptedAt, RejectedAt = o.RejectedAt, RejectionReason = o.RejectionReason,
+        SentAt = o.SentAt, NegotiationRequestedAt = o.NegotiationRequestedAt, NegotiationMessage = o.NegotiationMessage,
         CandidateId = o.CandidateId, CandidateName = o.Candidate?.FullName,
         PositionId = o.PositionId, JobTitleId = o.JobTitleId, DepartmentId = o.DepartmentId,
     };
+
+    private static PublicOfferResponseDto MapPublicOffer(Offer offer)
+    {
+        var positionTitle = offer.Position?.Title
+            ?? offer.JobTitle?.Title
+            ?? offer.Candidate?.Requisition?.Title
+            ?? "Open Position";
+        var canRespond = offer.Status == ApprovalStatus.Approved
+            && !offer.AcceptedAt.HasValue
+            && (!offer.ExpiryDate.HasValue || offer.ExpiryDate.Value.Date >= DateTime.UtcNow.Date);
+
+        return new PublicOfferResponseDto
+        {
+            CandidateName = offer.Candidate?.FullName ?? "Candidate",
+            PositionTitle = positionTitle,
+            SalaryOffered = offer.SalaryOffered,
+            Currency = offer.Currency,
+            JoiningDate = offer.JoiningDate,
+            ExpiryDate = offer.ExpiryDate,
+            Status = offer.AcceptedAt.HasValue ? "Accepted" : offer.Status.ToString(),
+            CanRespond = canRespond,
+            IsAccepted = offer.AcceptedAt.HasValue,
+            IsRejected = offer.Status == ApprovalStatus.Rejected,
+            HasNegotiationRequest = offer.NegotiationRequestedAt.HasValue,
+            NegotiationMessage = offer.NegotiationMessage,
+            NegotiationRequestedAt = offer.NegotiationRequestedAt,
+            LetterHtml = offer.LetterHtml,
+        };
+    }
 
     private static OfferHistoryDto MapOfferHistory(Offer o) => new()
     {

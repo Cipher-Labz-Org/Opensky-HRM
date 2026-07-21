@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { sanitizeSearchInput } from "@/lib/input-validation";
 
 export type EmployeeSearchPick = {
   id: string;
@@ -39,6 +40,7 @@ export function EmployeeSearchCombobox({
   className = "",
   disabled = false,
   departmentId,
+  excludeEmployeeIds,
 }: {
   value: string;
   onPick: (emp: EmployeeSearchPick | null) => void;
@@ -47,6 +49,8 @@ export function EmployeeSearchCombobox({
   disabled?: boolean;
   /** When set, suggestions are limited to this department. */
   departmentId?: string;
+  /** Employee ids to omit from suggestions (e.g. self or already assigned). */
+  excludeEmployeeIds?: string[];
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,7 +103,8 @@ export function EmployeeSearchCombobox({
       const params = new URLSearchParams({ pageSize: "14", excludeTerminated: "true", search: q });
       if (departmentId) params.set("departmentId", departmentId);
       const res = await apiFetch<{ items: Hit[] }>(`/api/employees?${params}`);
-      const items = res.items ?? [];
+      const excluded = new Set((excludeEmployeeIds ?? []).map((employeeId) => employeeId.trim().toLowerCase()));
+      const items = (res.items ?? []).filter((hit) => !excluded.has(hit.id.trim().toLowerCase()));
       setHits(items);
       setOpen(items.length > 0);
     } catch {
@@ -108,12 +113,13 @@ export function EmployeeSearchCombobox({
     } finally {
       setLoading(false);
     }
-  }, [departmentId]);
+  }, [departmentId, excludeEmployeeIds]);
 
   function onInputChange(next: string) {
-    setInputText(next);
+    const sanitized = sanitizeSearchInput(next);
+    setInputText(sanitized);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    const t = next.trim();
+    const t = sanitized.trim();
     if (t.length === 0) {
       setHits([]);
       setOpen(false);
@@ -121,7 +127,7 @@ export function EmployeeSearchCombobox({
       return;
     }
     if (value) onPick(null);
-    debounceRef.current = setTimeout(() => void runSearch(next), 280);
+    debounceRef.current = setTimeout(() => void runSearch(sanitized), 280);
   }
 
   async function chooseHit(hit: Hit) {

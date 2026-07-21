@@ -33,10 +33,13 @@ public class AuthService : IAuthService
 
         // Allow login by username or email (case-insensitive)
         var loginLower = loginInput.ToLower();
-        // Keep login query minimal — optional assignment tables may be absent if migrations lag behind.
         var user = await _db.Users
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.Permissions)
             .Include(u => u.Employee)
+            .Include(u => u.AssignedLocations)
+            .Include(u => u.AssignedBusinessUnits)
+            .Include(u => u.AssignedGrades)
+            .Include(u => u.AssignedJobTitles)
             .FirstOrDefaultAsync(u => !u.IsDeleted && (
                 u.Username.ToLower() == loginLower ||
                 (u.Email != null && u.Email.ToLower() == loginLower)));
@@ -155,16 +158,28 @@ public class AuthService : IAuthService
 
     public async Task<UserListDto> CreateUserAsync(CreateUserDto dto)
     {
-        if (await _db.Users.AnyAsync(u => u.Username == dto.Username && !u.IsDeleted))
-            throw new InvalidOperationException($"Username '{dto.Username}' already exists.");
+        InputValidators.ValidateUsername(dto.Username, "Username");
+        dto.Username = dto.Username.Trim();
+        InputValidators.ValidateEmailInput(dto.Email, "Email", required: false);
+
+        if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 6)
+            throw new InvalidOperationException("Password must be at least 6 characters.");
+
+        if (dto.RoleIds == null || dto.RoleIds.Count == 0)
+            throw new InvalidOperationException("At least one role is required.");
+
+        if (await _db.Users.AnyAsync(u => u.Username == dto.Username))
+            throw new InvalidOperationException(
+                $"Username '{dto.Username}' is already in use (including archived accounts). Choose a different username.");
 
         var normalizedEmail = string.IsNullOrWhiteSpace(dto.Email)
             ? $"user-{Guid.NewGuid():N}@noemail.opensky.hrm"
             : dto.Email.Trim();
 
         if (!string.IsNullOrWhiteSpace(dto.Email) &&
-            await _db.Users.AnyAsync(u => u.Email == normalizedEmail && !u.IsDeleted))
-            throw new InvalidOperationException($"Email '{normalizedEmail}' already exists.");
+            await _db.Users.AnyAsync(u => u.Email == normalizedEmail))
+            throw new InvalidOperationException(
+                $"Email '{normalizedEmail}' is already in use (including archived accounts). Choose a different email.");
 
         var user = new User
         {
@@ -172,7 +187,8 @@ public class AuthService : IAuthService
             Email = normalizedEmail,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
             IsActive = dto.IsActive,
-            EmployeeId = dto.EmployeeId
+            EmployeeId = dto.EmployeeId,
+            MustChangePassword = dto.MustChangePassword,
         };
 
         foreach (var roleId in dto.RoleIds)
@@ -188,7 +204,8 @@ public class AuthService : IAuthService
             dto.AssignedLocationIds,
             dto.AssignedBusinessUnitIds,
             dto.AssignedGradeIds,
-            dto.AssignedJobTitleIds);
+            dto.AssignedJobTitleIds,
+            validateRequested: true);
 
         return await GetUserByIdAsync(user.Id) ?? throw new InvalidOperationException("Failed to retrieve created user.");
     }
@@ -202,15 +219,21 @@ public class AuthService : IAuthService
 
         if (dto.Username != null)
         {
-            if (await _db.Users.AnyAsync(u => u.Username == dto.Username && u.Id != id && !u.IsDeleted))
-                throw new InvalidOperationException($"Username '{dto.Username}' already exists.");
+            InputValidators.ValidateUsername(dto.Username, "Username");
+            dto.Username = dto.Username.Trim();
+
+            if (await _db.Users.AnyAsync(u => u.Username == dto.Username && u.Id != id))
+                throw new InvalidOperationException(
+                    $"Username '{dto.Username}' is already in use (including archived accounts). Choose a different username.");
             user.Username = dto.Username;
         }
 
         if (dto.Email != null)
         {
-            if (await _db.Users.AnyAsync(u => u.Email == dto.Email && u.Id != id && !u.IsDeleted))
-                throw new InvalidOperationException($"Email '{dto.Email}' already exists.");
+            InputValidators.ValidateEmailInput(dto.Email, "Email", required: false);
+            if (await _db.Users.AnyAsync(u => u.Email == dto.Email && u.Id != id))
+                throw new InvalidOperationException(
+                    $"Email '{dto.Email}' is already in use (including archived accounts). Choose a different email.");
             user.Email = dto.Email;
         }
 
@@ -226,72 +249,19 @@ public class AuthService : IAuthService
                 _db.UserRoles.Add(new UserRole { UserId = id, RoleId = roleId });
         }
 
-        if (dto.AssignedLocationIds != null)
+        if (dto.AssignedLocationIds != null
+            || dto.AssignedBusinessUnitIds != null
+            || dto.AssignedGradeIds != null
+            || dto.AssignedJobTitleIds != null)
         {
-            var existingLocs = await _db.UserAssignedLocations.Where(x => x.UserId == id).ToListAsync();
-            _db.UserAssignedLocations.RemoveRange(existingLocs);
-            await _db.SaveChangesAsync();
-            if (dto.AssignedLocationIds.Count > 0)
-            {
-                var validLocIds = await _db.Locations
-                    .Where(l => !l.IsDeleted && dto.AssignedLocationIds.Contains(l.Id))
-                    .Select(l => l.Id)
-                    .ToListAsync();
-                foreach (var lid in validLocIds.Distinct())
-                    _db.UserAssignedLocations.Add(new UserAssignedLocation { UserId = id, LocationId = lid });
-            }
-            await _db.SaveChangesAsync();
-        }
-
-        if (dto.AssignedBusinessUnitIds != null)
-        {
-            var existing = await _db.UserAssignedBusinessUnits.Where(x => x.UserId == id).ToListAsync();
-            _db.UserAssignedBusinessUnits.RemoveRange(existing);
-            await _db.SaveChangesAsync();
-            if (dto.AssignedBusinessUnitIds.Count > 0)
-            {
-                var validIds = await _db.BusinessUnits
-                    .Where(b => !b.IsDeleted && dto.AssignedBusinessUnitIds.Contains(b.Id))
-                    .Select(b => b.Id)
-                    .ToListAsync();
-                foreach (var bid in validIds.Distinct())
-                    _db.UserAssignedBusinessUnits.Add(new UserAssignedBusinessUnit { UserId = id, BusinessUnitId = bid });
-            }
-            await _db.SaveChangesAsync();
-        }
-
-        if (dto.AssignedGradeIds != null)
-        {
-            var existing = await _db.UserAssignedGrades.Where(x => x.UserId == id).ToListAsync();
-            _db.UserAssignedGrades.RemoveRange(existing);
-            await _db.SaveChangesAsync();
-            if (dto.AssignedGradeIds.Count > 0)
-            {
-                var validIds = await _db.Grades
-                    .Where(g => !g.IsDeleted && dto.AssignedGradeIds.Contains(g.Id))
-                    .Select(g => g.Id)
-                    .ToListAsync();
-                foreach (var gid in validIds.Distinct())
-                    _db.UserAssignedGrades.Add(new UserAssignedGrade { UserId = id, GradeId = gid });
-            }
-            await _db.SaveChangesAsync();
-        }
-
-        if (dto.AssignedJobTitleIds != null)
-        {
-            var existing = await _db.UserAssignedJobTitles.Where(x => x.UserId == id).ToListAsync();
-            _db.UserAssignedJobTitles.RemoveRange(existing);
-            await _db.SaveChangesAsync();
-            if (dto.AssignedJobTitleIds.Count > 0)
-            {
-                var validIds = await _db.JobTitles
-                    .Where(j => !j.IsDeleted && dto.AssignedJobTitleIds.Contains(j.Id))
-                    .Select(j => j.Id)
-                    .ToListAsync();
-                foreach (var jid in validIds.Distinct())
-                    _db.UserAssignedJobTitles.Add(new UserAssignedJobTitle { UserId = id, JobTitleId = jid });
-            }
-            await _db.SaveChangesAsync();
+            await ReplaceUserScopeAssignmentsAsync(
+                id,
+                dto.AssignedLocationIds,
+                dto.AssignedBusinessUnitIds,
+                dto.AssignedGradeIds,
+                dto.AssignedJobTitleIds,
+                replaceExisting: true,
+                validateRequested: true);
         }
 
         user.UpdatedAt = DateTime.UtcNow;
@@ -692,14 +662,66 @@ public class AuthService : IAuthService
         List<Guid>? locationIds,
         List<Guid>? businessUnitIds,
         List<Guid>? gradeIds,
-        List<Guid>? jobTitleIds)
+        List<Guid>? jobTitleIds,
+        bool validateRequested = false)
     {
+        await ReplaceUserScopeAssignmentsAsync(
+            userId,
+            locationIds,
+            businessUnitIds,
+            gradeIds,
+            jobTitleIds,
+            replaceExisting: false,
+            validateRequested);
+    }
+
+    private async Task ReplaceUserScopeAssignmentsAsync(
+        Guid userId,
+        List<Guid>? locationIds,
+        List<Guid>? businessUnitIds,
+        List<Guid>? gradeIds,
+        List<Guid>? jobTitleIds,
+        bool replaceExisting,
+        bool validateRequested)
+    {
+        if (replaceExisting)
+        {
+            if (locationIds != null)
+            {
+                var existingLocs = await _db.UserAssignedLocations.Where(x => x.UserId == userId).ToListAsync();
+                _db.UserAssignedLocations.RemoveRange(existingLocs);
+            }
+
+            if (businessUnitIds != null)
+            {
+                var existing = await _db.UserAssignedBusinessUnits.Where(x => x.UserId == userId).ToListAsync();
+                _db.UserAssignedBusinessUnits.RemoveRange(existing);
+            }
+
+            if (gradeIds != null)
+            {
+                var existing = await _db.UserAssignedGrades.Where(x => x.UserId == userId).ToListAsync();
+                _db.UserAssignedGrades.RemoveRange(existing);
+            }
+
+            if (jobTitleIds != null)
+            {
+                var existing = await _db.UserAssignedJobTitles.Where(x => x.UserId == userId).ToListAsync();
+                _db.UserAssignedJobTitles.RemoveRange(existing);
+            }
+
+            if (locationIds != null || businessUnitIds != null || gradeIds != null || jobTitleIds != null)
+                await _db.SaveChangesAsync();
+        }
+
         if (locationIds is { Count: > 0 })
         {
             var valid = await _db.Locations
                 .Where(l => !l.IsDeleted && locationIds.Contains(l.Id))
                 .Select(l => l.Id)
                 .ToListAsync();
+            if (validateRequested && valid.Count == 0)
+                throw new InvalidOperationException("None of the selected work locations are valid.");
             foreach (var id in valid.Distinct())
                 _db.UserAssignedLocations.Add(new UserAssignedLocation { UserId = userId, LocationId = id });
         }
@@ -710,6 +732,8 @@ public class AuthService : IAuthService
                 .Where(b => !b.IsDeleted && businessUnitIds.Contains(b.Id))
                 .Select(b => b.Id)
                 .ToListAsync();
+            if (validateRequested && valid.Count == 0)
+                throw new InvalidOperationException("None of the selected business units are valid.");
             foreach (var id in valid.Distinct())
                 _db.UserAssignedBusinessUnits.Add(new UserAssignedBusinessUnit { UserId = userId, BusinessUnitId = id });
         }
@@ -720,6 +744,8 @@ public class AuthService : IAuthService
                 .Where(g => !g.IsDeleted && gradeIds.Contains(g.Id))
                 .Select(g => g.Id)
                 .ToListAsync();
+            if (validateRequested && valid.Count == 0)
+                throw new InvalidOperationException("None of the selected grades are valid.");
             foreach (var id in valid.Distinct())
                 _db.UserAssignedGrades.Add(new UserAssignedGrade { UserId = userId, GradeId = id });
         }
@@ -730,6 +756,8 @@ public class AuthService : IAuthService
                 .Where(j => !j.IsDeleted && jobTitleIds.Contains(j.Id))
                 .Select(j => j.Id)
                 .ToListAsync();
+            if (validateRequested && valid.Count == 0)
+                throw new InvalidOperationException("None of the selected job titles are valid.");
             foreach (var id in valid.Distinct())
                 _db.UserAssignedJobTitles.Add(new UserAssignedJobTitle { UserId = userId, JobTitleId = id });
         }

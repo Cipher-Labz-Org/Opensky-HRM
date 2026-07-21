@@ -6,10 +6,35 @@ namespace OpenSkyHRM.Persistence.Seeders;
 
 public static class OrganizationSeeder
 {
+    private const string PlaceholderWorkEmailDomain = "@employee.noemail.opensky.hrm";
     public static async Task SeedAsync(AppDbContext context)
     {
-        if (await context.Departments.AnyAsync()) return;
+        if (!await context.Departments.AnyAsync())
+            await SeedOrganizationStructureAsync(context);
 
+        await EnsureSampleEmployeesIfEmptyAsync(context);
+    }
+
+    /// <summary>
+    /// Clears auto-generated placeholder work emails so optional email stays empty when none was provided.
+    /// </summary>
+    public static async Task RepairNullEmployeeEmailsAsync(AppDbContext context)
+    {
+        var placeholders = await context.Employees
+            .Where(e => e.Email != null && EF.Functions.ILike(e.Email, $"%{PlaceholderWorkEmailDomain}%"))
+            .ToListAsync();
+
+        if (placeholders.Count == 0)
+            return;
+
+        foreach (var employee in placeholders)
+            employee.Email = null;
+
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedOrganizationStructureAsync(AppDbContext context)
+    {
         // Business Units
         var buRetail = new BusinessUnit { Name = "Retail Operations", Code = "BU-RET", Description = "Retail and store operations" };
         var buManuf = new BusinessUnit { Name = "Manufacturing", Code = "BU-MFG", Description = "Manufacturing and production" };
@@ -70,8 +95,51 @@ public static class OrganizationSeeder
 
         context.Positions.AddRange(posCEO, posHRD, posSrAcct);
         await context.SaveChangesAsync();
+    }
 
-        // Sample Employees
+    /// <summary>
+    /// Ensures demo employees exist even when org structure was created separately (departments already present).
+    /// Safe to run on every startup (idempotent).
+    /// </summary>
+    public static async Task EnsureSampleEmployeesIfEmptyAsync(AppDbContext context)
+    {
+        if (await context.Employees.AnyAsync())
+            return;
+
+        var deptOps = await context.Departments.FirstOrDefaultAsync(d => d.Code == "DEPT-OPS")
+            ?? await context.Departments.OrderBy(d => d.Name).FirstOrDefaultAsync();
+        var deptHr = await context.Departments.FirstOrDefaultAsync(d => d.Code == "DEPT-HR")
+            ?? deptOps;
+        var deptFin = await context.Departments.FirstOrDefaultAsync(d => d.Code == "DEPT-FIN")
+            ?? deptOps;
+
+        if (deptOps == null)
+            return;
+
+        var loc = await context.Locations.OrderBy(l => l.Name).FirstOrDefaultAsync();
+        var bu = await context.BusinessUnits.OrderBy(b => b.Name).FirstOrDefaultAsync();
+
+        var grades = await context.Grades.OrderBy(g => g.Level).ToListAsync();
+        var gradeExec = grades.FirstOrDefault();
+        var gradeMgr = grades.Skip(1).FirstOrDefault() ?? gradeExec;
+        var gradeOff = grades.Skip(3).FirstOrDefault() ?? gradeMgr;
+
+        var jtCeo = await context.JobTitles.FirstOrDefaultAsync(j => j.Code == "JT-CEO")
+            ?? await context.JobTitles.OrderBy(j => j.Title).FirstOrDefaultAsync();
+        var jtHrd = await context.JobTitles.FirstOrDefaultAsync(j => j.Code == "JT-HRD")
+            ?? await context.JobTitles.OrderBy(j => j.Title).Skip(1).FirstOrDefaultAsync()
+            ?? jtCeo;
+        var jtAcct = await context.JobTitles.FirstOrDefaultAsync(j => j.Code == "JT-ACCT")
+            ?? await context.JobTitles.OrderBy(j => j.Title).Skip(2).FirstOrDefaultAsync()
+            ?? jtCeo;
+
+        if (jtCeo == null)
+            return;
+
+        var posCeo = await context.Positions.FirstOrDefaultAsync(p => p.Code == "POS-001");
+        var posHrd = await context.Positions.FirstOrDefaultAsync(p => p.Code == "POS-002");
+        var posAcct = await context.Positions.FirstOrDefaultAsync(p => p.Code == "POS-003");
+
         var empCEO = new Employee
         {
             EmployeeCode = "EMP-0001",
@@ -85,11 +153,11 @@ public static class OrganizationSeeder
             Status = "Active",
             EmploymentType = "FullTimePermanent",
             DepartmentId = deptOps.Id,
-            BusinessUnitId = buHQ.Id,
-            PositionId = posCEO.Id,
-            LocationId = locHQ.Id,
-            GradeId = grades[0].Id,
-            JobTitleId = jtCEO.Id,
+            BusinessUnitId = bu?.Id,
+            PositionId = posCeo?.Id,
+            LocationId = loc?.Id,
+            GradeId = gradeExec?.Id,
+            JobTitleId = jtCeo.Id,
         };
 
         var empHRD = new Employee
@@ -104,12 +172,12 @@ public static class OrganizationSeeder
             JoinDate = new DateTime(2016, 4, 1, 0, 0, 0, DateTimeKind.Utc),
             Status = "Active",
             EmploymentType = "FullTimePermanent",
-            DepartmentId = deptHR.Id,
-            BusinessUnitId = buHQ.Id,
-            PositionId = posHRD.Id,
-            LocationId = locHQ.Id,
-            GradeId = grades[1].Id,
-            JobTitleId = jtHRD.Id,
+            DepartmentId = deptHr?.Id ?? deptOps.Id,
+            BusinessUnitId = bu?.Id,
+            PositionId = posHrd?.Id,
+            LocationId = loc?.Id,
+            GradeId = gradeMgr?.Id,
+            JobTitleId = jtHrd!.Id,
             ManagerId = empCEO.Id,
         };
 
@@ -125,16 +193,19 @@ public static class OrganizationSeeder
             JoinDate = new DateTime(2019, 9, 15, 0, 0, 0, DateTimeKind.Utc),
             Status = "Active",
             EmploymentType = "FullTimePermanent",
-            DepartmentId = deptFinance.Id,
-            BusinessUnitId = buHQ.Id,
-            PositionId = posSrAcct.Id,
-            LocationId = locHQ.Id,
-            GradeId = grades[3].Id,
-            JobTitleId = jtAcct.Id,
+            DepartmentId = deptFin?.Id ?? deptOps.Id,
+            BusinessUnitId = bu?.Id,
+            PositionId = posAcct?.Id,
+            LocationId = loc?.Id,
+            GradeId = gradeOff?.Id,
+            JobTitleId = jtAcct!.Id,
             ManagerId = empCEO.Id,
         };
 
-        context.Employees.AddRange(empCEO, empHRD, empAcct);
+        context.Employees.Add(empCEO);
+        await context.SaveChangesAsync();
+
+        context.Employees.AddRange(empHRD, empAcct);
         await context.SaveChangesAsync();
     }
 }

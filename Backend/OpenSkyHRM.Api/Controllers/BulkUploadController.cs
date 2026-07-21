@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Api.Filters;
@@ -416,23 +417,26 @@ public partial class BulkUploadController : ControllerBase
                 continue;
             }
 
-            if (emailsSeenInFile.Contains(resolvedEmail))
+            if (!string.IsNullOrEmpty(resolvedEmail))
             {
-                skipped++;
-                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
-                    new List<string> { $"Duplicate email in this file: '{resolvedEmail}' appears on more than one row." }));
-                continue;
-            }
+                if (emailsSeenInFile.Contains(resolvedEmail))
+                {
+                    skipped++;
+                    results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
+                        new List<string> { $"Duplicate email in this file: '{resolvedEmail}' appears on more than one row." }));
+                    continue;
+                }
 
-            if (existingEmailSet.Contains(resolvedEmail))
-            {
-                skipped++;
-                results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
-                    new List<string> { $"Email '{resolvedEmail}' is already used (each employee must have a unique work email)." }));
-                continue;
-            }
+                if (existingEmailSet.Contains(resolvedEmail))
+                {
+                    skipped++;
+                    results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
+                        new List<string> { $"Email '{resolvedEmail}' is already used (each employee must have a unique work email)." }));
+                    continue;
+                }
 
-            emailsSeenInFile.Add(resolvedEmail);
+                emailsSeenInFile.Add(resolvedEmail);
+            }
 
             ValidateEmployeeImportFieldLengths(
                 errors,
@@ -442,6 +446,21 @@ public partial class BulkUploadController : ControllerBase
                 Cell(row, "Work Telephone"),
                 Cell(row, "Zip/Postal Code"),
                 Cell(row, "Permanent Zip/Postal Code"));
+
+            InputValidators.ValidateEmployeeImportAddressFields(
+                errors,
+                Cell(row, "Address Street 1"),
+                Cell(row, "Address Street 2"),
+                Cell(row, "City"),
+                Cell(row, "Zip/Postal Code"),
+                Cell(row, "Polling Division"),
+                Cell(row, "Distance to Office"),
+                Cell(row, "Permanent Street 1"),
+                Cell(row, "Permanent Street 2"),
+                Cell(row, "Permanent City"),
+                Cell(row, "Permanent Zip/Postal Code"),
+                Cell(row, "Permanent Polling Division"),
+                Cell(row, "Permanent Distance to Office"));
 
             if (errors.Count > 0)
             {
@@ -530,7 +549,8 @@ public partial class BulkUploadController : ControllerBase
 
             existingCodesForGeneration.Add(empCode!);
             reservedEmployeeCodes.Add(empCode!);
-            existingEmailSet.Add(resolvedEmail);
+            if (!string.IsNullOrEmpty(resolvedEmail))
+                existingEmailSet.Add(resolvedEmail);
             if (!managerLookup.ContainsKey(empCode!))
                 managerLookup[empCode!] = employee.Id;
             created++;
@@ -671,15 +691,11 @@ public partial class BulkUploadController : ControllerBase
         }
     }
 
-    private static string ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
+    private static string? ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
     {
         var work = NormalizeImportEmail(workEmail);
         if (work != null) return work;
-        var personal = NormalizeImportEmail(personalEmail);
-        if (personal != null) return personal;
-        var local = SanitizeUsernameSegment(employeeCode);
-        if (string.IsNullOrEmpty(local)) local = "employee";
-        return $"{local}@import.openskyhrm.local";
+        return NormalizeImportEmail(personalEmail);
     }
 
     /// <summary>Treat Excel placeholders and non-email text as empty so import does not store "-" or "#N/A" as work email.</summary>
@@ -695,6 +711,8 @@ public partial class BulkUploadController : ControllerBase
             || s.Equals("n/a", StringComparison.Ordinal))
             return null;
         if (s.IndexOf('@') < 1 || s.IndexOf('.') <= s.IndexOf('@'))
+            return null;
+        if (!InputValidators.IsValidEmailInput(s))
             return null;
         return s;
     }
@@ -1043,29 +1061,6 @@ public partial class BulkUploadController : ControllerBase
         }
         ws.Columns().AdjustToContents(1, 1);
 
-        var empSheet = wb.Worksheets.Add("Employees");
-        empSheet.Cell(1, 1).Value = "Employee Code";
-        empSheet.Cell(1, 2).Value = "Employee Name";
-        empSheet.Cell(1, 1).Style.Font.Bold = true;
-        empSheet.Cell(1, 2).Style.Font.Bold = true;
-        empSheet.Cell(1, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#059669");
-        empSheet.Cell(1, 2).Style.Fill.BackgroundColor = XLColor.FromHtml("#059669");
-        empSheet.Cell(1, 1).Style.Font.FontColor = XLColor.White;
-        empSheet.Cell(1, 2).Style.Font.FontColor = XLColor.White;
-        var employees = _db.Employees.Where(e => !e.IsDeleted).OrderBy(e => e.EmployeeCode)
-            .Select(e => new { e.EmployeeCode, e.FirstName, e.LastName }).ToList();
-        for (int i = 0; i < employees.Count; i++)
-        {
-            empSheet.Cell(i + 2, 1).Value = employees[i].EmployeeCode;
-            empSheet.Cell(i + 2, 2).Value = $"{employees[i].FirstName} {employees[i].LastName}";
-        }
-        empSheet.Columns().AdjustToContents();
-
-        AddLookupSheet(wb, "LeaveTypes",
-            _db.LeaveTypes.Where(lt => !lt.IsDeleted && lt.IsActive)
-                .OrderBy(lt => lt.Name)
-                .Select(lt => new { lt.Name }).ToList().Select(lt => lt.Name));
-
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
         ms.Position = 0;
@@ -1093,7 +1088,20 @@ public partial class BulkUploadController : ControllerBase
 
         using var stream = file.OpenReadStream();
         using var wb = new XLWorkbook(stream);
-        var ws = wb.Worksheet(1);
+        var ws = wb.Worksheets.FirstOrDefault(s =>
+                string.Equals(s.Name, "LeaveBalances", StringComparison.OrdinalIgnoreCase))
+            ?? wb.Worksheets.FirstOrDefault(s =>
+            {
+                var headers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int c = 1; c <= (s.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
+                {
+                    var h = s.Cell(1, c).GetString().Trim();
+                    if (!string.IsNullOrEmpty(h)) headers.Add(h);
+                }
+                return headers.Contains("Employee Code") && headers.Contains("Leave Type") && headers.Contains("Year");
+            });
+        if (ws is null)
+            return BadRequest("Could not find a LeaveBalances sheet. Fill the LeaveBalances sheet (not Employees or LeaveTypes) and upload again.");
 
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int c = 1; c <= (ws.LastColumnUsed()?.ColumnNumber() ?? 0); c++)

@@ -4,12 +4,23 @@ import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { FormSelect, TablePagination, FormErrorAlert, type FormSelectOption } from "@/components/ui";
+import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
+import { FormSelect, TablePagination, FormErrorAlert, UsernameInput, EmailInput, type FormSelectOption } from "@/components/ui";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
 import { useApplyFilter } from "@/lib/use-apply-filter";
+import {
+  sanitizeUsernameInput,
+  isValidUsername,
+  isValidEmailInput,
+  isValidEmailFormat,
+  USERNAME_VALIDATION_MESSAGE,
+  EMAIL_INPUT_VALIDATION_MESSAGE,
+  EMAIL_FORMAT_VALIDATION_MESSAGE,
+} from "@/lib/input-validation";
+import { modalShellWidthClass } from "@/lib/modal-layout";
 
 interface UserItem {
   id: string;
@@ -73,6 +84,7 @@ export default function UserManagementPage() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mustChangePassword, setMustChangePassword] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [employeeId, setEmployeeId] = useState("");
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
@@ -124,6 +136,7 @@ export default function UserManagementPage() {
     setUsername("");
     setEmail("");
     setPassword("");
+    setMustChangePassword(true);
     setIsActive(true);
     setEmployeeId("");
     setSelectedRoles([]);
@@ -164,11 +177,26 @@ export default function UserManagementPage() {
 
   async function handleSave() {
     setError("");
-    if (!username.trim()) {
+    const normalizedUsername = sanitizeUsernameInput(username.trim());
+    if (!normalizedUsername) {
       setError("Username is required.");
       return;
     }
+    if (!isValidUsername(normalizedUsername)) {
+      setError(USERNAME_VALIDATION_MESSAGE);
+      return;
+    }
+    const trimmedEmail = email.trim();
+    if (trimmedEmail && !isValidEmailInput(trimmedEmail)) {
+      setError(EMAIL_INPUT_VALIDATION_MESSAGE);
+      return;
+    }
+    if (trimmedEmail && !isValidEmailFormat(trimmedEmail)) {
+      setError(EMAIL_FORMAT_VALIDATION_MESSAGE);
+      return;
+    }
     if (!editUser && !password) { setError("Password is required for new users."); return; }
+    if (!editUser && password.length < 6) { setError("Password must be at least 6 characters."); return; }
     if (selectedRoles.length === 0) { setError("At least one role is required."); return; }
 
     setSaving(true);
@@ -177,7 +205,7 @@ export default function UserManagementPage() {
         await apiFetch(`/api/user/${editUser.id}`, {
           method: "PUT",
           body: JSON.stringify({
-            username,
+            username: normalizedUsername,
             email,
             isActive,
             employeeId: employeeId || null,
@@ -192,10 +220,11 @@ export default function UserManagementPage() {
         await apiFetch("/api/user", {
           method: "POST",
           body: JSON.stringify({
-            username,
+            username: normalizedUsername,
             email,
             password,
             isActive,
+            mustChangePassword,
             employeeId: employeeId || null,
             roleIds: selectedRoles,
             assignedLocationIds: selectedLocationIds.length > 0 ? selectedLocationIds : undefined,
@@ -537,8 +566,20 @@ export default function UserManagementPage() {
 
       {showModal && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-semibold text-slate-900">{editUser ? "Edit user" : "Create user"}</h3>
+          <div className={`w-full ${modalShellWidthClass()} max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl`}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h3 className="text-lg font-semibold text-slate-900">{editUser ? "Edit user" : "Create user"}</h3>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Close"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
 
             <FormErrorAlert
               message={error}
@@ -548,14 +589,12 @@ export default function UserManagementPage() {
 
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
-                <div><label className={labelClass}>Username *</label><input value={username} onChange={(e) => setUsername(e.target.value)} className={inputClass} /></div>
+                <div><label className={labelClass}>Username *</label><UsernameInput value={username} onChange={(e) => setUsername(e.target.value)} className={inputClass} /></div>
                 <div>
               <label className={labelClass}>Email</label>
-              <input
+              <EmailInput
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                type="email"
-                pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}"
                 title="Optional. When set, must be a valid email (e.g. name@company.com)"
                 className={inputClass}
               />
@@ -563,7 +602,23 @@ export default function UserManagementPage() {
               </div>
 
               {!editUser && (
-                <div><label className={labelClass}>Password *</label><input value={password} onChange={(e) => setPassword(e.target.value)} type="password" className={inputClass} /></div>
+                <>
+                  <div><label className={labelClass}>Password *</label><input value={password} onChange={(e) => setPassword(e.target.value)} type="password" className={inputClass} /></div>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={mustChangePassword}
+                      onChange={(e) => setMustChangePassword(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[var(--primary)] accent-[var(--primary)]"
+                    />
+                    <span className="text-sm leading-relaxed text-slate-700">
+                      <span className="font-medium text-slate-900">Require password change on first sign-in</span>
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        The user must set a new password before they can use the app.
+                      </span>
+                    </span>
+                  </label>
+                </>
               )}
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -811,16 +866,12 @@ const SCOPES = [
 const SCOPE_FORM_OPTIONS: FormSelectOption[] = SCOPES.map((s) => ({ value: s.key, label: s.label }));
 
 function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSaved: () => void }) {
+  const [showCreateRole, setShowCreateRole] = useState(false);
   const [modules, setModules] = useState<{ module: string; label: string }[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string>("");
   const [permissions, setPermissions] = useState<Record<string, Record<string, { enabled: boolean; scope: string }>>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [showCreateRole, setShowCreateRole] = useState(false);
-  const [newRoleName, setNewRoleName] = useState("");
-  const [newRoleCode, setNewRoleCode] = useState("");
-  const [newRoleDescription, setNewRoleDescription] = useState("");
-  const [creatingRole, setCreatingRole] = useState(false);
 
   useEffect(() => {
     apiFetch<{ module: string; label: string }[]>("/api/auth/roles/available-modules")
@@ -869,35 +920,6 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
     }));
   }
 
-  async function handleCreateRole() {
-    const name = newRoleName.trim();
-    if (!name) {
-      setError("Role name is required.");
-      return;
-    }
-    setError("");
-    setCreatingRole(true);
-    try {
-      const created = await apiFetch<RoleItem>("/api/auth/roles", {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          code: newRoleCode.trim() || undefined,
-          description: newRoleDescription.trim() || undefined,
-        }),
-      });
-      setShowCreateRole(false);
-      setNewRoleName("");
-      setNewRoleCode("");
-      setNewRoleDescription("");
-      await onSaved();
-      setSelectedRoleId(created.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create role");
-    }
-    setCreatingRole(false);
-  }
-
   async function handleSave() {
     if (!selectedRoleId) return;
     setError("");
@@ -921,26 +943,21 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   }
 
   return (
-    <div className={`${panelClass} overflow-hidden`}>
-      <div className="border-b border-slate-100 px-6 py-4">
-        <h2 className="text-base font-semibold text-slate-800">Roles & permissions</h2>
-        <p className="mt-1 text-xs text-slate-500">Configure which menus and actions each role can access. Read = menu visibility.</p>
-      </div>
+    <>
+      <div className={`${panelClass} overflow-hidden`}>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-800">Roles & permissions</h2>
+            <p className="mt-1 text-xs text-slate-500">Configure which menus and actions each role can access. Read = menu visibility.</p>
+          </div>
+          <Button type="button" onClick={() => setShowCreateRole(true)}>
+            + New Security Role
+          </Button>
+        </div>
       <div className="flex flex-col lg:flex-row min-h-[400px]">
         <div className="w-full lg:w-56 border-b lg:border-b-0 lg:border-r border-slate-100 p-4">
-          <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="mb-2">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Select Role</p>
-            <Button
-              type="button"
-              variant="secondary"
-              className="!h-8 !min-h-8 px-2.5 text-xs"
-              onClick={() => {
-                setError("");
-                setShowCreateRole(true);
-              }}
-            >
-              + New role
-            </Button>
           </div>
           <div className="space-y-1">
             {roles.map((r) => (
@@ -1020,62 +1037,12 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
           )}
         </div>
       </div>
-
-      {showCreateRole && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <h3 className="text-base font-semibold text-slate-800">Create new role</h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Code is auto-generated from the name if left blank (e.g. Payroll Clerk → PAYROLL_CLERK).
-            </p>
-            <FormErrorAlert
-              message={error}
-              onDismiss={() => setError("")}
-              className="mt-3 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800"
-            />
-            <div className="mt-4 space-y-3">
-              <label className="block text-sm">
-                <span className="font-medium text-slate-700">Role name *</span>
-                <input
-                  type="text"
-                  value={newRoleName}
-                  onChange={(e) => setNewRoleName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="e.g. Payroll Clerk"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-medium text-slate-700">Code (optional)</span>
-                <input
-                  type="text"
-                  value={newRoleCode}
-                  onChange={(e) => setNewRoleCode(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="e.g. PAYROLL_CLERK"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-medium text-slate-700">Description</span>
-                <input
-                  type="text"
-                  value={newRoleDescription}
-                  onChange={(e) => setNewRoleDescription(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="Optional"
-                />
-              </label>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => setShowCreateRole(false)}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={handleCreateRole} disabled={creatingRole}>
-                {creatingRole ? "Creating…" : "Create role"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      </div>
+      <CreateRoleModal
+        open={showCreateRole}
+        onClose={() => setShowCreateRole(false)}
+        onCreated={() => void onSaved()}
+      />
+    </>
   );
 }

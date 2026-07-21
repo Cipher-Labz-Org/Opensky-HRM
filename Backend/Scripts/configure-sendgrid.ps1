@@ -53,5 +53,12 @@ if ([string]::IsNullOrWhiteSpace($key)) {
 $key = $key.Trim()
 dotnet user-secrets set "SendGrid:ApiKey" $key
 Write-Host ""
-Write-Host "Done. User secrets are saved under this project. Verify FromEmail in SendGrid as Single Sender if needed."
+Write-Host "Done. User secrets are saved under this project."
+Write-Host ""
+Write-Host "INBOX DELIVERABILITY (avoid spam folder):"
+Write-Host "  1. SendGrid -> Settings -> Sender Authentication -> authenticate your COMPANY DOMAIN (SPF + DKIM)."
+Write-Host "     Use hr@yourcompany.com — not a personal Gmail address."
+Write-Host "  2. If you must use Gmail: verify Single Sender for that exact address in SendGrid."
+Write-Host "  3. Set SendGrid:FromEmail and SendGrid:ReplyTo to the same verified address in appsettings.Local.json."
+Write-Host "  4. Ask the first recipient to mark 'Not spam' once; Gmail learns from that."
 Write-Host "Restart the API (stop dotnet run, then start again)."

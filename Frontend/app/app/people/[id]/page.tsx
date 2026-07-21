@@ -5,17 +5,29 @@ import { useState, useEffect, useCallback, useRef, useMemo, type FormEvent } fro
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, CountryAutocompleteInput, NationalityAutocompleteInput, OptionsAutocompleteInput, ListAutocompleteInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, FlashMessageBanner, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, PassportNumberInput, TinInput, EpfInput, EtfInput, EmailInput, CountryAutocompleteInput, NationalityAutocompleteInput, OptionsAutocompleteInput, ListAutocompleteInput, AddressTextInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, FlashMessageBanner, FormErrorAlert, type FormSelectOption } from "@/components/ui";
+import { EmployeeAddressSections } from "@/components/workforce/EmployeeAddressSections";
 import { useClientPagination } from "@/lib/use-client-pagination";
-import { isValidPhone, isValidNic, isValidDrivingLicense, PHONE_VALIDATION_MESSAGE, NIC_VALIDATION_MESSAGE, DRIVING_LICENSE_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import { isValidPhone, isValidNic, isValidDrivingLicense, isValidPassportNumber, isValidTin, isValidEpfNumber, isValidEtfNumber, isValidEmailInput, isValidEmailFormat, isValidAddressText, sanitizeTinInput, sanitizeEpfInput, sanitizeEtfInput, sanitizePassportNumberInput, sanitizePhoneInput, validateEmployeeAddressFieldsIfChanged, PHONE_VALIDATION_MESSAGE, NIC_VALIDATION_MESSAGE, DRIVING_LICENSE_VALIDATION_MESSAGE, PASSPORT_NUMBER_VALIDATION_MESSAGE, TIN_VALIDATION_MESSAGE, EPF_VALIDATION_MESSAGE, ETF_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import { sanitizeEmployeeAddressFields } from "@/lib/employee-address";
+import { displayWorkEmail } from "@/lib/employee-email";
 import { inferStateFromDistrict } from "@/lib/geo-regions";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiFetchBlob } from "@/lib/api";
+import { resolveHttpErrorMessage } from "@/lib/api-errors";
+import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { getSystemSetting } from "@/lib/system-settings";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
-import { formatLocalDateToIso } from "@/lib/datePickerIso";
-import { API_BASE_URL } from "@/config/constants";
+import {
+  calculateImmigrationEligibleDate,
+  countdownTone,
+  formatDateCountdown,
+  formatDateCountdownToExpire,
+  formatAvailableDateDayCount,
+} from "@/lib/immigration-dates";
+import { API_BASE_URL, getApiBaseUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
+import { usePeopleScopedLookups } from "@/lib/people-scope-filters";
 import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
 import { EmployeeTimesheetsWidget } from "@/components/employee-profile/EmployeeTimesheetsWidget";
 import {
@@ -283,6 +295,16 @@ interface WorkExperienceItem {
   comment: string | null;
 }
 
+interface DriverLicenseItem {
+  id: string;
+  employeeId: string;
+  number: string | null;
+  licenseType: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  issuingCountry: string | null;
+}
+
 interface BankAccountItem {
   id: string;
   employeeId: string;
@@ -295,7 +317,7 @@ interface BankAccountItem {
 }
 
 interface BenefitData {
-  id?: string;
+  id: string;
   employeeId: string;
   insuranceProvider: string | null;
   coverageExtendedMedical: boolean;
@@ -424,11 +446,11 @@ function buildEmployeePutPayload(
   emp: EmployeeDetail,
   overrides: Partial<{ epfNumber: string | null; etfNumber: string | null }> = {},
 ) {
-  return {
+  return sanitizeEmployeeAddressFields({
     firstName: emp.firstName,
     middleName: emp.middleName,
     lastName: emp.lastName,
-    email: emp.email,
+    email: displayWorkEmail(emp.email),
     phone: emp.phone,
     addressStreet1: emp.addressStreet1,
     addressStreet2: emp.addressStreet2,
@@ -481,15 +503,12 @@ function buildEmployeePutPayload(
     jobTitleId: emp.jobTitleId,
     managerId: emp.managerId,
     isTopOfHierarchy: emp.isTopOfHierarchy,
-  };
+    terminationDate: emp.terminationDate,
+    terminationReason: emp.terminationReason,
+  });
 }
 
 const genderOptions = ["Male", "Female", "Other"];
-function distanceKmInputValue(value: string | null | undefined): string {
-  if (!value?.trim()) return "";
-  const match = value.trim().match(/^(\d+(?:\.\d+)?)/);
-  return match?.[1] ?? "";
-}
 
 function selectOpts(list: ReadonlyArray<string>): FormSelectOption[] {
   return list.map((v) => ({ value: v, label: v }));
@@ -522,8 +541,36 @@ const LANGUAGE_NAME_OPTIONS = selectOptsOptional("-- Select --", [
 ]);
 const LANGUAGE_CATALOG_NAMES = LANGUAGE_NAME_OPTIONS.map((o) => o.label).filter((n) => n && n !== "-- Select --");
 const LANGUAGE_FLUENCY_OPTIONS = selectOpts(["Beginner", "Elementary", "Intermediate", "Upper Intermediate", "Advanced", "Native"]);
-const REPORTING_METHOD_OPTIONS = selectOptsOptional("-- Select --", ["Direct", "Indirect", "Other"]);
-const REPORTING_METHOD_ROW_OPTIONS = selectOpts(["Direct", "Indirect", "Other"]);
+const REPORTING_METHOD_OPTIONS = selectOptsOptional("-- Select --", ["Direct", "Indirect", "Both"]);
+const REPORTING_METHOD_ROW_OPTIONS = selectOpts(["Direct", "Indirect", "Both"]);
+
+function normalizeReportingMethodValue(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.toLowerCase() === "other" ? "Both" : trimmed;
+}
+
+function normalizeEmployeeId(value: string | undefined | null): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function buildReportingExcludeIds(
+  employeeId: string,
+  supervisors: ReportPerson[],
+  subordinates: ReportPerson[],
+): string[] {
+  const excluded = new Set<string>();
+  const selfId = normalizeEmployeeId(employeeId);
+  if (selfId) excluded.add(selfId);
+  for (const row of supervisors) {
+    const supervisorId = normalizeEmployeeId(row.supervisorId);
+    if (supervisorId) excluded.add(supervisorId);
+  }
+  for (const row of subordinates) {
+    const subordinateId = normalizeEmployeeId(row.employeeId);
+    if (subordinateId) excluded.add(subordinateId);
+  }
+  return Array.from(excluded);
+}
 
 function dedupeReportPeople(
   rows: ReportPerson[],
@@ -582,7 +629,7 @@ function validateReportingDraft(
   }
   return null;
 }
-const BA_BANK_OPTIONS = selectOptsOptional("-- Select --", [
+const BA_BANK_NAMES = [
   "Bank of Ceylon",
   "People's Bank",
   "Commercial Bank",
@@ -601,9 +648,9 @@ const BA_BANK_OPTIONS = selectOptsOptional("-- Select --", [
   "Citibank",
   "Deutsche Bank",
   "Other",
-]);
+] as const;
 const BA_ACCOUNT_TYPE_OPTIONS = selectOpts(["Checking", "Savings", "Current", "Fixed Deposit", "Other"]);
-const BENEFIT_INSURER_OPTIONS = selectOptsOptional("-- Select --", [
+const BENEFIT_INSURER_NAMES = [
   "Aetna",
   "Blue Cross Blue Shield",
   "Cigna",
@@ -613,8 +660,7 @@ const BENEFIT_INSURER_OPTIONS = selectOptsOptional("-- Select --", [
   "MetLife",
   "State Farm",
   "UnitedHealthcare",
-  "Other",
-]);
+] as const;
 const YES_NO_OPTIONS: FormSelectOption[] = [
   { value: "No", label: "No" },
   { value: "Yes", label: "Yes" },
@@ -729,6 +775,43 @@ function attachmentMimeLabel(contentType: string | null | undefined): { label: s
   return { label: raw };
 }
 
+function immigrationCountdownClass(dateIso: string): string {
+  const tone = countdownTone(dateIso);
+  if (tone === "danger") return "text-red-600";
+  if (tone === "warning") return "text-amber-600";
+  return "text-slate-500";
+}
+
+function ImmigrationDateCountdown({
+  dateIso,
+  variant = "default",
+}: {
+  dateIso: string;
+  variant?: "default" | "expire";
+}) {
+  if (!dateIso) return null;
+  const message =
+    variant === "expire" ? formatDateCountdownToExpire(dateIso) : formatDateCountdown(dateIso);
+  return (
+    <p className={`mt-1 text-xs font-medium ${immigrationCountdownClass(dateIso)}`}>
+      {message}
+    </p>
+  );
+}
+
+function isImmigrationFormValid(
+  documentType: string,
+  number: string,
+  issuedDate: string,
+  expiryDate: string,
+  eligibleDate: string,
+): boolean {
+  const trimmedNumber = sanitizePassportNumberInput(number.trim());
+  if (!documentType.trim() || !isValidPassportNumber(trimmedNumber, true)) return false;
+  if (!issuedDate || !expiryDate || !eligibleDate) return false;
+  return true;
+}
+
 /** Frosted header row inside section cards (OpenSky / glass) */
 const sectionCardHeaderRow =
   "flex items-center justify-between border-b border-slate-200/55 bg-gradient-to-b from-white/90 via-slate-50/40 to-slate-100/20 px-6 py-4 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.92)]";
@@ -819,6 +902,7 @@ export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { hasPermission, isAdmin } = useAuth();
+  const { filterLocations, filterBusinessUnits, filterGrades, filterJobTitles } = usePeopleScopedLookups();
 
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -827,6 +911,7 @@ export default function EmployeeDetailPage() {
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [showIdValidationErrors, setShowIdValidationErrors] = useState(false);
+  const [showAddressValidationErrors, setShowAddressValidationErrors] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const flashSuccessMsg = useCallback((text: string) => {
@@ -838,6 +923,12 @@ export default function EmployeeDetailPage() {
     const timer = window.setTimeout(() => setShowIdValidationErrors(false), 5000);
     return () => window.clearTimeout(timer);
   }, [showIdValidationErrors, msg?.text]);
+
+  useEffect(() => {
+    if (!showAddressValidationErrors) return;
+    const timer = window.setTimeout(() => setShowAddressValidationErrors(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [showAddressValidationErrors, msg?.text]);
 
   const [pdFirstName, setPdFirstName] = useState("");
   const [pdMiddleName, setPdMiddleName] = useState("");
@@ -877,6 +968,10 @@ export default function EmployeeDetailPage() {
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [grades, setGrades] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
+  const visibleJobTitles = useMemo(() => filterJobTitles(jobTitles), [filterJobTitles, jobTitles]);
+  const visibleBusinessUnits = useMemo(() => filterBusinessUnits(businessUnits), [filterBusinessUnits, businessUnits]);
+  const visibleGrades = useMemo(() => filterGrades(grades), [filterGrades, grades]);
+  const visibleLocations = useMemo(() => filterLocations(locations), [filterLocations, locations]);
   const [employeeStatuses, setEmployeeStatuses] = useState<StatusLookup[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   /** Job tab dates — controlled so the pickers stay editable when parent re-renders (defaultValue-only pickers could appear stuck). */
@@ -919,6 +1014,7 @@ export default function EmployeeDetailPage() {
   const [attachmentTypeMasters, setAttachmentTypeMasters] = useState<AttachmentTypeItem[]>([]);
   const attachFileRef = useRef<HTMLInputElement>(null);
   const [editingAttach, setEditingAttach] = useState<string | null>(null);
+  const [attachOpeningId, setAttachOpeningId] = useState<string | null>(null);
   const [editDesc, setEditDesc] = useState("");
   const [editAttachTypeId, setEditAttachTypeId] = useState("");
   const [editAttachExpiry, setEditAttachExpiry] = useState("");
@@ -931,8 +1027,16 @@ export default function EmployeeDetailPage() {
   const [reportingSaving, setReportingSaving] = useState(false);
   const [showAddSupervisor, setShowAddSupervisor] = useState(false);
   const [showAddSubordinate, setShowAddSubordinate] = useState(false);
+  const [showEditReportMethod, setShowEditReportMethod] = useState(false);
+  const [editReportMethodTarget, setEditReportMethodTarget] = useState<{
+    kind: "supervisor" | "subordinate";
+    id: string;
+    fullName: string;
+  } | null>(null);
+  const [editReportMethodValue, setEditReportMethodValue] = useState("");
   const [addReportMethod, setAddReportMethod] = useState("");
   const [addReportPersonId, setAddReportPersonId] = useState("");
+  const [addReportPersonName, setAddReportPersonName] = useState("");
 
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContactItem[]>([]);
   const [showEcModal, setShowEcModal] = useState(false);
@@ -1019,16 +1123,22 @@ export default function EmployeeDetailPage() {
   const [langFluency, setLangFluency] = useState("Intermediate");
   const [langComments, setLangComments] = useState("");
 
+  const [benefits, setBenefits] = useState<BenefitData[]>([]);
+  const [showBenefitModal, setShowBenefitModal] = useState(false);
+  const [benefitSaving, setBenefitSaving] = useState(false);
+  const [editingBenefit, setEditingBenefit] = useState<BenefitData | null>(null);
   const [benefitInsurer, setBenefitInsurer] = useState("");
   const [benefitExtMed, setBenefitExtMed] = useState(false);
   const [benefitDental, setBenefitDental] = useState(false);
   const [benefitVision, setBenefitVision] = useState(false);
   const [benefitSpousal, setBenefitSpousal] = useState(false);
   const [benefitDeps, setBenefitDeps] = useState(false);
-  const [benefitSaving, setBenefitSaving] = useState(false);
+  const [showBenefitValidationErrors, setShowBenefitValidationErrors] = useState(false);
 
   const [immigrations, setImmigrations] = useState<ImmigrationItem[]>([]);
   const [showImmModal, setShowImmModal] = useState(false);
+  const [showImmViewModal, setShowImmViewModal] = useState(false);
+  const [viewingImm, setViewingImm] = useState<ImmigrationItem | null>(null);
   const [immSaving, setImmSaving] = useState(false);
   const [editingImm, setEditingImm] = useState<ImmigrationItem | null>(null);
   const [immDocType, setImmDocType] = useState("Passport");
@@ -1037,15 +1147,19 @@ export default function EmployeeDetailPage() {
   const [immIssuedDate, setImmIssuedDate] = useState("");
   const [immExpiryDate, setImmExpiryDate] = useState("");
   const [immReviewDate, setImmReviewDate] = useState("");
-  const [immStatus, setImmStatus] = useState("");
   const [immComments, setImmComments] = useState("");
 
   const [immDocs, setImmDocs] = useState<Attachment[]>([]);
-  const [showImmDocModal, setShowImmDocModal] = useState(false);
-  const [immDocUploading, setImmDocUploading] = useState(false);
   const [immDocFile, setImmDocFile] = useState<File | null>(null);
   const [immDocDesc, setImmDocDesc] = useState("");
+  const [immDocOpeningId, setImmDocOpeningId] = useState<string | null>(null);
   const immDocFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!showImmModal) return;
+    const eligible = calculateImmigrationEligibleDate(immDocType, immIssuedDate, immExpiryDate);
+    setImmReviewDate(eligible ?? "");
+  }, [showImmModal, immDocType, immIssuedDate, immExpiryDate]);
 
   const [workExperiences, setWorkExperiences] = useState<WorkExperienceItem[]>([]);
   const [showWeModal, setShowWeModal] = useState(false);
@@ -1058,11 +1172,19 @@ export default function EmployeeDetailPage() {
   const [weToDate, setWeToDate] = useState("");
   const [weCreditable, setWeCreditable] = useState(false);
   const [weComment, setWeComment] = useState("");
+  const [showWeValidationErrors, setShowWeValidationErrors] = useState(false);
+  const [weFormError, setWeFormError] = useState<string | null>(null);
 
   const [dlType, setDlType] = useState("");
   const [dlIssue, setDlIssue] = useState("");
   const [dlExpiry, setDlExpiry] = useState("");
   const [dlIssuingCountry, setDlIssuingCountry] = useState("");
+  const [driverLicenses, setDriverLicenses] = useState<DriverLicenseItem[]>([]);
+  const [showDlModal, setShowDlModal] = useState(false);
+  const [dlSaving, setDlSaving] = useState(false);
+  const [showDlValidationErrors, setShowDlValidationErrors] = useState(false);
+  const [editingDl, setEditingDl] = useState<DriverLicenseItem | null>(null);
+  const [dlNumber, setDlNumber] = useState("");
 
   const [addrCountry, setAddrCountry] = useState("");
   const [addrState, setAddrState] = useState("");
@@ -1109,10 +1231,14 @@ export default function EmployeeDetailPage() {
     [attachmentTypeMasters, editAttachTypeId],
   );
 
-  const skillCatalogNames = useMemo(
-    () => skillMasterList.map((s) => s.name).sort((a, b) => a.localeCompare(b)),
-    [skillMasterList],
-  );
+  const skillCatalogNames = useMemo(() => {
+    const names = new Set(skillMasterList.map((s) => s.name.trim()).filter(Boolean));
+    skills.forEach((s) => {
+      const n = s.skill.trim();
+      if (n) names.add(n);
+    });
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [skillMasterList, skills]);
 
   const qualificationRecords = useMemo(
     () => educations.filter((e) => e.qualificationName?.trim()),
@@ -1139,7 +1265,25 @@ export default function EmployeeDetailPage() {
   const skillsPager = useClientPagination(skills);
   const languagesPager = useClientPagination(languages);
   const workExperiencesPager = useClientPagination(workExperiences);
+  const driverLicensesPager = useClientPagination(driverLicenses);
+  const benefitsPager = useClientPagination(benefits);
   const bankAccountsPager = useClientPagination(bankAccounts);
+  const baBankNameOptions = useMemo(() => {
+    const names = new Set<string>(BA_BANK_NAMES);
+    bankAccounts.forEach((b) => {
+      const n = b.bankName?.trim();
+      if (n) names.add(n);
+    });
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [bankAccounts]);
+  const benefitInsurerOptions = useMemo(() => {
+    const names = new Set<string>(BENEFIT_INSURER_NAMES);
+    benefits.forEach((b) => {
+      const n = b.insuranceProvider?.trim();
+      if (n) names.add(n);
+    });
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [benefits]);
   const supervisorsPager = useClientPagination(draftSupervisors);
   const subordinatesPager = useClientPagination(draftSubordinates);
 
@@ -1155,6 +1299,73 @@ export default function EmployeeDetailPage() {
     [draftSupervisors],
   );
 
+  const reportsToByMethod = useMemo(() => {
+    const source = reportingDirty ? draftSupervisors : supervisors;
+    const grouped = {
+      direct: [] as string[],
+      indirect: [] as string[],
+      both: [] as string[],
+    };
+
+    for (const s of source) {
+      const name = s.fullName.trim();
+      if (!name) continue;
+      const method = s.reportingMethod.trim().toLowerCase();
+      if (method === "direct") grouped.direct.push(name);
+      else if (method === "indirect") grouped.indirect.push(name);
+      else if (method === "both" || method === "other") grouped.both.push(name);
+    }
+
+    if (source.length === 0 && emp?.managerName?.trim()) {
+      grouped.direct = emp.managerName.split(",").map((n) => n.trim()).filter(Boolean);
+    }
+
+    return grouped;
+  }, [reportingDirty, draftSupervisors, supervisors, emp?.managerName]);
+
+  const hasAnyReportsTo =
+    reportsToByMethod.direct.length > 0
+    || reportsToByMethod.indirect.length > 0
+    || reportsToByMethod.both.length > 0;
+
+  const reportingExcludeIds = useMemo(
+    () => buildReportingExcludeIds(id, draftSupervisors, draftSubordinates),
+    [id, draftSupervisors, draftSubordinates],
+  );
+
+  function resetAddReportPersonFields() {
+    setAddReportPersonId("");
+    setAddReportPersonName("");
+    setAddReportMethod("");
+  }
+
+  function pickAddReportPerson(emp: { id: string; firstName: string; lastName: string } | null) {
+    const personId = emp?.id ?? "";
+    const personName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : "";
+    setAddReportPersonId(personId);
+    setAddReportPersonName(personName);
+    if (!emp) return;
+    if (showAddSupervisor && addReportMethod) {
+      stageAddSupervisor(personId, personName, addReportMethod);
+    } else if (showAddSubordinate && addReportMethod) {
+      stageAddSubordinate(personId, personName, addReportMethod);
+    }
+  }
+
+  function onAddSupervisorMethodChange(method: string) {
+    setAddReportMethod(method);
+    if (method && addReportPersonId) {
+      stageAddSupervisor(addReportPersonId, addReportPersonName, method);
+    }
+  }
+
+  function onAddSubordinateMethodChange(method: string) {
+    setAddReportMethod(method);
+    if (method && addReportPersonId) {
+      stageAddSubordinate(addReportPersonId, addReportPersonName, method);
+    }
+  }
+
   const syncReportingDraft = useCallback((sup: ReportPerson[], sub: ReportPerson[]) => {
     const uniqueSupervisors = dedupeReportPeople(sup, "supervisorId");
     const uniqueSubordinates = dedupeReportPeople(sub, "employeeId");
@@ -1166,10 +1377,36 @@ export default function EmployeeDetailPage() {
     setSavedReportingSubordinates(uniqueSubordinates);
   }, []);
   const immigrationsPager = useClientPagination(immigrations);
-  const immDocsPager = useClientPagination(immDocs);
   const trainingRowsPager = useClientPagination(trainingRows);
   const matrixRowsPager = useClientPagination(matrixRows);
   const certRowsPager = useClientPagination(certRows);
+
+  function syncEmpDriverLicenseFromList(rows: DriverLicenseItem[]) {
+    const primary = rows[0];
+    setEmp((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        driversLicenseNumber: primary?.number ?? null,
+        driversLicenseType: primary?.licenseType ?? null,
+        licenseIssueDate: primary?.issueDate ?? null,
+        licenseExpiryDate: primary?.expiryDate ?? null,
+        driversLicenseIssuingCountry: primary?.issuingCountry ?? null,
+      };
+    });
+    setDlType(primary?.licenseType ?? "");
+    setDlIssue(primary?.issueDate ? primary.issueDate.split("T")[0] : "");
+    setDlExpiry(primary?.expiryDate ? primary.expiryDate.split("T")[0] : "");
+    setDlIssuingCountry(primary?.issuingCountry ?? "");
+  }
+
+  function formatBenefitCoverage(b: BenefitData) {
+    const parts: string[] = [];
+    if (b.coverageExtendedMedical) parts.push("Extended Medical");
+    if (b.coverageDental) parts.push("Dental");
+    if (b.coverageVision) parts.push("Vision");
+    return parts.length ? parts.join(", ") : "—";
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1231,16 +1468,13 @@ export default function EmployeeDetailPage() {
       apiFetch<ImmigrationItem[]>(`/api/employees/${id}/immigrations`).then(setImmigrations).catch(() => {});
       apiFetch<Attachment[]>(`/api/employees/${id}/immigration-documents`).then(setImmDocs).catch(() => {});
       apiFetch<WorkExperienceItem[]>(`/api/employees/${id}/work-experiences`).then(setWorkExperiences).catch(() => {});
+      apiFetch<DriverLicenseItem[]>(`/api/employees/${id}/driver-licenses`).then((rows) => {
+        setDriverLicenses(rows);
+        syncEmpDriverLicenseFromList(rows);
+      }).catch(() => {});
+      apiFetch<BenefitData[]>(`/api/employees/${id}/benefits`).then(setBenefits).catch(() => {});
       apiFetch<BankAccountItem[]>(`/api/employees/${id}/bank-accounts`).then(setBankAccounts).catch(() => {});
       apiFetch<{ id: string; name: string; description?: string; itemCount: number }[]>("/api/employee-tasks/templates?type=Offboarding").then(setOffboardingTemplates).catch(() => {});
-      apiFetch<BenefitData>(`/api/employees/${id}/benefit`).then((b) => {
-        setBenefitInsurer(b.insuranceProvider ?? "");
-        setBenefitExtMed(b.coverageExtendedMedical);
-        setBenefitDental(b.coverageDental);
-        setBenefitVision(b.coverageVision);
-        setBenefitSpousal(b.spousalCoverage);
-        setBenefitDeps(b.dependentsCovered);
-      }).catch(() => {});
       const dashboardWidgetsJson = getSystemSetting(settings, "EmployeeDashboardWidgets");
       if (dashboardWidgetsJson) {
         try {
@@ -1486,6 +1720,20 @@ export default function EmployeeDetailPage() {
     } catch { /* ignore */ }
   }
 
+  async function openAttachmentFile(attId: string) {
+    setAttachOpeningId(attId);
+    try {
+      const blob = await apiFetchBlob(`/api/employees/${id}/attachments/${attId}/download`);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not open the attachment.");
+    } finally {
+      setAttachOpeningId(null);
+    }
+  }
+
   async function updateAttachmentRow(attId: string) {
     if (!editAttachTypeId) {
       await appAlert("Please select an attachment type.");
@@ -1505,44 +1753,52 @@ export default function EmployeeDetailPage() {
     } catch { /* ignore */ }
   }
 
-  function stageAddSupervisor() {
-    if (!addReportPersonId || !addReportMethod) return;
-    const pick = supervisorPickList.find((m) => m.id === addReportPersonId);
+  function stageAddSupervisor(
+    personId = addReportPersonId,
+    personName = addReportPersonName,
+    method = addReportMethod,
+  ) {
+    if (!personId || !method) return;
+    const normalizedPersonId = normalizeEmployeeId(personId);
+    if (draftSupervisors.some((row) => normalizeEmployeeId(row.supervisorId) === normalizedPersonId)) return;
+    if (draftSubordinates.some((row) => normalizeEmployeeId(row.employeeId) === normalizedPersonId)) return;
     setDraftSupervisors((prev) => [
       ...prev,
       {
-        id: `pending-supervisor-${addReportPersonId}`,
-        supervisorId: addReportPersonId,
+        id: `pending-supervisor-${personId}`,
+        supervisorId: personId,
         employeeCode: "",
-        fullName: pick?.name ?? "",
+        fullName: personName,
         jobTitleName: null,
-        reportingMethod: addReportMethod,
+        reportingMethod: method,
       },
     ]);
     setShowAddSupervisor(false);
-    setAddReportPersonId("");
-    setAddReportMethod("");
-    flashSuccessMsg("Supervisor added successfully. Click Save to apply changes.");
+    resetAddReportPersonFields();
   }
 
-  function stageAddSubordinate() {
-    if (!addReportPersonId || !addReportMethod) return;
-    const pick = subordinatePickList.find((m) => m.id === addReportPersonId);
+  function stageAddSubordinate(
+    personId = addReportPersonId,
+    personName = addReportPersonName,
+    method = addReportMethod,
+  ) {
+    if (!personId || !method) return;
+    const normalizedPersonId = normalizeEmployeeId(personId);
+    if (draftSubordinates.some((row) => normalizeEmployeeId(row.employeeId) === normalizedPersonId)) return;
+    if (draftSupervisors.some((row) => normalizeEmployeeId(row.supervisorId) === normalizedPersonId)) return;
     setDraftSubordinates((prev) => [
       ...prev,
       {
-        id: `pending-subordinate-${addReportPersonId}`,
-        employeeId: addReportPersonId,
+        id: `pending-subordinate-${personId}`,
+        employeeId: personId,
         employeeCode: "",
-        fullName: pick?.name ?? "",
+        fullName: personName,
         jobTitleName: null,
-        reportingMethod: addReportMethod,
+        reportingMethod: method,
       },
     ]);
     setShowAddSubordinate(false);
-    setAddReportPersonId("");
-    setAddReportMethod("");
-    flashSuccessMsg("Subordinate added successfully. Click Save to apply changes.");
+    resetAddReportPersonFields();
   }
 
   function updateDraftSupervisorMethod(entryId: string, reportingMethod: string) {
@@ -1551,6 +1807,28 @@ export default function EmployeeDetailPage() {
 
   function updateDraftSubordinateMethod(entryId: string, reportingMethod: string) {
     setDraftSubordinates((prev) => prev.map((s) => (s.id === entryId ? { ...s, reportingMethod } : s)));
+  }
+
+  function openEditReportMethod(row: ReportPerson, kind: "supervisor" | "subordinate") {
+    setEditReportMethodTarget({ kind, id: row.id, fullName: row.fullName });
+    setEditReportMethodValue(normalizeReportingMethodValue(row.reportingMethod));
+    setShowEditReportMethod(true);
+  }
+
+  function closeEditReportMethod() {
+    setShowEditReportMethod(false);
+    setEditReportMethodTarget(null);
+    setEditReportMethodValue("");
+  }
+
+  function saveEditReportMethod(method: string) {
+    if (!editReportMethodTarget || !method.trim()) return;
+    if (editReportMethodTarget.kind === "supervisor") {
+      updateDraftSupervisorMethod(editReportMethodTarget.id, method);
+    } else {
+      updateDraftSubordinateMethod(editReportMethodTarget.id, method);
+    }
+    closeEditReportMethod();
   }
 
   async function removeSupervisorDraft(entryId: string) {
@@ -1800,7 +2078,15 @@ export default function EmployeeDetailPage() {
   }
 
   async function saveDependent() {
-    if (!depFirstName.trim() || !depLastName.trim() || !depRelationship.trim()) return;
+    if (
+      !depFirstName.trim() ||
+      !depLastName.trim() ||
+      !depRelationship.trim() ||
+      !depOccupation.trim() ||
+      !depOrganization.trim()
+    ) {
+      return;
+    }
     setDepSaving(true);
     const body = {
       firstName: depFirstName.trim(),
@@ -1808,8 +2094,8 @@ export default function EmployeeDetailPage() {
       relationship: depRelationship.trim(),
       dateOfBirth: depDob || null,
       maritalStatus: depMaritalStatus || null,
-      occupation: depOccupation || null,
-      organization: depOrganization || null,
+      occupation: depOccupation.trim(),
+      organization: depOrganization.trim(),
     };
     try {
       if (editingDep) {
@@ -1937,12 +2223,12 @@ export default function EmployeeDetailPage() {
   }
 
   async function saveSkill() {
-    if (!skillName.trim()) return;
+    if (!skillName.trim() || !skillYears.trim()) return;
     setSkillSaving(true);
     try {
       const body = {
-        skill: skillName,
-        yearsOfExperience: skillYears || null,
+        skill: skillName.trim(),
+        yearsOfExperience: skillYears.trim(),
         comments: skillComments || null,
       };
       if (editingSkill) {
@@ -2242,20 +2528,31 @@ export default function EmployeeDetailPage() {
     } catch { /* ignore */ }
   }
 
-  async function saveBenefit() {
+  async function saveBenefitRecord() {
+    if (!isBenefitFormValid()) {
+      setShowBenefitValidationErrors(true);
+      return;
+    }
     setBenefitSaving(true);
     try {
-      await apiFetch(`/api/employees/${id}/benefit`, {
-        method: "PUT",
-        body: JSON.stringify({
-          insuranceProvider: benefitInsurer || null,
-          coverageExtendedMedical: benefitExtMed,
-          coverageDental: benefitDental,
-          coverageVision: benefitVision,
-          spousalCoverage: benefitSpousal,
-          dependentsCovered: benefitDeps,
-        }),
-      });
+      const body = {
+        insuranceProvider: benefitInsurer.trim(),
+        coverageExtendedMedical: benefitExtMed,
+        coverageDental: benefitDental,
+        coverageVision: benefitVision,
+        spousalCoverage: benefitSpousal,
+        dependentsCovered: benefitDeps,
+      };
+      if (editingBenefit) {
+        const updated = await apiFetch<BenefitData>(`/api/employees/${id}/benefits/${editingBenefit.id}`, { method: "PUT", body: JSON.stringify(body) });
+        setBenefits((prev) => prev.map((b) => (b.id === editingBenefit.id ? updated : b)));
+        flashSuccessMsg("Benefits record updated successfully.");
+      } else {
+        const created = await apiFetch<BenefitData>(`/api/employees/${id}/benefits`, { method: "POST", body: JSON.stringify(body) });
+        setBenefits((prev) => [created, ...prev]);
+        flashSuccessMsg("Benefits record added successfully.");
+      }
+      closeBenefitModal();
     } catch (err) {
       await appAlert(err instanceof Error ? err.message : "Failed to save benefits");
     } finally {
@@ -2263,16 +2560,181 @@ export default function EmployeeDetailPage() {
     }
   }
 
+  function openBenefitModal(item?: BenefitData) {
+    setShowBenefitValidationErrors(false);
+    if (item) {
+      setEditingBenefit(item);
+      setBenefitInsurer(item.insuranceProvider ?? "");
+      setBenefitExtMed(item.coverageExtendedMedical);
+      setBenefitDental(item.coverageDental);
+      setBenefitVision(item.coverageVision);
+      setBenefitSpousal(item.spousalCoverage);
+      setBenefitDeps(item.dependentsCovered);
+    } else {
+      setEditingBenefit(null);
+      setBenefitInsurer("");
+      setBenefitExtMed(false);
+      setBenefitDental(false);
+      setBenefitVision(false);
+      setBenefitSpousal(false);
+      setBenefitDeps(false);
+    }
+    setShowBenefitModal(true);
+  }
+
+  function closeBenefitModal() {
+    setShowBenefitModal(false);
+    setEditingBenefit(null);
+    setShowBenefitValidationErrors(false);
+  }
+
+  function isBenefitFormValid() {
+    if (!benefitInsurer.trim()) return false;
+    if (!benefitExtMed && !benefitDental && !benefitVision) return false;
+    return true;
+  }
+
+  function getBenefitFormError(): string | null {
+    if (!benefitInsurer.trim()) return "Insurance provider is required.";
+    if (!benefitExtMed && !benefitDental && !benefitVision) return "Select at least one coverage option.";
+    return null;
+  }
+
+  async function deleteBenefitRecord(benefitId: string) {
+    if (!(await appConfirm("Delete this benefits record?"))) return;
+    try {
+      await apiFetch(`/api/employees/${id}/benefits/${benefitId}`, { method: "DELETE" });
+      setBenefits((prev) => prev.filter((b) => b.id !== benefitId));
+    } catch { /* ignore */ }
+  }
+
+  function isDriverLicenseFormValid() {
+    const trimmedNumber = dlNumber.trim();
+    if (!trimmedNumber || !isValidDrivingLicense(trimmedNumber)) return false;
+    if (!dlType.trim()) return false;
+    if (!dlIssue || !dlExpiry) return false;
+    if (!dlIssuingCountry.trim()) return false;
+    const today = dateInputMaxTodayLocal();
+    if (dlIssue > today) return false;
+    if (dlExpiry < dlIssue) return false;
+    return true;
+  }
+
+  function openDlModal(item?: DriverLicenseItem) {
+    if (item) {
+      setEditingDl(item);
+      setDlNumber(item.number ?? "");
+      setDlType(item.licenseType ?? "");
+      setDlIssue(item.issueDate ? item.issueDate.split("T")[0] : "");
+      setDlExpiry(item.expiryDate ? item.expiryDate.split("T")[0] : "");
+      setDlIssuingCountry(item.issuingCountry ?? "");
+    } else {
+      setEditingDl(null);
+      setDlNumber("");
+      setDlType("");
+      setDlIssue("");
+      setDlExpiry("");
+      setDlIssuingCountry("");
+    }
+    setShowDlModal(true);
+    setShowDlValidationErrors(false);
+  }
+
+  function closeDlModal() {
+    setShowDlModal(false);
+    setEditingDl(null);
+    setShowDlValidationErrors(false);
+  }
+
+  async function saveDriverLicense() {
+    if (!isDriverLicenseFormValid()) {
+      setShowDlValidationErrors(true);
+      const trimmedNumber = dlNumber.trim();
+      if (!trimmedNumber) {
+        await appAlert("Driver's license number is required.");
+        return;
+      }
+      if (!isValidDrivingLicense(trimmedNumber)) {
+        await appAlert(DRIVING_LICENSE_VALIDATION_MESSAGE);
+        return;
+      }
+      if (!dlType.trim()) {
+        await appAlert("License type is required.");
+        return;
+      }
+      if (!dlIssue) {
+        await appAlert("Issue date is required.");
+        return;
+      }
+      if (!dlExpiry) {
+        await appAlert("Expiry date is required.");
+        return;
+      }
+      if (!dlIssuingCountry.trim()) {
+        await appAlert("Issuing country is required.");
+        return;
+      }
+      const today = dateInputMaxTodayLocal();
+      if (dlIssue > today) {
+        await appAlert("Issue date cannot be in the future.");
+        return;
+      }
+      if (dlExpiry < dlIssue) {
+        await appAlert("Expiry date cannot be before issue date.");
+        return;
+      }
+      return;
+    }
+    setDlSaving(true);
+    try {
+      const body = {
+        number: dlNumber.trim(),
+        licenseType: dlType.trim(),
+        issueDate: dlIssue,
+        expiryDate: dlExpiry,
+        issuingCountry: dlIssuingCountry.trim(),
+      };
+      if (editingDl) {
+        await apiFetch<DriverLicenseItem>(`/api/employees/${id}/driver-licenses/${editingDl.id}`, { method: "PUT", body: JSON.stringify(body) });
+      } else {
+        await apiFetch<DriverLicenseItem>(`/api/employees/${id}/driver-licenses`, { method: "POST", body: JSON.stringify(body) });
+      }
+      const refreshed = await apiFetch<DriverLicenseItem[]>(`/api/employees/${id}/driver-licenses`);
+      setDriverLicenses(refreshed);
+      syncEmpDriverLicenseFromList(refreshed);
+      closeDlModal();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Failed to save driver's license");
+    } finally {
+      setDlSaving(false);
+    }
+  }
+
+  async function deleteDriverLicense(licenseId: string) {
+    if (!(await appConfirm("Delete this driver's license record?"))) return;
+    try {
+      await apiFetch(`/api/employees/${id}/driver-licenses/${licenseId}`, { method: "DELETE" });
+      const refreshed = await apiFetch<DriverLicenseItem[]>(`/api/employees/${id}/driver-licenses`);
+      setDriverLicenses(refreshed);
+      syncEmpDriverLicenseFromList(refreshed);
+    } catch { /* ignore */ }
+  }
+
+  function resetImmAttachmentDraft() {
+    setImmDocFile(null);
+    setImmDocDesc("");
+    if (immDocFileRef.current) immDocFileRef.current.value = "";
+  }
+
   function openImmModal(imm?: ImmigrationItem) {
+    resetImmAttachmentDraft();
     if (imm) {
       setEditingImm(imm);
       setImmDocType(imm.documentType);
-      setImmNumber(imm.number);
+      setImmNumber(sanitizePassportNumberInput(imm.number));
       setImmIssuedBy(imm.issuedBy ?? "");
       setImmIssuedDate(imm.issuedDate ? new Date(imm.issuedDate).toISOString().split("T")[0] : "");
       setImmExpiryDate(imm.expiryDate ? new Date(imm.expiryDate).toISOString().split("T")[0] : "");
-      setImmReviewDate(imm.eligibleReviewDate ? new Date(imm.eligibleReviewDate).toISOString().split("T")[0] : "");
-      setImmStatus(imm.eligibleStatus ?? "");
       setImmComments(imm.comments ?? "");
     } else {
       setEditingImm(null);
@@ -2282,7 +2744,6 @@ export default function EmployeeDetailPage() {
       setImmIssuedDate("");
       setImmExpiryDate("");
       setImmReviewDate("");
-      setImmStatus("");
       setImmComments("");
     }
     setShowImmModal(true);
@@ -2291,20 +2752,56 @@ export default function EmployeeDetailPage() {
   function closeImmModal() {
     setShowImmModal(false);
     setEditingImm(null);
+    resetImmAttachmentDraft();
+  }
+
+  function openImmViewModal(imm: ImmigrationItem) {
+    setViewingImm(imm);
+    setShowImmViewModal(true);
+  }
+
+  function closeImmViewModal() {
+    setShowImmViewModal(false);
+    setViewingImm(null);
+  }
+
+  async function uploadImmigrationAttachment() {
+    if (!immDocFile) return;
+    const fd = new FormData();
+    fd.append("file", immDocFile);
+    if (immDocDesc.trim()) fd.append("description", immDocDesc.trim());
+    const res = await fetch(`${API_BASE_URL}/api/employees/${id}/immigration-documents`, {
+      method: "POST",
+      body: fd,
+      headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}` },
+    });
+    if (!res.ok) throw new Error("Upload failed");
+    const created = await res.json();
+    setImmDocs((prev) => [created, ...prev]);
+    resetImmAttachmentDraft();
   }
 
   async function saveImmigration() {
-    if (!immDocType.trim() || !immNumber.trim()) return;
+    const trimmedNumber = sanitizePassportNumberInput(immNumber.trim());
+    const eligibleDate = calculateImmigrationEligibleDate(immDocType, immIssuedDate, immExpiryDate) ?? "";
+    if (!isImmigrationFormValid(immDocType, immNumber, immIssuedDate, immExpiryDate, eligibleDate)) {
+      if (!immIssuedDate || !immExpiryDate || !eligibleDate) {
+        await appAlert("Issued Date, Expiry Date, and Available Date are required.");
+        return;
+      }
+      await appAlert(PASSPORT_NUMBER_VALIDATION_MESSAGE);
+      return;
+    }
     setImmSaving(true);
     try {
       const body = {
         documentType: immDocType,
-        number: immNumber,
+        number: trimmedNumber,
         issuedBy: immIssuedBy || null,
-        issuedDate: immIssuedDate || null,
-        expiryDate: immExpiryDate || null,
-        eligibleReviewDate: immReviewDate || null,
-        eligibleStatus: immStatus || null,
+        issuedDate: immIssuedDate,
+        expiryDate: immExpiryDate,
+        eligibleReviewDate: eligibleDate,
+        eligibleStatus: editingImm?.eligibleStatus ?? null,
         comments: immComments || null,
       };
       if (editingImm) {
@@ -2314,6 +2811,7 @@ export default function EmployeeDetailPage() {
         const created = await apiFetch<ImmigrationItem>(`/api/employees/${id}/immigrations`, { method: "POST", body: JSON.stringify(body) });
         setImmigrations((prev) => [created, ...prev]);
       }
+      if (immDocFile) await uploadImmigrationAttachment();
       closeImmModal();
     } catch (err) {
       await appAlert(err instanceof Error ? err.message : "Failed to save immigration record");
@@ -2330,37 +2828,26 @@ export default function EmployeeDetailPage() {
     } catch { /* ignore */ }
   }
 
-  function openImmDocModal() {
-    setImmDocFile(null);
-    setImmDocDesc("");
-    setShowImmDocModal(true);
-  }
-
-  async function uploadImmDoc() {
-    if (!immDocFile) return;
-    setImmDocUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", immDocFile);
-      if (immDocDesc.trim()) fd.append("description", immDocDesc.trim());
-      const res = await fetch(`${API_BASE_URL}/api/employees/${id}/immigration-documents`, { method: "POST", body: fd, headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}` } });
-      if (!res.ok) throw new Error("Upload failed");
-      const created = await res.json();
-      setImmDocs((prev) => [created, ...prev]);
-      setShowImmDocModal(false);
-    } catch (err) {
-      await appAlert(err instanceof Error ? err.message : "Failed to upload document");
-    } finally {
-      setImmDocUploading(false);
-    }
-  }
-
   async function deleteImmDoc(docId: string) {
     if (!(await appConfirm("Delete this document?"))) return;
     try {
       await apiFetch(`/api/employees/${id}/immigration-documents/${docId}`, { method: "DELETE" });
       setImmDocs((prev) => prev.filter((d) => d.id !== docId));
     } catch { /* ignore */ }
+  }
+
+  async function openImmigrationDocumentFile(docId: string) {
+    setImmDocOpeningId(docId);
+    try {
+      const blob = await apiFetchBlob(`/api/employees/${id}/immigration-documents/${docId}/download`);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not open the document.");
+    } finally {
+      setImmDocOpeningId(null);
+    }
   }
 
   function openWeModal(item?: WorkExperienceItem) {
@@ -2383,6 +2870,8 @@ export default function EmployeeDetailPage() {
       setWeCreditable(false);
       setWeComment("");
     }
+    setShowWeValidationErrors(false);
+    setWeFormError(null);
     setShowWeModal(true);
   }
 
@@ -2396,23 +2885,31 @@ export default function EmployeeDetailPage() {
     setWeToDate("");
     setWeCreditable(false);
     setWeComment("");
+    setShowWeValidationErrors(false);
+    setWeFormError(null);
   }
 
   async function saveWorkExperience() {
-    if (!weCompany.trim() || !weJobTitle.trim() || !weEmploymentType.trim()) return;
+    setWeFormError(null);
+    if (!isValidAddressText(weCompany, true) || !isValidAddressText(weJobTitle, true) || !weEmploymentType.trim()) {
+      setShowWeValidationErrors(true);
+      setWeFormError("Company, job title, and employment type are required.");
+      return;
+    }
     const today = dateInputMaxTodayLocal();
     if (weFromDate && weFromDate > today) {
-      setMsg({ type: "err", text: "Work experience start date cannot be in the future." });
+      setWeFormError("Work experience start date cannot be in the future.");
       return;
     }
     if (weToDate && weToDate > today) {
-      setMsg({ type: "err", text: "Work experience end date cannot be in the future." });
+      setWeFormError("Work experience end date cannot be in the future.");
       return;
     }
     if (weFromDate && weToDate && weToDate < weFromDate) {
-      setMsg({ type: "err", text: "End date must be on or after the start date." });
+      setWeFormError("End date must be on or after the start date.");
       return;
     }
+    setShowWeValidationErrors(false);
     setWeSaving(true);
     const body = {
       company: weCompany.trim(),
@@ -2480,11 +2977,12 @@ export default function EmployeeDetailPage() {
   }
 
   async function saveBankAccount() {
-    if (!baAccountNumber.trim()) return;
+    const accountNumber = baAccountNumber.trim();
+    if (!accountNumber || !/^\d+$/.test(accountNumber)) return;
     setBaSaving(true);
     const body = {
-      accountNumber: baAccountNumber.trim(),
-      bankName: baBankName || null,
+      accountNumber,
+      bankName: baBankName.trim() || null,
       accountType: baAccountType,
       bankCode: baBankCode.trim() || null,
       branchCode: baBranchCode.trim() || null,
@@ -2558,62 +3056,11 @@ export default function EmployeeDetailPage() {
       const newEmploymentType = defaultEmploymentTypeCode(employmentTypes);
       const newJoinDate = reactUpdateJoinDate ? reactDate : emp.joinDate;
       const payload = {
-        firstName: emp.firstName,
-        middleName: emp.middleName,
-        lastName: emp.lastName,
-        email: emp.email,
-        phone: emp.phone,
-        addressStreet1: emp.addressStreet1,
-        addressStreet2: emp.addressStreet2,
-        city: emp.city,
-        country: emp.country,
-        stateProvince: emp.stateProvince,
-        zipPostalCode: emp.zipPostalCode,
-        district: emp.district,
-        pollingDivision: emp.pollingDivision,
-        distanceToOffice: emp.distanceToOffice,
-        modeOfTransport: emp.modeOfTransport,
-        homeTelephone: emp.homeTelephone,
-        workTelephone: emp.workTelephone,
-        otherEmail: emp.otherEmail,
-        permanentStreet1: emp.permanentStreet1,
-        permanentStreet2: emp.permanentStreet2,
-        permanentCity: emp.permanentCity,
-        permanentCountry: emp.permanentCountry,
-        permanentStateProvince: emp.permanentStateProvince,
-        permanentZipPostalCode: emp.permanentZipPostalCode,
-        permanentDistrict: emp.permanentDistrict,
-        permanentPollingDivision: emp.permanentPollingDivision,
-        permanentDistanceToOffice: emp.permanentDistanceToOffice,
-        dateOfBirth: emp.dateOfBirth,
-        gender: emp.gender,
-        maritalStatus: emp.maritalStatus,
-        nationality: emp.nationality,
-        religion: emp.religion,
-        ethnicity: emp.ethnicity,
-        otherId: emp.otherId,
-        nationalId: emp.nationalId,
-        tinNumber: emp.tinNumber,
-        epfNumber: emp.epfNumber,
-        etfNumber: emp.etfNumber,
-        driversLicenseNumber: emp.driversLicenseNumber,
-        driversLicenseType: emp.driversLicenseType,
-        licenseIssueDate: emp.licenseIssueDate,
-        licenseExpiryDate: emp.licenseExpiryDate,
-        driversLicenseIssuingCountry: emp.driversLicenseIssuingCountry,
+        ...buildEmployeePutPayload(emp),
         joinDate: newJoinDate,
-        probationEndDate: emp.probationEndDate,
-        dateOfPermanency: emp.dateOfPermanency,
         status: "Active",
         employmentType: newEmploymentType,
         terminationDate: null,
-        departmentId: emp.departmentId,
-        businessUnitId: emp.businessUnitId,
-        positionId: emp.positionId,
-        locationId: emp.locationId,
-        gradeId: emp.gradeId,
-        jobTitleId: emp.jobTitleId,
-        managerId: emp.managerId,
       };
       await apiFetch(`/api/employees/${id}`, {
         method: "PUT",
@@ -2694,14 +3141,19 @@ export default function EmployeeDetailPage() {
     try {
       const formData = new FormData();
       formData.append("file", photoFile);
-      const res = await fetch(`${API_BASE_URL}/api/employees/${id}/photo`, {
+      const endpoint = `/api/employees/${emp.id}/photo`;
+      const res = await fetch(`${getApiBaseUrl()}${endpoint}`, {
         method: "POST",
         body: formData,
         headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}` },
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
-        throw new Error(errText || `Upload failed (${res.status})`);
+        throw new Error(resolveHttpErrorMessage(errText, {
+          status: res.status,
+          endpoint,
+          backendUrl: getApiBaseUrl(),
+        }));
       }
       const data = await res.json() as { profileImageUrl: string };
       setEmp({ ...emp, profileImageUrl: data.profileImageUrl });
@@ -2719,12 +3171,23 @@ export default function EmployeeDetailPage() {
   async function saveEpfEtf(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!emp) return;
+    const epf = sanitizeEpfInput(epfNumber.trim());
+    const etf = sanitizeEtfInput(etfNumber.trim());
+    if ((epf && !isValidEpfNumber(epf)) || (etf && !isValidEtfNumber(etf))) {
+      setShowIdValidationErrors(true);
+      setMsg({
+        type: "err",
+        text: epf && !isValidEpfNumber(epf) ? EPF_VALIDATION_MESSAGE : ETF_VALIDATION_MESSAGE,
+      });
+      return;
+    }
+    setShowIdValidationErrors(false);
     setEpfSaving(true);
     setMsg(null);
     try {
       const payload = buildEmployeePutPayload(emp, {
-        epfNumber: epfNumber.trim() || null,
-        etfNumber: etfNumber.trim() || null,
+        epfNumber: epf || null,
+        etfNumber: etf || null,
       });
       const updated = await apiFetch<EmployeeDetail>(`/api/employees/${id}`, {
         method: "PUT",
@@ -2750,7 +3213,7 @@ export default function EmployeeDetailPage() {
       firstName: fd.get("firstName") || emp.firstName,
       middleName: fd.get("middleName") || null,
       lastName: fd.get("lastName") || emp.lastName,
-      email: fd.get("email") || emp.email,
+      email: fd.get("email"),
       phone: fd.get("phone") || null,
       addressStreet1: fd.get("addressStreet1") || null,
       addressStreet2: fd.get("addressStreet2") || null,
@@ -2783,8 +3246,12 @@ export default function EmployeeDetailPage() {
       otherId: fd.get("otherId") || null,
       nationalId: fd.get("nationalId") || null,
       tinNumber: fd.get("tinNumber") || null,
-      epfNumber: (fd.get("epfNumber") as string)?.trim() || emp.epfNumber || null,
-      etfNumber: (fd.get("etfNumber") as string)?.trim() || emp.etfNumber || null,
+      epfNumber: fd.has("epfNumber")
+        ? ((fd.get("epfNumber") as string)?.trim() || null)
+        : (emp.epfNumber ?? null),
+      etfNumber: fd.has("etfNumber")
+        ? ((fd.get("etfNumber") as string)?.trim() || null)
+        : (emp.etfNumber ?? null),
       driversLicenseNumber: fd.get("driversLicenseNumber") || null,
       driversLicenseType: (fd.get("driversLicenseType") as string)?.trim() || null,
       licenseIssueDate: (fd.get("licenseIssueDate") as string)?.trim() || null,
@@ -2805,73 +3272,156 @@ export default function EmployeeDetailPage() {
       isTopOfHierarchy: fd.get("isTopOfHierarchy") === "true",
     };
 
-    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-    const workEmail = (payload.email as string).trim();
+    const workEmail = displayWorkEmail((payload.email as string) ?? "");
     const personalEmail = ((payload.otherEmail as string) ?? "").trim();
+    const savingTab = pageTab;
 
-    if (!emailRe.test(workEmail)) {
-      setSaving(false);
-      setMsg({ type: "err", text: "Work Email is not a valid email address (e.g. name@company.com)." });
-      return;
-    }
-    if (personalEmail && !emailRe.test(personalEmail)) {
-      setSaving(false);
-      setMsg({ type: "err", text: "Personal Email is not a valid email address (e.g. name@example.com)." });
-      return;
-    }
+    const fieldChanged = (next: string | null | undefined, current: string | null | undefined) =>
+      (next ?? "").trim().toLowerCase() !== (current ?? "").trim().toLowerCase();
 
-    const nic = ((payload.nationalId as string) ?? "").trim();
-    const dl = ((payload.driversLicenseNumber as string) ?? "").trim();
-    if ((nic && !isValidNic(nic)) || (dl && !isValidDrivingLicense(dl))) {
-      setSaving(false);
-      setShowIdValidationErrors(true);
-      setMsg({
-        type: "err",
-        text: nic && !isValidNic(nic) ? NIC_VALIDATION_MESSAGE : DRIVING_LICENSE_VALIDATION_MESSAGE,
+    if (savingTab === "contactDetails") {
+      const phoneFields = [
+        { label: "Home telephone", value: sanitizePhoneInput(((payload.homeTelephone as string) ?? "").trim()), current: emp.homeTelephone },
+        { label: "Mobile phone", value: sanitizePhoneInput(((payload.phone as string) ?? "").trim()), current: emp.phone },
+        { label: "Work telephone", value: sanitizePhoneInput(((payload.workTelephone as string) ?? "").trim()), current: emp.workTelephone },
+      ];
+      for (const phone of phoneFields) {
+        if (!fieldChanged(phone.value, phone.current)) continue;
+        if (phone.value && !isValidPhone(phone.value)) {
+          setSaving(false);
+          setMsg({ type: "err", text: `${phone.label}: ${PHONE_VALIDATION_MESSAGE}` });
+          return;
+        }
+      }
+
+      if (fieldChanged(workEmail, displayWorkEmail(emp.email)) && workEmail && !isValidEmailInput(workEmail)) {
+        setSaving(false);
+        setMsg({ type: "err", text: `Work Email: ${EMAIL_INPUT_VALIDATION_MESSAGE}` });
+        return;
+      }
+      if (fieldChanged(personalEmail, emp.otherEmail) && personalEmail && !isValidEmailInput(personalEmail)) {
+        setSaving(false);
+        setMsg({ type: "err", text: `Personal Email: ${EMAIL_INPUT_VALIDATION_MESSAGE}` });
+        return;
+      }
+      if (fieldChanged(workEmail, displayWorkEmail(emp.email)) && workEmail && !isValidEmailFormat(workEmail)) {
+        setSaving(false);
+        setMsg({ type: "err", text: `Work Email: ${EMAIL_FORMAT_VALIDATION_MESSAGE}` });
+        return;
+      }
+      if (fieldChanged(personalEmail, emp.otherEmail) && personalEmail && !isValidEmailFormat(personalEmail)) {
+        setSaving(false);
+        setMsg({ type: "err", text: `Personal Email: ${EMAIL_FORMAT_VALIDATION_MESSAGE}` });
+        return;
+      }
+
+      const addressError = validateEmployeeAddressFieldsIfChanged({
+        addressStreet1: (payload.addressStreet1 as string) ?? null,
+        addressStreet2: (payload.addressStreet2 as string) ?? null,
+        city: (payload.city as string) ?? null,
+        zipPostalCode: (payload.zipPostalCode as string) ?? null,
+        pollingDivision: (payload.pollingDivision as string) ?? null,
+        distanceToOffice: (payload.distanceToOffice as string) ?? null,
+        permanentStreet1: (payload.permanentStreet1 as string) ?? null,
+        permanentStreet2: (payload.permanentStreet2 as string) ?? null,
+        permanentCity: (payload.permanentCity as string) ?? null,
+        permanentZipPostalCode: (payload.permanentZipPostalCode as string) ?? null,
+        permanentPollingDivision: (payload.permanentPollingDivision as string) ?? null,
+        permanentDistanceToOffice: (payload.permanentDistanceToOffice as string) ?? null,
+      }, {
+        addressStreet1: emp.addressStreet1,
+        addressStreet2: emp.addressStreet2,
+        city: emp.city,
+        zipPostalCode: emp.zipPostalCode,
+        pollingDivision: emp.pollingDivision,
+        distanceToOffice: emp.distanceToOffice,
+        permanentStreet1: emp.permanentStreet1,
+        permanentStreet2: emp.permanentStreet2,
+        permanentCity: emp.permanentCity,
+        permanentZipPostalCode: emp.permanentZipPostalCode,
+        permanentPollingDivision: emp.permanentPollingDivision,
+        permanentDistanceToOffice: emp.permanentDistanceToOffice,
       });
-      return;
+      if (addressError) {
+        setSaving(false);
+        setShowAddressValidationErrors(true);
+        setMsg({ type: "err", text: addressError });
+        return;
+      }
+      setShowAddressValidationErrors(false);
+      Object.assign(payload, sanitizeEmployeeAddressFields({
+        addressStreet1: payload.addressStreet1 as string | null,
+        addressStreet2: payload.addressStreet2 as string | null,
+        city: payload.city as string | null,
+        zipPostalCode: payload.zipPostalCode as string | null,
+        pollingDivision: payload.pollingDivision as string | null,
+        distanceToOffice: payload.distanceToOffice as string | null,
+        permanentStreet1: payload.permanentStreet1 as string | null,
+        permanentStreet2: payload.permanentStreet2 as string | null,
+        permanentCity: payload.permanentCity as string | null,
+        permanentZipPostalCode: payload.permanentZipPostalCode as string | null,
+        permanentPollingDivision: payload.permanentPollingDivision as string | null,
+        permanentDistanceToOffice: payload.permanentDistanceToOffice as string | null,
+      }));
     }
-    setShowIdValidationErrors(false);
 
-    const jd = payload.joinDate ? (payload.joinDate as string).split("T")[0] : "";
-    const pe = payload.probationEndDate ? (payload.probationEndDate as string).split("T")[0] : "";
-    const dp = payload.dateOfPermanency ? (payload.dateOfPermanency as string).split("T")[0] : "";
+    if (savingTab === "personal") {
+      const nic = ((payload.nationalId as string) ?? "").trim();
+      const tin = sanitizeTinInput(((payload.tinNumber as string) ?? "").trim());
+      if (fieldChanged(nic, emp.nationalId) && nic && !isValidNic(nic)) {
+        setSaving(false);
+        setShowIdValidationErrors(true);
+        setMsg({ type: "err", text: NIC_VALIDATION_MESSAGE });
+        return;
+      }
+      if (fieldChanged(tin, emp.tinNumber) && tin && !isValidTin(tin)) {
+        setSaving(false);
+        setShowIdValidationErrors(true);
+        setMsg({ type: "err", text: TIN_VALIDATION_MESSAGE });
+        return;
+      }
+      setShowIdValidationErrors(false);
+      payload.tinNumber = tin || null;
+    }
 
-    if (pe && jd && pe <= jd) {
-      setSaving(false);
-      setMsg({ type: "err", text: "Probation End Date must be after the Joined Date." });
-      return;
-    }
-    if (dp && jd && dp <= jd) {
-      setSaving(false);
-      setMsg({ type: "err", text: "Date of Permanency must be after the Joined Date." });
-      return;
-    }
-    if (dp && pe && dp < pe) {
-      setSaving(false);
-      setMsg({ type: "err", text: "Date of Permanency must be on or after the Probation End Date." });
-      return;
+    if (savingTab === "job") {
+      const jd = payload.joinDate ? (payload.joinDate as string).split("T")[0] : "";
+      const pe = payload.probationEndDate ? (payload.probationEndDate as string).split("T")[0] : "";
+      const dp = payload.dateOfPermanency ? (payload.dateOfPermanency as string).split("T")[0] : "";
+
+      if (pe && jd && pe <= jd) {
+        setSaving(false);
+        setMsg({ type: "err", text: "Probation End Date must be after the Joined Date." });
+        return;
+      }
+      if (dp && jd && dp <= jd) {
+        setSaving(false);
+        setMsg({ type: "err", text: "Date of Permanency must be after the Joined Date." });
+        return;
+      }
+      if (dp && pe && dp < pe) {
+        setSaving(false);
+        setMsg({ type: "err", text: "Date of Permanency must be on or after the Probation End Date." });
+        return;
+      }
     }
 
-    const licIssue = (payload.licenseIssueDate as string)?.trim() ?? "";
-    const licExpiry = (payload.licenseExpiryDate as string)?.trim() ?? "";
-    const todayLocal = dateInputMaxTodayLocal();
-    if (licIssue && licIssue > todayLocal) {
-      setSaving(false);
-      setMsg({ type: "err", text: "License issue date cannot be in the future." });
-      return;
-    }
-    if (licIssue && licExpiry && licExpiry < licIssue) {
-      setSaving(false);
-      setMsg({ type: "err", text: "License expiry date must be on or after the issue date." });
-      return;
+    // Send "" (not null) when no work email — null fails ASP.NET binding on UpdateEmployeeDto.Email.
+    payload.email = workEmail;
+    if (savingTab !== "personal") {
+      payload.tinNumber = sanitizeTinInput(((payload.tinNumber as string) ?? "").trim()) || null;
     }
 
     try {
       const updated = await apiFetch<EmployeeDetail>(`/api/employees/${id}`, { method: "PUT", body: JSON.stringify(payload) });
       setEmp(updated);
       void loadLifecycleTimeline();
-      setMsg({ type: "ok", text: "Updated successfully." });
+      const successByTab: Partial<Record<PageTab, string>> = {
+        job: "Job details updated successfully.",
+        contactDetails: "Contact details updated successfully.",
+        personal: "Personal details updated successfully.",
+      };
+      setMsg({ type: "ok", text: successByTab[savingTab] ?? "Updated successfully." });
     } catch (err: unknown) { setMsg({ type: "err", text: err instanceof Error ? err.message : "Failed to save." }); }
     finally { setSaving(false); }
   }
@@ -2914,6 +3464,8 @@ export default function EmployeeDetailPage() {
     "mb-1.5 block text-[13px] font-semibold leading-snug tracking-tight text-slate-700 antialiased " +
     "after:mt-1.5 after:block after:h-[2px] after:w-10 after:max-w-[40%] after:rounded-full after:bg-gradient-to-r after:from-sky-200 after:via-indigo-200 after:to-slate-200/90 after:content-['']";
   const inputReadonlyClass = inputClass + " cursor-default bg-slate-50/90 text-slate-600";
+  const inputDisabledClass =
+    "w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2.5 text-sm text-slate-500 shadow-none outline-none";
 
   if (loading) return (
     <div className="flex min-h-[400px] items-center justify-center">
@@ -3063,7 +3615,42 @@ export default function EmployeeDetailPage() {
                 <div className="rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2.5">
                   <InfoRow label="Job title" value={employee.jobTitleName ?? employee.positionTitle ?? "—"} />
                   <InfoRow label="Department" value={employee.departmentName ?? "—"} />
-                  <InfoRow label="Reports to" value={employee.managerName ?? "—"} />
+                  {!hasAnyReportsTo ? (
+                    <InfoRow label="Reports to" value="—" />
+                  ) : (
+                    <>
+                      {reportsToByMethod.direct.length > 0 && (
+                        <div className="flex py-0.5">
+                          <span className="w-24 shrink-0 text-xs text-slate-400">Direct:</span>
+                          <div className="text-xs font-medium text-slate-700">
+                            {reportsToByMethod.direct.map((name, index) => (
+                              <div key={`direct-${name}-${index}`}>{name}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {reportsToByMethod.indirect.length > 0 && (
+                        <div className="flex py-0.5">
+                          <span className="w-24 shrink-0 text-xs text-slate-400">Indirect:</span>
+                          <div className="text-xs font-medium text-slate-700">
+                            {reportsToByMethod.indirect.map((name, index) => (
+                              <div key={`indirect-${name}-${index}`}>{name}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {reportsToByMethod.both.length > 0 && (
+                        <div className="flex py-0.5">
+                          <span className="w-24 shrink-0 text-xs text-slate-400">Both:</span>
+                          <div className="text-xs font-medium text-slate-700">
+                            {reportsToByMethod.both.map((name, index) => (
+                              <div key={`both-${name}-${index}`}>{name}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                   <div className="mt-2 border-t border-slate-200/80 pt-2">
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                       Responsibilities
@@ -3323,7 +3910,7 @@ export default function EmployeeDetailPage() {
                       <div className="border-t border-slate-100 pt-3">
                         <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-slate-600"><SectionIcon path="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" color="bg-green-500" />Contact</h4>
                         <InfoRow label="Mobile" value={emp.phone ?? "—"} />
-                        <InfoRow label="Email" value={emp.email} />
+                        <InfoRow label="Email" value={displayWorkEmail(emp.email) || "—"} />
                       </div>
                     </div>
                   </div>
@@ -3365,10 +3952,27 @@ export default function EmployeeDetailPage() {
                   </div>
                   <div className="space-y-0.5 p-3">
                     {[
-                      { label: "Career Development", sub: "Individual Development Plans", bg: "bg-amber-500", icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" },
-                      { label: "Discipline", sub: "Disciplinary Cases", bg: "bg-red-500", icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" },
+                      {
+                        label: "Career Development",
+                        sub: "Individual Development Plans",
+                        bg: "bg-amber-500",
+                        icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6",
+                        href: `${ROUTES.learning}?tab=assignments&employeeId=${id}`,
+                      },
+                      {
+                        label: "Discipline",
+                        sub: "Disciplinary Cases",
+                        bg: "bg-red-500",
+                        icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
+                        href: `${ROUTES.employeeActions}?type=Warning&employeeId=${id}`,
+                      },
                     ].map((item) => (
-                      <button key={item.sub} type="button" className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50">
+                      <button
+                        key={item.sub}
+                        type="button"
+                        onClick={() => router.push(item.href)}
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50"
+                      >
                         <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${item.bg}`}><svg className="h-3.5 w-3.5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d={item.icon}/></svg></div>
                         <div><div className="text-[10px] font-medium text-slate-400">{item.label}</div><div className="text-xs font-semibold text-slate-700">{item.sub}</div></div>
                       </button>
@@ -3561,10 +4165,10 @@ export default function EmployeeDetailPage() {
             </div>
             <div className="p-6 sm:p-8">
               <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
-                <div><label className={labelClass}>Employee Id</label><input className={inputReadonlyClass} value={emp.employeeCode} readOnly /></div>
+                <div><label className={labelClass}>Employee Id</label><input className={inputDisabledClass} value={emp.employeeCode} disabled aria-readonly="true" tabIndex={-1} /></div>
                 <div><label className={labelClass}>Other Id</label><input name="otherId" className={inputClass} defaultValue={emp.otherId ?? ""} /></div>
                 <div><label className={labelClass}>NIC Number</label><NicInput name="nationalId" className={inputClass} defaultValue={emp.nationalId ?? ""} forceShowError={showIdValidationErrors} /></div>
-                <div><label className={labelClass}>TIN Number</label><input name="tinNumber" className={inputClass} defaultValue={emp.tinNumber ?? ""} /></div>
+                <div><label className={labelClass}>TIN Number</label><TinInput name="tinNumber" className={inputClass} defaultValue={emp.tinNumber ?? ""} forceShowError={showIdValidationErrors} /></div>
                 <div><label className={labelClass}>First Name *</label><PersonNameInput name="firstName" required className={inputClass} value={pdFirstName} onChange={(e) => setPdFirstName(e.target.value)} /></div>
                 <div><label className={labelClass}>Middle Name</label><PersonNameInput name="middleName" autoComplete="additional-name" className={inputClass} value={pdMiddleName} onChange={(e) => setPdMiddleName(e.target.value)} /></div>
                 <div><label className={labelClass}>Last Name *</label><PersonNameInput name="lastName" required autoComplete="family-name" className={inputClass} value={pdLastName} onChange={(e) => setPdLastName(e.target.value)} /></div>
@@ -3601,7 +4205,10 @@ export default function EmployeeDetailPage() {
                   <FormSelect
                     name="status"
                     required
+                    disabled
+                    clearable={false}
                     defaultValue={emp.status}
+                    className="!cursor-not-allowed !border-slate-200 !bg-slate-100 !text-slate-500 !opacity-100 !shadow-none hover:!border-slate-200 hover:!shadow-none focus:!ring-0"
                     options={
                       employeeStatuses.length > 0
                         ? employeeStatuses.map((s) => ({ value: s.code, label: s.name }))
@@ -3616,7 +4223,9 @@ export default function EmployeeDetailPage() {
               <input type="hidden" name="licenseIssueDate" value={emp.licenseIssueDate ? fmtDate(emp.licenseIssueDate) : ""} />
               <input type="hidden" name="licenseExpiryDate" value={emp.licenseExpiryDate ? fmtDate(emp.licenseExpiryDate) : ""} />
               <input type="hidden" name="driversLicenseIssuingCountry" value={emp.driversLicenseIssuingCountry ?? ""} />
-              <input type="hidden" name="email" value={emp.email} />
+              <input type="hidden" name="epfNumber" value={emp.epfNumber ?? ""} />
+              <input type="hidden" name="etfNumber" value={emp.etfNumber ?? ""} />
+              <input type="hidden" name="email" value={displayWorkEmail(emp.email)} />
               <input type="hidden" name="phone" value={emp.phone ?? ""} />
               <input type="hidden" name="addressStreet1" value={emp.addressStreet1 ?? ""} />
               <input type="hidden" name="addressStreet2" value={emp.addressStreet2 ?? ""} />
@@ -3767,11 +4376,23 @@ export default function EmployeeDetailPage() {
             <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label className={labelClass}>EPF Number</label>
-                <input name="epfNumber" className={inputClass} value={epfNumber} onChange={(ev) => setEpfNumber(ev.target.value)} />
+                <EpfInput
+                  name="epfNumber"
+                  className={inputClass}
+                  value={epfNumber}
+                  forceShowError={showIdValidationErrors}
+                  onChange={(ev) => setEpfNumber(ev.target.value)}
+                />
               </div>
               <div>
                 <label className={labelClass}>ETF Number</label>
-                <input name="etfNumber" className={inputClass} value={etfNumber} onChange={(ev) => setEtfNumber(ev.target.value)} />
+                <EtfInput
+                  name="etfNumber"
+                  className={inputClass}
+                  value={etfNumber}
+                  forceShowError={showIdValidationErrors}
+                  onChange={(ev) => setEtfNumber(ev.target.value)}
+                />
               </div>
             </div>
             <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100/90 pt-6">
@@ -3898,6 +4519,15 @@ export default function EmployeeDetailPage() {
                             </>
                           ) : (
                             <>
+                              <button
+                                type="button"
+                                onClick={() => openAttachmentFile(att.id)}
+                                disabled={attachOpeningId === att.id}
+                                title="View"
+                                className="text-slate-500 transition hover:text-blue-600 disabled:opacity-50"
+                              >
+                                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                              </button>
                               <a href={`${API_BASE_URL}/api/employees/${id}/attachments/${att.id}/download`} target="_blank" rel="noreferrer" title="Download" className="text-slate-500 transition hover:text-blue-600">
                                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                               </a>
@@ -4031,18 +4661,18 @@ export default function EmployeeDetailPage() {
                 <div><label className={labelClass}>Joined Date *</label><DatePickerField name="joinDate" required className={inputClass} value={jobFormJoinDate} onChange={setJobFormJoinDate} /></div>
                 <div><label className={labelClass}>Probation End Date</label><DatePickerField name="probationEndDate" className={inputClass} value={jobFormProbationEnd} onChange={setJobFormProbationEnd} /></div>
                 <div><label className={labelClass}>Date of Permanency</label><DatePickerField name="dateOfPermanency" className={inputClass} value={jobFormPermanency} onChange={setJobFormPermanency} /></div>
-                <div><label className={labelClass}>Job Title</label><FormSelect name="jobTitleId" defaultValue={emp.jobTitleId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...jobTitles.map((j) => ({ value: j.id, label: j.name }))]} /></div>
+                <div><label className={labelClass}>Job Title</label><FormSelect name="jobTitleId" defaultValue={emp.jobTitleId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleJobTitles.map((j) => ({ value: j.id, label: j.name }))]} /></div>
                 <div><label className={labelClass}>Department *</label><FormSelect name="departmentId" required defaultValue={emp.departmentId} options={departments.map((d) => ({ value: d.id, label: d.name }))} /></div>
                 <div><label className={labelClass}>Employment Type *</label><FormSelect name="employmentType" required defaultValue={emp.employmentType} options={jobEmploymentTypeSelectOptions} /></div>
-                <div><label className={labelClass}>Business Unit</label><FormSelect name="businessUnitId" defaultValue={emp.businessUnitId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...businessUnits.map((b) => ({ value: b.id, label: b.name }))]} /></div>
-                <div><label className={labelClass}>Grade</label><FormSelect name="gradeId" defaultValue={emp.gradeId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...grades.map((g) => ({ value: g.id, label: g.name }))]} /></div>
-                <div><label className={labelClass}>Location</label><FormSelect name="locationId" defaultValue={emp.locationId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...locations.map((l) => ({ value: l.id, label: l.name }))]} /></div>
+                <div><label className={labelClass}>Business Unit</label><FormSelect name="businessUnitId" defaultValue={emp.businessUnitId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleBusinessUnits.map((b) => ({ value: b.id, label: b.name }))]} /></div>
+                <div><label className={labelClass}>Grade</label><FormSelect name="gradeId" defaultValue={emp.gradeId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleGrades.map((g) => ({ value: g.id, label: g.name }))]} /></div>
+                <div><label className={labelClass}>Location</label><FormSelect name="locationId" defaultValue={emp.locationId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleLocations.map((l) => ({ value: l.id, label: l.name }))]} /></div>
               </div>
               {/* Hidden fields */}
               <input type="hidden" name="firstName" value={emp.firstName} />
               <input type="hidden" name="middleName" value={emp.middleName ?? ""} />
               <input type="hidden" name="lastName" value={emp.lastName} />
-              <input type="hidden" name="email" value={emp.email} />
+              <input type="hidden" name="email" value={displayWorkEmail(emp.email)} />
               <input type="hidden" name="phone" value={emp.phone ?? ""} />
               <input type="hidden" name="addressStreet1" value={emp.addressStreet1 ?? ""} />
               <input type="hidden" name="addressStreet2" value={emp.addressStreet2 ?? ""} />
@@ -4281,72 +4911,32 @@ export default function EmployeeDetailPage() {
                 <div><label className={labelClass}>Home Telephone</label><PhoneInput name="homeTelephone" className={inputClass} defaultValue={emp.homeTelephone ?? ""} autoComplete="tel-national" /></div>
                 <div><label className={labelClass}>Mobile</label><PhoneInput name="phone" className={inputClass} defaultValue={emp.phone ?? ""} autoComplete="tel" /></div>
                 <div><label className={labelClass}>Work Telephone</label><PhoneInput name="workTelephone" className={inputClass} defaultValue={emp.workTelephone ?? ""} autoComplete="tel" /></div>
-                <div><label className={labelClass}>Work Email</label><input name="email" type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@company.com)" className={inputClass} defaultValue={emp.email} /></div>
-                <div><label className={labelClass}>Personal Email</label><input name="otherEmail" type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}" title="Enter a valid email (e.g. name@example.com)" className={inputClass} defaultValue={emp.otherEmail ?? ""} /></div>
+                <div><label className={labelClass}>Work Email</label><EmailInput key={`work-email-${emp.id}`} name="email" stripPlaceholderWorkEmail title="Optional. Enter a valid company email (e.g. name@company.com)" className={inputClass} defaultValue={emp.email ?? ""} placeholder="name@company.com" /></div>
+                <div><label className={labelClass}>Personal Email</label><EmailInput name="otherEmail" title="Enter a valid email (e.g. name@example.com)" className={inputClass} defaultValue={emp.otherEmail ?? ""} /></div>
               </div>
             </div>
           </div>
 
-          {/* Current Address */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5"><SectionIcon path="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" color="bg-blue-500" /><h2 className="text-[15px] font-bold text-slate-700">Current Address</h2></div>
-            </div>
-            <div className="p-6">
-              <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-                <div><label className={labelClass}>Address Street 1</label><input name="addressStreet1" className={inputClass} defaultValue={emp.addressStreet1 ?? ""} /></div>
-                <div><label className={labelClass}>Address Street 2</label><input name="addressStreet2" className={inputClass} defaultValue={emp.addressStreet2 ?? ""} /></div>
-                <div><label className={labelClass}>City</label><input name="city" className={inputClass} defaultValue={emp.city ?? ""} /></div>
-                <AddressRegionFields
-                  countryName="country"
-                  stateName="stateProvince"
-                  districtName="district"
-                  country={addrCountry}
-                  stateProvince={addrState}
-                  district={addrDistrict}
-                  onCountryChange={setAddrCountry}
-                  onStateChange={setAddrState}
-                  onDistrictChange={setAddrDistrict}
-                  inputClass={inputClass}
-                  labelClass={labelClass}
-                />
-                <div><label className={labelClass}>Zip/Postal Code</label><input name="zipPostalCode" className={inputClass} defaultValue={emp.zipPostalCode ?? ""} /></div>
-                <div><label className={labelClass}>Polling Division</label><input name="pollingDivision" className={inputClass} defaultValue={emp.pollingDivision ?? ""} /></div>
-                <div><label className={labelClass}>Distance to Office(KM)</label><input name="distanceToOffice" type="number" min={0} step="any" inputMode="decimal" className={inputClass} defaultValue={distanceKmInputValue(emp.distanceToOffice)} placeholder="e.g. 15" /></div>
-                <div><label className={labelClass}>Mode of Transport</label><FormSelect name="modeOfTransport" defaultValue={emp.modeOfTransport ?? ""} options={MODE_TRANSPORT_OPTIONS} placeholder="-- Select --" /></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Permanent Address */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5"><SectionIcon path="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1m-2 0h2" color="bg-amber-500" /><h2 className="text-[15px] font-bold text-slate-700">Permanent Address</h2></div>
-            </div>
-            <div className="p-6">
-              <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-                <div><label className={labelClass}>Address Street 1</label><input name="permanentStreet1" className={inputClass} defaultValue={emp.permanentStreet1 ?? ""} /></div>
-                <div><label className={labelClass}>Address Street 2</label><input name="permanentStreet2" className={inputClass} defaultValue={emp.permanentStreet2 ?? ""} /></div>
-                <div><label className={labelClass}>City</label><input name="permanentCity" className={inputClass} defaultValue={emp.permanentCity ?? ""} /></div>
-                <AddressRegionFields
-                  countryName="permanentCountry"
-                  stateName="permanentStateProvince"
-                  districtName="permanentDistrict"
-                  country={permCountry}
-                  stateProvince={permState}
-                  district={permDistrict}
-                  onCountryChange={setPermCountry}
-                  onStateChange={setPermState}
-                  onDistrictChange={setPermDistrict}
-                  inputClass={inputClass}
-                  labelClass={labelClass}
-                />
-                <div><label className={labelClass}>Zip/Postal Code</label><input name="permanentZipPostalCode" className={inputClass} defaultValue={emp.permanentZipPostalCode ?? ""} /></div>
-                <div><label className={labelClass}>Polling Division</label><input name="permanentPollingDivision" className={inputClass} defaultValue={emp.permanentPollingDivision ?? ""} /></div>
-                <div><label className={labelClass}>Distance to Office(KM)</label><input name="permanentDistanceToOffice" type="number" min={0} step="any" inputMode="decimal" className={inputClass} defaultValue={distanceKmInputValue(emp.permanentDistanceToOffice)} placeholder="e.g. 15" /></div>
-              </div>
-            </div>
-          </div>
+          <EmployeeAddressSections
+            values={emp}
+            addrCountry={addrCountry}
+            addrState={addrState}
+            addrDistrict={addrDistrict}
+            permCountry={permCountry}
+            permState={permState}
+            permDistrict={permDistrict}
+            onAddrCountryChange={setAddrCountry}
+            onAddrStateChange={setAddrState}
+            onAddrDistrictChange={setAddrDistrict}
+            onPermCountryChange={setPermCountry}
+            onPermStateChange={setPermState}
+            onPermDistrictChange={setPermDistrict}
+            inputClass={inputClass}
+            labelClass={labelClass}
+            sectionCardHeaderRow={sectionCardHeaderRow}
+            forceShowError={showAddressValidationErrors}
+            modeOfTransportOptions={MODE_TRANSPORT_OPTIONS}
+          />
 
           {/* Hidden fields for required fields from other tabs */}
           <input type="hidden" name="firstName" value={emp.firstName} />
@@ -4506,19 +5096,19 @@ export default function EmployeeDetailPage() {
               </div>
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">Occupation</label>
-                  <input value={depOccupation} onChange={(e) => setDepOccupation(e.target.value)} className={inputClass} />
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Occupation<span className="text-red-500">*</span></label>
+                  <input value={depOccupation} onChange={(e) => setDepOccupation(e.target.value)} className={inputClass} required />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">Organization</label>
-                  <input value={depOrganization} onChange={(e) => setDepOrganization(e.target.value)} className={inputClass} />
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Organization<span className="text-red-500">*</span></label>
+                  <input value={depOrganization} onChange={(e) => setDepOrganization(e.target.value)} className={inputClass} required />
                 </div>
               </div>
               <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-between">
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={closeDepModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={saveDependent} disabled={!depFirstName.trim() || !depLastName.trim() || !depRelationship.trim() || depSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{depSaving ? "Saving..." : "Save"}</button>
+                  <button type="button" onClick={saveDependent} disabled={!depFirstName.trim() || !depLastName.trim() || !depRelationship.trim() || !depOccupation.trim() || !depOrganization.trim() || depSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{depSaving ? "Saving..." : "Save"}</button>
                 </div>
               </div>
             </div>
@@ -4679,6 +5269,8 @@ export default function EmployeeDetailPage() {
                     options={skillCatalogNames}
                     className={inputClass}
                     placeholder={skillCatalogNames.length ? "Choose from list or type a skill" : "Type a skill name"}
+                    showAllOnFocus
+                    maxSuggestions={200}
                   />
                   {skillMasterList.length === 0 && (
                     <p className="mt-1.5 text-xs text-amber-700">
@@ -4687,8 +5279,18 @@ export default function EmployeeDetailPage() {
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">Years of Experience</label>
-                  <input value={skillYears} onChange={(e) => setSkillYears(e.target.value)} className={inputClass} />
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Years of Experience<span className="text-red-500">*</span></label>
+                  <input
+                    value={skillYears}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "" || /^\d+$/.test(v)) setSkillYears(v);
+                    }}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    className={inputClass}
+                    required
+                  />
                 </div>
               </div>
               <div className="mt-4">
@@ -4699,7 +5301,7 @@ export default function EmployeeDetailPage() {
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={closeSkillModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={saveSkill} disabled={!skillName.trim() || skillSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{skillSaving ? "Saving..." : "Save"}</button>
+                  <button type="button" onClick={saveSkill} disabled={!skillName.trim() || !skillYears.trim() || skillSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{skillSaving ? "Saving..." : "Save"}</button>
                 </div>
               </div>
             </div>
@@ -5259,14 +5861,29 @@ export default function EmployeeDetailPage() {
           <Modal open={showWeModal} onClose={closeWeModal} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">{editingWe ? "Edit Work Experience" : "Add Work Experience"}</h3>
+              <FormErrorAlert message={weFormError} onDismiss={() => setWeFormError(null)} className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600" />
               <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Company<span className="text-red-500">*</span></label>
-                  <input value={weCompany} onChange={(e) => setWeCompany(e.target.value)} className={inputClass} />
+                  <AddressTextInput
+                    value={weCompany}
+                    onChange={(e) => setWeCompany(e.target.value)}
+                    className={inputClass}
+                    placeholder="e.g. ABC Holdings (Pvt) Ltd"
+                    forceShowError={showWeValidationErrors}
+                    required
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Job Title<span className="text-red-500">*</span></label>
-                  <input value={weJobTitle} onChange={(e) => setWeJobTitle(e.target.value)} className={inputClass} />
+                  <AddressTextInput
+                    value={weJobTitle}
+                    onChange={(e) => setWeJobTitle(e.target.value)}
+                    className={inputClass}
+                    placeholder="e.g. Senior Accountant"
+                    forceShowError={showWeValidationErrors}
+                    required
+                  />
                 </div>
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Employment type<span className="text-red-500">*</span></label>
@@ -5310,7 +5927,19 @@ export default function EmployeeDetailPage() {
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={closeWeModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={saveWorkExperience} disabled={!weCompany.trim() || !weJobTitle.trim() || !weEmploymentType.trim() || weSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{weSaving ? "Saving..." : "Save"}</button>
+                  <button
+                    type="button"
+                    onClick={saveWorkExperience}
+                    disabled={
+                      !isValidAddressText(weCompany, true) ||
+                      !isValidAddressText(weJobTitle, true) ||
+                      !weEmploymentType.trim() ||
+                      weSaving
+                    }
+                    className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50"
+                  >
+                    {weSaving ? "Saving..." : "Save"}
+                  </button>
                 </div>
               </div>
             </div>
@@ -5379,43 +6008,41 @@ export default function EmployeeDetailPage() {
           TAB: DRIVER'S LICENSE
          ══════════════════════════════════════════════════ */}
       {pageTab === "driversLicense" && (
-        <form onSubmit={handleSave} className="space-y-6">
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5">
-                <SectionIcon path="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" color="bg-teal-500" />
-                <h2 className="text-[15px] font-bold text-slate-700">Driver&apos;s License Details</h2>
-              </div>
-            </div>
-            <div className="p-6">
-              <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-                <div><label className={labelClass}>Driver&apos;s License Number</label><DrivingLicenseInput name="driversLicenseNumber" className={inputClass} defaultValue={emp.driversLicenseNumber ?? ""} forceShowError={showIdValidationErrors} /></div>
+        <div className="space-y-6">
+          <Modal open={showDlModal} onClose={closeDlModal} title="">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-700">{editingDl ? "Edit Driver's License" : "Add Driver's License"}</h3>
+              <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
-                  <label className={labelClass}>License type</label>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Driver&apos;s License Number<span className="text-red-500">*</span></label>
+                  <DrivingLicenseInput value={dlNumber} onChange={(e) => setDlNumber(e.target.value)} className={inputClass} forceShowError={showDlValidationErrors || showIdValidationErrors} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">License type<span className="text-red-500">*</span></label>
                   <FormSelect
-                    name="driversLicenseType"
                     value={dlType}
                     onValueChange={setDlType}
                     options={[
-                      ...(emp.driversLicenseType && !DRIVERS_LICENSE_TYPE_OPTIONS.some((o) => o.value === emp.driversLicenseType)
-                        ? [{ value: emp.driversLicenseType, label: emp.driversLicenseType }]
+                      ...(dlType && !DRIVERS_LICENSE_TYPE_OPTIONS.some((o) => o.value === dlType)
+                        ? [{ value: dlType, label: dlType }]
                         : []),
                       ...DRIVERS_LICENSE_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
                     ]}
+                    placeholder="-- Select --"
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Issue date</label>
-                  <DatePickerField name="licenseIssueDate" className={inputClass} max={dateInputMaxTodayLocal()} value={dlIssue} onChange={setDlIssue} />
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Issue date<span className="text-red-500">*</span></label>
+                  <DatePickerField className={inputClass} max={dateInputMaxTodayLocal()} value={dlIssue} onChange={setDlIssue} />
                 </div>
                 <div>
-                  <label className={labelClass}>Expiry date</label>
-                  <DatePickerField name="licenseExpiryDate" className={inputClass} min={dlIssue || undefined} value={dlExpiry} onChange={setDlExpiry} />
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Expiry date<span className="text-red-500">*</span></label>
+                  <DatePickerField className={inputClass} min={dlIssue || undefined} value={dlExpiry} onChange={setDlExpiry} />
                 </div>
-                <div>
-                  <label className={labelClass}>Issuing Country</label>
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Issuing Country<span className="text-red-500">*</span></label>
                   <CountryAutocompleteInput
-                    name="driversLicenseIssuingCountry"
+                    name="dlIssuingCountry"
                     value={dlIssuingCountry}
                     onChange={setDlIssuingCountry}
                     className={inputClass}
@@ -5423,54 +6050,68 @@ export default function EmployeeDetailPage() {
                   />
                 </div>
               </div>
+              <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-between">
+                <span className="text-xs text-red-400">* Required</span>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={closeDlModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
+                  <button type="button" onClick={saveDriverLicense} disabled={!isDriverLicenseFormValid() || dlSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{dlSaving ? "Saving..." : "Save"}</button>
+                </div>
+              </div>
             </div>
-          </div>
+          </Modal>
 
-          {/* Hidden fields */}
-          <input type="hidden" name="firstName" value={emp.firstName} />
-          <input type="hidden" name="middleName" value={emp.middleName ?? ""} />
-          <input type="hidden" name="lastName" value={emp.lastName} />
-          <input type="hidden" name="dateOfBirth" value={fmtDate(emp.dateOfBirth)} />
-          <input type="hidden" name="gender" value={emp.gender} />
-          <input type="hidden" name="status" value={emp.status} />
-          <input type="hidden" name="departmentId" value={emp.departmentId} />
-          <input type="hidden" name="businessUnitId" value={emp.businessUnitId ?? ""} />
-          <input type="hidden" name="locationId" value={emp.locationId ?? ""} />
-          <input type="hidden" name="gradeId" value={emp.gradeId ?? ""} />
-          <input type="hidden" name="jobTitleId" value={emp.jobTitleId ?? ""} />
-          <input type="hidden" name="managerId" value={emp.managerId ?? ""} />
-          <input type="hidden" name="isTopOfHierarchy" value={String(emp.isTopOfHierarchy)} />
-          <input type="hidden" name="email" value={emp.email} />
-          <input type="hidden" name="phone" value={emp.phone ?? ""} />
-          <input type="hidden" name="otherId" value={emp.otherId ?? ""} />
-          <input type="hidden" name="nationalId" value={emp.nationalId ?? ""} />
-          <input type="hidden" name="tinNumber" value={emp.tinNumber ?? ""} />
-          <input type="hidden" name="epfNumber" value={emp.epfNumber ?? ""} />
-          <input type="hidden" name="etfNumber" value={emp.etfNumber ?? ""} />
-          <input type="hidden" name="maritalStatus" value={emp.maritalStatus ?? ""} />
-          <input type="hidden" name="nationality" value={emp.nationality ?? ""} />
-          <input type="hidden" name="religion" value={emp.religion ?? ""} />
-          <input type="hidden" name="ethnicity" value={emp.ethnicity ?? ""} />
-          <input type="hidden" name="addressStreet1" value={emp.addressStreet1 ?? ""} />
-          <input type="hidden" name="addressStreet2" value={emp.addressStreet2 ?? ""} />
-          <input type="hidden" name="city" value={emp.city ?? ""} />
-          <input type="hidden" name="country" value={emp.country ?? ""} />
-          <input type="hidden" name="stateProvince" value={emp.stateProvince ?? ""} />
-          <input type="hidden" name="zipPostalCode" value={emp.zipPostalCode ?? ""} />
-          <input type="hidden" name="district" value={emp.district ?? ""} />
-          <input type="hidden" name="pollingDivision" value={emp.pollingDivision ?? ""} />
-          <input type="hidden" name="distanceToOffice" value={emp.distanceToOffice ?? ""} />
-          <input type="hidden" name="modeOfTransport" value={emp.modeOfTransport ?? ""} />
-          <input type="hidden" name="homeTelephone" value={emp.homeTelephone ?? ""} />
-          <input type="hidden" name="workTelephone" value={emp.workTelephone ?? ""} />
-          <input type="hidden" name="otherEmail" value={emp.otherEmail ?? ""} />
-          <div className="flex items-center justify-end gap-2">
-            <button type="submit" disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50">
-              {saving && <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className={sectionCardHeaderRow}>
+              <div className="flex items-center gap-2.5">
+                <SectionIcon path="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" color="bg-teal-500" />
+                <h2 className="text-base font-bold text-slate-800">Driver&apos;s License Details</h2>
+              </div>
+              <SectionRecordHeaderActions count={driverLicenses.length} onAdd={() => openDlModal()} addTitle="Add driver's license" />
+            </div>
+            {driverLicenses.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-slate-400">No driver&apos;s license records added.</div>
+            ) : (
+              <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
+                      <th className="px-6 py-3">Number</th>
+                      <th className="px-4 py-3">Type</th>
+                      <th className="px-4 py-3">Issue date</th>
+                      <th className="px-4 py-3">Expiry date</th>
+                      <th className="px-4 py-3">Issuing country</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {driverLicensesPager.pageItems.map((dl) => (
+                      <tr key={dl.id} className="border-b border-slate-50 transition hover:bg-slate-50">
+                        <td className="px-6 py-3 font-medium text-slate-700">{dl.number || "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{dl.licenseType || "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{formatDate(dl.issueDate)}</td>
+                        <td className="px-4 py-3 text-slate-600">{formatDate(dl.expiryDate)}</td>
+                        <td className="px-4 py-3 text-slate-600">{dl.issuingCountry || "—"}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => openDlModal(dl)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => deleteDriverLicense(dl.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination page={driverLicensesPager.page} totalPages={driverLicensesPager.totalPages} totalCount={driverLicensesPager.totalCount} pageSize={driverLicensesPager.pageSize} onPageChange={driverLicensesPager.setPage} />
+              </>
+            )}
           </div>
-        </form>
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════
@@ -5485,13 +6126,32 @@ export default function EmployeeDetailPage() {
               <div className="mt-3 border-t border-slate-200 pt-4">
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Account Number<span className="text-red-500">*</span></label>
-                  <input value={baAccountNumber} onChange={(e) => setBaAccountNumber(e.target.value)} className={inputClass} />
+                  <input
+                    value={baAccountNumber}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "" || /^\d+$/.test(v)) setBaAccountNumber(v);
+                    }}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    className={inputClass}
+                    required
+                  />
                 </div>
               </div>
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Bank Name</label>
-                  <FormSelect value={baBankName} onValueChange={setBaBankName} options={BA_BANK_OPTIONS} placeholder="-- Select --" />
+                  <ListAutocompleteInput
+                    name="bankName"
+                    value={baBankName}
+                    onChange={setBaBankName}
+                    options={baBankNameOptions}
+                    className={inputClass}
+                    placeholder={baBankNameOptions.length ? "Choose from list or type a bank name" : "Type a bank name"}
+                    showAllOnFocus
+                    maxSuggestions={200}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Account Type</label>
@@ -5516,7 +6176,7 @@ export default function EmployeeDetailPage() {
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={closeBaModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={saveBankAccount} disabled={!baAccountNumber.trim() || baSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{baSaving ? "Saving..." : "Save"}</button>
+                  <button type="button" onClick={saveBankAccount} disabled={!baAccountNumber.trim() || !/^\d+$/.test(baAccountNumber.trim()) || baSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{baSaving ? "Saving..." : "Save"}</button>
                 </div>
               </div>
             </div>
@@ -5604,31 +6264,7 @@ export default function EmployeeDetailPage() {
                     const updated = await apiFetch<EmployeeDetail>(`/api/employees/${id}`, {
                       method: "PUT",
                       body: JSON.stringify({
-                        firstName: emp.firstName, middleName: emp.middleName, lastName: emp.lastName,
-                        email: emp.email, phone: emp.phone,
-                        addressStreet1: emp.addressStreet1, addressStreet2: emp.addressStreet2,
-                        city: emp.city, country: emp.country, stateProvince: emp.stateProvince,
-                        zipPostalCode: emp.zipPostalCode, district: emp.district, pollingDivision: emp.pollingDivision,
-                        distanceToOffice: emp.distanceToOffice, modeOfTransport: emp.modeOfTransport,
-                        homeTelephone: emp.homeTelephone, workTelephone: emp.workTelephone, otherEmail: emp.otherEmail,
-                        permanentStreet1: emp.permanentStreet1, permanentStreet2: emp.permanentStreet2,
-                        permanentCity: emp.permanentCity, permanentCountry: emp.permanentCountry,
-                        permanentStateProvince: emp.permanentStateProvince, permanentZipPostalCode: emp.permanentZipPostalCode,
-                        permanentDistrict: emp.permanentDistrict, permanentPollingDivision: emp.permanentPollingDivision, permanentDistanceToOffice: emp.permanentDistanceToOffice,
-                        dateOfBirth: emp.dateOfBirth, gender: emp.gender, maritalStatus: emp.maritalStatus,
-                        nationality: emp.nationality, religion: emp.religion, ethnicity: emp.ethnicity,
-                        otherId: emp.otherId, nationalId: emp.nationalId, tinNumber: emp.tinNumber,
-                        epfNumber: emp.epfNumber, etfNumber: emp.etfNumber,
-                        driversLicenseNumber: emp.driversLicenseNumber,
-                        driversLicenseType: emp.driversLicenseType,
-                        licenseIssueDate: emp.licenseIssueDate,
-                        licenseExpiryDate: emp.licenseExpiryDate,
-                        driversLicenseIssuingCountry: emp.driversLicenseIssuingCountry,
-                        joinDate: emp.joinDate, probationEndDate: emp.probationEndDate, dateOfPermanency: emp.dateOfPermanency,
-                        status: emp.status, employmentType: emp.employmentType, terminationDate: emp.terminationDate,
-                        departmentId: emp.departmentId, businessUnitId: emp.businessUnitId,
-                        positionId: emp.positionId, locationId: emp.locationId,
-                        gradeId: emp.gradeId, jobTitleId: emp.jobTitleId, managerId: emp.managerId,
+                        ...buildEmployeePutPayload(emp),
                         isTopOfHierarchy: newVal,
                       }),
                     });
@@ -5651,66 +6287,70 @@ export default function EmployeeDetailPage() {
           )}
 
           {/* Add Supervisor Modal */}
-          <Modal open={showAddSupervisor} onClose={() => { setShowAddSupervisor(false); setAddReportPersonId(""); setAddReportMethod(""); }} title="">
+          <Modal open={showAddSupervisor} onClose={() => { setShowAddSupervisor(false); resetAddReportPersonFields(); }} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">Add Supervisor</h3>
               <div className="mt-3 border-t border-slate-200 pt-4">
                 <label className="mb-1 block text-sm font-semibold text-slate-600">Name<span className="text-red-500">*</span></label>
-                <FormSelect
+                <EmployeeSearchCombobox
+                  key={`reporting-supervisor-${reportingExcludeIds.join("|")}`}
                   value={addReportPersonId}
-                  onValueChange={setAddReportPersonId}
-                  placeholder="Select Supervisor"
-                  options={[
-                    { value: "", label: "Select Supervisor" },
-                    ...supervisorPickList
-                      .filter((m) => m.id !== id && !draftSupervisors.some((s) => s.supervisorId === m.id))
-                      .map((m) => ({ value: m.id, label: m.name })),
-                  ]}
+                  onPick={pickAddReportPerson}
+                  placeholder="Type name or employee code…"
+                  excludeEmployeeIds={reportingExcludeIds}
                 />
               </div>
               <div className="mt-4">
                 <label className="mb-1 block text-sm font-semibold text-slate-600">Reporting Method<span className="text-red-500">*</span></label>
-                <FormSelect value={addReportMethod} onValueChange={setAddReportMethod} options={REPORTING_METHOD_OPTIONS} placeholder="-- Select --" />
+                <FormSelect value={addReportMethod} onValueChange={onAddSupervisorMethodChange} options={REPORTING_METHOD_OPTIONS} placeholder="-- Select --" />
               </div>
-              <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-between">
-                <span className="text-xs text-red-400">* Required</span>
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={() => { setShowAddSupervisor(false); setAddReportPersonId(""); setAddReportMethod(""); }} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={stageAddSupervisor} disabled={!addReportPersonId || !addReportMethod} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">Add</button>
-                </div>
-              </div>
+              <p className="mt-4 text-xs text-red-400">* Required — use Save below to apply changes</p>
             </div>
           </Modal>
 
           {/* Add Subordinate Modal */}
-          <Modal open={showAddSubordinate} onClose={() => { setShowAddSubordinate(false); setAddReportPersonId(""); setAddReportMethod(""); }} title="">
+          <Modal open={showAddSubordinate} onClose={() => { setShowAddSubordinate(false); resetAddReportPersonFields(); }} title="">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">Add Subordinate</h3>
               <div className="mt-3 border-t border-slate-200 pt-4">
                 <label className="mb-1 block text-sm font-semibold text-slate-600">Name<span className="text-red-500">*</span></label>
-                <FormSelect
+                <EmployeeSearchCombobox
+                  key={`reporting-subordinate-${reportingExcludeIds.join("|")}`}
                   value={addReportPersonId}
-                  onValueChange={setAddReportPersonId}
-                  placeholder="Select Employee"
-                  options={[
-                    { value: "", label: "Select Employee" },
-                    ...subordinatePickList
-                      .filter((m) => m.id !== id && !draftSubordinates.some((s) => s.employeeId === m.id) && !draftSupervisors.some((s) => s.supervisorId === m.id))
-                      .map((m) => ({ value: m.id, label: m.name })),
-                  ]}
+                  onPick={pickAddReportPerson}
+                  placeholder="Type name or employee code…"
+                  excludeEmployeeIds={reportingExcludeIds}
                 />
               </div>
               <div className="mt-4">
                 <label className="mb-1 block text-sm font-semibold text-slate-600">Reporting Method<span className="text-red-500">*</span></label>
-                <FormSelect value={addReportMethod} onValueChange={setAddReportMethod} options={REPORTING_METHOD_OPTIONS} placeholder="-- Select --" />
+                <FormSelect value={addReportMethod} onValueChange={onAddSubordinateMethodChange} options={REPORTING_METHOD_OPTIONS} placeholder="-- Select --" />
               </div>
-              <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-between">
-                <span className="text-xs text-red-400">* Required</span>
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={() => { setShowAddSubordinate(false); setAddReportPersonId(""); setAddReportMethod(""); }} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={stageAddSubordinate} disabled={!addReportPersonId || !addReportMethod} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">Add</button>
-                </div>
+              <p className="mt-4 text-xs text-red-400">* Required — use Save below to apply changes</p>
+            </div>
+          </Modal>
+
+          {/* Edit Reporting Method Modal */}
+          <Modal open={showEditReportMethod} onClose={closeEditReportMethod} title="">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-700">Edit Reporting Method</h3>
+              {editReportMethodTarget && (
+                <p className="mt-1 text-sm text-slate-500">{editReportMethodTarget.fullName}</p>
+              )}
+              <div className="mt-3 border-t border-slate-200 pt-4">
+                <label className="mb-1 block text-sm font-semibold text-slate-600">
+                  Reporting Method<span className="text-red-500">*</span>
+                </label>
+                <FormSelect
+                  value={editReportMethodValue}
+                  onValueChange={(value) => {
+                    setEditReportMethodValue(value);
+                    saveEditReportMethod(value);
+                  }}
+                  options={REPORTING_METHOD_ROW_OPTIONS}
+                />
               </div>
+              <p className="mt-4 text-xs text-red-400">* Required — use Save below to apply changes</p>
             </div>
           </Modal>
 
@@ -5721,7 +6361,7 @@ export default function EmployeeDetailPage() {
               <SectionRecordHeaderActions
                 count={draftSupervisors.length}
                 addTitle="Add supervisor"
-                onAdd={() => { setAddReportPersonId(""); setAddReportMethod(""); setShowAddSupervisor(true); }}
+                onAdd={() => { resetAddReportPersonFields(); setShowAddSupervisor(true); }}
               />
             </div>
             {draftSupervisors.length === 0 ? (
@@ -5741,15 +6381,17 @@ export default function EmployeeDetailPage() {
                     {supervisorsPager.pageItems.map((s) => (
                       <tr key={s.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-4 py-3 pl-6 font-medium text-slate-700">{s.fullName}</td>
-                        <td className="px-4 py-3">
-                          <FormSelect
-                            value={s.reportingMethod}
-                            onValueChange={(value) => updateDraftSupervisorMethod(s.id, value)}
-                            options={REPORTING_METHOD_ROW_OPTIONS}
-                          />
-                        </td>
+                        <td className="px-4 py-3 text-slate-600">{normalizeReportingMethodValue(s.reportingMethod) || "—"}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditReportMethod(s, "supervisor")}
+                              className="text-slate-500 transition hover:text-amber-600"
+                              title="Edit reporting method"
+                            >
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
                             <button type="button" onClick={() => void removeSupervisorDraft(s.id)} className="text-slate-400 transition hover:text-red-600" title="Remove">
                               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
@@ -5772,7 +6414,7 @@ export default function EmployeeDetailPage() {
               <SectionRecordHeaderActions
                 count={draftSubordinates.length}
                 addTitle="Add subordinate"
-                onAdd={() => { setAddReportPersonId(""); setAddReportMethod(""); setShowAddSubordinate(true); }}
+                onAdd={() => { resetAddReportPersonFields(); setShowAddSubordinate(true); }}
               />
             </div>
             {draftSubordinates.length === 0 ? (
@@ -5792,15 +6434,17 @@ export default function EmployeeDetailPage() {
                     {subordinatesPager.pageItems.map((s) => (
                       <tr key={s.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                         <td className="px-4 py-3 pl-6 font-medium text-slate-700">{s.fullName}</td>
-                        <td className="px-4 py-3">
-                          <FormSelect
-                            value={s.reportingMethod}
-                            onValueChange={(value) => updateDraftSubordinateMethod(s.id, value)}
-                            options={REPORTING_METHOD_ROW_OPTIONS}
-                          />
-                        </td>
+                        <td className="px-4 py-3 text-slate-600">{normalizeReportingMethodValue(s.reportingMethod) || "—"}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditReportMethod(s, "subordinate")}
+                              className="text-slate-500 transition hover:text-amber-600"
+                              title="Edit reporting method"
+                            >
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
                             <button type="button" onClick={() => void removeSubordinateDraft(s.id)} className="text-slate-400 transition hover:text-red-600" title="Remove">
                               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
@@ -5834,58 +6478,144 @@ export default function EmployeeDetailPage() {
          ══════════════════════════════════════════════════ */}
       {pageTab === "benefits" && (
         <div className="space-y-6">
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className={sectionCardHeaderRowGap}>
-              <SectionIcon path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" color="bg-emerald-500" />
-              <h2 className="text-lg font-bold text-slate-700">Benefits Info</h2>
-            </div>
-            <div className="px-6 py-5">
-              <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+          <Modal open={showBenefitModal} onClose={closeBenefitModal} title="">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-700">{editingBenefit ? "Edit Benefits" : "Add Benefits"}</h3>
+              <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-8 gap-y-5 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-orange-500">Insurance Provider</label>
-                  <FormSelect value={benefitInsurer} onValueChange={setBenefitInsurer} options={BENEFIT_INSURER_OPTIONS} placeholder="-- Select --" />
+                  <label className="mb-1 block text-sm font-semibold text-orange-500">
+                    Insurance Provider<span className="text-red-500">*</span>
+                  </label>
+                  <ListAutocompleteInput
+                    name="insuranceProvider"
+                    value={benefitInsurer}
+                    onChange={(value) => {
+                      setBenefitInsurer(value);
+                      if (showBenefitValidationErrors && value.trim()) {
+                        setShowBenefitValidationErrors(false);
+                      }
+                    }}
+                    options={benefitInsurerOptions}
+                    className={`${inputClass}${showBenefitValidationErrors && !benefitInsurer.trim() ? " border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
+                    placeholder={benefitInsurerOptions.length ? "Choose from list or type a provider" : "Type an insurance provider"}
+                    showAllOnFocus
+                    maxSuggestions={200}
+                  />
+                  {showBenefitValidationErrors && !benefitInsurer.trim() && (
+                    <p className="mt-1 text-xs text-red-500">Insurance provider is required.</p>
+                  )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-orange-500">Coverage</label>
-                  <div className="mt-1 space-y-2.5">
+                  <label className="mb-1 block text-sm font-semibold text-orange-500">
+                    Coverage<span className="text-red-500">*</span>
+                  </label>
+                  <div className={`mt-1 space-y-2.5 rounded-lg border px-3 py-2.5 ${showBenefitValidationErrors && !benefitExtMed && !benefitDental && !benefitVision ? "border-red-300 bg-red-50/40" : "border-transparent"}`}>
                     <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input type="checkbox" checked={benefitExtMed} onChange={(e) => setBenefitExtMed(e.target.checked)} className="h-4.5 w-4.5 rounded border-slate-300 text-orange-500 focus:ring-orange-400" />
+                      <input type="checkbox" checked={benefitExtMed} onChange={(e) => {
+                        setBenefitExtMed(e.target.checked);
+                        if (showBenefitValidationErrors) setShowBenefitValidationErrors(false);
+                      }} className="h-4.5 w-4.5 rounded border-slate-300 text-orange-500 focus:ring-orange-400" />
                       <span className="text-sm text-slate-700">Extended Medical</span>
                     </label>
                     <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input type="checkbox" checked={benefitDental} onChange={(e) => setBenefitDental(e.target.checked)} className="h-4.5 w-4.5 rounded border-slate-300 text-orange-500 focus:ring-orange-400" />
+                      <input type="checkbox" checked={benefitDental} onChange={(e) => {
+                        setBenefitDental(e.target.checked);
+                        if (showBenefitValidationErrors) setShowBenefitValidationErrors(false);
+                      }} className="h-4.5 w-4.5 rounded border-slate-300 text-orange-500 focus:ring-orange-400" />
                       <span className="text-sm text-slate-700">Dental</span>
                     </label>
                     <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input type="checkbox" checked={benefitVision} onChange={(e) => setBenefitVision(e.target.checked)} className="h-4.5 w-4.5 rounded border-slate-300 text-orange-500 focus:ring-orange-400" />
+                      <input type="checkbox" checked={benefitVision} onChange={(e) => {
+                        setBenefitVision(e.target.checked);
+                        if (showBenefitValidationErrors) setShowBenefitValidationErrors(false);
+                      }} className="h-4.5 w-4.5 rounded border-slate-300 text-orange-500 focus:ring-orange-400" />
                       <span className="text-sm text-slate-700">Vision</span>
                     </label>
                   </div>
+                  {showBenefitValidationErrors && !benefitExtMed && !benefitDental && !benefitVision && (
+                    <p className="mt-1 text-xs text-red-500">Select at least one coverage option.</p>
+                  )}
                 </div>
               </div>
-              <div className="mt-5">
-                <label className="mb-1 block text-sm font-semibold text-orange-500">Spousal Coverage</label>
-                <FormSelect
-                  value={benefitSpousal ? "Yes" : "No"}
-                  onValueChange={(v) => setBenefitSpousal(v === "Yes")}
-                  options={YES_NO_OPTIONS}
-                  className="sm:w-1/2"
-                />
+              <div className="mt-5 grid gap-y-5 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-orange-500">Spousal Coverage</label>
+                  <FormSelect
+                    value={benefitSpousal ? "Yes" : "No"}
+                    onValueChange={(v) => setBenefitSpousal(v === "Yes")}
+                    options={YES_NO_OPTIONS}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-orange-500">Dependents</label>
+                  <FormSelect
+                    value={benefitDeps ? "Yes" : "No"}
+                    onValueChange={(v) => setBenefitDeps(v === "Yes")}
+                    options={YES_NO_OPTIONS}
+                  />
+                </div>
               </div>
-              <div className="mt-5">
-                <label className="mb-1 block text-sm font-semibold text-orange-500">Dependents</label>
-                <FormSelect
-                  value={benefitDeps ? "Yes" : "No"}
-                  onValueChange={(v) => setBenefitDeps(v === "Yes")}
-                  options={YES_NO_OPTIONS}
-                  className="sm:w-1/2"
-                />
-              </div>
-              <div className="mt-5 border-t border-slate-100 pt-4 flex items-center justify-between">
+              {showBenefitValidationErrors && getBenefitFormError() && (
+                <FormErrorAlert message={getBenefitFormError()!} onDismiss={() => setShowBenefitValidationErrors(false)} className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600" />
+              )}
+              <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-between">
                 <span className="text-xs text-slate-400">* Required field</span>
-                <button type="button" onClick={saveBenefit} disabled={benefitSaving} className="rounded-lg bg-emerald-500 px-8 py-2.5 text-sm font-bold uppercase tracking-wide text-white shadow-sm transition hover:bg-emerald-600 disabled:opacity-50">{benefitSaving ? "Saving..." : "Save"}</button>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={closeBenefitModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
+                  <button type="button" onClick={saveBenefitRecord} disabled={!isBenefitFormValid() || benefitSaving} className="rounded-lg bg-emerald-500 px-8 py-2.5 text-sm font-bold uppercase tracking-wide text-white shadow-sm transition hover:bg-emerald-600 disabled:opacity-50">{benefitSaving ? "Saving..." : "Save"}</button>
+                </div>
               </div>
             </div>
+          </Modal>
+
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className={sectionCardHeaderRow}>
+              <div className="flex items-center gap-2.5">
+                <SectionIcon path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" color="bg-emerald-500" />
+                <h2 className="text-base font-bold text-slate-800">Benefits Info</h2>
+              </div>
+              <SectionRecordHeaderActions count={benefits.length} onAdd={() => openBenefitModal()} addTitle="Add benefits record" />
+            </div>
+            {benefits.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-slate-400">No benefits records added.</div>
+            ) : (
+              <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
+                      <th className="px-6 py-3">Insurance provider</th>
+                      <th className="px-4 py-3">Coverage</th>
+                      <th className="px-4 py-3">Spousal</th>
+                      <th className="px-4 py-3">Dependents</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {benefitsPager.pageItems.map((b) => (
+                      <tr key={b.id} className="border-b border-slate-50 transition hover:bg-slate-50">
+                        <td className="px-6 py-3 font-medium text-slate-700">{b.insuranceProvider || "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">{formatBenefitCoverage(b)}</td>
+                        <td className="px-4 py-3 text-slate-600">{b.spousalCoverage ? "Yes" : "No"}</td>
+                        <td className="px-4 py-3 text-slate-600">{b.dependentsCovered ? "Yes" : "No"}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => openBenefitModal(b)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button type="button" onClick={() => deleteBenefitRecord(b.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination page={benefitsPager.page} totalPages={benefitsPager.totalPages} totalCount={benefitsPager.totalCount} pageSize={benefitsPager.pageSize} onPageChange={benefitsPager.setPage} />
+              </>
+            )}
           </div>
         </div>
       )}
@@ -5914,7 +6644,7 @@ export default function EmployeeDetailPage() {
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Number<span className="text-red-500">*</span></label>
-                  <input value={immNumber} onChange={(e) => setImmNumber(e.target.value)} className={inputClass} />
+                  <PassportNumberInput value={immNumber} onChange={(e) => setImmNumber(sanitizePassportNumberInput(e.target.value))} className={inputClass} />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-600">Issued By</label>
@@ -5929,34 +6659,233 @@ export default function EmployeeDetailPage() {
               </div>
               <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-3">
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">Issued Date</label>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Issued Date<span className="text-red-500">*</span></label>
                   <DatePickerField value={immIssuedDate} onChange={setImmIssuedDate} className={inputClass} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">Expiry Date</label>
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Expiry Date<span className="text-red-500">*</span></label>
                   <DatePickerField value={immExpiryDate} onChange={setImmExpiryDate} className={inputClass} />
+                  <ImmigrationDateCountdown dateIso={immExpiryDate} variant="expire" />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-600">Eligible Review Date</label>
-                  <DatePickerField value={immReviewDate} onChange={setImmReviewDate} className={inputClass} />
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Available Date<span className="text-red-500">*</span></label>
+                  <div
+                    className={`${inputClass} bg-slate-50 font-semibold text-slate-700${
+                      immReviewDate ? ` ${immigrationCountdownClass(immReviewDate)}` : ""
+                    }`}
+                  >
+                    {immDocType === "Passport" && !immIssuedDate
+                      ? "—"
+                      : immDocType === "Visa" && !immExpiryDate
+                        ? "—"
+                        : immReviewDate
+                          ? formatAvailableDateDayCount(immReviewDate)
+                          : "—"}
+                  </div>
+                  {immDocType === "Passport" && !immIssuedDate ? (
+                    <p className="mt-1 text-xs text-slate-400">Set Issued Date to calculate availability.</p>
+                  ) : immDocType === "Visa" && !immExpiryDate ? (
+                    <p className="mt-1 text-xs text-slate-400">Set Expiry Date to calculate availability.</p>
+                  ) : null}
                 </div>
-              </div>
-              <div className="mt-4">
-                <label className="mb-1 block text-sm font-semibold text-slate-600">Eligible Status</label>
-                <input value={immStatus} onChange={(e) => setImmStatus(e.target.value)} className={inputClass + " sm:w-1/2"} />
               </div>
               <div className="mt-4">
                 <label className="mb-1 block text-sm font-semibold text-slate-600">Comments</label>
                 <textarea value={immComments} onChange={(e) => setImmComments(e.target.value)} rows={4} className={inputClass + " resize-y"} />
               </div>
+
+              <div className="mt-6 border-t border-slate-200 pt-4">
+                <div className="mb-4 flex items-center gap-2.5">
+                  <SectionIcon path="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" color="bg-cyan-500" />
+                  <h4 className="text-sm font-bold text-slate-800">Attached Documents</h4>
+                </div>
+                <label className="mb-1 block text-sm font-semibold text-slate-600">
+                  File
+                  <span className="text-xs font-normal text-slate-400"> (Accepts up to 5MB)</span>
+                </label>
+                <div className="mt-1 flex items-center gap-3">
+                  <button type="button" onClick={() => immDocFileRef.current?.click()} className="rounded-full bg-slate-200 px-5 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-300">Browse</button>
+                  <span className="truncate text-sm text-slate-500">{immDocFile ? immDocFile.name : "No file chosen"}</span>
+                  <input
+                    ref={immDocFileRef}
+                    type="file"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (f && f.size > 5 * 1024 * 1024) {
+                        await appAlert("File size must be less than 5 MB.", "File Too Large");
+                        resetImmAttachmentDraft();
+                        return;
+                      }
+                      setImmDocFile(f ?? null);
+                    }}
+                  />
+                </div>
+                <div className="mt-4">
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Description</label>
+                  <textarea value={immDocDesc} onChange={(e) => setImmDocDesc(e.target.value)} rows={3} className={inputClass + " resize-y"} />
+                </div>
+                {immDocs.length === 0 ? (
+                  <p className="mt-4 text-center text-sm text-slate-400">No documents uploaded.</p>
+                ) : (
+                  <div className="mt-4 overflow-x-auto rounded-lg border border-slate-100">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold uppercase text-slate-400">
+                          <th className="px-4 py-2.5">File Name</th>
+                          <th className="px-4 py-2.5">Description</th>
+                          <th className="px-4 py-2.5">Size</th>
+                          <th className="px-4 py-2.5 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {immDocs.map((doc) => (
+                          <tr key={doc.id} className="border-b border-slate-50 last:border-0">
+                            <td className="px-4 py-2.5 font-medium text-slate-700">{doc.fileName}</td>
+                            <td className="max-w-xs truncate px-4 py-2.5 text-slate-600">{doc.description ?? "—"}</td>
+                            <td className="px-4 py-2.5 text-slate-600">{fmtFileSize(doc.size)}</td>
+                            <td className="px-4 py-2.5 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openImmigrationDocumentFile(doc.id)}
+                                  disabled={immDocOpeningId === doc.id}
+                                  title="View"
+                                  className="text-slate-500 transition hover:text-blue-600 disabled:opacity-50"
+                                >
+                                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                </button>
+                                <button type="button" onClick={() => deleteImmDoc(doc.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
+                                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
               <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-between">
                 <span className="text-xs text-red-400">* Required</span>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={closeImmModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={saveImmigration} disabled={!immDocType.trim() || !immNumber.trim() || immSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{immSaving ? "Saving..." : "Save"}</button>
+                  <button type="button" onClick={saveImmigration} disabled={!isImmigrationFormValid(immDocType, immNumber, immIssuedDate, immExpiryDate, immReviewDate) || immSaving} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{immSaving ? "Saving..." : "Save"}</button>
                 </div>
               </div>
             </div>
+          </Modal>
+
+          <Modal open={showImmViewModal} onClose={closeImmViewModal} title="">
+            {viewingImm ? (
+              <div>
+                <h3 className="text-lg font-semibold text-slate-700">View Immigration Document</h3>
+                <div className="mt-3 border-t border-slate-200 pt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-600">Document</label>
+                    <div className={`${inputClass} bg-slate-50 text-slate-700`}>{viewingImm.documentType}</div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-600">Number</label>
+                    <div className={`${inputClass} bg-slate-50 text-slate-700 uppercase`}>{viewingImm.number}</div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-600">Issued By</label>
+                    <div className={`${inputClass} bg-slate-50 text-slate-700`}>{viewingImm.issuedBy ?? "—"}</div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-600">Issued Date</label>
+                    <div className={`${inputClass} bg-slate-50 text-slate-700`}>{formatDate(viewingImm.issuedDate)}</div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-600">Expiry Date</label>
+                    <div className={`${inputClass} bg-slate-50 text-slate-700`}>{formatDate(viewingImm.expiryDate)}</div>
+                    {viewingImm.expiryDate ? (
+                      <ImmigrationDateCountdown dateIso={viewingImm.expiryDate.split("T")[0]} variant="expire" />
+                    ) : null}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-600">Available Date</label>
+                    <div
+                      className={`${inputClass} bg-slate-50 font-semibold text-slate-700${
+                        viewingImm.eligibleReviewDate
+                          ? ` ${immigrationCountdownClass(viewingImm.eligibleReviewDate.split("T")[0])}`
+                          : ""
+                      }`}
+                    >
+                      {viewingImm.eligibleReviewDate
+                        ? formatAvailableDateDayCount(viewingImm.eligibleReviewDate.split("T")[0])
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <label className="mb-1 block text-sm font-semibold text-slate-600">Comments</label>
+                  <div className={`${inputClass} min-h-[6rem] bg-slate-50 text-slate-700 whitespace-pre-wrap`}>
+                    {viewingImm.comments?.trim() ? viewingImm.comments : "—"}
+                  </div>
+                </div>
+
+                <div className="mt-6 border-t border-slate-200 pt-4">
+                  <div className="mb-4 flex items-center gap-2.5">
+                    <SectionIcon path="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" color="bg-cyan-500" />
+                    <h4 className="text-sm font-bold text-slate-800">Attached Documents</h4>
+                  </div>
+                  {immDocs.length === 0 ? (
+                    <p className="text-center text-sm text-slate-400">No documents uploaded.</p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-slate-100">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold uppercase text-slate-400">
+                            <th className="px-4 py-2.5">File Name</th>
+                            <th className="px-4 py-2.5">Description</th>
+                            <th className="px-4 py-2.5">Size</th>
+                            <th className="px-4 py-2.5 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {immDocs.map((doc) => (
+                            <tr key={doc.id} className="border-b border-slate-50 last:border-0">
+                              <td className="px-4 py-2.5 font-medium text-slate-700">{doc.fileName}</td>
+                              <td className="max-w-xs truncate px-4 py-2.5 text-slate-600">{doc.description ?? "—"}</td>
+                              <td className="px-4 py-2.5 text-slate-600">{fmtFileSize(doc.size)}</td>
+                              <td className="px-4 py-2.5 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => openImmigrationDocumentFile(doc.id)}
+                                  disabled={immDocOpeningId === doc.id}
+                                  title="View"
+                                  className="inline-flex text-slate-500 transition hover:text-blue-600 disabled:opacity-50"
+                                >
+                                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-end gap-3">
+                  <button type="button" onClick={closeImmViewModal} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Close</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeImmViewModal();
+                      openImmModal(viewingImm);
+                    }}
+                    className="rounded-full bg-[#2B7DE9] px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2569c7]"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </Modal>
 
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -5980,7 +6909,7 @@ export default function EmployeeDetailPage() {
                       <th className="px-4 py-3">Issued By</th>
                       <th className="px-4 py-3">Issued Date</th>
                       <th className="px-4 py-3">Expiry Date</th>
-                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Available Date</th>
                       <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -5991,10 +6920,24 @@ export default function EmployeeDetailPage() {
                         <td className="px-4 py-3 text-slate-600">{imm.number}</td>
                         <td className="px-4 py-3 text-slate-600">{imm.issuedBy ?? "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{formatDate(imm.issuedDate)}</td>
-                        <td className="px-4 py-3 text-slate-600">{formatDate(imm.expiryDate)}</td>
-                        <td className="px-4 py-3 text-slate-600">{imm.eligibleStatus ?? "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">
+                          <div>{formatDate(imm.expiryDate)}</div>
+                          {imm.expiryDate ? (
+                            <div className={`text-xs font-medium ${immigrationCountdownClass(imm.expiryDate.split("T")[0])}`}>
+                              {formatDateCountdownToExpire(imm.expiryDate.split("T")[0])}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className={`px-4 py-3 font-semibold ${imm.eligibleReviewDate ? immigrationCountdownClass(imm.eligibleReviewDate.split("T")[0]) : "text-slate-600"}`}>
+                          {imm.eligibleReviewDate
+                            ? formatAvailableDateDayCount(imm.eligibleReviewDate.split("T")[0])
+                            : "—"}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => openImmViewModal(imm)} className="text-slate-500 transition hover:text-blue-600" title="View">
+                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                            </button>
                             <button type="button" onClick={() => openImmModal(imm)} className="text-slate-500 transition hover:text-amber-600" title="Edit">
                               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                             </button>
@@ -6009,82 +6952,6 @@ export default function EmployeeDetailPage() {
                 </table>
               </div>
               <TablePagination page={immigrationsPager.page} totalPages={immigrationsPager.totalPages} totalCount={immigrationsPager.totalCount} pageSize={immigrationsPager.pageSize} onPageChange={immigrationsPager.setPage} />
-            </>
-            )}
-          </div>
-
-          {/* ── Attached Documents ── */}
-          <Modal open={showImmDocModal} onClose={() => setShowImmDocModal(false)} title="">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-700">Add Attachment</h3>
-              <div className="mt-3 border-t border-slate-200 pt-4">
-                <label className="mb-1 block text-sm font-semibold text-slate-600">File<span className="text-red-500">*</span><span className="text-xs font-normal text-slate-400">(Accepts up to 5MB)</span></label>
-                <div className="flex items-center gap-3 mt-1">
-                  <button type="button" onClick={() => immDocFileRef.current?.click()} className="rounded-full bg-slate-200 px-5 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-300">Browse</button>
-                  <span className="text-sm text-slate-500 truncate">{immDocFile ? immDocFile.name : "No file chosen"}</span>
-                  <input ref={immDocFileRef} type="file" className="hidden" onChange={(e) => setImmDocFile(e.target.files?.[0] ?? null)} />
-                </div>
-              </div>
-              <div className="mt-4">
-                <label className="mb-1 block text-sm font-semibold text-slate-600">Description</label>
-                <textarea value={immDocDesc} onChange={(e) => setImmDocDesc(e.target.value)} rows={4} className={inputClass + " resize-y"} />
-              </div>
-              <div className="mt-4 border-t border-slate-100 pt-4 flex items-center justify-between">
-                <span className="text-xs text-red-400">* Required</span>
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={() => setShowImmDocModal(false)} className="rounded-full border border-slate-300 px-6 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
-                  <button type="button" onClick={uploadImmDoc} disabled={!immDocFile || immDocUploading} className="rounded-full bg-green-500 px-8 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600 disabled:opacity-50">{immDocUploading ? "Saving..." : "Save"}</button>
-                </div>
-              </div>
-            </div>
-          </Modal>
-
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className={sectionCardHeaderRow}>
-              <div className="flex items-center gap-2.5">
-                <SectionIcon path="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" color="bg-cyan-500" />
-                <h2 className="text-base font-bold text-slate-800">Attached Documents</h2>
-              </div>
-              <SectionRecordHeaderActions count={immDocs.length} onAdd={openImmDocModal} addTitle="Add immigration document" />
-            </div>
-            {immDocs.length === 0 ? (
-              <div className="px-6 py-8 text-center text-sm text-slate-400">No documents uploaded.</div>
-            ) : (
-              <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase text-slate-400">
-                      <th className="px-6 py-3">File Name</th>
-                      <th className="px-4 py-3">Description</th>
-                      <th className="px-4 py-3">Size</th>
-                      <th className="px-4 py-3">Date Added</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {immDocsPager.pageItems.map((doc) => (
-                      <tr key={doc.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                        <td className="px-6 py-3 font-medium text-slate-700">{doc.fileName}</td>
-                        <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{doc.description ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{fmtFileSize(doc.size)}</td>
-                        <td className="px-4 py-3 text-slate-600">{formatDateTime(doc.dateAdded)}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <a href={`${API_BASE_URL}/api/employees/${id}/immigration-documents/${doc.id}/download`} target="_blank" rel="noreferrer" title="Download" className="text-slate-500 transition hover:text-blue-600">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                            </a>
-                            <button type="button" onClick={() => deleteImmDoc(doc.id)} className="text-slate-400 transition hover:text-red-600" title="Delete">
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <TablePagination page={immDocsPager.page} totalPages={immDocsPager.totalPages} totalCount={immDocsPager.totalCount} pageSize={immDocsPager.pageSize} onPageChange={immDocsPager.setPage} />
             </>
             )}
           </div>

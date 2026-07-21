@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveHttpErrorMessage } from "@/lib/api-errors";
 import { backendBaseForRequest, proxyToTenantBackend } from "@/lib/tenant-server";
 
 /**
@@ -44,26 +45,20 @@ export async function POST(req: NextRequest) {
     }
 
     const text = await res.text();
-    const ct = res.headers.get("content-type") || "application/json";
+    const base = backendBaseForRequest(req);
 
-    if (res.status >= 500) {
-      const base = backendBaseForRequest(req);
-      let message = `HR API error (${res.status}) from ${base}.`;
-      try {
-        const body = JSON.parse(text) as { message?: string };
-        if (body.message) message = body.message;
-      } catch {
-        /* use default */
-      }
-      if (res.status === 500) {
-        message += ` Open ${base}/health — fix IIS (pool MBKH: Load User Profile = True), recycle, then try again.`;
-      }
+    if (!res.ok) {
+      const message = resolveHttpErrorMessage(text, {
+        status: res.status,
+        endpoint: "/api/auth/login",
+        backendUrl: base,
+      });
       return NextResponse.json({ message }, { status: res.status });
     }
 
     return new NextResponse(text, {
       status: res.status,
-      headers: { "Content-Type": ct },
+      headers: { "Content-Type": res.headers.get("content-type") || "application/json" },
     });
   } catch (err) {
     console.error("[api/auth/login] upstream unreachable:", err);

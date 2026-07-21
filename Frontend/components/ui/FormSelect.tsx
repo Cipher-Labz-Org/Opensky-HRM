@@ -27,14 +27,14 @@ export type FormSelectProps = {
 };
 
 const triggerBlue =
-  "flex h-[42px] w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2 text-left text-sm text-slate-800 shadow-sm outline-none transition-all duration-200 " +
+  "flex h-[42px] w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-200/90 bg-white py-2 pl-3.5 pr-5 text-left text-sm text-slate-800 shadow-sm outline-none transition-all duration-200 " +
   "hover:border-slate-300 hover:shadow " +
   "focus:border-[#2E7BBF] focus:shadow-md focus:shadow-[#2E7BBF]/10 focus:ring-[3px] focus:ring-[#2E7BBF]/20 " +
   "disabled:cursor-not-allowed disabled:opacity-50 " +
   "[&[data-placeholder]]:text-slate-400";
 
 const triggerSlate =
-  "flex h-[42px] w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-left text-sm font-normal text-slate-800 shadow-sm outline-none transition-all duration-200 " +
+  "flex h-[42px] w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white py-2 pl-3.5 pr-5 text-left text-sm font-normal text-slate-800 shadow-sm outline-none transition-all duration-200 " +
   "hover:border-slate-400 hover:shadow " +
   "focus:border-slate-400 focus:shadow-md focus:ring-[3px] focus:ring-slate-400/25 " +
   "disabled:cursor-not-allowed disabled:opacity-50 " +
@@ -62,10 +62,12 @@ const itemSlate =
 function Chevron({ tone }: { tone: FormSelectTone }) {
   const cls = tone === "slate" ? "shrink-0 text-slate-600" : "shrink-0 text-[#2E7BBF]";
   return (
-    <SelectPrimitive.Icon className={cls}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M6 9l6 6 6-6" />
-      </svg>
+    <SelectPrimitive.Icon asChild>
+      <span className={`${cls} inline-flex items-center justify-center pr-0.5`} aria-hidden>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </span>
     </SelectPrimitive.Icon>
   );
 }

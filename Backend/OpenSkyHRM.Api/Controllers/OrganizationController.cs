@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Api.Filters;
+using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
 
@@ -13,10 +15,19 @@ namespace OpenSkyHRM.Api.Controllers;
 public class OrganizationController : ControllerBase
 {
     private readonly IOrganizationService _orgService;
+    private readonly AppDbContext _db;
 
-    public OrganizationController(IOrganizationService orgService)
+    public OrganizationController(IOrganizationService orgService, AppDbContext db)
     {
         _orgService = orgService;
+        _db = db;
+    }
+
+    private static List<T> FilterCatalogByAssignedIds<T>(List<T> items, IReadOnlyList<Guid>? assignedIds, Func<T, Guid> idSelector)
+    {
+        if (assignedIds == null) return items;
+        var allowed = assignedIds.ToHashSet();
+        return items.Where(i => allowed.Contains(idSelector(i))).ToList();
     }
 
     // --- Departments ---
@@ -57,7 +68,11 @@ public class OrganizationController : ControllerBase
 
     [HttpGet("business-units")]
     public async Task<IActionResult> GetBusinessUnits()
-        => Ok(await _orgService.GetBusinessUnitsAsync());
+    {
+        var items = await _orgService.GetBusinessUnitsAsync();
+        var assigned = await PeopleAccessHelper.GetAssignedBusinessUnitIdsAsync(User, _db);
+        return Ok(FilterCatalogByAssignedIds(items, assigned, x => x.Id));
+    }
 
     [HttpPost("business-units")]
     public async Task<IActionResult> CreateBusinessUnit([FromBody] CreateLookupDto dto)
@@ -84,7 +99,11 @@ public class OrganizationController : ControllerBase
 
     [HttpGet("locations")]
     public async Task<IActionResult> GetLocations()
-        => Ok(await _orgService.GetLocationsAsync());
+    {
+        var items = await _orgService.GetLocationsAsync();
+        var assigned = await PeopleAccessHelper.GetAssignedLocationIdsAsync(User, _db);
+        return Ok(FilterCatalogByAssignedIds(items, assigned, x => x.Id));
+    }
 
     [HttpPost("locations")]
     public async Task<IActionResult> CreateLocation([FromBody] CreateLocationDto dto)
@@ -115,7 +134,11 @@ public class OrganizationController : ControllerBase
 
     [HttpGet("grades")]
     public async Task<IActionResult> GetGrades()
-        => Ok(await _orgService.GetGradesAsync());
+    {
+        var items = await _orgService.GetGradesAsync();
+        var assigned = await PeopleAccessHelper.GetAssignedGradeIdsAsync(User, _db);
+        return Ok(FilterCatalogByAssignedIds(items, assigned, x => x.Id));
+    }
 
     [HttpPost("grades")]
     public async Task<IActionResult> CreateGrade([FromBody] CreateGradeDto dto)
@@ -139,7 +162,11 @@ public class OrganizationController : ControllerBase
 
     [HttpGet("job-titles")]
     public async Task<IActionResult> GetJobTitles()
-        => Ok(await _orgService.GetJobTitlesAsync());
+    {
+        var items = await _orgService.GetJobTitlesAsync();
+        var assigned = await PeopleAccessHelper.GetAssignedJobTitleIdsAsync(User, _db);
+        return Ok(FilterCatalogByAssignedIds(items, assigned, x => x.Id));
+    }
 
     [HttpPost("job-titles")]
     public async Task<IActionResult> CreateJobTitle([FromBody] CreateJobTitleDto dto)

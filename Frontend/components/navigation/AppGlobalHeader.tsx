@@ -89,8 +89,7 @@ function birthdaysNoticesTargetHref(pathname: string, employeeId: string | undef
     return `${peopleMatch[1]}${q}#birthdays-notices`;
   }
   if (pathname === ROUTES.employeeProfile || pathname.startsWith(`${ROUTES.employeeProfile}/`)) {
-    const q = employeeId ? `?birthdayWish=${encodeURIComponent(employeeId)}` : "";
-    return `${ROUTES.employeeProfile}${q}#birthdays-notices`;
+    return `${ROUTES.dashboard}#dashboard-birthdays`;
   }
   return `${ROUTES.dashboard}#dashboard-birthdays`;
 }
@@ -511,13 +510,6 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
               collisionPadding={12}
             >
               <p className="truncate px-2.5 pb-1 pt-1 text-xs text-slate-500">{user.email}</p>
-              <Link
-                href={ROUTES.employeeProfile}
-                className="block rounded-lg px-2.5 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
-                onClick={() => setAccountOpen(false)}
-              >
-                Employee bio
-              </Link>
               <button
                 type="button"
                 className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-red-600 transition hover:bg-red-50"

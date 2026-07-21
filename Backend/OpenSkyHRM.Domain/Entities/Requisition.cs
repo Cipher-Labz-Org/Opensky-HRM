@@ -18,7 +18,7 @@ public class Requisition : AuditableEntity
     public decimal? SalaryMin { get; set; }
     public decimal? SalaryMax { get; set; }
     /// <summary>ISO 4217 currency for salary range (e.g. LKR, USD).</summary>
-    public string? SalaryCurrency { get; set; }
+    public string? SalaryCurrency { get; set; } = "LKR";
     public string? Skills { get; set; }
     public DateTime? ClosedAt { get; set; }
 
@@ -33,6 +33,9 @@ public class Requisition : AuditableEntity
 
     public Guid? LocationId { get; set; }
     public Location? Location { get; set; }
+
+    /// <summary>Free-text work location for this role (e.g. city, hybrid, remote).</summary>
+    public string? WorkLocation { get; set; }
 
     public Guid? PositionId { get; set; }
     public Position? Position { get; set; }

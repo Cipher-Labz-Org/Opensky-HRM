@@ -8,6 +8,8 @@ export type TemplateMeta = {
   recipients: string[];
   senderProfile?: string;
   defaultSamples: Record<string, string>;
+  /** Plain-text body for easy editing (emails / letters). */
+  defaultBody?: string;
 };
 
 const META: Record<string, TemplateMeta> = {
@@ -27,6 +29,17 @@ const META: Record<string, TemplateMeta> = {
       TotalDays: "5",
       Reason: "Family vacation",
     },
+    defaultBody: `Hi {{EmployeeName}},
+
+Your leave application has been submitted successfully and is now {{Status}}.
+
+Leave type: {{LeaveTypeName}}
+Start: {{StartDate}}
+End: {{EndDate}}
+Total days: {{TotalDays}}
+Reason: {{Reason}}
+
+You will be notified when your request is approved or rejected. If you have questions, contact HR.`,
   },
   Email_RecruitmentOffer: {
     module: "Recruitment",
@@ -41,7 +54,21 @@ const META: Record<string, TemplateMeta> = {
       SalaryFormatted: "LKR 250,000 / month",
       JoiningDate: "August 1, 2026",
       RemarksHtml: "",
+      CompanyName: "OpenSky HRM",
     },
+    defaultBody: `Dear {{CandidateName}},
+
+We are pleased to extend an offer of employment for the position of {{PositionTitle}}. We were impressed with your qualifications and believe you will be a valuable addition to our team.
+
+Position: {{PositionTitle}}
+Salary: {{SalaryFormatted}}
+Proposed joining date: {{JoiningDate}}
+
+Please review the details and let us know your decision at your earliest convenience.
+
+Best regards,
+Human Resources
+{{CompanyName}}`,
   },
   Email_RecruitmentInterviewCandidate: {
     module: "Recruitment",
@@ -60,6 +87,18 @@ const META: Record<string, TemplateMeta> = {
       Location: "Head office · Room 3A",
       InterviewerName: "Sam Patel",
     },
+    defaultBody: `Hi {{CandidateName}},
+
+You have been scheduled for an interview for {{RequisitionTitle}}.
+
+Session: {{InterviewTitle}}
+When: {{ScheduledAt}}
+Duration: {{DurationMinutes}} minutes
+Type: {{InterviewType}}
+Location: {{Location}}
+Interviewer: {{InterviewerName}}
+
+If you need to reschedule, please contact HR.`,
   },
   Email_RecruitmentInterviewInterviewer: {
     module: "Recruitment",
@@ -78,6 +117,17 @@ const META: Record<string, TemplateMeta> = {
       InterviewType: "In person",
       Location: "Head office · Room 3A",
     },
+    defaultBody: `Hi {{InterviewerName}},
+
+You are scheduled to interview {{CandidateName}} for {{RequisitionTitle}}.
+
+Session: {{InterviewTitle}}
+When: {{ScheduledAt}}
+Duration: {{DurationMinutes}} minutes
+Type: {{InterviewType}}
+Location: {{Location}}
+
+Please review the candidate in OpenSky HRM before the session.`,
   },
   job_confirmation: {
     module: "People",
@@ -109,6 +159,9 @@ const META: Record<string, TemplateMeta> = {
       EmployeeCode: "EMP-0042",
       JobTitle: "Software Engineer",
       Department: "Engineering",
+      JoinDate: "June 1, 2025",
+      ProbationEndDate: "December 1, 2025",
+      DateOfPermanency: "December 2, 2025",
       CompanyName: "OpenSky HRM",
       CurrentDate: "June 22, 2026",
     },
@@ -121,6 +174,7 @@ const META: Record<string, TemplateMeta> = {
     recipients: ["Employee"],
     defaultSamples: {
       EmployeeName: "Alex Morgan",
+      FirstName: "Alex",
       EmployeeCode: "EMP-0042",
       JobTitle: "Software Engineer",
       Department: "Engineering",
@@ -141,6 +195,10 @@ const META: Record<string, TemplateMeta> = {
       EmployeeCode: "EMP-0042",
       JobTitle: "Software Engineer",
       Department: "Engineering",
+      Location: "Colombo Head Office",
+      JoinDate: "January 10, 2022",
+      TerminationDate: "July 31, 2026",
+      ManagerName: "Jordan Lee",
       CompanyName: "OpenSky HRM",
       CurrentDate: "June 22, 2026",
     },
@@ -156,7 +214,12 @@ const META: Record<string, TemplateMeta> = {
       EmployeeCode: "EMP-0042",
       JobTitle: "Software Engineer",
       Department: "Engineering",
+      BusinessUnit: "Technology",
+      Location: "Colombo Head Office",
+      Grade: "L3",
+      ManagerName: "Jordan Lee",
       JoinDate: "June 1, 2026",
+      Status: "Probation",
       CompanyName: "OpenSky HRM",
       CurrentDate: "June 22, 2026",
     },
@@ -172,6 +235,10 @@ const META: Record<string, TemplateMeta> = {
       EmployeeCode: "EMP-0042",
       JobTitle: "Software Engineer",
       Department: "Engineering",
+      Location: "Colombo Head Office",
+      JoinDate: "June 1, 2025",
+      Status: "Confirmed",
+      ManagerName: "Jordan Lee",
       CompanyName: "OpenSky HRM",
       CurrentDate: "June 22, 2026",
     },
@@ -186,8 +253,15 @@ const META: Record<string, TemplateMeta> = {
       EmployeeName: "Alex Morgan",
       EmployeeCode: "EMP-0042",
       JobTitle: "Software Engineer",
+      Position: "Software Engineer",
       Department: "Engineering",
+      BusinessUnit: "Technology",
+      Location: "Colombo Head Office",
+      Grade: "L3",
+      ManagerName: "Jordan Lee",
       JoinDate: "June 1, 2026",
+      ProbationEndDate: "December 1, 2026",
+      Status: "Probation",
       CompanyName: "OpenSky HRM",
       CurrentDate: "June 22, 2026",
     },
@@ -217,19 +291,36 @@ export function getTemplateMeta(templateKey: string, kind: TemplateKind, name: s
   const known = META[templateKey];
   if (known) return known;
 
-  const module = inferModule(templateKey, kind);
+  const templateModule = inferModule(templateKey, kind);
   return {
-    module,
+    module: templateModule,
     category: inferCategory(templateKey),
     description: kind === "email" ? `Transactional email: ${name}.` : `Employee letter: ${name}.`,
     trigger: kind === "email" ? "Sent automatically when the related HR event occurs." : "Generated from People → Create Document.",
     recipients: kind === "email" ? ["Employee"] : ["Employee"],
     senderProfile: kind === "email" ? "OpenSky HRM notifications" : undefined,
     defaultSamples: {
+      RecipientName: "Alex Morgan",
       EmployeeName: "Alex Morgan",
       CompanyName: "OpenSky HRM",
       CurrentDate: "June 22, 2026",
     },
+    defaultBody:
+      kind === "email"
+        ? `Hi {{RecipientName}},
+
+I hope you are doing well.
+
+Write your message in this space.
+
+Thank you,
+{{CompanyName}}`
+        : `Dear {{EmployeeName}},
+
+Write your letter in this space.
+
+Sincerely,
+{{CompanyName}}`,
   };
 }
 
@@ -266,6 +357,118 @@ export function htmlToPlainText(html: string): string {
     .trim();
 }
 
+function decodeBasicEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function stripTagsLoose(html: string): string {
+  return decodeBasicEntities(html.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+}
+
+function extractBalancedDivInner(html: string, openIndex: number, openTagLength: number): string | null {
+  let depth = 1;
+  const tagRe = /<\/?div\b[^>]*>/gi;
+  tagRe.lastIndex = openIndex + openTagLength;
+  let t: RegExpExecArray | null;
+  while ((t = tagRe.exec(html))) {
+    if (/^<\/div/i.test(t[0])) depth -= 1;
+    else depth += 1;
+    if (depth === 0) return html.slice(openIndex + openTagLength, t.index);
+  }
+  return null;
+}
+
+/** Prefer the email content card (padding block), not the gradient header. */
+function extractEmailContentRegion(html: string): string | null {
+  const openRe = /<div\b([^>]*)>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = openRe.exec(html))) {
+    const attrs = m[1] ?? "";
+    const style = attrs.match(/style\s*=\s*["']([^"']*)["']/i)?.[1] ?? "";
+    if (/linear-gradient/i.test(style)) continue;
+    if (!/padding:\s*(28|32)px/i.test(style)) continue;
+    const inner = extractBalancedDivInner(html, m.index, m[0].length);
+    if (inner && stripTagsLoose(inner).length > 20) return inner;
+  }
+  return null;
+}
+
+/**
+ * Convert stored template HTML into plain text for the easy editor.
+ * Strips CSS/shell chrome and keeps {{placeholders}}.
+ */
+export function htmlToEditableText(html: string, opts?: { preferredDefaultBody?: string }): string {
+  let raw = html.trim();
+  if (!raw) return opts?.preferredDefaultBody?.trim() ?? "";
+  if (!/<[a-z][\s\S]*>/i.test(raw)) return raw;
+
+  raw = raw
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "");
+
+  const bodyTextMatch = raw.match(
+    /<div[^>]*class=["'][^"']*\bbody-text\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+  );
+  if (bodyTextMatch?.[1]) {
+    raw = bodyTextMatch[1];
+  } else {
+    const emailRegion = extractEmailContentRegion(raw);
+    if (emailRegion) raw = emailRegion;
+  }
+
+  // Table rows → Label: Value lines
+  raw = raw.replace(
+    /<tr[^>]*>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<\/tr>/gi,
+    (_full, a: string, b: string) => {
+      const label = stripTagsLoose(a);
+      const value = stripTagsLoose(b);
+      if (!label && !value) return "\n";
+      return `\n${label}: ${value}\n`;
+    },
+  );
+
+  let text = raw
+    .replace(/\r\n/g, "\n")
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\s*\/\s*p\s*>/gi, "\n\n")
+    .replace(/<\s*\/\s*div\s*>/gi, "\n")
+    .replace(/<\s*\/\s*h[1-6]\s*>/gi, "\n")
+    .replace(/<\s*li[^>]*>/gi, "• ")
+    .replace(/<\s*\/\s*li\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "");
+
+  text = decodeBasicEntities(text)
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  // Drop leftover shell lines if extraction failed partially
+  text = text
+    .replace(/^OpenSky HRM\s*$/gim, "")
+    .replace(/^This is an automated (message|email) from OpenSky HRM\.?.*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const looksLikeShellOnly =
+    !text ||
+    text.length < 40 ||
+    (!text.includes("{{") && text.split(/\n+/).filter(Boolean).length <= 2);
+
+  if (looksLikeShellOnly && opts?.preferredDefaultBody?.trim()) {
+    return opts.preferredDefaultBody.trim();
+  }
+
+  return text;
+}
+
 export function buildDefaultSamples(html: string, templateKey: string, kind: TemplateKind, name: string): Record<string, string> {
   const meta = getTemplateMeta(templateKey, kind, name);
   const placeholders = extractPlaceholders(html);
@@ -274,4 +477,12 @@ export function buildDefaultSamples(html: string, templateKey: string, kind: Tem
     if (!(key in samples)) samples[key] = `[${key}]`;
   }
   return samples;
+}
+
+export function isLegacyLetterHtml(html: string): boolean {
+  return (
+    html.includes("details-table") ||
+    html.includes('class="header"') ||
+    !html.includes('data-letter-version="2"')
+  );
 }

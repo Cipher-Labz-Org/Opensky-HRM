@@ -106,9 +106,8 @@ public static class TransactionalEmailTemplateSeeder
 <head><meta charset="utf-8"></head>
 <body style="font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f6fa;">
   <div style="max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
-    <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 32px 40px; color: white;">
-      <h1 style="margin: 0; font-size: 24px; font-weight: 600;">Offer of Employment</h1>
-      <p style="margin: 8px 0 0; opacity: 0.85; font-size: 14px;">OpenSky HRM</p>
+    <div style="background: linear-gradient(90deg, #1a3a6e 0%, #1e4a8c 50%, #2e78e6 100%); padding: 28px 36px; color: white;">
+      {{CompanyHeaderHtml}}
     </div>
     <div style="padding: 32px 40px;">
       <p style="font-size: 16px; margin: 0 0 16px;">Dear <strong>{{CandidateName}}</strong>,</p>
@@ -137,10 +136,11 @@ public static class TransactionalEmailTemplateSeeder
       <p style="font-size: 15px; line-height: 1.6; margin: 0 0 8px;">
         Please review the details and let us know your decision at your earliest convenience.
       </p>
+      {{OfferActionsHtml}}
       <p style="font-size: 15px; margin: 24px 0 0;">
         Best regards,<br />
         <strong>Human Resources</strong><br />
-        <span style="color: #666; font-size: 13px;">OpenSky HRM</span>
+        <span style="color: #666; font-size: 13px;">{{CompanyName}}</span>
       </p>
     </div>
     <div style="background: #f5f6fa; padding: 16px 40px; text-align: center; font-size: 12px; color: #999;">

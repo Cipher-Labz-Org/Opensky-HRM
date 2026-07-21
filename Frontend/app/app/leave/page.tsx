@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
@@ -23,6 +23,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { LeaveRequestsPanel } from "@/components/workforce/LeaveRequestsPanel";
 import { ROUTES } from "@/config/routes";
+import { sanitizeSearchInput } from "@/lib/input-validation";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -1205,16 +1206,17 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   );
 
   function onCoverageInputChange(next: string) {
-    setCoveragePerson(next);
+    const sanitized = sanitizeSearchInput(next);
+    setCoveragePerson(sanitized);
     if (coverageDebounceRef.current) clearTimeout(coverageDebounceRef.current);
-    const t = next.trim();
+    const t = sanitized.trim();
     if (t.length < 2) {
       setCoverageHits([]);
       setCoverageOpen(false);
       return;
     }
     coverageDebounceRef.current = setTimeout(() => {
-      void fetchCoverageSuggestions(next);
+      void fetchCoverageSuggestions(sanitized);
     }, 280);
   }
 
@@ -2166,10 +2168,10 @@ function BalancesTab() {
 // ═══════════════════════════════════════════════════════════════
 
 function AssignLeaveTypeTab() {
-  const [employees, setEmployees] = useState<{ id: string; firstName: string; lastName: string; employeeCode?: string }[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [addEmployeeId, setAddEmployeeId] = useState("");
+  const [employeeSearchKey, setEmployeeSearchKey] = useState(0);
   const [addLeaveTypeId, setAddLeaveTypeId] = useState("");
   const [addPeriodKind, setAddPeriodKind] = useState<"year" | "custom">("year");
   const [addYear, setAddYear] = useState(new Date().getFullYear());
@@ -2181,17 +2183,6 @@ function AssignLeaveTypeTab() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  const addEmployeeFormOptions = useMemo<FormSelectOption[]>(
-    () => [
-      { value: "", label: "Select employee…" },
-      ...employees.map((e) => ({
-        value: e.id,
-        label: `${e.firstName} ${e.lastName}${e.employeeCode ? ` (${e.employeeCode})` : ""}`,
-      })),
-    ],
-    [employees]
-  );
 
   const addLeaveTypeFormOptions = useMemo<FormSelectOption[]>(
     () => [
@@ -2205,20 +2196,22 @@ function AssignLeaveTypeTab() {
 
   useEffect(() => {
     setCatalogLoading(true);
-    Promise.all([
-      apiFetch<{ items: { id: string; firstName: string; lastName: string; employeeCode?: string }[] }>("/api/employees?pageSize=500").then((r) => r.items),
-      apiFetch<LeaveTypeItem[]>("/api/leave/types"),
-    ])
-      .then(([emps, types]) => {
-        setEmployees(emps);
-        setLeaveTypes(types);
-      })
-      .catch(() => setFormError("Could not load employees or leave types."))
+    apiFetch<LeaveTypeItem[]>("/api/leave/types")
+      .then(setLeaveTypes)
+      .catch(() => setFormError("Could not load leave types."))
       .finally(() => setCatalogLoading(false));
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!addEmployeeId) {
+      setFormError("Please search and select an employee.");
+      return;
+    }
+    if (!addLeaveTypeId) {
+      setFormError("Please select a leave type.");
+      return;
+    }
     if (addPeriodKind === "custom" && (!addPeriodStart || !addPeriodEnd)) {
       setFormError("Please enter both period start and end dates.");
       return;
@@ -2249,6 +2242,7 @@ function AssignLeaveTypeTab() {
         body: JSON.stringify(payload),
       });
       setAddEmployeeId("");
+      setEmployeeSearchKey((k) => k + 1);
       setAddLeaveTypeId("");
       setAddPeriodKind("year");
       setAddYear(new Date().getFullYear());
@@ -2274,20 +2268,20 @@ function AssignLeaveTypeTab() {
           <span className="font-medium"> Leave Balances</span> to view the grid and run recalculation.
         </p>
         {catalogLoading ? (
-          <p className="py-8 text-center text-sm text-slate-500">Loading employees and leave types…</p>
+          <p className="py-8 text-center text-sm text-slate-500">Loading leave types…</p>
         ) : (
           <form onSubmit={handleSubmit} className="max-w-2xl space-y-4">
             <FormErrorAlert message={formError} onDismiss={() => setFormError(null)} className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" />
-            {successMsg && <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{successMsg}</div>}
+            <InlinePageAlert message={successMsg} variant="success" className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 scroll-mt-20" />
           <div>
             <label className={labelClass}>Employee *</label>
-            <FormSelect
+            <EmployeeSearchCombobox
+              key={employeeSearchKey}
               value={addEmployeeId}
-              onValueChange={setAddEmployeeId}
-              options={addEmployeeFormOptions}
-              placeholder="Select employee…"
-              required
+              placeholder="Type name or employee code…"
+              onPick={(emp) => setAddEmployeeId(emp?.id ?? "")}
             />
+            <p className="mt-1 text-xs text-slate-500">Start typing to search; pick a name from the list.</p>
           </div>
           <div>
             <label className={labelClass}>Leave Type *</label>
@@ -3085,7 +3079,7 @@ function SickNarrativeAdminBlock({
       {referenceHelperText ? <p className="mb-2 text-xs text-slate-500">{referenceHelperText}</p> : null}
       {editing ? (
         <div className="ml-11 space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-xs text-slate-700">
-          {err ? <p className="text-red-600">{err}</p> : null}
+          <FormErrorAlert message={err} onDismiss={() => setErr(null)} className="text-xs text-red-600" />
           <div>
             <label className={labelClass}>Intro / lead line</label>
             <textarea value={intro} onChange={(e) => setIntro(e.target.value)} className={inputClass} rows={2} />
@@ -3202,7 +3196,7 @@ function CarryForwardNarrativeAdminBlock({
       />
       {editing ? (
         <div className="ml-11 space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-xs text-slate-700">
-          {err ? <p className="text-red-600">{err}</p> : null}
+          <FormErrorAlert message={err} onDismiss={() => setErr(null)} className="text-xs text-red-600" />
           <div>
             <label className={labelClass}>Valid months to use carry-forward (start of each balance period, default 3)</label>
             <input
@@ -3266,9 +3260,7 @@ function CarryForwardNarrativeAdminBlock({
             </p>
           ) : null}
           {saveOk ? (
-            <p className="ml-11 text-[12px] font-medium text-emerald-700" role="status">
-              {saveOk}
-            </p>
+            <InlinePageAlert message={saveOk} variant="success" className="ml-11 text-[12px] font-medium text-emerald-700 scroll-mt-20" />
           ) : null}
           <CarryForwardNarrativeView
             intro={settings.narrativeIntro && settings.narrativeIntro.trim() ? settings.narrativeIntro : DEFAULT_CARRY_NARRATIVE.intro}

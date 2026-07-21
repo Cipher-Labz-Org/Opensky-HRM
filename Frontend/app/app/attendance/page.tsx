@@ -5,15 +5,16 @@ import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } fro
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, DateTimePickerField, FormSelect, TablePagination, TimePickerField, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, DateTimePickerField, FormErrorAlert, FormSelect, TablePagination, TimePickerField, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
-import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
+import { EmployeeSearchCombobox, type EmployeeSearchPick } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
 import { formatBusinessTime, formatDate, formatDateTime } from "@/lib/date-utils";
 import { formatLocalDateToIso, applyFromDateInRange, applyToDateInRange, isValidIsoDateRange } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import { useApplyFilter } from "@/lib/use-apply-filter";
+import { usePeopleScopedLookups } from "@/lib/people-scope-filters";
 
 // ──────────────────────────── Tabs ────────────────────────────
 
@@ -856,26 +857,33 @@ interface AttendanceRecord {
 }
 
 function AttendanceListTab() {
+  const { filterLocations } = usePeopleScopedLookups();
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const pageSize = 20;
-  const [filterEmployee, setFilterEmployee] = useState("");
-  const employeeSearchFilter = useApplyFilter();
+  const [draftEmployeeId, setDraftEmployeeId] = useState("");
+  const [draftEmployee, setDraftEmployee] = useState<EmployeeSearchPick | null>(null);
+  const [appliedEmployeeId, setAppliedEmployeeId] = useState("");
+  const [appliedEmployee, setAppliedEmployee] = useState<EmployeeSearchPick | null>(null);
   const [filterFrom, setFilterFrom] = useState(() => todayLocalIso());
   const [filterTo, setFilterTo] = useState(() => todayLocalIso());
+  const [appliedFrom, setAppliedFrom] = useState(() => todayLocalIso());
+  const [appliedTo, setAppliedTo] = useState(() => todayLocalIso());
   const [filterDepartmentId, setFilterDepartmentId] = useState("");
   const [filterLocationId, setFilterLocationId] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterSource, setFilterSource] = useState("");
+  const [appliedDepartmentId, setAppliedDepartmentId] = useState("");
+  const [appliedLocationId, setAppliedLocationId] = useState("");
+  const [appliedStatus, setAppliedStatus] = useState("");
+  const [appliedSource, setAppliedSource] = useState("");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [sortBy, setSortBy] = useState<AttendanceSortKey>("date");
   const [sortAsc, setSortAsc] = useState(false);
   const [departments, setDepartments] = useState<OrgLookup[]>([]);
   const [locations, setLocations] = useState<OrgLookup[]>([]);
   const [lookupsLoaded, setLookupsLoaded] = useState(false);
-  const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
-  const [employeesLoaded, setEmployeesLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
@@ -884,23 +892,18 @@ function AttendanceListTab() {
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
   const [saving, setSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  const employeeOptions = useMemo(
-    () =>
-      employees.map((emp) => ({
-        id: emp.id,
-        label: `${emp.fullName}${emp.employeeCode ? ` (${emp.employeeCode})` : ""}`,
-      })),
-    [employees]
-  );
+  const isSingleEmployeeView = Boolean(appliedEmployeeId);
 
   const departmentOptions = useMemo<FormSelectOption[]>(
     () => [{ value: "", label: "All departments" }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
     [departments]
   );
 
+  const visibleLocations = useMemo(() => filterLocations(locations), [filterLocations, locations]);
+
   const locationOptions = useMemo<FormSelectOption[]>(
-    () => [{ value: "", label: "All locations" }, ...locations.map((l) => ({ value: l.id, label: l.name }))],
-    [locations]
+    () => [{ value: "", label: "All locations" }, ...visibleLocations.map((l) => ({ value: l.id, label: l.name }))],
+    [visibleLocations]
   );
 
   const advancedFilterCount = useMemo(
@@ -930,33 +933,42 @@ function AttendanceListTab() {
     });
   }, [lookupsLoaded]);
 
-  const loadEmployees = useCallback(() => {
-    if (employeesLoaded) return;
-    apiFetch<{ items: EmployeeLookup[] }>("/api/employees?pageSize=200")
-      .then((r) => {
-        setEmployees(r.items ?? []);
-        setEmployeesLoaded(true);
-      })
-      .catch(() => {});
-  }, [employeesLoaded]);
-
   const load = useCallback(
-    (options?: { silent?: boolean; sortKey?: AttendanceSortKey; sortAscending?: boolean; pageNum?: number }) => {
+    (options?: {
+      silent?: boolean;
+      sortKey?: AttendanceSortKey;
+      sortAscending?: boolean;
+      pageNum?: number;
+      employeeId?: string;
+      from?: string;
+      to?: string;
+      departmentId?: string;
+      locationId?: string;
+      status?: string;
+      source?: string;
+    }) => {
       const silent = options?.silent ?? false;
       const activeSortBy = options?.sortKey ?? sortBy;
       const activeSortAsc = options?.sortAscending ?? sortAsc;
       const activePage = options?.pageNum ?? page;
+      const activeEmployeeId = options?.employeeId !== undefined ? options.employeeId : appliedEmployeeId;
+      const activeFrom = options?.from !== undefined ? options.from : appliedFrom;
+      const activeTo = options?.to !== undefined ? options.to : appliedTo;
+      const activeDepartmentId = options?.departmentId !== undefined ? options.departmentId : appliedDepartmentId;
+      const activeLocationId = options?.locationId !== undefined ? options.locationId : appliedLocationId;
+      const activeStatus = options?.status !== undefined ? options.status : appliedStatus;
+      const activeSource = options?.source !== undefined ? options.source : appliedSource;
       if (silent) setRefreshing(true);
       else setLoading(true);
       setError(null);
       const params = new URLSearchParams({ page: String(activePage), pageSize: String(pageSize) });
-      if (filterEmployee) params.set("employeeId", filterEmployee);
-      if (filterFrom) params.set("from", filterFrom);
-      if (filterTo) params.set("to", filterTo);
-      if (filterDepartmentId) params.set("departmentId", filterDepartmentId);
-      if (filterLocationId) params.set("locationId", filterLocationId);
-      if (filterStatus) params.set("status", filterStatus);
-      if (filterSource) params.set("source", filterSource);
+      if (activeEmployeeId) params.set("employeeId", activeEmployeeId);
+      if (activeFrom) params.set("from", activeFrom);
+      if (activeTo) params.set("to", activeTo);
+      if (activeDepartmentId) params.set("departmentId", activeDepartmentId);
+      if (activeLocationId) params.set("locationId", activeLocationId);
+      if (activeStatus) params.set("status", activeStatus);
+      if (activeSource) params.set("source", activeSource);
       params.set("sortBy", toApiSortKey(activeSortBy));
       params.set("sortDir", activeSortAsc ? "asc" : "desc");
       apiFetch<{ items: AttendanceRecord[]; totalCount: number }>(`/api/attendance?${params}`)
@@ -971,21 +983,60 @@ function AttendanceListTab() {
           else setLoading(false);
         });
     },
-    [page, filterEmployee, filterFrom, filterTo, filterDepartmentId, filterLocationId, filterStatus, filterSource, sortBy, sortAsc]
+    [page, appliedEmployeeId, appliedFrom, appliedTo, appliedDepartmentId, appliedLocationId, appliedStatus, appliedSource, sortBy, sortAsc]
   );
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load({ pageNum: page });
+  }, [page, sortBy, sortAsc, load]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => load({ silent: true }), 30_000);
+    const timer = window.setInterval(() => load({ silent: true, pageNum: page }), 30_000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, page]);
+
+  function applyDraftFilters(targetPage = 1) {
+    setAppliedEmployeeId(draftEmployeeId);
+    setAppliedEmployee(draftEmployee);
+    setAppliedFrom(filterFrom);
+    setAppliedTo(filterTo);
+    setAppliedDepartmentId(filterDepartmentId);
+    setAppliedLocationId(filterLocationId);
+    setAppliedStatus(filterStatus);
+    setAppliedSource(filterSource);
+    setPage(targetPage);
+    load({
+      pageNum: targetPage,
+      employeeId: draftEmployeeId,
+      from: filterFrom,
+      to: filterTo,
+      departmentId: filterDepartmentId,
+      locationId: filterLocationId,
+      status: filterStatus,
+      source: filterSource,
+    });
+  }
+
+  function handleSearch() {
+    applyDraftFilters(1);
+  }
+
+  function handleRefresh() {
+    load({ pageNum: page });
+  }
+
+  function showAllEmployees() {
+    setDraftEmployeeId("");
+    setDraftEmployee(null);
+    setAppliedEmployeeId("");
+    setAppliedEmployee(null);
+    setPage(1);
+    load({ pageNum: 1, employeeId: "" });
+  }
 
   function openEdit(rec: AttendanceRecord) { setEditingRecord(rec); setEditModal(true); }
 
@@ -1021,50 +1072,49 @@ function AttendanceListTab() {
     }
   }
 
-  function applyEmployeeFilter() {
-    const q = employeeSearchFilter.apply().toLowerCase();
-    if (!q) {
-      setFilterEmployee("");
-      setPage(1);
-      return;
-    }
-    const matched =
-      employeeOptions.find((opt) => opt.label.toLowerCase() === q) ??
-      employeeOptions.find((opt) => opt.label.toLowerCase().includes(q));
-    setFilterEmployee(matched?.id ?? "");
-    setPage(1);
-  }
-
-  const activeEmployeeLabel = filterEmployee
-    ? employeeOptions.find((opt) => opt.id === filterEmployee)?.label
-    : null;
-
   function onFilterFromChange(v: string) {
     const { from, to } = applyFromDateInRange(v, filterTo);
     setFilterFrom(from);
     setFilterTo(to);
-    setPage(1);
   }
 
   function onFilterToChange(v: string) {
     const { from, to } = applyToDateInRange(filterFrom, v);
     setFilterFrom(from);
     setFilterTo(to);
-    setPage(1);
   }
 
   function clearAllFilters() {
-    employeeSearchFilter.clear();
-    setFilterEmployee("");
-    setFilterFrom("");
-    setFilterTo("");
+    const today = todayLocalIso();
+    setDraftEmployeeId("");
+    setDraftEmployee(null);
+    setAppliedEmployeeId("");
+    setAppliedEmployee(null);
+    setFilterFrom(today);
+    setFilterTo(today);
+    setAppliedFrom(today);
+    setAppliedTo(today);
     setFilterDepartmentId("");
     setFilterLocationId("");
     setFilterStatus("");
     setFilterSource("");
+    setAppliedDepartmentId("");
+    setAppliedLocationId("");
+    setAppliedStatus("");
+    setAppliedSource("");
     setSortBy("date");
     setSortAsc(false);
     setPage(1);
+    load({
+      pageNum: 1,
+      employeeId: "",
+      from: today,
+      to: today,
+      departmentId: "",
+      locationId: "",
+      status: "",
+      source: "",
+    });
   }
 
   function handleSortColumn(key: AttendanceSortKey) {
@@ -1085,25 +1135,28 @@ function AttendanceListTab() {
     <div className="space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex flex-wrap items-end gap-3">
-          <div className="w-56 shrink-0">
-            <label className={labelClass}>Employee</label>
-            <input
-              value={employeeSearchFilter.input}
-              onFocus={loadEmployees}
-              onChange={(e) => employeeSearchFilter.setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") applyEmployeeFilter();
-              }}
-              list="attendance-employee-filter-options"
-              placeholder="Name or code… (Enter)"
-              className={`${filterControlClass} w-full`}
-            />
-            <datalist id="attendance-employee-filter-options">
-              {employeeOptions.map((opt) => (
-                <option key={opt.id} value={opt.label} />
-              ))}
-            </datalist>
-          </div>
+          <form
+            className="flex items-end gap-2 shrink-0"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSearch();
+            }}
+          >
+            <div className="w-56">
+              <label className={labelClass}>Employee</label>
+              <EmployeeSearchCombobox
+                value={draftEmployeeId}
+                onPick={(emp) => {
+                  setDraftEmployeeId(emp?.id ?? "");
+                  setDraftEmployee(emp);
+                }}
+                placeholder="Name or code…"
+              />
+            </div>
+            <Button type="submit" className="h-[42px] shrink-0" disabled={loading || refreshing}>
+              Search
+            </Button>
+          </form>
           <div className="w-40 shrink-0">
             <label className={labelClass}>From</label>
             <DatePickerField value={filterFrom} onChange={onFilterFromChange} max={filterTo || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
@@ -1132,7 +1185,7 @@ function AttendanceListTab() {
             )}
           </button>
           <Button variant="secondary" className="shrink-0" onClick={clearAllFilters}>Clear</Button>
-          <Button variant="secondary" className="shrink-0" onClick={() => load()} disabled={loading || refreshing}>
+          <Button variant="secondary" className="shrink-0" onClick={handleRefresh} disabled={loading || refreshing}>
             Refresh
           </Button>
         </div>
@@ -1148,10 +1201,29 @@ function AttendanceListTab() {
         </div>
       </div>
 
-      {activeEmployeeLabel && (
-        <p className="text-xs text-slate-500">
-          Filtering: <span className="font-medium text-slate-700">{activeEmployeeLabel}</span>
-        </p>
+      {appliedEmployee && appliedEmployeeId && (
+        <div className="rounded-xl border-2 border-[#2E7BBF]/25 bg-gradient-to-r from-blue-50/90 to-white px-4 py-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#2E7BBF]">Employee attendance</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {appliedEmployee.firstName} {appliedEmployee.lastName}
+                {appliedEmployee.employeeCode ? (
+                  <span className="ml-2 text-sm font-medium text-slate-500">({appliedEmployee.employeeCode})</span>
+                ) : null}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {appliedFrom === appliedTo
+                  ? fmtDate(appliedFrom)
+                  : `${fmtDate(appliedFrom)} – ${fmtDate(appliedTo)}`}
+                {totalCount > 0 ? ` · ${totalCount} record${totalCount === 1 ? "" : "s"}` : " · No records"}
+              </p>
+            </div>
+            <Button variant="secondary" className="shrink-0" onClick={showAllEmployees}>
+              Show all employees
+            </Button>
+          </div>
+        </div>
       )}
 
       {showAdvancedFilters && (
@@ -1162,7 +1234,7 @@ function AttendanceListTab() {
               <label className={labelClass}>Department</label>
               <FormSelect
                 value={filterDepartmentId}
-                onValueChange={(v) => { setFilterDepartmentId(v); setPage(1); }}
+                onValueChange={setFilterDepartmentId}
                 options={departmentOptions}
                 placeholder="All departments"
                 className="w-full rounded-lg"
@@ -1173,7 +1245,7 @@ function AttendanceListTab() {
               <label className={labelClass}>Location</label>
               <FormSelect
                 value={filterLocationId}
-                onValueChange={(v) => { setFilterLocationId(v); setPage(1); }}
+                onValueChange={setFilterLocationId}
                 options={locationOptions}
                 placeholder="All locations"
                 className="w-full rounded-lg"
@@ -1184,7 +1256,7 @@ function AttendanceListTab() {
               <label className={labelClass}>Status</label>
               <FormSelect
                 value={filterStatus}
-                onValueChange={(v) => { setFilterStatus(v); setPage(1); }}
+                onValueChange={setFilterStatus}
                 options={ATTENDANCE_STATUS_OPTIONS}
                 placeholder="All statuses"
                 className="w-full rounded-lg"
@@ -1195,7 +1267,7 @@ function AttendanceListTab() {
               <label className={labelClass}>Source</label>
               <FormSelect
                 value={filterSource}
-                onValueChange={(v) => { setFilterSource(v); setPage(1); }}
+                onValueChange={setFilterSource}
                 options={ATTENDANCE_SOURCE_OPTIONS}
                 placeholder="All sources"
                 className="w-full rounded-lg"
@@ -1211,15 +1283,17 @@ function AttendanceListTab() {
 
       <CreateAttendanceModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />
 
-      {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
+      <InlinePageAlert message={error} />
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-left">
-                <AttendanceSortHeader label="Employee" sortKey="employee" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} className="pl-4" />
-                <AttendanceSortHeader label="Date" sortKey="date" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                {!isSingleEmployeeView && (
+                  <AttendanceSortHeader label="Employee" sortKey="employee" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} className="pl-4" />
+                )}
+                <AttendanceSortHeader label="Date" sortKey="date" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} className={isSingleEmployeeView ? "pl-4" : ""} />
                 <AttendanceSortHeader label="Punch In" sortKey="punchIn" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
                 <AttendanceSortHeader label="Punch Out" sortKey="punchOut" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
                 <AttendanceSortHeader label="Hours" sortKey="hours" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
@@ -1231,15 +1305,17 @@ function AttendanceListTab() {
               </tr>
             </thead>
             <tbody className={`divide-y divide-slate-100 ${refreshing ? "opacity-80" : ""}`}>
-              {loading && <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-400">Loading...</td></tr>}
-              {!loading && records.length === 0 && <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-400">No attendance records found.</td></tr>}
+              {loading && <tr><td colSpan={isSingleEmployeeView ? 9 : 10} className="px-4 py-8 text-center text-slate-400">Loading...</td></tr>}
+              {!loading && records.length === 0 && <tr><td colSpan={isSingleEmployeeView ? 9 : 10} className="px-4 py-8 text-center text-slate-400">No attendance records found.</td></tr>}
               {!loading && displayRecords.map((r) => (
                 <tr key={r.id && r.id !== "00000000-0000-0000-0000-000000000000" ? String(r.id) : `${r.employeeId}-${r.date}`} className="hover:bg-slate-50/50">
-                  <td className="px-4 py-2.5 font-medium text-slate-700">
-                    {r.employeeName}
-                    {r.employeeCode && <span className="ml-1 text-xs text-slate-400">({r.employeeCode})</span>}
-                  </td>
-                  <td className="px-3 py-2.5 text-slate-600">{fmtDate(r.date)}</td>
+                  {!isSingleEmployeeView && (
+                    <td className="px-4 py-2.5 font-medium text-slate-700">
+                      {r.employeeName}
+                      {r.employeeCode && <span className="ml-1 text-xs text-slate-400">({r.employeeCode})</span>}
+                    </td>
+                  )}
+                  <td className={`px-3 py-2.5 text-slate-600 ${isSingleEmployeeView ? "pl-4" : ""}`}>{fmtDate(r.date)}</td>
                   <td className="px-3 py-2.5 text-slate-600">{fmtTime(r.punchIn)}</td>
                   <td className="px-3 py-2.5 text-slate-600">{fmtTime(r.punchOut)}</td>
                   <td className="px-3 py-2.5 text-slate-600">{r.workedHours != null ? r.workedHours.toFixed(1) : "—"}</td>
@@ -1440,7 +1516,7 @@ function DevicesTab() {
 
   return (
     <div className="space-y-6">
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      <InlinePageAlert message={error} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-slate-700">Biometric Devices</h2>
@@ -1684,7 +1760,7 @@ function OtNopayTab() {
         <Button onClick={calculate}>Calculate</Button>
       </div>
 
-      {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
+      <InlinePageAlert message={error} />
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -1750,10 +1826,12 @@ function ShiftsTab() {
   const [saving, setSaving] = useState(false);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [formShiftType, setFormShiftType] = useState("Regular");
   const [formTimes, setFormTimes] = useState(() => buildShiftFormTimes(null));
   const [appliesOnDays, setAppliesOnDays] = useState(() => buildAppliesOnDays(null));
   const editingIdRef = useRef<string | null>(null);
+  const formErrorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (showModal) {
@@ -1761,6 +1839,15 @@ function ShiftsTab() {
       setFormTimes(buildShiftFormTimes(editing, editing?.shiftType ?? "Regular"));
     }
   }, [showModal, editing]);
+
+  useEffect(() => {
+    if (!formError) return;
+    formErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const overlay = formErrorRef.current?.closest(".overflow-y-auto");
+    if (overlay instanceof HTMLElement) {
+      overlay.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [formError]);
 
   const load = useCallback(() => {
     setError(null);
@@ -1775,46 +1862,53 @@ function ShiftsTab() {
     editingIdRef.current = null;
     setEditing(null);
     setFormShiftType("Regular");
-    setError(null);
+    setFormError(null);
     setShowModal(true);
   }
   function openEdit(item: ShiftItem) {
     editingIdRef.current = item.id;
     setEditing(item);
     setFormShiftType(item.shiftType || "Regular");
-    setError(null);
+    setFormError(null);
     setShowModal(true);
+  }
+
+  function closeModal() {
+    editingIdRef.current = null;
+    setEditing(null);
+    setFormError(null);
+    setShowModal(false);
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
-    setError(null);
+    setFormError(null);
     const fd = new FormData(e.currentTarget);
     const st = (fd.get("shiftType") as string) || "Regular";
     if (st !== "Open") {
       if (st === "Flexi") {
         if (!formTimes.flexiWindowStart || !formTimes.flexiWindowEnd) {
-          setError("Window start and end time are required.");
+          setFormError("Window start and end time are required.");
           setSaving(false);
           return;
         }
       } else {
         if (!formTimes.startTime || !formTimes.endTime) {
-          setError("Start and end time are required.");
+          setFormError("Start and end time are required.");
           setSaving(false);
           return;
         }
       }
       if (st === "Split" && (!formTimes.session2StartTime || !formTimes.session2EndTime)) {
-        setError("Session 2 start and end time are required.");
+        setFormError("Session 2 start and end time are required.");
         setSaving(false);
         return;
       }
     }
     const applicableDaysError = validateApplicableDays(appliesOnDays, formTimes.dayTimes);
     if (applicableDaysError) {
-      setError(applicableDaysError);
+      setFormError(applicableDaysError);
       setSaving(false);
       return;
     }
@@ -1825,7 +1919,7 @@ function ShiftsTab() {
       startTime: timeInputToSpan(formTimes.startTime || "00:00"),
       endTime: timeInputToSpan(formTimes.endTime || "00:00"),
       breakHours: Number(fd.get("breakHours")) || 0,
-      isNightShift: fd.get("isNightShift") === "on",
+      isNightShift: false,
       isActive: fd.get("isActive") === "on",
       lateGraceMinutes: Number(fd.get("lateGraceMinutes")) || 5,
       earlyDepartureGraceMinutes: Number(fd.get("earlyDepartureGraceMinutes")) || 5,
@@ -1877,9 +1971,10 @@ function ShiftsTab() {
       editingIdRef.current = null;
       setShowModal(false);
       setEditing(null);
+      setFormError(null);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setFormError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
     }
@@ -1909,8 +2004,6 @@ function ShiftsTab() {
   const showTimes = formShiftType !== "Open";
   const showSession2 = formShiftType === "Split";
   const showFlexi = formShiftType === "Flexi";
-  const showNight = formShiftType === "Regular" || formShiftType === "Rotational" || formShiftType === "Split";
-
   function toggleAppliesOnDay(key: string, checked: boolean) {
     setAppliesOnDays((prev) => ({ ...prev, [key]: checked }));
     if (checked) {
@@ -1956,7 +2049,7 @@ function ShiftsTab() {
         </label>
         <Button onClick={openAdd}>+ Add Shift</Button>
       </div>
-      {error && <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
+      <InlinePageAlert message={error} />
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="border-b border-slate-100 px-6 py-4">
           <h2 className="text-[15px] font-bold text-slate-700">Shift Patterns</h2>
@@ -2023,15 +2116,18 @@ function ShiftsTab() {
 
       <Modal
           open={showModal}
-          onClose={() => {
-            editingIdRef.current = null;
-            setEditing(null);
-            setShowModal(false);
-          }}
+          onClose={closeModal}
           title={editing ? "Edit Shift" : "Add Shift"}
           wide
         >
         <form key={editing?.id ?? "new-shift"} onSubmit={handleSubmit} className="space-y-4">
+          <div ref={formErrorRef} className="scroll-mt-4">
+            <FormErrorAlert
+              message={formError}
+              onDismiss={() => setFormError(null)}
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            />
+          </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <div><label className={labelClass}>Name *</label><input name="name" required defaultValue={editing?.name ?? ""} className={inputClass} /></div>
             <div><label className={labelClass}>Code *</label><input name="code" required defaultValue={editing?.code ?? ""} className={inputClass} /></div>
@@ -2098,12 +2194,6 @@ function ShiftsTab() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div><label className={labelClass}>Break (hours)</label><input name="breakHours" type="number" min={0} step={0.5} defaultValue={editing?.breakHours ?? 1} className={inputClass} /></div>
             <div className="flex flex-wrap items-center gap-4 pt-6">
-              {showNight && (
-                <label className="flex items-center gap-2 text-sm text-slate-600">
-                  <input name="isNightShift" type="checkbox" defaultChecked={editing?.isNightShift ?? false} className="h-4 w-4 rounded border-slate-300" />
-                  Night shift
-                </label>
-              )}
               <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input name="isActive" type="checkbox" defaultChecked={editing?.isActive ?? true} className="h-4 w-4 rounded border-slate-300" />
                 Active
@@ -2202,11 +2292,7 @@ function ShiftsTab() {
           <div className="flex justify-end gap-3 pt-2">
             <Button
               variant="secondary"
-              onClick={() => {
-                editingIdRef.current = null;
-                setEditing(null);
-                setShowModal(false);
-              }}
+              onClick={closeModal}
               type="button"
             >
               Cancel
@@ -2698,8 +2784,8 @@ function RosterTab() {
 
   return (
     <div className="space-y-6">
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-      {successMsg && <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{successMsg}</div>}
+      <InlinePageAlert message={error} />
+      <InlinePageAlert message={successMsg} variant="success" />
 
       <div className="flex flex-col gap-2">
         {ROSTER_SUB_TABS.map((t) => (
@@ -2929,11 +3015,7 @@ function RosterTab() {
 
           {bulkStep === 1 && (
             <div className="space-y-4">
-              {bulkModalError && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {bulkModalError}
-                </div>
-              )}
+              <FormErrorAlert message={bulkModalError} onDismiss={() => setBulkModalError(null)} />
               <div>
                 <label className={labelClass}>Roster template *</label>
                 <FormSelect

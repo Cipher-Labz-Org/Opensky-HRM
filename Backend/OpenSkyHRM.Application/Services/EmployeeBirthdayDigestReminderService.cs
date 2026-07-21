@@ -40,10 +40,18 @@ public class EmployeeBirthdayDigestReminderService : IEmployeeBirthdayDigestRemi
         var runKey = today.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
 
         var employees = await _db.Employees.AsNoTracking()
-            .Include(e => e.Department)
             .Where(e =>
                 e.DateOfBirth.Year > 1900
                 && (e.TerminationDate == null || e.TerminationDate.Value.Date >= today))
+            .Select(e => new
+            {
+                e.Id,
+                e.FirstName,
+                e.MiddleName,
+                e.LastName,
+                DepartmentName = e.Department != null ? e.Department.Name : null,
+                e.DateOfBirth,
+            })
             .ToListAsync(cancellationToken);
 
         var entries = new List<BirthdayEntry>();
@@ -56,7 +64,7 @@ public class EmployeeBirthdayDigestReminderService : IEmployeeBirthdayDigestRemi
                 var name = string.IsNullOrWhiteSpace(emp.MiddleName)
                     ? $"{emp.FirstName} {emp.LastName}".Trim()
                     : $"{emp.FirstName} {emp.MiddleName} {emp.LastName}".Trim();
-                var dept = emp.Department?.Name?.Trim();
+                var dept = emp.DepartmentName?.Trim();
                 entries.Add(new BirthdayEntry(d, name, emp.Id, string.IsNullOrEmpty(dept) ? null : dept, d == today));
             }
         }

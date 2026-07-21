@@ -15,6 +15,7 @@ import {
   DashboardPageHeader,
 } from "@/components/dashboard/DashboardUi";
 import { DASH_CHART, OPENSKY_THEME } from "@/lib/opensky-theme";
+import { formatRecruitmentActivityDescription } from "@/lib/recruitment-activity";
 
 const T = OPENSKY_THEME;
 
@@ -78,6 +79,7 @@ interface RecruitmentDashboardDto {
   recentActivities: Array<{
     description: string;
     activityType: string;
+    candidateName?: string | null;
     performedBy: string | null;
     performedAt: string;
   }>;
@@ -188,10 +190,11 @@ export default function DashboardPage() {
     type Item = { at: string; title: string; body: string };
     const items: Item[] = [];
     recruitDash?.recentActivities?.forEach((a) => {
+      const body = formatRecruitmentActivityDescription(a);
       items.push({
         at: a.performedAt,
         title: a.activityType || "Recruitment activity",
-        body: a.description + (a.performedBy ? ` · ${a.performedBy}` : ""),
+        body: body + (a.performedBy ? ` · ${a.performedBy}` : ""),
       });
     });
     leaveDash?.recentRequests?.forEach((r) => {

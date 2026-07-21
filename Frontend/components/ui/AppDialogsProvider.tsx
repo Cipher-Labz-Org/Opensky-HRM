@@ -7,6 +7,13 @@ import {
   registerAppDialogHandlers,
   unregisterAppDialogHandlers,
 } from "@/components/ui/appDialogs";
+import {
+  modalBodyClass,
+  modalHeaderClass,
+  modalOverlayClass,
+  modalShellBaseClass,
+  modalShellWidthClass,
+} from "@/lib/modal-layout";
 
 type DialogKind = "confirm" | "alert" | "prompt";
 
@@ -109,15 +116,15 @@ export function AppDialogsProvider({ children }: { children: ReactNode }) {
       {children}
       {top ? (
         <div
-          className="fixed inset-0 z-[12000] flex items-start justify-center overflow-y-auto bg-slate-900/45 px-4 pt-16 pb-10 backdrop-blur-[2px]"
+          className={`${modalOverlayClass} z-[12000]`}
           onClick={(e) => {
             if (e.target === e.currentTarget && top.kind !== "prompt") closeTop(top.kind === "confirm" ? false : undefined);
           }}
         >
-          <div className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-[0_24px_80px_-24px_rgba(15,23,42,0.45)]">
+          <div className={`${modalShellBaseClass} ${modalShellWidthClass()} overflow-hidden`}>
             <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-blue-100/40 blur-2xl" />
             <div className="pointer-events-none absolute -bottom-16 left-1/4 h-40 w-40 rounded-full bg-sky-100/35 blur-2xl" />
-            <div className="relative border-b border-slate-100 px-6 py-4">
+            <div className={modalHeaderClass}>
               <div className="mb-1 inline-flex rounded-full border border-blue-200/60 bg-blue-50/70 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
                 OpenSky HRM
               </div>
@@ -133,7 +140,7 @@ export function AppDialogsProvider({ children }: { children: ReactNode }) {
                 </button>
               </div>
             </div>
-            <div className="relative px-6 py-5">
+            <div className={modalBodyClass}>
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{top.message}</p>
               {top.kind === "prompt" ? (
                 <input

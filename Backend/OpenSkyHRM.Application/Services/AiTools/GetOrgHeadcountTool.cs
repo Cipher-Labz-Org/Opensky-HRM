@@ -42,7 +42,7 @@ public sealed class GetOrgHeadcountTool : AiToolBase
 
         var deptFilter = GetString(args, "departmentName");
         var groupBy = GetString(args, "groupBy") ?? "department";
-        var analytics = await _analytics.GetHeadcountAnalyticsAsync(ct);
+        var analytics = await _analytics.GetHeadcountAnalyticsAsync(allowedIds, ct);
 
         var byDepartment = analytics.ByDepartment;
         var byBusinessUnit = analytics.ByBusinessUnit;

@@ -73,6 +73,8 @@ public class EmployeeDto
     public string? JobTitleDescription { get; set; }
     public Guid? ManagerId { get; set; }
     public string? ManagerName { get; set; }
+    /// <summary>Comma-separated supervisor first names from reporting lines (People list).</summary>
+    public string? SupervisorNames { get; set; }
     public string? ProfileImageUrl { get; set; }
     public bool IsTopOfHierarchy { get; set; }
     public bool HasDirectSupervisor { get; set; }
@@ -159,7 +161,7 @@ public class UpdateEmployeeDto
     public string FirstName { get; set; } = string.Empty;
     public string? MiddleName { get; set; }
     public string LastName { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
+    public string? Email { get; set; }
     public string? Phone { get; set; }
     public string? AddressStreet1 { get; set; }
     public string? AddressStreet2 { get; set; }

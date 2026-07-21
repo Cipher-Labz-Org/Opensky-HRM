@@ -2,17 +2,20 @@
 
 import { useState, useEffect, useRef, type FormEvent } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { useAuth } from "../../contexts/auth-context";
-import { getAssetBaseUrl, resolveAuthApiPath } from "../../config/constants";
+import { resolveAuthApiPath } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
 import { OPENSKY_THEME, softCardShadow, softPageBackground } from "@/lib/opensky-theme";
 import { LoginWelcomePanel } from "@/components/auth/LoginWelcomePanel";
+import { resolveCompanyLogoSrc, parseLogoDisplaySettings } from "@/lib/company-branding";
 
 type Branding = {
   companyName: string;
   companyLogoUrl: string | null;
+  loginLogoScale: number;
+  loginLogoOffsetX: number;
+  loginLogoOffsetY: number;
 };
 
 const T = OPENSKY_THEME;
@@ -46,13 +49,11 @@ export function LoginLandingExperience() {
   const [branding, setBranding] = useState<Branding>({
     companyName: "",
     companyLogoUrl: null,
+    loginLogoScale: 100,
+    loginLogoOffsetX: 0,
+    loginLogoOffsetY: 0,
   });
-  const rawLogo = branding.companyLogoUrl?.trim() ?? "";
-  const companyLogoSrc = rawLogo
-    ? /^https?:\/\//i.test(rawLogo)
-      ? rawLogo
-      : `${getAssetBaseUrl()}${rawLogo}`
-    : null;
+  const companyLogoSrc = resolveCompanyLogoSrc(branding.companyLogoUrl);
 
   useEffect(() => {
     setMounted(true);
@@ -66,11 +67,22 @@ export function LoginLandingExperience() {
         if (!res.ok) return null;
         return res.json();
       })
-      .then((data: { companyName?: string; companyLogoUrl?: string } | null) => {
+      .then((data: {
+        companyName?: string;
+        companyLogoUrl?: string;
+        loginLogoScale?: number;
+        loginLogoOffsetX?: number;
+        loginLogoOffsetY?: number;
+        loginLogoFit?: string;
+      } | null) => {
         if (!isMounted || !data) return;
+        const display = parseLogoDisplaySettings(data);
         setBranding({
           companyName: (data.companyName ?? "").trim(),
           companyLogoUrl: data.companyLogoUrl?.trim() ? data.companyLogoUrl : null,
+          loginLogoScale: display.scale,
+          loginLogoOffsetX: display.offsetX,
+          loginLogoOffsetY: display.offsetY,
         });
       })
       .catch(() => {});

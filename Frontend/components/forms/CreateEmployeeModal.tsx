@@ -5,8 +5,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { DatePickerField, PasswordVisibilityToggle, FormErrorAlert } from "@/components/ui";
 import { FormSelect } from "@/components/ui/FormSelect";
-import { PersonNameInput, PhoneInput } from "@/components/ui";
-import { isValidPhone, PHONE_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import { PersonNameInput, PhoneInput, UsernameInput, EmailInput } from "@/components/ui";
+import { isValidPhone, isValidUsername, isValidEmailInput, isValidEmailFormat, sanitizeUsernameInput, PHONE_VALIDATION_MESSAGE, USERNAME_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { apiFetch } from "@/lib/api";
 import { getSystemSetting } from "@/lib/system-settings";
@@ -165,8 +165,12 @@ export function CreateEmployeeModal({
 
     if (createLogin) {
       let hasFieldError = false;
-      if (!loginUsername.trim()) {
+      const username = sanitizeUsernameInput(loginUsername.trim());
+      if (!username) {
         setLoginUsernameError("Username is required.");
+        hasFieldError = true;
+      } else if (!isValidUsername(username)) {
+        setLoginUsernameError(USERNAME_VALIDATION_MESSAGE);
         hasFieldError = true;
       }
       if (!loginPassword) {
@@ -203,6 +207,23 @@ export function CreateEmployeeModal({
       return;
     }
 
+    const emailRaw = ((fd.get("email") as string) ?? "").trim();
+    if (emailRaw && !isValidEmailInput(emailRaw)) {
+      setError(EMAIL_INPUT_VALIDATION_MESSAGE);
+      setSubmitting(false);
+      return;
+    }
+    if (emailRaw && !isValidEmailFormat(emailRaw)) {
+      setError(EMAIL_FORMAT_VALIDATION_MESSAGE);
+      setSubmitting(false);
+      return;
+    }
+    if (candidateId && !emailRaw) {
+      setError("Email is required for employee conversion.");
+      setSubmitting(false);
+      return;
+    }
+
     const roleIds: string[] = [];
     if (essRoleId) roleIds.push(essRoleId);
     if (supervisorRoleId) roleIds.push(supervisorRoleId);
@@ -228,7 +249,7 @@ export function CreateEmployeeModal({
 
     if (createLogin) {
       payload.createLogin = {
-        username: loginUsername,
+        username: sanitizeUsernameInput(loginUsername.trim()),
         password: loginPassword,
         isActive: loginStatus === "enabled",
         roleIds,
@@ -307,18 +328,16 @@ export function CreateEmployeeModal({
           </div>
           <div>
             <label className={labelClass}>Email</label>
-            <input
+            <EmailInput
               name="email"
-              type="email"
               required={Boolean(candidateId)}
               defaultValue={initialValues?.email ?? ""}
-              pattern="[^\s@]+@[^\s@]+\.[^\s@]{2,}"
               title={candidateId ? "Email is required for employee conversion." : "Optional. When set, must be a valid email (e.g. name@company.com)"}
               className={inputClass}
               placeholder="john@openskyhrm.com"
               onChange={(e) => {
                 if (createLogin && !loginUsername) {
-                  setLoginUsername(e.target.value.split("@")[0]);
+                  setLoginUsername(sanitizeUsernameInput(e.target.value.split("@")[0] ?? ""));
                 }
               }}
             />
@@ -463,7 +482,7 @@ export function CreateEmployeeModal({
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>User Name *</label>
-                <input
+                <UsernameInput
                   value={loginUsername}
                   onChange={(e) => {
                     setLoginUsername(e.target.value);
@@ -570,7 +589,8 @@ export function CreateEmployeeModal({
             </div>
 
             <p className="text-xs text-[var(--text-muted)]">
-              For a strong password, please use a hard to guess combination of text with upper and lower case characters, symbols and numbers
+              For a strong password, please use a hard to guess combination of text with upper and lower case characters, symbols and numbers.
+              The employee will be prompted to set a new password on their first sign-in.
             </p>
 
             <hr className="border-blue-100" />

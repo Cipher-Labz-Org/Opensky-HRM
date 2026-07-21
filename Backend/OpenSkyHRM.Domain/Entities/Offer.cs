@@ -18,6 +18,11 @@ public class Offer : AuditableEntity
     public DateTime? AcceptedAt { get; set; }
     public DateTime? RejectedAt { get; set; }
     public string? RejectionReason { get; set; }
+    /// <summary>Secret link token emailed to the candidate for accept / reject / negotiate.</summary>
+    public Guid? ResponseToken { get; set; }
+    public DateTime? SentAt { get; set; }
+    public DateTime? NegotiationRequestedAt { get; set; }
+    public string? NegotiationMessage { get; set; }
 
     public Guid CandidateId { get; set; }
     public Candidate Candidate { get; set; } = null!;

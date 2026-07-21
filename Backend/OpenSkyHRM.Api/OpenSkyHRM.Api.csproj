@@ -6,6 +6,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="3.7.415.28" />
     <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="Hangfire.AspNetCore" Version="1.8.23" />
     <PackageReference Include="Hangfire.Core" Version="1.8.23" />
@@ -32,6 +33,7 @@
     <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
     <Content Update="appsettings.Local.example.json" CopyToPublishDirectory="Never" />
     <Content Update="appsettings.Email.example.json" CopyToPublishDirectory="Never" />
+    <Content Update="appsettings.FileStorage.example.json" CopyToPublishDirectory="Never" />
     <Content Update="appsettings.Production.*.example.json" CopyToPublishDirectory="Never" />
   </ItemGroup>
 

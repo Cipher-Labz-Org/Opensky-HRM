@@ -66,6 +66,11 @@ public interface IRecruitmentService
     Task<OfferDto> ApproveOfferAsync(Guid id);
     Task<OfferDto> AcceptOfferAsync(Guid id);
     Task<OfferDto> RejectOfferAsync(Guid id, string? reason);
+    Task<string> EnsureOfferResponseUrlAsync(Guid offerId);
+    Task<PublicOfferResponseDto?> GetPublicOfferByTokenAsync(Guid token);
+    Task<PublicOfferResponseDto> AcceptOfferByTokenAsync(Guid token);
+    Task<PublicOfferResponseDto> RejectOfferByTokenAsync(Guid token, string? reason);
+    Task<PublicOfferResponseDto> NegotiateOfferByTokenAsync(Guid token, string message);
     Task<OfferEmailInfoDto?> GetOfferWithCandidateAsync(Guid offerId);
     Task<string> GetOfferLetterTemplateHtmlAsync();
     Task<string> PreviewOfferLetterAsync(PreviewOfferLetterDto dto);

@@ -16,6 +16,12 @@ export function TablePagination({
   className = "",
   alwaysShow = false,
   showPagePicker = true,
+  showSeeAll = false,
+  seeAllActive = false,
+  onSeeAll,
+  onShowPaged,
+  seeAllLabel = "See All",
+  showPagedLabel = "Show 25",
 }: {
   page: number;
   totalPages: number;
@@ -27,6 +33,13 @@ export function TablePagination({
   alwaysShow?: boolean;
   /** Allow typing or selecting a specific page number. */
   showPagePicker?: boolean;
+  /** Show a See All control when more records exist than one page. */
+  showSeeAll?: boolean;
+  seeAllActive?: boolean;
+  onSeeAll?: () => void;
+  onShowPaged?: () => void;
+  seeAllLabel?: string;
+  showPagedLabel?: string;
 }) {
   const [pageInput, setPageInput] = useState(String(page));
 
@@ -35,10 +48,7 @@ export function TablePagination({
   }, [page]);
 
   if (totalCount === 0) return null;
-  if (!alwaysShow && totalCount <= pageSize) return null;
-
-  const from = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
-  const to = Math.min(page * pageSize, totalCount);
+  if (!alwaysShow && totalCount <= pageSize && !seeAllActive) return null;
 
   function commitPageInput() {
     const parsed = parseInt(pageInput, 10);
@@ -56,11 +66,21 @@ export function TablePagination({
     "rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-30";
 
   return (
-    <div className={`flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 ${className}`.trim()}>
-      <span className="text-xs text-slate-500">
-        Showing {from}–{to} of {totalCount}
-      </span>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className={`grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-t border-slate-100 px-4 py-3 ${className}`.trim()}>
+      <div className="flex justify-start">
+        {showSeeAll && !seeAllActive && onSeeAll ? (
+          <button type="button" onClick={onSeeAll} className={navButtonClass}>
+            {seeAllLabel}
+          </button>
+        ) : null}
+        {showSeeAll && seeAllActive && onShowPaged ? (
+          <button type="button" onClick={onShowPaged} className={navButtonClass}>
+            {showPagedLabel}
+          </button>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-center gap-2">
         <button
           type="button"
           disabled={page <= 1}
@@ -106,6 +126,8 @@ export function TablePagination({
           Next
         </button>
       </div>
+
+      <div aria-hidden="true" />
     </div>
   );
 }

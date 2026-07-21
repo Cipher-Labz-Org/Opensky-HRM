@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { scrollAlertIntoView } from "@/lib/scroll-alert-into-view";
 import { ERROR_ALERT_DISMISS_MS, useAutoDismiss } from "@/lib/use-auto-dismiss";
 
 type FormErrorAlertProps = {
@@ -15,11 +16,17 @@ export function FormErrorAlert({
   onDismiss,
   className = "rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600",
 }: FormErrorAlertProps) {
+  const alertRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     if (message) setVisible(true);
   }, [message]);
+
+  useEffect(() => {
+    if (!message || !visible) return;
+    scrollAlertIntoView(alertRef.current);
+  }, [message, visible]);
 
   const dismiss = useCallback(() => {
     setVisible(false);
@@ -36,7 +43,7 @@ export function FormErrorAlert({
   if (!message || !visible) return null;
 
   return (
-    <div className={className} role="alert">
+    <div ref={alertRef} className={className} role="alert">
       {message}
     </div>
   );

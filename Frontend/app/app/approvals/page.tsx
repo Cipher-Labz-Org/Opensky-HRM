@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { Modal } from "@/components/ui/Modal";
 import { LeaveRequestsPanel } from "@/components/workforce/LeaveRequestsPanel";
@@ -346,9 +346,7 @@ function OvertimeApprovalsSection({ canApprove }: { canApprove: boolean }) {
         </Button>
       </div>
 
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 shadow-sm">{error}</div>
-      )}
+      <InlinePageAlert message={error} className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 shadow-sm scroll-mt-20" />
 
       <div className={`${panelClass} overflow-x-auto`}>
         <table className="hris-table min-w-[1100px]">

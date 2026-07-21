@@ -7,6 +7,7 @@ import {
   resolveAuthApiPath,
   tenantBackendUrl,
 } from "@/config/constants";
+import { resolveHttpErrorMessage } from "@/lib/api-errors";
 
 const PROFILE_FETCH_MS = 10_000;
 const LOGIN_FETCH_MS = 20_000;
@@ -61,6 +62,9 @@ interface UserProfile {
   licensedModules?: string[];
   /** When set and non-empty, People APIs limit this user to employees at these work locations. */
   assignedLocationIds?: string[];
+  assignedBusinessUnitIds?: string[];
+  assignedGradeIds?: string[];
+  assignedJobTitleIds?: string[];
   /** When true, app layout forces password change before other pages. */
   mustChangePassword?: boolean;
 }
@@ -79,6 +83,8 @@ interface AuthContextType {
   getLeaveReadScope: () => "Own" | "Team" | "All" | null;
   hasRole: (roleCode: string) => boolean;
   isAdmin: boolean;
+  /** True when the user has any People dimension scope (location, BU, grade, or job catalog). */
+  hasPeopleDimensionRestrictions: () => boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -96,6 +102,7 @@ const AuthContext = createContext<AuthContextType>({
   getLeaveReadScope: () => null,
   hasRole: () => false,
   isAdmin: false,
+  hasPeopleDimensionRestrictions: () => false,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -214,29 +221,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const text = await res.text();
     if (!res.ok) {
-      let msg = "Login failed";
-      if (/42P01|relation ["']?Instanc/i.test(text)) {
-        msg =
-          "Database is missing licensing tables. From the Backend folder run: dotnet ef database update --project OpenSkyHRM.Persistence --startup-project OpenSkyHRM.Api, then restart the API.";
-      } else {
-        try {
-          const errBody = JSON.parse(text) as { message?: string; detail?: string; title?: string };
-          msg = errBody.message || errBody.title || msg;
-          const detail = errBody.detail;
-          if (
-            detail &&
-            detail.length < 280 &&
-            !/Npgsql\.| at |\n|Exception \(0x/i.test(detail) &&
-            (msg === "Login failed" ||
-              /sign-in failed|database|migration|schema/i.test(msg))
-          ) {
-            msg = `${msg} ${detail}`.trim();
-          }
-        } catch {
-          if (text.trim()) msg = text.trim().slice(0, 200);
-        }
-      }
-      throw new Error(msg || "Invalid credentials");
+      throw new Error(
+        resolveHttpErrorMessage(text, {
+          status: res.status,
+          endpoint: "/api/auth/login",
+          backendUrl: tenantBackendUrl() || getApiBaseUrl() || API_BASE_URL,
+        }),
+      );
     }
 
     let data: { token: string; user: UserProfile };
@@ -291,6 +282,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAdmin = user ? roleListMatches(user.roles, "ADMIN") : false;
 
+  const hasPeopleDimensionRestrictions = (): boolean => {
+    if (!user) return false;
+    return (
+      (user.assignedLocationIds?.length ?? 0) > 0
+      || (user.assignedBusinessUnitIds?.length ?? 0) > 0
+      || (user.assignedGradeIds?.length ?? 0) > 0
+      || (user.assignedJobTitleIds?.length ?? 0) > 0
+    );
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -306,6 +307,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         getLeaveReadScope,
         hasRole,
         isAdmin,
+        hasPeopleDimensionRestrictions,
       }}
     >
       {children}
