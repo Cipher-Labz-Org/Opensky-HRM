@@ -25,6 +25,8 @@ interface ReportItem {
 interface ReportCategory { key: string; name: string; icon: string; reports: ReportItem[]; }
 interface DepartmentOption { id: string; name: string; }
 interface LocationOption { id: string; name: string; }
+interface GradeOption { id: string; name: string; }
+interface EmployeeStatusOption { id: string; name: string; code: string; }
 interface ReportResult { reportName: string; generatedAt: string; columns: string[]; rows: Record<string, unknown>[]; totalRows: number; }
 
 /**
@@ -41,7 +43,9 @@ function getReportCell(row: Record<string, unknown>, column: string): unknown {
 }
 
 /** Query keys mirrored in the address bar for shareable report links. */
-const REPORT_URL_FILTER_KEYS = ["departmentId", "locationId", "employeeName", "from", "to", "year", "month", "date"] as const;
+const REPORT_URL_FILTER_KEYS = ["departmentId", "locationId", "employeeName", "status", "gradeId", "from", "to", "year", "month", "date"] as const;
+
+const EMPLOYEE_MASTER_REPORT_KEY = "employee-master";
 
 function readUrlReportFilterOverrides(sp: { get: (key: string) => string | null }): Record<string, string> {
   const out: Record<string, string> = {};
@@ -99,6 +103,8 @@ function mergeUrlFiltersIntoReportParams(
   if (item.supportsDepartmentFilter && url.departmentId) merged.departmentId = url.departmentId;
   if (item.supportsDepartmentFilter && url.locationId) merged.locationId = url.locationId;
   if (item.supportsDepartmentFilter && url.employeeName) merged.employeeName = url.employeeName;
+  if (item.key === EMPLOYEE_MASTER_REPORT_KEY && url.status) merged.status = url.status;
+  if (item.key === EMPLOYEE_MASTER_REPORT_KEY && url.gradeId) merged.gradeId = url.gradeId;
   const mode = item.periodFilterMode || "none";
   if (mode === "dateRange") {
     if (url.from) merged.from = url.from;
@@ -156,6 +162,8 @@ function buildReportUrlQuery(
   if (item.supportsDepartmentFilter && mergedParams.departmentId) qs.set("departmentId", mergedParams.departmentId);
   if (item.supportsDepartmentFilter && mergedParams.locationId) qs.set("locationId", mergedParams.locationId);
   if (item.supportsDepartmentFilter && mergedParams.employeeName) qs.set("employeeName", mergedParams.employeeName);
+  if (item.key === EMPLOYEE_MASTER_REPORT_KEY && mergedParams.status) qs.set("status", mergedParams.status);
+  if (item.key === EMPLOYEE_MASTER_REPORT_KEY && mergedParams.gradeId) qs.set("gradeId", mergedParams.gradeId);
   const mode = item.periodFilterMode || "none";
   if (mode === "dateRange") {
     if (mergedParams.from) qs.set("from", mergedParams.from);
@@ -269,9 +277,13 @@ export default function ReportsPage() {
 
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [locations, setLocations] = useState<LocationOption[]>([]);
+  const [grades, setGrades] = useState<GradeOption[]>([]);
+  const [employeeStatuses, setEmployeeStatuses] = useState<EmployeeStatusOption[]>([]);
   const [filterDepartmentId, setFilterDepartmentId] = useState("");
   const [filterLocationId, setFilterLocationId] = useState("");
   const [filterEmployeeName, setFilterEmployeeName] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterGradeId, setFilterGradeId] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [filterYear, setFilterYear] = useState("");
@@ -292,6 +304,12 @@ export default function ReportsPage() {
     apiFetch<LocationOption[]>("/api/organization/locations")
       .then((rows) => setLocations(Array.isArray(rows) ? rows.map((l) => ({ id: l.id, name: l.name })) : []))
       .catch(() => setLocations([]));
+    apiFetch<GradeOption[]>("/api/organization/grades")
+      .then((rows) => setGrades(Array.isArray(rows) ? rows.map((g) => ({ id: g.id, name: g.name })) : []))
+      .catch(() => setGrades([]));
+    apiFetch<EmployeeStatusOption[]>("/api/organization/employee-statuses")
+      .then((rows) => setEmployeeStatuses(Array.isArray(rows) ? rows : []))
+      .catch(() => setEmployeeStatuses([]));
   }, []);
 
   const visibleLocations = useMemo(
@@ -299,10 +317,17 @@ export default function ReportsPage() {
     [locations, user?.assignedLocationIds],
   );
 
+  const visibleGrades = useMemo(
+    () => filterLookupsByAllowedIds(grades, user?.assignedGradeIds),
+    [grades, user?.assignedGradeIds],
+  );
+
   function syncFilterInputsFromParams(params: Record<string, string>) {
     setFilterDepartmentId(params.departmentId ?? "");
     setFilterLocationId(params.locationId ?? "");
     setFilterEmployeeName(params.employeeName ?? "");
+    setFilterStatus(params.status ?? "");
+    setFilterGradeId(params.gradeId ?? "");
     setFilterFrom(params.from ?? "");
     setFilterTo(params.to ?? "");
     setFilterYear(params.year ?? "");
@@ -331,6 +356,10 @@ export default function ReportsPage() {
       p.locationId = filterLocationId.trim();
     if (item.supportsDepartmentFilter && filterEmployeeName.trim())
       p.employeeName = filterEmployeeName.trim();
+    if (item.key === EMPLOYEE_MASTER_REPORT_KEY && filterStatus.trim())
+      p.status = filterStatus.trim();
+    if (item.key === EMPLOYEE_MASTER_REPORT_KEY && filterGradeId.trim())
+      p.gradeId = filterGradeId.trim();
     const mode = item.periodFilterMode || "none";
     if (mode === "dateRange") {
       if (filterFrom) p.from = filterFrom;
@@ -736,6 +765,34 @@ export default function ReportsPage() {
                     onChange={(e) => setFilterEmployeeName(e.target.value)}
                     placeholder="Name or employee code"
                     className="h-[42px] w-full rounded-xl border border-slate-200/90 bg-white px-3 text-sm text-slate-800 shadow-sm outline-none focus:border-[#2E7BBF] focus:ring-[3px] focus:ring-[#2E7BBF]/20"
+                  />
+                </div>
+              )}
+              {activeReportDef.key === EMPLOYEE_MASTER_REPORT_KEY && (
+                <div className="w-[10.5rem] shrink-0">
+                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Status</label>
+                  <FormSelect
+                    value={filterStatus}
+                    onValueChange={setFilterStatus}
+                    placeholder="All statuses"
+                    options={[
+                      { value: "", label: "All statuses" },
+                      ...employeeStatuses.map((s) => ({ value: s.name, label: s.name })),
+                    ]}
+                  />
+                </div>
+              )}
+              {activeReportDef.key === EMPLOYEE_MASTER_REPORT_KEY && (
+                <div className="w-[10.5rem] shrink-0">
+                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Grade</label>
+                  <FormSelect
+                    value={filterGradeId}
+                    onValueChange={setFilterGradeId}
+                    placeholder="All grades"
+                    options={[
+                      { value: "", label: "All grades" },
+                      ...visibleGrades.map((g) => ({ value: g.id, label: g.name })),
+                    ]}
                   />
                 </div>
               )}
