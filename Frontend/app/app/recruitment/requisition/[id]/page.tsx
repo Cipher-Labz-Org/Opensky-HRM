@@ -35,7 +35,6 @@ interface RequisitionDetail {
   salaryMax?: number;
   salaryCurrency?: string;
   skills?: string;
-  closedAt?: string;
   departmentName?: string;
   departmentId: string;
   jobTitleName?: string;

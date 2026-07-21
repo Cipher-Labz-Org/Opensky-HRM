@@ -1,5 +1,3 @@
-import { formatSalaryRange } from "@/lib/salary-currency";
-
 /** Snapshot of requisition form values used to build a draft job description. */
 export type RequisitionDescriptionSnapshot = {
   title: string;
@@ -31,6 +29,17 @@ function expRange(min: string, max: string): string | null {
   if (hasMin && hasMax) return `${min}–${max} years`;
   if (hasMin) return `at least ${min} years`;
   if (hasMax) return `up to ${max} years`;
+  return null;
+}
+
+function salaryRange(min: string, max: string, currency: string): string | null {
+  const hasMin = min !== "" && !Number.isNaN(Number(min));
+  const hasMax = max !== "" && !Number.isNaN(Number(max));
+  const cur = currency.trim() || "";
+  const prefix = cur ? `${cur} ` : "";
+  if (hasMin && hasMax) return `${prefix}${min} – ${max}`;
+  if (hasMin) return `${prefix}from ${min}`;
+  if (hasMax) return `${prefix}up to ${max}`;
   return null;
 }
 
@@ -69,12 +78,8 @@ export function generateRequisitionDescription(s: RequisitionDescriptionSnapshot
   }
   const exp = expRange(s.experienceMin, s.experienceMax);
   if (exp) detailLines.push(`• Experience: ${exp}`);
-  const sal = formatSalaryRange(
-    s.salaryMin !== "" && !Number.isNaN(Number(s.salaryMin)) ? Number(s.salaryMin) : null,
-    s.salaryMax !== "" && !Number.isNaN(Number(s.salaryMax)) ? Number(s.salaryMax) : null,
-    s.salaryCurrency,
-  );
-  if (sal) detailLines.push(`• Compensation band: ${sal}`);
+  const sal = salaryRange(s.salaryMin, s.salaryMax, s.salaryCurrency);
+  if (sal) detailLines.push(`• Compensation band (numbers as entered on the form): ${sal}`);
   if (nonEmpty(s.targetDate)) detailLines.push(`• Target hire / start date: ${s.targetDate}`);
   if (nonEmpty(s.hiringManagerName)) detailLines.push(`• Hiring manager / point of contact: ${s.hiringManagerName}`);
   if (detailLines.length === 0) {

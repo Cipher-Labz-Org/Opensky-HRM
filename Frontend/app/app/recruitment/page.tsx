@@ -15,6 +15,7 @@ import { ROUTES } from "@/config/routes";
 import { apiFetch } from "@/lib/api";
 import { modalShellWidthClass } from "@/lib/modal-layout";
 import { formatBusinessDateTime, formatDate } from "@/lib/date-utils";
+import { currencySelectOptions, DEFAULT_CURRENCY } from "@/lib/currencies";
 import { type EmploymentTypeCatalogItem, employmentTypeSelectOptions } from "@/lib/employment-types";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { formatRecruitmentActivityDescription } from "@/lib/recruitment-activity";
@@ -1600,8 +1601,8 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
             ? Number(form.experienceMax)
             : null,
           salaryMin: form.salaryMin, salaryMax: form.salaryMax,
-          salaryCurrency: normalizeSalaryCurrency(form.salaryCurrency),
-          skills: parseRequisitionSkills(form.skills).join(", "),
+          salaryCurrency: form.salaryCurrency || null,
+          skills: form.skills || null,
           departmentId: form.departmentId, jobTitleId: form.jobTitleId || null,
           hiringManagerId: form.hiringManagerId || null,
           workLocation: String(form.workLocation ?? "").trim(),
@@ -1699,10 +1700,9 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Salary currency</label>
               <FormSelect
-                value={form.salaryCurrency || DEFAULT_SALARY_CURRENCY}
+                value={form.salaryCurrency || DEFAULT_CURRENCY}
                 onValueChange={(v) => setForm({ ...form, salaryCurrency: v })}
-                options={SALARY_CURRENCY_FORM_OPTIONS}
-                clearable={false}
+                options={currencySelectOptions()}
               />
             </div>
             <div>

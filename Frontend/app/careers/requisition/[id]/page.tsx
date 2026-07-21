@@ -33,7 +33,6 @@ interface PublicRequisition {
   salaryMax?: number;
   salaryCurrency?: string;
   skills?: string;
-  departmentName?: string;
   departmentId: string;
   jobTitleName?: string;
   jobTitleId?: string;

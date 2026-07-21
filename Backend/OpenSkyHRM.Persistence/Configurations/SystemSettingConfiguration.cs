@@ -33,6 +33,12 @@ public class SystemSettingConfiguration : IEntityTypeConfiguration<SystemSetting
                 Key = "EmployeeCodePrefix",
                 Value = "EMP",
                 Description = "Prefix for auto-generated employee codes (e.g. EMP → EMP-000001)"
+            },
+            new SystemSetting
+            {
+                Key = "DefaultCurrency",
+                Value = "LKR",
+                Description = "Default ISO 4217 currency for salary ranges and recruitment offers"
             }
         );
     }

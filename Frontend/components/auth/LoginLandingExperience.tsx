@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef, type FormEvent, type CSSProperties } from "react";
-import React from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import Link from "next/link";
-import { CompanyLogoDisplay } from "@/components/branding/CompanyLogoDisplay";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { useAuth } from "../../contexts/auth-context";
 import { resolveAuthApiPath } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
+import { OPENSKY_THEME, softCardShadow, softPageBackground } from "@/lib/opensky-theme";
+import { LoginWelcomePanel } from "@/components/auth/LoginWelcomePanel";
 import { resolveCompanyLogoSrc, parseLogoDisplaySettings } from "@/lib/company-branding";
 
 type Branding = {
@@ -17,6 +17,8 @@ type Branding = {
   loginLogoOffsetX: number;
   loginLogoOffsetY: number;
 };
+
+const T = OPENSKY_THEME;
 
 const LOGIN_MOTIVATION_SLIDES: readonly { headline: string; sub: string }[] = [
   { headline: "People-first HR, built for teams that move fast.", sub: "Let's get connected." },
@@ -29,36 +31,10 @@ const LOGIN_MOTIVATION_SLIDES: readonly { headline: string; sub: string }[] = [
   { headline: "When people feel seen, they bring their best work.", sub: "Recognition matters." },
 ];
 
-/**
- * Optional carousel under `public/login-bg/`. Files are not in git by default — set
- * NEXT_PUBLIC_LOGIN_BG_IMAGES=1 after adding 01.jpg–10.jpg to enable.
- */
-const LOGIN_BACKGROUND_IMAGES: readonly string[] =
-  process.env.NEXT_PUBLIC_LOGIN_BG_IMAGES === "1"
-    ? [
-        "/login-bg/01.jpg",
-        "/login-bg/02.jpg",
-        "/login-bg/03.jpg",
-        "/login-bg/04.jpg",
-        "/login-bg/05.jpg",
-        "/login-bg/06.jpg",
-        "/login-bg/07.jpg",
-        "/login-bg/08.jpg",
-        "/login-bg/09.jpg",
-        "/login-bg/10.jpg",
-      ]
-    : [];
-
 const LOGIN_QUOTE_SESSION_KEY = "opensky.loginQuoteIndex";
 
-const pageBackdropStyle: CSSProperties = {
-  backgroundColor: "#e8f1f9",
-  backgroundImage:
-    "radial-gradient(ellipse 100% 80% at 50% -20%, rgba(26,146,213,0.18), transparent 55%), radial-gradient(ellipse 80% 50% at 100% 100%, rgba(46,123,191,0.12), transparent 45%), linear-gradient(165deg, #eef5fb 0%, #e2edf7 50%, #d8e8f4 100%)",
-};
-
 /**
- * Two-column glass + gradient sign-in (landing reference). Shared by `/` and `/login`.
+ * OpenSky-branded sign-in — theme colors only (navy, green, teal on soft blue background).
  */
 export function LoginLandingExperience() {
   const { login, user, isAuthenticated, isLoading } = useAuth();
@@ -70,7 +46,6 @@ export function LoginLandingExperience() {
   const [submitting, setSubmitting] = useState(false);
   const [motivationSlide, setMotivationSlide] = useState(-1);
   const loginQuotePickCommittedRef = useRef(false);
-  const [loginBgFailed, setLoginBgFailed] = useState(LOGIN_BACKGROUND_IMAGES.length === 0);
   const [branding, setBranding] = useState<Branding>({
     companyName: "",
     companyLogoUrl: null,
@@ -83,10 +58,6 @@ export function LoginLandingExperience() {
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  useEffect(() => {
-    if (LOGIN_BACKGROUND_IMAGES.length > 0) setLoginBgFailed(false);
-  }, [motivationSlide]);
 
   useEffect(() => {
     let isMounted = true;
@@ -139,18 +110,16 @@ export function LoginLandingExperience() {
     setMotivationSlide(next);
   }, [mounted, isAuthenticated]);
 
-  if (!mounted) {
+  if (!mounted || isAuthenticated) {
     return (
-      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center" style={pageBackdropStyle}>
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#b8d4ef] border-t-[#1a92d5]" />
-      </div>
-    );
-  }
-
-  if (isAuthenticated) {
-    return (
-      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center" style={pageBackdropStyle}>
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#b8d4ef] border-t-[#1a92d5]" />
+      <div
+        className="flex min-h-screen min-h-[100dvh] items-center justify-center"
+        style={{ backgroundColor: T.background }}
+      >
+        <div
+          className="h-10 w-10 animate-spin rounded-full border-4"
+          style={{ borderColor: T.border, borderTopColor: T.action }}
+        />
       </div>
     );
   }
@@ -169,125 +138,140 @@ export function LoginLandingExperience() {
     }
   }
 
-  const loginBgSlide = motivationSlide >= 0 ? motivationSlide % LOGIN_BACKGROUND_IMAGES.length : 0;
-  const loginBackdropImage = LOGIN_BACKGROUND_IMAGES[loginBgSlide];
-
   return (
-    <div className="relative isolate min-h-screen min-h-[100dvh] overflow-x-hidden bg-[#e8f2fa]">
-      {/*
-        Use non-negative z-index inside `isolate` so layers paint above body — negative z-index
-        on fixed elements can sit behind the root/body paint and disappear entirely.
-      */}
-      <div key={loginBgSlide} className="login-bg-layer pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden>
-        <div className="absolute inset-0 bg-[#dfeaf5]" />
-        {!loginBgFailed ? (
-          // eslint-disable-next-line @next/next/no-img-element -- full-bleed static asset from /public
-          <img
-            src={loginBackdropImage}
-            alt=""
-            className="absolute inset-0 h-full w-full scale-[1.03] transform object-cover object-center blur-[12px] saturate-[0.92]"
-            fetchPriority={loginBgSlide === 0 ? "high" : "low"}
-            decoding="async"
-            onError={() => setLoginBgFailed(true)}
-          />
-        ) : (
-          <div
-            className="absolute inset-0"
-            aria-hidden
-            style={{
-              background:
-                "radial-gradient(120% 80% at 20% 20%, rgba(91,164,229,0.35), transparent 50%), radial-gradient(90% 70% at 85% 75%, rgba(58,134,202,0.28), transparent 52%), linear-gradient(165deg, #e8f2fa 0%, #dceaf6 45%, #cfe2f5 100%)",
-            }}
-          />
-        )}
-        {/* Light wash only — photo should read clearly */}
-        <div className="absolute inset-0 bg-gradient-to-br from-white/35 via-sky-50/15 to-sky-200/25" aria-hidden />
-      </div>
-
+    <div
+      className="relative isolate min-h-screen min-h-[100dvh] overflow-x-hidden"
+      style={{ backgroundColor: T.background, backgroundImage: softPageBackground }}
+    >
       <div className="relative z-10 flex min-h-screen min-h-[100dvh] items-center justify-center p-4 py-10 sm:p-8">
-        <main className="grid w-full max-w-[940px] overflow-hidden rounded-[25px] border border-white/40 bg-white/5 shadow-[0_24px_64px_rgba(15,23,42,0.28)] md:min-h-[min(520px,88vh)] md:grid-cols-2 md:rounded-[25px]">
-          {/* Left — glass sign-in */}
-          <div className="flex flex-col justify-center border-b border-white/20 bg-white/60 px-8 py-10 backdrop-blur-[10px] sm:px-11 sm:py-12 md:border-b-0 md:border-r md:border-white/25">
-            <h1 className="text-center text-2xl font-bold tracking-tight text-slate-900 sm:text-left sm:text-[1.65rem]">
-              Let&apos;s sign in
-            </h1>
-            <div className="mx-auto mt-3 h-[3px] w-12 rounded-full bg-[#1a92d5] sm:mx-0" aria-hidden />
+        <main
+          className="grid w-full max-w-[960px] overflow-hidden rounded-[28px] border bg-white md:min-h-[min(540px,88vh)] md:grid-cols-[1.05fr_0.95fr]"
+          style={{ borderColor: T.border, boxShadow: softCardShadow }}
+        >
+          {/* Left — sign-in form */}
+          <div className="flex flex-col justify-center px-8 py-10 sm:px-11 sm:py-12">
+            <div className="mb-8">
+              <Image
+                src="/opensky-hrm-logo.png"
+                alt="OpenSky HRM"
+                width={220}
+                height={56}
+                className="h-12 w-auto object-contain sm:h-14"
+                priority
+              />
+            </div>
 
-            <p className="mt-4 text-center text-sm text-slate-600 sm:text-left">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: T.accent }} aria-hidden />
+              <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: T.muted }}>
+                {branding.companyName || "Welcome back"}
+              </span>
+            </div>
+            <h1
+              className="mt-2 text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem]"
+              style={{ color: T.navy }}
+            >
+              Sign in
+            </h1>
+            <p className="mt-2 text-sm" style={{ color: T.muted }}>
               {branding.companyName ? (
-                <>Sign in to <span className="font-semibold text-slate-800">{branding.companyName}</span></>
+                <>
+                  Access your{" "}
+                  <span className="font-semibold" style={{ color: T.navyMid }}>
+                    {branding.companyName}
+                  </span>{" "}
+                  workspace
+                </>
               ) : (
-                <>Sign in to your OpenSky HRM workspace</>
+                "Enter your credentials to access your workspace"
               )}
             </p>
 
-            <form onSubmit={handleSubmit} className="mt-9">
+            <form onSubmit={handleSubmit} className="mt-8">
               <FormErrorAlert
                 message={error}
                 onDismiss={() => setError("")}
                 className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
               />
 
-              <div className="mb-7">
-                <div className="flex items-center gap-3 border-b border-[#add8e6] pb-2.5 transition-colors focus-within:border-[#1a92d5]">
-                  <span className="text-[#1a92d5]" aria-hidden>
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
-                      />
-                    </svg>
-                  </span>
-                  <input
-                    id="email"
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    required
-                    autoFocus
-                    autoComplete="username"
-                    placeholder="Enter your email or username"
-                    className="w-full border-0 bg-transparent py-2 text-[15px] text-slate-900 outline-none placeholder:text-[#8eb8d9]"
-                  />
-                </div>
-              </div>
-
-              <div className="mb-5">
-                <div className="flex items-center gap-3 border-b border-[#add8e6] pb-2.5 transition-colors focus-within:border-[#1a92d5]">
-                  <span className="text-[#1a92d5]" aria-hidden>
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
-                      />
-                    </svg>
-                  </span>
-                  <input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                    placeholder="Enter your password"
-                    className="w-full border-0 bg-transparent py-2 text-[15px] text-slate-900 outline-none placeholder:text-[#8eb8d9]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="shrink-0 text-xs font-semibold uppercase tracking-wide text-[#2E7BBF] hover:text-[#1a92d5]"
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="email" className="mb-1.5 block text-xs font-medium" style={{ color: T.muted }}>
+                    Username or email
+                  </label>
+                  <div
+                    className="flex items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors focus-within:border-[#28A9E0]"
+                    style={{ borderColor: T.border, backgroundColor: T.surface }}
                   >
-                    {showPassword ? "Hide" : "Show"}
-                  </button>
+                    <span style={{ color: T.action }} aria-hidden>
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
+                        />
+                      </svg>
+                    </span>
+                    <input
+                      id="email"
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      required
+                      autoFocus
+                      autoComplete="username"
+                      placeholder="Enter your email or username"
+                      className="w-full border-0 bg-transparent py-1 text-[15px] outline-none placeholder:text-[#94A3B8]"
+                      style={{ color: T.navy }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="password" className="mb-1.5 block text-xs font-medium" style={{ color: T.muted }}>
+                    Password
+                  </label>
+                  <div
+                    className="flex items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors focus-within:border-[#28A9E0]"
+                    style={{ borderColor: T.border, backgroundColor: T.surface }}
+                  >
+                    <span style={{ color: T.action }} aria-hidden>
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
+                        />
+                      </svg>
+                    </span>
+                    <input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      autoComplete="current-password"
+                      placeholder="Enter your password"
+                      className="w-full border-0 bg-transparent py-1 text-[15px] outline-none placeholder:text-[#94A3B8]"
+                      style={{ color: T.navy }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="shrink-0 text-xs font-semibold uppercase tracking-wide hover:opacity-80"
+                      style={{ color: T.navyMid }}
+                    >
+                      {showPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="mb-7 text-right">
+              <div className="mb-6 mt-4 text-right">
                 <Link
                   href={ROUTES.forgotPassword}
-                  className="text-sm font-semibold text-[#1a92d5] hover:text-[#157fc0] hover:underline"
+                  className="text-sm font-semibold hover:underline"
+                  style={{ color: T.action }}
                 >
                   Forgot password?
                 </Link>
@@ -296,7 +280,12 @@ export function LoginLandingExperience() {
               <button
                 type="submit"
                 disabled={submitting || !username || !password}
-                className="h-[50px] w-full rounded-full bg-[#3a86ca] text-[15px] font-bold tracking-wide text-white shadow-[0_8px_24px_rgba(58,134,202,0.38)] transition hover:bg-[#2f75b5] disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none"
+                className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[15px] font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
+                style={{
+                  backgroundColor: T.action,
+                  boxShadow:
+                    submitting || !username || !password ? "none" : "0 8px 24px rgba(40,169,224,0.35)",
+                }}
               >
                 {submitting ? (
                   <span className="flex items-center justify-center gap-2">
@@ -307,63 +296,40 @@ export function LoginLandingExperience() {
                     Signing in…
                   </span>
                 ) : (
-                  "Login"
+                  <>
+                    Sign in
+                    <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.25}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                    </svg>
+                  </>
                 )}
               </button>
             </form>
 
-            <p className="mt-8 text-center text-sm text-slate-600 sm:text-left">
+            <p className="mt-8 text-sm" style={{ color: T.muted }}>
               Need access?{" "}
-              <Link href={ROUTES.contact} className="font-semibold text-[#1a92d5] hover:text-[#157fc0] hover:underline">
+              <Link href={ROUTES.contact} className="font-semibold hover:underline" style={{ color: T.navyMid }}>
                 Contact us
               </Link>
             </p>
           </div>
 
-          {/* Right — welcome panel */}
-          <div className="relative isolate flex min-h-[280px] flex-col overflow-hidden md:min-h-0">
-            <div className="absolute inset-0 bg-gradient-to-b from-[#5ba4e5] to-[#3a86ca]" aria-hidden />
-            <div
-              className="absolute inset-0 opacity-[0.2]"
-              style={{
-                backgroundImage:
-                  "radial-gradient(circle at 30% 20%, rgba(255,255,255,0.5) 0, transparent 45%), radial-gradient(circle at 70% 85%, rgba(255,255,255,0.28) 0, transparent 40%)",
-              }}
-              aria-hidden
-            />
-
-            <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-8 py-11 text-center sm:px-10 sm:py-14 md:min-h-[min(520px,88vh)] md:py-16">
-              <div className="mb-7 flex shrink-0 justify-center sm:mb-8">
-                <div className="flex h-[104px] w-[104px] shrink-0 overflow-hidden rounded-full bg-white shadow-[0_12px_32px_rgba(15,76,120,0.25)] ring-2 ring-white/70 sm:h-[116px] sm:w-[116px]">
-                  <CompanyLogoDisplay
-                      src={companyLogoSrc}
-                      alt={branding.companyName || "OpenSky HRM"}
-                      fit="circle"
-                      scale={branding.loginLogoScale}
-                      offsetX={branding.loginLogoOffsetX}
-                      offsetY={branding.loginLogoOffsetY}
-                      fallbackSrc="/brand-logo.svg"
-                  />
-                </div>
-              </div>
-
-              <p className="mb-6 font-sans text-[2.125rem] font-bold leading-[1.12] tracking-tight text-white drop-shadow sm:mb-7 sm:text-5xl">
-                Welcome back
-              </p>
-
-              {motivationSlide >= 0 ? (
-                <div key={motivationSlide} className="login-quote-slide mt-1 max-w-[18rem]" role="region" aria-label="Welcome message">
-                  <p className="text-lg font-semibold leading-snug text-white drop-shadow-sm sm:text-xl">{LOGIN_MOTIVATION_SLIDES[motivationSlide].headline}</p>
-                  <p className="mt-3 text-sm font-medium text-white/90 sm:text-base">{LOGIN_MOTIVATION_SLIDES[motivationSlide].sub}</p>
-                </div>
-              ) : (
-                <div className="mt-1 max-w-[18rem] space-y-3" aria-hidden>
-                  <div className="mx-auto h-7 w-full max-w-[260px] rounded-md bg-white/15" />
-                  <div className="mx-auto h-4 w-[75%] max-w-[200px] rounded-md bg-white/10" />
-                </div>
-              )}
-            </div>
-          </div>
+          {/* Right — welcome hero */}
+          <LoginWelcomePanel
+            companyLogoSrc={companyLogoSrc || "/opensky-hrm-logo.png"}
+            companyName={branding.companyName || "OpenSky HRM"}
+            headline={
+              motivationSlide >= 0
+                ? LOGIN_MOTIVATION_SLIDES[motivationSlide].headline
+                : LOGIN_MOTIVATION_SLIDES[0].headline
+            }
+            sub={
+              motivationSlide >= 0
+                ? LOGIN_MOTIVATION_SLIDES[motivationSlide].sub
+                : LOGIN_MOTIVATION_SLIDES[0].sub
+            }
+            quoteReady={motivationSlide >= 0}
+          />
         </main>
       </div>
     </div>

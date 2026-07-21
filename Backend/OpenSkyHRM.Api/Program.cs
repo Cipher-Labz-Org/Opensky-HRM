@@ -75,6 +75,19 @@ static async Task EnsureDatabaseExistsAsync(string? connectionString)
     }
 }
 
+// --- Data Protection (before Application — API key encryption) ---
+// Persist the key ring to a folder that travels with the app instead of the
+// per-user DPAPI store. Under IIS the app-pool identity often has no loaded
+// user profile, so the default DPAPI-protected keys cannot be read/created and
+// the app fails to start (CryptographicException). A stable file location keeps
+// keys working regardless of the hosting identity.
+var dataProtectionKeysPath = Path.Combine(builder.Environment.ContentRootPath, "keys");
+Directory.CreateDirectory(dataProtectionKeysPath);
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
+    .SetApplicationName("OpenSkyHRM");
+builder.Services.AddSingleton<IApiKeyProtector, ApiKeyProtector>();
+
 // --- Layer DI Registration ---
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
@@ -87,18 +100,6 @@ if (string.Equals(fileStorageProvider, "S3", StringComparison.OrdinalIgnoreCase)
     builder.Services.AddSingleton<IFileStorageService, S3FileStorageService>();
 else
     builder.Services.AddSingleton<IFileStorageService, LocalFileStorageService>();
-
-// --- Data Protection ---
-// Persist the key ring to a folder that travels with the app instead of the
-// per-user DPAPI store. Under IIS the app-pool identity often has no loaded
-// user profile, so the default DPAPI-protected keys cannot be read/created and
-// the app fails to start (CryptographicException). A stable file location keeps
-// keys working regardless of the hosting identity.
-var dataProtectionKeysPath = Path.Combine(builder.Environment.ContentRootPath, "keys");
-Directory.CreateDirectory(dataProtectionKeysPath);
-builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
-    .SetApplicationName("OpenSkyHRM");
 
 // --- JWT Authentication ---
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "OpenSkyHRM-Default-Key-256bit-ChangeMe!!";
@@ -201,12 +202,21 @@ var localNextDevOrigins = Enumerable.Range(0, 11)
     })
     .ToArray();
 
+// Expo / Metro web dev server (8081, 8082, …)
+var localExpoDevOrigins = Enumerable.Range(0, 11)
+    .SelectMany(p =>
+    {
+        var port = 8081 + p;
+        return new[] { $"http://localhost:{port}", $"http://127.0.0.1:{port}" };
+    })
+    .ToArray();
+
 var configuredCors = builder.Configuration.GetSection("Cors:Origins").Get<string[]>();
 string[] corsOrigins;
 if (configuredCors is { Length: > 0 })
 {
     corsOrigins = builder.Environment.IsDevelopment()
-        ? configuredCors.Concat(localNextDevOrigins).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+        ? configuredCors.Concat(localNextDevOrigins).Concat(localExpoDevOrigins).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
         : configuredCors;
 }
 else
@@ -332,6 +342,7 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await LicensingSeeder.EnsureAsync(db);
+        scope.ServiceProvider.GetRequiredService<OpenSkyHRM.Application.Interfaces.ILicensingService>().InvalidateCache();
         await OrganizationSeeder.RepairNullEmployeeEmailsAsync(db);
         await OrganizationSeeder.EnsureSampleEmployeesIfEmptyAsync(db);
         await PayrollSeeder.EnsureStatutoryFormulasAsync(db);
@@ -354,6 +365,7 @@ if (dbAvailable)
                 db, year, OpenSkyHRM.Domain.Entities.HolidayCountryCodes.LK);
         }
         await OpenSkyHRM.Persistence.Seeders.LearningSeeder.EnsureCatalogAsync(db);
+        await RequisitionSkillTemplateSeeder.EnsureAsync(db);
         await OpenSkyHRM.Persistence.Seeders.TransactionalEmailTemplateSeeder.EnsureAsync(db);
         await OpenSkyHRM.Persistence.Seeders.DocumentTemplateSeeder.EnsureLetterPackAsync(db);
     }
@@ -485,6 +497,11 @@ if (dbAvailable)
             "employee-birthday-digest",
             job => job.ExecuteAsync(CancellationToken.None),
             Hangfire.Cron.Daily(6, 0));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.AiDataRetentionJob>(
+            "ai-data-retention",
+            job => job.ExecuteAsync(CancellationToken.None),
+            Hangfire.Cron.Daily(2, 0));
     }
     catch (Exception ex)
     {

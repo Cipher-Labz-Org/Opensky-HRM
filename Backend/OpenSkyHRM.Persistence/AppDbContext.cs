@@ -57,6 +57,7 @@ public class AppDbContext : DbContext
 
     // Recruitment & Onboarding
     public DbSet<Requisition> Requisitions => Set<Requisition>();
+    public DbSet<RequisitionSkillTemplate> RequisitionSkillTemplates => Set<RequisitionSkillTemplate>();
     public DbSet<Candidate> Candidates => Set<Candidate>();
     public DbSet<Interview> Interviews => Set<Interview>();
     public DbSet<Offer> Offers => Set<Offer>();
@@ -137,6 +138,12 @@ public class AppDbContext : DbContext
     public DbSet<LicensedModule> LicensedModules => Set<LicensedModule>();
     public DbSet<InstanceSubscription> InstanceSubscriptions => Set<InstanceSubscription>();
     public DbSet<InstanceModuleEntitlement> InstanceModuleEntitlements => Set<InstanceModuleEntitlement>();
+
+    // OpenSky AI (AiAssistant)
+    public DbSet<AiConversation> AiConversations => Set<AiConversation>();
+    public DbSet<AiMessage> AiMessages => Set<AiMessage>();
+    public DbSet<AiMessageFeedback> AiMessageFeedbacks => Set<AiMessageFeedback>();
+    public DbSet<AiToolAuditLog> AiToolAuditLogs => Set<AiToolAuditLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

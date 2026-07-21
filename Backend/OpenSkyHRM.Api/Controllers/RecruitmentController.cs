@@ -24,17 +24,23 @@ namespace OpenSkyHRM.Api.Controllers;
 public class RecruitmentController : ControllerBase
 {
     private readonly IRecruitmentService _svc;
+    private readonly IRequisitionSkillSuggestionService _skillSuggestions;
+    private readonly IOpenAiSkillSuggestionService _aiSkillSuggestions;
     private readonly IEmployeeService _employeeService;
     private readonly AppDbContext _db;
     private readonly IFileStorageService _files;
 
     public RecruitmentController(
         IRecruitmentService svc,
+        IRequisitionSkillSuggestionService skillSuggestions,
+        IOpenAiSkillSuggestionService aiSkillSuggestions,
         IEmployeeService employeeService,
         AppDbContext db,
         IFileStorageService files)
     {
         _svc = svc;
+        _skillSuggestions = skillSuggestions;
+        _aiSkillSuggestions = aiSkillSuggestions;
         _employeeService = employeeService;
         _db = db;
         _files = files;
@@ -127,6 +133,58 @@ public class RecruitmentController : ControllerBase
     {
         try { return Ok(await _svc.CloseRequisitionAsync(id)); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpGet("skill-suggestions")]
+    public async Task<IActionResult> GetSkillSuggestions(
+        [FromQuery] string? title = null,
+        [FromQuery] Guid? jobTitleId = null)
+        => Ok(await _skillSuggestions.GetSuggestionsAsync(title, jobTitleId));
+
+    [HttpGet("skill-suggestions/ai/status")]
+    public async Task<IActionResult> GetAiSkillSuggestionStatus()
+        => Ok(await _aiSkillSuggestions.GetStatusAsync());
+
+    [HttpPost("skill-suggestions/ai")]
+    public async Task<IActionResult> SuggestSkillsWithAi([FromBody] AiSkillSuggestionRequestDto dto)
+    {
+        try
+        {
+            return Ok(await _aiSkillSuggestions.SuggestSkillsAsync(dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("skill-templates")]
+    public async Task<IActionResult> GetSkillTemplates()
+        => Ok(await _skillSuggestions.GetTemplatesAsync());
+
+    [HttpPost("skill-templates")]
+    public async Task<IActionResult> CreateSkillTemplate([FromBody] UpsertRequisitionSkillTemplateDto dto)
+    {
+        try { return Ok(await _skillSuggestions.CreateTemplateAsync(dto)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPut("skill-templates/{id:guid}")]
+    public async Task<IActionResult> UpdateSkillTemplate(Guid id, [FromBody] UpsertRequisitionSkillTemplateDto dto)
+    {
+        try
+        {
+            var updated = await _skillSuggestions.UpdateTemplateAsync(id, dto);
+            return updated is null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpDelete("skill-templates/{id:guid}")]
+    public async Task<IActionResult> DeleteSkillTemplate(Guid id)
+    {
+        var deleted = await _skillSuggestions.DeleteTemplateAsync(id);
+        return deleted ? NoContent() : NotFound();
     }
 
     // ── Candidates ───────────────────────────────────────────────

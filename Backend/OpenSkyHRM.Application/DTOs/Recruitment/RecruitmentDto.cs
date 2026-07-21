@@ -137,6 +137,42 @@ public sealed class JobApplicationEmailNotificationResultDto
     public string? Message { get; set; }
 }
 
+// ── Skill suggestions & templates ────────────────────────────────
+
+public class SkillSuggestionsDto
+{
+    public List<string> Suggested { get; set; } = [];
+    /// <summary>Primary source: template, history, default, or mixed.</summary>
+    public string Source { get; set; } = "default";
+    public List<string> Catalog { get; set; } = [];
+}
+
+public class RequisitionSkillTemplateDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Keywords { get; set; } = string.Empty;
+    public string Skills { get; set; } = string.Empty;
+    /// <summary>Alias for master-data UIs (maps to Keywords).</summary>
+    public string Code { get; set; } = string.Empty;
+    /// <summary>Alias for master-data UIs (maps to Skills).</summary>
+    public string? Description { get; set; }
+    public Guid? JobTitleId { get; set; }
+    public string? JobTitleName { get; set; }
+    public int SortOrder { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+public class UpsertRequisitionSkillTemplateDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Keywords { get; set; } = string.Empty;
+    public string Skills { get; set; } = string.Empty;
+    public Guid? JobTitleId { get; set; }
+    public int SortOrder { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
 // ── Candidate ────────────────────────────────────────────────────
 
 public class CandidateDto

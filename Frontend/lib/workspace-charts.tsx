@@ -22,7 +22,7 @@ export function HorizontalCompareBars({ items }: { items: CompareBarItem[] }) {
             <span className="truncate text-slate-600">{item.label}</span>
             <span className="shrink-0 font-semibold tabular-nums text-slate-800">{formatInt(item.value)}</span>
           </div>
-          <div className="h-2 rounded-full bg-gradient-to-r from-slate-100 to-[#e8f0f8]/90 ring-1 ring-inset ring-slate-200/60">
+          <div className="h-2 rounded-full bg-gradient-to-r from-[var(--soft)] to-[var(--action-soft)] ring-1 ring-inset ring-[var(--border)]">
             <div
               className="h-2 rounded-full transition-all duration-300"
               style={{

@@ -5,8 +5,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
+import { OPENSKY_THEME } from "@/lib/opensky-theme";
 import { useAuth } from "@/hooks/use-auth";
 import { sanitizeSearchInput } from "@/lib/input-validation";
+
+const T = OPENSKY_THEME;
 export type NavItem = { href: string; label: string };
 export type NavGroup = { title: string; items: NavItem[] };
 
@@ -99,14 +102,12 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
 
   return (
     <aside
-      className={`sticky top-0 z-30 flex h-screen flex-col overflow-hidden border-r border-slate-200 transition-all duration-300 ${
-        collapsed ? "bg-[#f7f8fb]" : "bg-[#f5f7fb]"
-      }`}
+      className="app-sidebar sticky top-0 z-30 flex h-screen flex-col overflow-hidden border-r transition-all duration-300"
       style={{ width: `${w}px`, minWidth: `${w}px` }}
     >
       {collapsed ? (
         <div
-          className="relative flex items-center justify-center border-b border-slate-200 bg-white px-4 py-4 pr-11"
+          className="app-sidebar-brand-zone relative flex items-center justify-center px-4 py-4 pr-11"
           style={{ height: "60px" }}
         >
           <img src="/brand-mark.svg" alt="OpenSky mark" className="h-9 w-9 rounded-lg object-contain" />
@@ -114,7 +115,8 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
             <button
               type="button"
               onClick={onToggle}
-              className="absolute right-2 top-1/2 z-50 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-600 shadow-md ring-2 ring-white transition hover:border-[#1a92d5]/40 hover:bg-[#1a92d5]/10 hover:text-[#1a92d5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1a92d5]"
+              className="absolute right-2 top-1/2 z-50 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border bg-white shadow-md ring-2 ring-white transition hover:border-[var(--action)] hover:bg-[var(--action-soft)] hover:text-[var(--action)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action)]"
+              style={{ borderColor: T.border, color: T.muted }}
               title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={!collapsed}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -133,7 +135,7 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
           )}
         </div>
       ) : (
-        <div className="relative mx-2 mt-2 overflow-hidden rounded-[30px] border border-[#e7edf6] bg-[#f6f7f9] shadow-[0_24px_52px_-30px_rgba(37,99,235,0.45)]">
+        <div className="app-sidebar-profile-card relative mx-2 mt-2 overflow-hidden rounded-[24px]">
           <div className="px-4 pt-1 pb-1">
             <div className="flex justify-center">
               <img
@@ -148,18 +150,24 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
 
             <div className="-mt-6 text-center">
               <div className="relative mx-auto h-20 w-20">
-                <div className="h-20 w-20 overflow-hidden rounded-full border-[6px] border-[#e9eef7] bg-[#dde6f4]">
+                <div
+                  className="h-20 w-20 overflow-hidden rounded-full border-[6px] bg-white"
+                  style={{ borderColor: T.primaryLight }}
+                >
                   {profileImageUrl ? (
                     <img src={profileImageUrl} alt="Profile" className="h-full w-full object-cover" />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-[#5d739f]">
+                    <div className="flex h-full w-full items-center justify-center" style={{ color: T.muted }}>
                       <svg className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0" />
                       </svg>
                     </div>
                   )}
                 </div>
-                <span className="absolute -bottom-1 right-0 flex h-7 w-7 items-center justify-center rounded-full border border-[#d9e3f1] bg-white text-[#6c83ad] shadow-sm">
+                <span
+                  className="absolute -bottom-1 right-0 flex h-7 w-7 items-center justify-center rounded-full border bg-white shadow-sm"
+                  style={{ borderColor: T.border, color: T.action }}
+                >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0" />
                   </svg>
@@ -167,16 +175,17 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
               </div>
             </div>
 
-            <div className="mt-4 mb-1 rounded-full bg-[#eceff4] px-2 py-1.5">
-              <div className="flex items-center rounded-full bg-[#eceff4] px-3">
+            <div className="mt-4 mb-1 rounded-full px-2 py-1.5" style={{ backgroundColor: T.actionSoft }}>
+              <div className="flex items-center rounded-full px-3">
                 <input
                   type="text"
                   placeholder="Search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(sanitizeSearchInput(e.target.value))}
-                  className="w-full bg-transparent py-1 text-xs text-[#5f739f] outline-none placeholder:text-[#8ea0bc]"
+                  className="w-full bg-transparent py-1 text-xs outline-none placeholder:text-[#5B7087]"
+                  style={{ color: T.navy }}
                 />
-                <svg className="h-4 w-4 text-[#6b81ac]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" style={{ color: T.action }}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35m1.35-5.15a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
                 </svg>
               </div>
@@ -187,7 +196,8 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
             <button
               type="button"
               onClick={onToggle}
-              className="absolute right-3 top-1/2 z-50 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[#1a92d5] text-white shadow-md transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1a92d5]"
+              className="absolute right-3 top-1/2 z-50 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-white shadow-md transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action)]"
+              style={{ backgroundColor: T.action }}
               title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={!collapsed}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -201,15 +211,15 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
       )}
 
       {/* Navigation */}
-      <nav className={`min-h-0 flex-1 overflow-y-auto py-3 ${collapsed ? "px-2" : "px-3"}`}>
+      <nav className={`app-sidebar-nav-rail min-h-0 flex-1 overflow-y-auto py-1 ${collapsed ? "is-collapsed" : ""}`}>
         {filteredNavGroups.map((group) => (
-          <div key={group.title} className="mb-2">
+          <div key={group.title} className="mb-1.5">
             {!collapsed && (
-              <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-[#95a9cb]">
+              <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest" style={{ color: T.muted }}>
                 {group.title}
               </div>
             )}
-            {collapsed && <div className="my-2 border-t border-slate-100" />}
+            {collapsed && <div className="my-2 border-t" style={{ borderColor: T.border }} />}
             {group.items.map((item) => {
               const isActive =
                 item.href === ROUTES.helpGuides
@@ -222,18 +232,29 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
                   key={item.href}
                   href={item.href}
                   title={collapsed ? item.label : undefined}
-                  className={`sidebar-nav-link mb-0.5 flex items-center rounded-xl transition-all ${
+                  className={`sidebar-nav-link app-sidebar-nav-link mb-0.5 flex items-center transition-all ${
                     collapsed
-                      ? `justify-center px-0 py-2.5 ${isActive ? "bg-[#1a92d5] text-white shadow-[0_8px_20px_-12px_rgba(26,146,213,0.55)]" : "text-slate-500 hover:-translate-y-0.5 hover:bg-white hover:text-slate-700 hover:shadow-[0_8px_20px_-14px_rgba(26,146,213,0.42)]"}`
-                      : `gap-3 rounded-full px-3 py-2.5 text-[13px] font-medium ${isActive ? "bg-[#1a92d5] text-white shadow-[0_10px_24px_-14px_rgba(26,146,213,0.62)]" : "text-[#5f739f] hover:-translate-y-0.5 hover:bg-[#eff3f9] hover:text-[#415a87]"}`
+                      ? `justify-center px-0 py-2.5 rounded-xl ${isActive ? "is-active" : ""}`
+                      : `gap-3 rounded-full px-3 py-2.5 text-[13px] font-medium ${isActive ? "is-active" : ""}`
                   }`}
+                  style={isActive ? undefined : { color: T.muted }}
                 >
                   {iconPath ? (
-                    <svg className={`shrink-0 ${collapsed ? "h-5 w-5" : "h-[18px] w-[18px]"} ${isActive ? "text-white" : "text-[#6f84ad]"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <svg
+                      className={`shrink-0 ${collapsed ? "h-5 w-5" : "h-[18px] w-[18px]"}`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      viewBox="0 0 24 24"
+                      style={isActive ? undefined : { color: T.navyMid }}
+                    >
                       <path strokeLinecap="round" strokeLinejoin="round" d={iconPath} />
                     </svg>
                   ) : showLetterFallback ? (
-                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ${isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                    <span
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ${isActive ? "bg-white/20 text-white" : ""}`}
+                      style={isActive ? undefined : { backgroundColor: T.soft, color: T.muted }}
+                    >
                       {item.label.charAt(0).toUpperCase()}
                     </span>
                   ) : null}
@@ -244,15 +265,17 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
           </div>
         ))}
         {!collapsed && filteredNavGroups.length === 0 && (
-          <div className="px-4 py-6 text-center text-xs text-[#8ea0bc]">
+          <div className="px-4 py-6 text-center text-xs" style={{ color: T.muted }}>
             No pages found for {`"${searchQuery.trim()}"`}
           </div>
         )}
       </nav>
 
       {!collapsed && (
-        <div className="border-t border-[#edf1f7] px-5 py-2 text-center">
-          <p className="text-[9px] text-[#bbc7dc]">powered by <span className="font-semibold text-[#8aa0c6]">OpenSky HRM</span></p>
+        <div className="app-sidebar-brand-zone border-t px-5 py-2 text-center">
+          <p className="text-[9px]" style={{ color: T.muted }}>
+            powered by <span className="font-semibold" style={{ color: T.navyMid }}>OpenSky HRM</span>
+          </p>
         </div>
       )}
     </aside>
