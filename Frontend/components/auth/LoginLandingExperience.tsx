@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, type FormEvent } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { useAuth } from "../../contexts/auth-context";
 import { resolveAuthApiPath } from "../../config/constants";
