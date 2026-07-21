@@ -47,6 +47,7 @@ interface RequisitionDetail {
   positionId?: string;
   candidateCount: number;
   applicationNotificationEmail?: string;
+  closedAt?: string | null;
 }
 
 /** Header + footer gradient (aligned with interview scheduled card). */
