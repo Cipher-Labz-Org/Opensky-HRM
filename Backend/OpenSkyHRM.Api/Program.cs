@@ -72,23 +72,19 @@ static async Task EnsureDatabaseExistsAsync(string? connectionString)
     }
 }
 
-// --- Layer DI Registration ---
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
-builder.Services.AddPersistence(builder.Configuration);
-builder.Services.AddApplication();
-
-// --- Data Protection ---
-// Persist the key ring to a folder that travels with the app instead of the
-// per-user DPAPI store. Under IIS the app-pool identity often has no loaded
-// user profile, so the default DPAPI-protected keys cannot be read/created and
-// the app fails to start (CryptographicException). A stable file location keeps
-// keys working regardless of the hosting identity.
+// --- Data Protection (before Application — API key encryption) ---
 var dataProtectionKeysPath = Path.Combine(builder.Environment.ContentRootPath, "keys");
 Directory.CreateDirectory(dataProtectionKeysPath);
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
     .SetApplicationName("OpenSkyHRM");
+builder.Services.AddSingleton<IApiKeyProtector, ApiKeyProtector>();
+
+// --- Layer DI Registration ---
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
+builder.Services.AddPersistence(builder.Configuration);
+builder.Services.AddApplication();
 
 // --- JWT Authentication ---
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "OpenSkyHRM-Default-Key-256bit-ChangeMe!!";
@@ -325,6 +321,7 @@ if (dbAvailable)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await LicensingSeeder.EnsureAsync(db);
+        scope.ServiceProvider.GetRequiredService<OpenSkyHRM.Application.Interfaces.ILicensingService>().InvalidateCache();
         await PayrollSeeder.EnsureStatutoryFormulasAsync(db);
         if (app.Environment.IsDevelopment())
             await PayrollSeeder.EnsureDemoSalary100kAsync(db);
@@ -448,6 +445,11 @@ if (dbAvailable)
             "employee-birthday-digest",
             job => job.ExecuteAsync(CancellationToken.None),
             Hangfire.Cron.Daily(6, 0));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.AiDataRetentionJob>(
+            "ai-data-retention",
+            job => job.ExecuteAsync(CancellationToken.None),
+            Hangfire.Cron.Daily(2, 0));
     }
     catch (Exception ex)
     {

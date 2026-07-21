@@ -1,18 +1,21 @@
 "use client";
 
 import { useState, useEffect, useRef, type FormEvent } from "react";
-import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { useAuth } from "../../contexts/auth-context";
 import { getAssetBaseUrl, resolveAuthApiPath } from "../../config/constants";
 import { ROUTES } from "../../config/routes";
+import { OPENSKY_THEME, softCardShadow, softPageBackground } from "@/lib/opensky-theme";
+import { LoginWelcomePanel } from "@/components/auth/LoginWelcomePanel";
 
 type Branding = {
   companyName: string;
   companyLogoUrl: string | null;
 };
+
+const T = OPENSKY_THEME;
 
 const LOGIN_MOTIVATION_SLIDES: readonly { headline: string; sub: string }[] = [
   { headline: "People-first HR, built for teams that move fast.", sub: "Let's get connected." },
@@ -27,27 +30,8 @@ const LOGIN_MOTIVATION_SLIDES: readonly { headline: string; sub: string }[] = [
 
 const LOGIN_QUOTE_SESSION_KEY = "opensky.loginQuoteIndex";
 
-const THEME = {
-  navy: "#081F3E",
-  navyMid: "#1E3A8A",
-  navyDeep: "#0A2540",
-  accent: "#76B82A",
-  accentSoft: "#EEF6E4",
-  background: "#F4F8FC",
-  surface: "#ffffff",
-  primaryLight: "#E8EEF7",
-  border: "#D4DEE8",
-  muted: "#5B7087",
-} as const;
-
-const PREVIEW_STATS = [
-  { label: "Employees", value: "248" },
-  { label: "Present today", value: "92%" },
-  { label: "Pending leave", value: "12" },
-] as const;
-
 /**
- * OpenSky-branded sign-in (landing palette: navy + green on soft blue background).
+ * OpenSky-branded sign-in — theme colors only (navy, green, teal on soft blue background).
  */
 export function LoginLandingExperience() {
   const { login, user, isAuthenticated, isLoading } = useAuth();
@@ -118,11 +102,11 @@ export function LoginLandingExperience() {
     return (
       <div
         className="flex min-h-screen min-h-[100dvh] items-center justify-center"
-        style={{ backgroundColor: THEME.background }}
+        style={{ backgroundColor: T.background }}
       >
         <div
-          className="h-10 w-10 animate-spin rounded-full border-4 border-[#D4DEE8]"
-          style={{ borderTopColor: THEME.accent }}
+          className="h-10 w-10 animate-spin rounded-full border-4"
+          style={{ borderColor: T.border, borderTopColor: T.action }}
         />
       </div>
     );
@@ -145,14 +129,13 @@ export function LoginLandingExperience() {
   return (
     <div
       className="relative isolate min-h-screen min-h-[100dvh] overflow-x-hidden"
-      style={{
-        backgroundColor: THEME.background,
-        backgroundImage:
-          "radial-gradient(ellipse 90% 60% at 50% -10%, rgba(30,58,138,0.08), transparent 55%), radial-gradient(ellipse 70% 50% at 100% 100%, rgba(118,184,42,0.06), transparent 45%), linear-gradient(180deg, #F4F8FC 0%, #EEF4FA 100%)",
-      }}
+      style={{ backgroundColor: T.background, backgroundImage: softPageBackground }}
     >
       <div className="relative z-10 flex min-h-screen min-h-[100dvh] items-center justify-center p-4 py-10 sm:p-8">
-        <main className="grid w-full max-w-[960px] overflow-hidden rounded-[28px] border border-[#D4DEE8] bg-white shadow-[0_24px_64px_rgba(8,31,62,0.12)] md:min-h-[min(540px,88vh)] md:grid-cols-[1.05fr_0.95fr]">
+        <main
+          className="grid w-full max-w-[960px] overflow-hidden rounded-[28px] border bg-white md:min-h-[min(540px,88vh)] md:grid-cols-[1.05fr_0.95fr]"
+          style={{ borderColor: T.border, boxShadow: softCardShadow }}
+        >
           {/* Left — sign-in form */}
           <div className="flex flex-col justify-center px-8 py-10 sm:px-11 sm:py-12">
             <div className="mb-8">
@@ -167,21 +150,25 @@ export function LoginLandingExperience() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: THEME.accent }} aria-hidden />
-              <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: THEME.muted }}>
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: T.accent }} aria-hidden />
+              <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: T.muted }}>
                 {branding.companyName || "Welcome back"}
               </span>
             </div>
             <h1
               className="mt-2 text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem]"
-              style={{ color: THEME.navy }}
+              style={{ color: T.navy }}
             >
               Sign in
             </h1>
-            <p className="mt-2 text-sm" style={{ color: THEME.muted }}>
+            <p className="mt-2 text-sm" style={{ color: T.muted }}>
               {branding.companyName ? (
                 <>
-                  Access your <span className="font-semibold" style={{ color: THEME.navyMid }}>{branding.companyName}</span> workspace
+                  Access your{" "}
+                  <span className="font-semibold" style={{ color: T.navyMid }}>
+                    {branding.companyName}
+                  </span>{" "}
+                  workspace
                 </>
               ) : (
                 "Enter your credentials to access your workspace"
@@ -197,14 +184,14 @@ export function LoginLandingExperience() {
 
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="email" className="mb-1.5 block text-xs font-medium" style={{ color: THEME.muted }}>
+                  <label htmlFor="email" className="mb-1.5 block text-xs font-medium" style={{ color: T.muted }}>
                     Username or email
                   </label>
                   <div
-                    className="flex items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors focus-within:border-[#76B82A]"
-                    style={{ borderColor: THEME.border, backgroundColor: THEME.surface }}
+                    className="flex items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors focus-within:border-[#28A9E0]"
+                    style={{ borderColor: T.border, backgroundColor: T.surface }}
                   >
-                    <span style={{ color: THEME.accent }} aria-hidden>
+                    <span style={{ color: T.action }} aria-hidden>
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                         <path
                           strokeLinecap="round"
@@ -223,20 +210,20 @@ export function LoginLandingExperience() {
                       autoComplete="username"
                       placeholder="Enter your email or username"
                       className="w-full border-0 bg-transparent py-1 text-[15px] outline-none placeholder:text-[#94A3B8]"
-                      style={{ color: THEME.navy }}
+                      style={{ color: T.navy }}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label htmlFor="password" className="mb-1.5 block text-xs font-medium" style={{ color: THEME.muted }}>
+                  <label htmlFor="password" className="mb-1.5 block text-xs font-medium" style={{ color: T.muted }}>
                     Password
                   </label>
                   <div
-                    className="flex items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors focus-within:border-[#76B82A]"
-                    style={{ borderColor: THEME.border, backgroundColor: THEME.surface }}
+                    className="flex items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors focus-within:border-[#28A9E0]"
+                    style={{ borderColor: T.border, backgroundColor: T.surface }}
                   >
-                    <span style={{ color: THEME.accent }} aria-hidden>
+                    <span style={{ color: T.action }} aria-hidden>
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                         <path
                           strokeLinecap="round"
@@ -254,13 +241,13 @@ export function LoginLandingExperience() {
                       autoComplete="current-password"
                       placeholder="Enter your password"
                       className="w-full border-0 bg-transparent py-1 text-[15px] outline-none placeholder:text-[#94A3B8]"
-                      style={{ color: THEME.navy }}
+                      style={{ color: T.navy }}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="shrink-0 text-xs font-semibold uppercase tracking-wide hover:opacity-80"
-                      style={{ color: THEME.navyMid }}
+                      style={{ color: T.navyMid }}
                     >
                       {showPassword ? "Hide" : "Show"}
                     </button>
@@ -272,7 +259,7 @@ export function LoginLandingExperience() {
                 <Link
                   href={ROUTES.forgotPassword}
                   className="text-sm font-semibold hover:underline"
-                  style={{ color: THEME.navyMid }}
+                  style={{ color: T.action }}
                 >
                   Forgot password?
                 </Link>
@@ -281,10 +268,11 @@ export function LoginLandingExperience() {
               <button
                 type="submit"
                 disabled={submitting || !username || !password}
-                className="h-[50px] w-full rounded-2xl text-[15px] font-bold tracking-wide text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
+                className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[15px] font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
                 style={{
-                  backgroundColor: THEME.accent,
-                  boxShadow: submitting || !username || !password ? "none" : "0 8px 24px rgba(118,184,42,0.35)",
+                  backgroundColor: T.action,
+                  boxShadow:
+                    submitting || !username || !password ? "none" : "0 8px 24px rgba(40,169,224,0.35)",
                 }}
               >
                 {submitting ? (
@@ -296,96 +284,40 @@ export function LoginLandingExperience() {
                     Signing in…
                   </span>
                 ) : (
-                  "Sign in"
+                  <>
+                    Sign in
+                    <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.25}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                    </svg>
+                  </>
                 )}
               </button>
             </form>
 
-            <p className="mt-8 text-sm" style={{ color: THEME.muted }}>
+            <p className="mt-8 text-sm" style={{ color: T.muted }}>
               Need access?{" "}
-              <Link href={ROUTES.contact} className="font-semibold hover:underline" style={{ color: THEME.navyMid }}>
+              <Link href={ROUTES.contact} className="font-semibold hover:underline" style={{ color: T.navyMid }}>
                 Contact us
               </Link>
             </p>
           </div>
 
-          {/* Right — navy welcome panel (landing-style) */}
-          <div
-            className="relative isolate flex min-h-[300px] flex-col overflow-hidden md:min-h-0"
-            style={{
-              background: `linear-gradient(165deg, ${THEME.navyDeep} 0%, ${THEME.navy} 45%, ${THEME.navyMid} 100%)`,
-            }}
-          >
-            <div
-              className="absolute inset-0 opacity-30"
-              style={{
-                backgroundImage:
-                  "radial-gradient(circle at 25% 15%, rgba(118,184,42,0.35) 0, transparent 42%), radial-gradient(circle at 85% 80%, rgba(255,255,255,0.12) 0, transparent 38%)",
-              }}
-              aria-hidden
-            />
-
-            <div className="relative z-10 flex flex-1 flex-col px-8 py-10 sm:px-10 sm:py-12 md:min-h-[min(540px,88vh)]">
-              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white/90">
-                <span className="text-[#76B82A]" aria-hidden>
-                  ★
-                </span>
-                Latest product by OpenSky
-              </div>
-
-              <div className="mt-8 flex flex-1 flex-col justify-center">
-                <div className="mb-6 flex shrink-0 justify-center md:justify-start">
-                  <div className="flex h-[88px] w-[88px] shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-2.5 shadow-[0_12px_32px_rgba(0,0,0,0.25)]">
-                    {/* eslint-disable-next-line @next/next/no-img-element -- tenant logo may be external URL */}
-                    <img
-                      src={companyLogoSrc || "/opensky-hrm-logo.png"}
-                      alt={branding.companyName || "OpenSky HRM"}
-                      className="max-h-full max-w-full object-contain"
-                    />
-                  </div>
-                </div>
-
-                <p className="text-center text-[2rem] font-bold leading-tight tracking-tight text-white md:text-left md:text-[2.15rem]">
-                  People-first HR, built for teams that move fast.
-                </p>
-
-                {motivationSlide >= 0 ? (
-                  <div
-                    key={motivationSlide}
-                    className="login-quote-slide mt-5 max-w-md md:text-left"
-                    role="region"
-                    aria-label="Welcome message"
-                  >
-                    <p className="text-base font-semibold leading-snug text-white/95 sm:text-lg">
-                      {LOGIN_MOTIVATION_SLIDES[motivationSlide].headline}
-                    </p>
-                    <p className="mt-2 text-sm text-white/75 sm:text-base">
-                      {LOGIN_MOTIVATION_SLIDES[motivationSlide].sub}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-5 max-w-md space-y-3" aria-hidden>
-                    <div className="h-6 w-full max-w-[280px] rounded-md bg-white/15" />
-                    <div className="h-4 w-[70%] max-w-[220px] rounded-md bg-white/10" />
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-8 grid grid-cols-3 gap-2 sm:gap-3">
-                {PREVIEW_STATS.map((stat) => (
-                  <div
-                    key={stat.label}
-                    className="rounded-2xl border border-white/10 bg-white/10 px-3 py-3 text-center backdrop-blur-sm"
-                  >
-                    <p className="text-lg font-bold text-white">{stat.value}</p>
-                    <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-white/70 sm:text-[11px]">
-                      {stat.label}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          {/* Right — welcome hero */}
+          <LoginWelcomePanel
+            companyLogoSrc={companyLogoSrc || "/opensky-hrm-logo.png"}
+            companyName={branding.companyName || "OpenSky HRM"}
+            headline={
+              motivationSlide >= 0
+                ? LOGIN_MOTIVATION_SLIDES[motivationSlide].headline
+                : LOGIN_MOTIVATION_SLIDES[0].headline
+            }
+            sub={
+              motivationSlide >= 0
+                ? LOGIN_MOTIVATION_SLIDES[motivationSlide].sub
+                : LOGIN_MOTIVATION_SLIDES[0].sub
+            }
+            quoteReady={motivationSlide >= 0}
+          />
         </main>
       </div>
     </div>

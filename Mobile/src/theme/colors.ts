@@ -8,6 +8,8 @@ export const colors = {
   navyMid: palette.navyMid,
   accent: palette.accent,
   accentSoft: palette.accentSoft,
+  teal: palette.teal,
+  tealSoft: palette.tealSoft,
   background: palette.background,
   surface: palette.surface,
   soft: palette.soft,

@@ -74,6 +74,8 @@
   --primary-soft: #e8eef7;
   --accent: #76b82a;
   --accent-soft: #eef6e4;
+  --action: #28a9e0;
+  --action-soft: #e8f6fc;
   --accent-hot: #76b82a;
   --accent-hot-soft: #eef6e4;
   --success: #76b82a;
@@ -81,6 +83,15 @@
   --danger: #dc2626;
   --border: #d4dee8;
   --shadow: 0 18px 40px rgba(8, 31, 62, 0.08);
+  /* App shell surface layers */
+  --shell-sidebar: linear-gradient(180deg, #e3eaf4 0%, #eef3f9 42%, #f4f8fc 100%);
+  --shell-nav-rail: rgba(255, 255, 255, 0.58);
+  --shell-header: linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(232, 246, 252, 0.92) 100%);
+  --shell-canvas:
+    radial-gradient(ellipse 80% 55% at 50% -15%, rgba(40, 169, 224, 0.08), transparent 52%),
+    radial-gradient(ellipse 55% 45% at 100% 0%, rgba(118, 184, 42, 0.05), transparent 42%),
+    linear-gradient(180deg, #f4f8fc 0%, #eef4fa 100%);
+  --shell-footer: linear-gradient(180deg, rgba(232, 238, 247, 0.72), rgba(244, 248, 252, 0.96));
 }
 
 body {
@@ -110,48 +121,49 @@ button:active:not(:disabled),
   transform: translateY(0);
 }
 
-/* Command Center cards — navy + green accent */
+/* Command Center cards — soft UI (landing palette) */
 .opensky-dashboard-card {
-  border-radius: 1rem;
+  border-radius: 1.25rem;
   border: 1px solid var(--border);
   background: var(--panel);
   padding: 1.25rem;
-  box-shadow: 0 1px 2px rgba(8, 31, 62, 0.06);
+  box-shadow: 0 8px 32px rgba(8, 31, 62, 0.08), 0 2px 8px rgba(8, 31, 62, 0.04);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .opensky-dashboard-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(118, 184, 42, 0.35);
-  box-shadow: 0 14px 36px -16px rgba(8, 31, 62, 0.15);
+  border-color: rgba(40, 169, 224, 0.28);
+  box-shadow: 0 14px 40px -14px rgba(8, 31, 62, 0.14);
 }
 
 .opensky-dashboard-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem;
   margin: -1.25rem -1.25rem 1rem;
-  padding: 0.75rem 1.25rem;
+  padding: 0.875rem 1.25rem;
   border-bottom: 1px solid var(--border);
-  background: var(--primary-soft);
-  border-radius: 1rem 1rem 0 0;
+  background: linear-gradient(180deg, var(--action-soft) 0%, var(--primary-soft) 100%);
+  border-radius: 1.25rem 1.25rem 0 0;
 }
 
 .opensky-dashboard-quicklink {
   display: block;
-  border-radius: 0.75rem;
+  border-radius: 1rem;
   border: 1px solid var(--border);
   background: var(--panel);
-  padding: 0.75rem 0.875rem;
+  padding: 0.875rem 1rem;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 .opensky-dashboard-quicklink:hover {
-  border-color: rgba(118, 184, 42, 0.45);
-  background: var(--accent-soft);
+  border-color: rgba(40, 169, 224, 0.35);
+  background: var(--action-soft);
   box-shadow: 0 10px 28px -12px rgba(8, 31, 62, 0.12);
   transform: translateY(-1px);
 }
 .opensky-dashboard-quicklink:hover .opensky-quicklink-chev {
-  color: var(--accent);
+  color: var(--action);
   transform: translateX(4px);
 }
 .opensky-quicklink-chev {
@@ -163,8 +175,8 @@ button:active:not(:disabled),
   transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 .opensky-dashboard-timeline-row:hover {
-  border-color: rgba(118, 184, 42, 0.35) !important;
-  background: var(--accent-soft);
+  border-color: rgba(40, 169, 224, 0.35) !important;
+  background: var(--action-soft);
 }
 
 /* App shell: responsive override so sidebar stacks on small screens */
@@ -174,9 +186,126 @@ button:active:not(:disabled),
   }
 }
 
+/* App shell — sidebar + top bar (OpenSky soft UI) */
+.app-sidebar {
+  background: var(--shell-sidebar);
+  border-color: var(--border);
+}
+
+.app-sidebar-brand-zone {
+  border-bottom: 1px solid rgba(212, 222, 232, 0.85);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(232, 246, 252, 0.42) 100%);
+}
+
+.app-sidebar-profile-card {
+  border: 1px solid rgba(212, 222, 232, 0.9);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(10px);
+  box-shadow:
+    0 10px 28px rgba(8, 31, 62, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.app-sidebar-nav-rail {
+  margin: 0.5rem 0.75rem 0.75rem;
+  padding: 0.45rem;
+  border: 1px solid rgba(212, 222, 232, 0.75);
+  border-radius: 1rem;
+  background: var(--shell-nav-rail);
+  backdrop-filter: blur(8px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.app-sidebar-nav-rail.is-collapsed {
+  margin: 0.5rem 0.35rem 0.75rem;
+  padding: 0.35rem;
+}
+
+.app-sidebar-nav-rail.is-collapsed .app-sidebar-nav-link.is-active {
+  box-shadow: none;
+  background: linear-gradient(180deg, var(--primary-soft) 0%, var(--action-soft) 100%);
+}
+
+.app-page-hero {
+  margin-bottom: 1.5rem;
+  padding: 1.25rem 1.25rem 1rem;
+  border: 1px solid rgba(212, 222, 232, 0.75);
+  border-radius: 1.25rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(232, 246, 252, 0.48) 100%);
+  box-shadow: 0 8px 28px rgba(8, 31, 62, 0.06);
+}
+
+.app-sidebar-nav-link.is-active {
+  background: linear-gradient(90deg, var(--primary-soft) 0%, var(--action-soft) 100%);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.app-sidebar-nav-link.is-active svg {
+  color: var(--action) !important;
+}
+
+.app-sidebar-nav-link:not(.is-active):hover {
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.app-global-header {
+  position: relative;
+  background: var(--shell-header);
+  border-color: var(--border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 8px 24px rgba(8, 31, 62, 0.05);
+  backdrop-filter: blur(10px);
+}
+
+.app-global-header::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--action) 42%, transparent 88%);
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.app-shell-main-column {
+  background: var(--shell-sidebar);
+}
+
+.app-shell-canvas {
+  background: var(--shell-canvas);
+}
+
+.app-shell-footer {
+  border-color: var(--border);
+  background: var(--shell-footer);
+}
+
+.app-page-topbar {
+  border-color: var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(232, 246, 252, 0.52) 100%);
+  box-shadow: 0 8px 24px rgba(8, 31, 62, 0.05);
+}
+
+.app-header-icon-btn {
+  color: var(--muted);
+}
+.app-header-icon-btn:hover {
+  background: var(--action-soft);
+  color: var(--action);
+}
+
 /* Sidebar nav links: active state keeps gradient colors on hover */
 .sidebar-nav-link:hover {
-  /* handled inline */
+  /* handled via app-sidebar-nav-link classes */
 }
 
 /* HRIS UI patterns from hris_ui_pack */
@@ -251,4 +380,154 @@ button:active:not(:disabled),
 }
 .login-bg-layer {
   animation: login-bg-in 0.85s ease-out forwards;
+}
+
+/* Login welcome panel — ambient motion */
+.login-welcome-mesh {
+  background-image:
+    radial-gradient(circle at 18% 22%, rgba(40, 169, 224, 0.22) 0, transparent 42%),
+    radial-gradient(circle at 82% 12%, rgba(118, 184, 42, 0.18) 0, transparent 38%),
+    radial-gradient(circle at 70% 88%, rgba(255, 255, 255, 0.08) 0, transparent 36%),
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: auto, auto, auto, 28px 28px, 28px 28px;
+  opacity: 0.9;
+}
+
+@keyframes login-orb-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(12px, -16px) scale(1.06); }
+}
+
+.login-orb {
+  animation: login-orb-drift 9s ease-in-out infinite;
+  filter: blur(2px);
+}
+.login-orb-a { top: -8%; right: -6%; width: 220px; height: 220px; animation-delay: 0s; }
+.login-orb-b { bottom: 8%; left: -10%; width: 180px; height: 180px; animation-delay: -3s; }
+.login-orb-c { top: 42%; right: 10%; width: 120px; height: 120px; animation-delay: -5s; animation-duration: 11s; }
+
+@keyframes login-ring-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.login-ring {
+  border-style: dashed;
+}
+.login-ring-a {
+  top: 12%;
+  right: -18%;
+  width: 280px;
+  height: 280px;
+  animation: login-ring-spin 48s linear infinite;
+}
+.login-ring-b {
+  bottom: -12%;
+  left: -14%;
+  width: 220px;
+  height: 220px;
+  animation: login-ring-spin 64s linear infinite reverse;
+}
+
+/* OpenSky AI — floating action button (bottom-right) */
+.ai-sidekick-fab {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 1rem;
+  background: #ffffff;
+  cursor: pointer;
+  box-shadow:
+    0 4px 6px -1px rgba(99, 102, 241, 0.12),
+    0 10px 28px -4px rgba(99, 102, 241, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  outline: none;
+}
+
+.ai-sidekick-fab::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: calc(1rem + 2px);
+  padding: 2px;
+  background: conic-gradient(
+    from 180deg,
+    #a855f7,
+    #6366f1,
+    #3b82f6,
+    #22c55e,
+    #eab308,
+    #f97316,
+    #ec4899,
+    #a855f7
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.ai-sidekick-fab__inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-sidekick-fab:hover {
+  transform: scale(1.06);
+  box-shadow:
+    0 6px 10px -2px rgba(99, 102, 241, 0.18),
+    0 14px 36px -4px rgba(99, 102, 241, 0.42);
+}
+
+.ai-sidekick-fab:hover::before {
+  animation: ai-sidekick-fab-border-spin 3s linear infinite;
+}
+
+.ai-sidekick-fab:active {
+  transform: scale(0.96);
+}
+
+.ai-sidekick-fab:focus-visible {
+  box-shadow:
+    0 0 0 3px #ffffff,
+    0 0 0 5px rgba(139, 92, 246, 0.55),
+    0 10px 28px -4px rgba(99, 102, 241, 0.35);
+}
+
+@keyframes ai-sidekick-fab-border-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-sidekick-fab {
+    transition: none;
+  }
+
+  .ai-sidekick-fab:hover {
+    transform: none;
+  }
+
+  .ai-sidekick-fab:hover::before {
+    animation: none;
+  }
 }

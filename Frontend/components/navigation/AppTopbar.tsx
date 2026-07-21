@@ -8,7 +8,7 @@ type AppTopbarProps = {
  */
 export function AppTopbar({ title, subtitle }: AppTopbarProps) {
   return (
-    <div className="relative -mx-7 mb-6 overflow-hidden border-b border-[#D4DEE8] bg-white px-7 py-5 shadow-sm">
+    <div className="app-page-topbar relative -mx-7 mb-6 overflow-hidden border-b px-7 py-5">
       <div
         className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-full bg-[#76B82A] shadow-[0_0_12px_rgba(118,184,42,0.28)]"
         aria-hidden

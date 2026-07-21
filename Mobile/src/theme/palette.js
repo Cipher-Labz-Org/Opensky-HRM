@@ -7,6 +7,8 @@ module.exports = {
   navyMid: "#1E3A8A",
   accent: "#76B82A",
   accentSoft: "#EEF6E4",
+  teal: "#22A6D6",
+  tealSoft: "#E6F6FC",
   background: "#F4F8FC",
   surface: "#ffffff",
   soft: "#EEF4FA",

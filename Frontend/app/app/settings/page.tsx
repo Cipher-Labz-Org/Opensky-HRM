@@ -73,7 +73,16 @@ export default function SettingsPage() {
   const [companyRegNo, setCompanyRegNo] = useState("");
   const [defaultCurrency, setDefaultCurrency] = useState(DEFAULT_CURRENCY);
   const [openAiEnabled, setOpenAiEnabled] = useState(false);
+  const [openAiSidekickEnabled, setOpenAiSidekickEnabled] = useState(true);
   const [openAiModel, setOpenAiModel] = useState("gpt-4o-mini");
+  const [openAiProvider, setOpenAiProvider] = useState("OpenAI");
+  const [openAiAzureEndpoint, setOpenAiAzureEndpoint] = useState("");
+  const [openAiAzureDeployment, setOpenAiAzureDeployment] = useState("");
+  const [openAiAzureApiVersion, setOpenAiAzureApiVersion] = useState("2024-02-15-preview");
+  const [openAiRegion, setOpenAiRegion] = useState("");
+  const [openAiChatRetentionDays, setOpenAiChatRetentionDays] = useState(90);
+  const [openAiAuditRetentionDays, setOpenAiAuditRetentionDays] = useState(365);
+  const [openAiAllowPersonalNames, setOpenAiAllowPersonalNames] = useState(false);
   const [openAiApiKey, setOpenAiApiKey] = useState("");
   const [openAiApiKeyConfigured, setOpenAiApiKeyConfigured] = useState(false);
   const [openAiSaving, setOpenAiSaving] = useState(false);
@@ -131,10 +140,32 @@ export default function SettingsPage() {
     apiFetch<Record<string, string>>("/api/system-settings")
       .then(applySystemSettings)
       .catch(() => {});
-    apiFetch<{ enabled: boolean; model: string; apiKeyConfigured: boolean }>("/api/system-settings/openai")
+    apiFetch<{
+      enabled: boolean;
+      sidekickEnabled: boolean;
+      model: string;
+      apiKeyConfigured: boolean;
+      provider?: string;
+      azureEndpoint?: string;
+      azureDeployment?: string;
+      azureApiVersion?: string;
+      region?: string;
+      chatRetentionDays?: number;
+      auditRetentionDays?: number;
+      allowPersonalNamesInLlm?: boolean;
+    }>("/api/system-settings/openai")
       .then((data) => {
         setOpenAiEnabled(data.enabled);
+        setOpenAiSidekickEnabled(data.sidekickEnabled ?? true);
         setOpenAiModel(data.model || "gpt-4o-mini");
+        setOpenAiProvider(data.provider || "OpenAI");
+        setOpenAiAzureEndpoint(data.azureEndpoint || "");
+        setOpenAiAzureDeployment(data.azureDeployment || "");
+        setOpenAiAzureApiVersion(data.azureApiVersion || "2024-02-15-preview");
+        setOpenAiRegion(data.region || "");
+        setOpenAiChatRetentionDays(data.chatRetentionDays ?? 90);
+        setOpenAiAuditRetentionDays(data.auditRetentionDays ?? 365);
+        setOpenAiAllowPersonalNames(data.allowPersonalNamesInLlm ?? false);
         setOpenAiApiKeyConfigured(data.apiKeyConfigured);
         setOpenAiApiKey("");
       })
@@ -215,19 +246,50 @@ export default function SettingsPage() {
     setOpenAiSaving(true);
     setOpenAiMsg("");
     try {
-      const updated = await apiFetch<{ enabled: boolean; model: string; apiKeyConfigured: boolean }>(
+      const updated = await apiFetch<{
+        enabled: boolean;
+        sidekickEnabled: boolean;
+        model: string;
+        apiKeyConfigured: boolean;
+        provider?: string;
+        azureEndpoint?: string;
+        azureDeployment?: string;
+        azureApiVersion?: string;
+        region?: string;
+        chatRetentionDays?: number;
+        auditRetentionDays?: number;
+        allowPersonalNamesInLlm?: boolean;
+      }>(
         "/api/system-settings/openai",
         {
           method: "PUT",
           body: JSON.stringify({
             enabled: openAiEnabled,
+            sidekickEnabled: openAiSidekickEnabled,
             model: openAiModel.trim() || "gpt-4o-mini",
             apiKey: openAiApiKey.trim() || null,
+            provider: openAiProvider,
+            azureEndpoint: openAiAzureEndpoint.trim() || null,
+            azureDeployment: openAiAzureDeployment.trim() || null,
+            azureApiVersion: openAiAzureApiVersion.trim() || "2024-02-15-preview",
+            region: openAiRegion.trim() || null,
+            chatRetentionDays: openAiChatRetentionDays,
+            auditRetentionDays: openAiAuditRetentionDays,
+            allowPersonalNamesInLlm: openAiAllowPersonalNames,
           }),
         }
       );
       setOpenAiEnabled(updated.enabled);
+      setOpenAiSidekickEnabled(updated.sidekickEnabled ?? true);
       setOpenAiModel(updated.model || "gpt-4o-mini");
+      setOpenAiProvider(updated.provider || "OpenAI");
+      setOpenAiAzureEndpoint(updated.azureEndpoint || "");
+      setOpenAiAzureDeployment(updated.azureDeployment || "");
+      setOpenAiAzureApiVersion(updated.azureApiVersion || "2024-02-15-preview");
+      setOpenAiRegion(updated.region || "");
+      setOpenAiChatRetentionDays(updated.chatRetentionDays ?? 90);
+      setOpenAiAuditRetentionDays(updated.auditRetentionDays ?? 365);
+      setOpenAiAllowPersonalNames(updated.allowPersonalNamesInLlm ?? false);
       setOpenAiApiKeyConfigured(updated.apiKeyConfigured);
       setOpenAiApiKey("");
       setOpenAiMsg("OpenAI settings saved successfully");
@@ -708,8 +770,73 @@ export default function SettingsPage() {
               onChange={(e) => setOpenAiEnabled(e.target.checked)}
               className="h-4 w-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/20"
             />
-            <span className="text-sm font-medium text-[var(--text)]">Enable AI skill suggestions</span>
+            <span className="text-sm font-medium text-[var(--text)]">Enable OpenAI integration</span>
           </label>
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <input
+              type="checkbox"
+              checked={openAiSidekickEnabled}
+              onChange={(e) => setOpenAiSidekickEnabled(e.target.checked)}
+              disabled={!openAiEnabled}
+              className="h-4 w-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/20 disabled:opacity-50"
+            />
+            <span className="text-sm font-medium text-[var(--text)]">Enable OpenSky AI (global HR assistant)</span>
+          </label>
+          <p className="text-[11px] leading-relaxed text-[var(--text-muted)] -mt-2">
+            OpenSky AI uses the same API key and model. For GDPR production use, choose <strong>Azure OpenAI</strong> in an EU region and keep personal names disabled.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">AI provider</label>
+              <select
+                value={openAiProvider}
+                onChange={(e) => setOpenAiProvider(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              >
+                <option value="OpenAI">OpenAI API</option>
+                <option value="AzureOpenAI">Azure OpenAI (recommended for EU)</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Region (audit label)</label>
+              <input
+                value={openAiRegion}
+                onChange={(e) => setOpenAiRegion(e.target.value)}
+                placeholder="e.g. swedencentral"
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+          </div>
+          {openAiProvider === "AzureOpenAI" ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Azure endpoint</label>
+                <input
+                  value={openAiAzureEndpoint}
+                  onChange={(e) => setOpenAiAzureEndpoint(e.target.value)}
+                  placeholder="https://your-resource.openai.azure.com"
+                  className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Deployment name</label>
+                <input
+                  value={openAiAzureDeployment}
+                  onChange={(e) => setOpenAiAzureDeployment(e.target.value)}
+                  placeholder="gpt-4o-mini"
+                  className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">API version</label>
+                <input
+                  value={openAiAzureApiVersion}
+                  onChange={(e) => setOpenAiAzureApiVersion(e.target.value)}
+                  className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                />
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">OpenAI API key</label>
@@ -738,6 +865,37 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Chat retention (days)</label>
+              <input
+                type="number"
+                min={1}
+                value={openAiChatRetentionDays}
+                onChange={(e) => setOpenAiChatRetentionDays(Number(e.target.value) || 90)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Audit log retention (days)</label>
+              <input
+                type="number"
+                min={1}
+                value={openAiAuditRetentionDays}
+                onChange={(e) => setOpenAiAuditRetentionDays(Number(e.target.value) || 365)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <input
+              type="checkbox"
+              checked={openAiAllowPersonalNames}
+              onChange={(e) => setOpenAiAllowPersonalNames(e.target.checked)}
+              className="h-4 w-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/20"
+            />
+            <span className="text-sm font-medium text-[var(--text)]">Allow employee names in AI requests (not recommended for GDPR)</span>
+          </label>
           <div className="flex items-center justify-end gap-3 pt-1">
             {openAiMsg ? (
               <span className={`text-xs font-medium ${openAiMsg.includes("success") ? "text-green-600" : "text-red-500"}`}>

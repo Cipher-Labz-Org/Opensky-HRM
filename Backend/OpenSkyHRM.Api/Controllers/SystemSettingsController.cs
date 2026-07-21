@@ -37,36 +37,72 @@ public class SystemSettingsController : ControllerBase
     [HttpGet("openai")]
     public async Task<IActionResult> GetOpenAiSettings()
     {
-        return Ok(new OpenAiSettingsDto
-        {
-            Enabled = await _openAi.IsEnabledAsync(),
-            Model = await _openAi.GetModelAsync(),
-            ApiKeyConfigured = await _openAi.IsConfiguredAsync(),
-            ApiKey = null,
-        });
+        return Ok(await BuildOpenAiSettingsDtoAsync());
     }
 
     [HttpPut("openai")]
     public async Task<IActionResult> SetOpenAiSettings([FromBody] OpenAiSettingsDto dto)
     {
         if (!string.IsNullOrWhiteSpace(dto.ApiKey))
-            await _service.SetAsync(OpenAiSettingsResolver.ApiKeySetting, dto.ApiKey.Trim());
+            await _openAi.SetApiKeyAsync(dto.ApiKey.Trim());
 
         await _service.SetAsync(OpenAiSettingsResolver.ModelSetting, string.IsNullOrWhiteSpace(dto.Model)
             ? OpenAiSettingsResolver.DefaultModel
             : dto.Model.Trim());
         await _service.SetAsync(OpenAiSettingsResolver.EnabledSetting, dto.Enabled ? "true" : "false");
+        await _service.SetAsync(OpenAiSettingsResolver.SidekickEnabledSetting, dto.SidekickEnabled ? "true" : "false");
+        await _service.SetAsync(OpenAiSettingsResolver.ProviderSetting, string.IsNullOrWhiteSpace(dto.Provider)
+            ? OpenAiProvider.OpenAI
+            : dto.Provider.Trim());
+        await _service.SetAsync(OpenAiSettingsResolver.AzureEndpointSetting, dto.AzureEndpoint?.Trim() ?? "");
+        await _service.SetAsync(OpenAiSettingsResolver.AzureDeploymentSetting, dto.AzureDeployment?.Trim() ?? "");
+        await _service.SetAsync(OpenAiSettingsResolver.AzureApiVersionSetting, string.IsNullOrWhiteSpace(dto.AzureApiVersion)
+            ? OpenAiSettingsResolver.DefaultAzureApiVersion
+            : dto.AzureApiVersion.Trim());
+        await _service.SetAsync(OpenAiSettingsResolver.RegionSetting, dto.Region?.Trim() ?? "");
+        await _service.SetAsync(OpenAiSettingsResolver.ChatRetentionDaysSetting,
+            Math.Max(1, dto.ChatRetentionDays).ToString());
+        await _service.SetAsync(OpenAiSettingsResolver.AuditRetentionDaysSetting,
+            Math.Max(1, dto.AuditRetentionDays).ToString());
+        await _service.SetAsync(OpenAiSettingsResolver.AllowPersonalNamesSetting,
+            dto.AllowPersonalNamesInLlm ? "true" : "false");
 
         if (dto.Enabled && !await _openAi.IsConfiguredAsync())
             return BadRequest(new { message = "Enter an OpenAI API key to enable AI skill suggestions." });
 
-        return Ok(new OpenAiSettingsDto
+        if (string.Equals(dto.Provider, OpenAiProvider.AzureOpenAI, StringComparison.OrdinalIgnoreCase)
+            && dto.Enabled
+            && (string.IsNullOrWhiteSpace(dto.AzureEndpoint) || string.IsNullOrWhiteSpace(dto.AzureDeployment))
+            && !await HasAzureConfigAsync())
         {
-            Enabled = await _openAi.IsEnabledAsync(),
-            Model = await _openAi.GetModelAsync(),
-            ApiKeyConfigured = await _openAi.IsConfiguredAsync(),
-            ApiKey = null,
-        });
+            return BadRequest(new { message = "Azure OpenAI requires endpoint and deployment name." });
+        }
+
+        return Ok(await BuildOpenAiSettingsDtoAsync());
+    }
+
+    private async Task<OpenAiSettingsDto> BuildOpenAiSettingsDtoAsync() => new()
+    {
+        Enabled = await _openAi.IsEnabledAsync(),
+        SidekickEnabled = await _openAi.IsSidekickEnabledAsync(),
+        Model = await _openAi.GetModelAsync(),
+        ApiKeyConfigured = await _openAi.IsConfiguredAsync(),
+        ApiKey = null,
+        Provider = await _openAi.GetProviderAsync(),
+        AzureEndpoint = await _openAi.GetAzureEndpointAsync(),
+        AzureDeployment = await _openAi.GetAzureDeploymentAsync(),
+        AzureApiVersion = await _openAi.GetAzureApiVersionAsync(),
+        Region = await _openAi.GetRegionAsync(),
+        ChatRetentionDays = await _openAi.GetChatRetentionDaysAsync(),
+        AuditRetentionDays = await _openAi.GetAuditRetentionDaysAsync(),
+        AllowPersonalNamesInLlm = await _openAi.GetAllowPersonalNamesInLlmAsync(),
+    };
+
+    private async Task<bool> HasAzureConfigAsync()
+    {
+        var endpoint = await _openAi.GetAzureEndpointAsync();
+        var deployment = await _openAi.GetAzureDeploymentAsync();
+        return !string.IsNullOrWhiteSpace(endpoint) && !string.IsNullOrWhiteSpace(deployment);
     }
 
     /// <summary>Must be registered before the literal route so "email-delivery-logs" is not handled as a setting key (404).</summary>

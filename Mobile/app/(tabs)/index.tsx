@@ -1,19 +1,26 @@
+import { useMemo } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { Link, router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LoadingState } from "@/components/ui";
 import {
-  ActivityRow,
+  DashboardAttendanceCard,
   DashboardBrandBar,
   DashboardCtaButton,
-  DashboardOverviewCard,
+  DashboardListRow,
   DashboardSectionTitle,
+  DashboardSoftCard,
+  DashboardWelcomeCard,
   QuickActionTile,
   formatLeaveActivityMeta,
 } from "@/features/dashboard";
 import { getEmployee } from "@/api/endpoints/employees";
-import { getLeaveBalances, getMyLeaveRequests } from "@/api/endpoints/leave";
+import {
+  getLeaveBalances,
+  getMyLeaveRequests,
+  getTeamPendingLeaveRequests,
+} from "@/api/endpoints/leave";
 import { getUnreadCount } from "@/api/endpoints/notifications";
 import { getAttendanceSummary } from "@/api/endpoints/attendance";
 import { useAuthStore } from "@/store/authStore";
@@ -21,7 +28,7 @@ import { useConfigStore } from "@/store/configStore";
 import { buildAssetUrl } from "@/utils/connect";
 import { getEmployeeId, hasLicensedModule, canApproveLeave } from "@/utils/permissions";
 import { LICENSED_MODULES } from "@/config/constants";
-import { endOfMonthIso, startOfMonthIso } from "@/utils/format";
+import { endOfMonthIso, monthYearLabel, startOfMonthIso } from "@/utils/format";
 import { colors } from "@/theme/colors";
 
 export default function HomeScreen() {
@@ -29,6 +36,7 @@ export default function HomeScreen() {
   const companyName = useConfigStore((s) => s.companyName);
   const apiBaseUrl = useConfigStore((s) => s.apiBaseUrl);
   const employeeId = getEmployeeId(user);
+  const monthLabel = monthYearLabel(new Date().getMonth() + 1, new Date().getFullYear());
 
   const showLeave = hasLicensedModule(user, LICENSED_MODULES.LEAVE);
   const showAttendance = hasLicensedModule(user, LICENSED_MODULES.ATTENDANCE);
@@ -68,6 +76,26 @@ export default function HomeScreen() {
     queryFn: getUnreadCount,
   });
 
+  const pendingApprovalsQuery = useQuery({
+    queryKey: ["approvals", "leave", "pending", "dashboard"],
+    queryFn: async () => {
+      const [level1, level2] = await Promise.all([
+        getTeamPendingLeaveRequests("Pending"),
+        getTeamPendingLeaveRequests("PendingLevel2"),
+      ]);
+      return [...level1.items, ...level2.items];
+    },
+    enabled: !!employeeId && showApprovals,
+  });
+
+  const pendingApprovals = useMemo(
+    () =>
+      (pendingApprovalsQuery.data ?? [])
+        .filter((request) => request.responsibleEmployeeId === employeeId)
+        .slice(0, 4),
+    [employeeId, pendingApprovalsQuery.data]
+  );
+
   const profile = profileQuery.data;
   const displayName = profile?.fullName ?? user?.employeeName ?? user?.username ?? "there";
   const photoUri = buildAssetUrl(
@@ -80,7 +108,7 @@ export default function HomeScreen() {
   const totalRemaining =
     leaveBalancesQuery.data?.reduce((sum, item) => sum + item.remaining, 0) ?? 0;
 
-  const overviewStats = [
+  const welcomeStats = [
     ...(showLeave
       ? [{ label: "Leave left", value: totalRemaining.toFixed(0), icon: "calendar-outline" as const }]
       : []),
@@ -104,7 +132,8 @@ export default function HomeScreen() {
     profileQuery.isRefetching ||
     leaveBalancesQuery.isRefetching ||
     leaveRequestsQuery.isRefetching ||
-    attendanceSummaryQuery.isRefetching;
+    attendanceSummaryQuery.isRefetching ||
+    pendingApprovalsQuery.isRefetching;
 
   const onRefresh = () => {
     void profileQuery.refetch();
@@ -112,10 +141,11 @@ export default function HomeScreen() {
     void leaveRequestsQuery.refetch();
     void attendanceSummaryQuery.refetch();
     void unreadQuery.refetch();
+    void pendingApprovalsQuery.refetch();
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={["top", "left", "right"]}>
+    <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }} edges={["top", "left", "right"]}>
       <ScrollView
         className="flex-1"
         contentContainerClassName="pb-8"
@@ -124,104 +154,151 @@ export default function HomeScreen() {
       >
         <DashboardBrandBar />
 
-        <View className="px-4">
-          <DashboardOverviewCard
+        <View className="gap-4 px-4">
+          <DashboardWelcomeCard
             displayName={displayName}
-            companyName={companyName}
+            companyName={companyName ?? "OpenSky HRM"}
             subtitle={jobSubtitle}
             employeeCode={profile?.employeeCode}
             photoUri={photoUri}
-            stats={overviewStats}
+            stats={welcomeStats}
           />
-        </View>
 
-        {showLeave ? (
-          <View className="mt-6 px-4">
-            <DashboardSectionTitle
-              title="Recent leave"
+          {showAttendance && attendanceSummaryQuery.data ? (
+            <DashboardAttendanceCard summary={attendanceSummaryQuery.data} monthLabel={monthLabel} />
+          ) : null}
+
+          {showApprovals ? (
+            <DashboardSoftCard
+              title="Pending approvals"
+              subtitle="Leave requests waiting on you"
+              icon="shield-checkmark-outline"
+              iconColor={colors.teal}
+              iconBg={colors.tealSoft}
               action={
-                <Link href="/(tabs)/leave" asChild>
-                  <Text className="text-xs font-bold" style={{ color: colors.navyMid }}>
-                    View all →
+                <Link href="/(tabs)/approvals" asChild>
+                  <Text className="text-xs font-bold" style={{ color: colors.teal }}>
+                    View all
                   </Text>
                 </Link>
               }
-            />
+            >
+              {pendingApprovalsQuery.isLoading ? (
+                <View className="py-6">
+                  <LoadingState />
+                </View>
+              ) : pendingApprovals.length ? (
+                pendingApprovals.map((item, index, items) => (
+                  <DashboardListRow
+                    key={item.id}
+                    title={item.employeeName}
+                    subtitle={item.leaveTypeName}
+                    meta={formatLeaveActivityMeta(item.startDate, item.endDate, item.totalDays)}
+                    status={item.status}
+                    icon="document-text-outline"
+                    iconColor={colors.teal}
+                    iconBg={colors.tealSoft}
+                    onPress={() => router.push("/(tabs)/approvals")}
+                    isLast={index === items.length - 1}
+                  />
+                ))
+              ) : (
+                <View className="px-4 py-6">
+                  <Text className="text-center text-sm" style={{ color: colors.muted }}>
+                    No pending approvals right now.
+                  </Text>
+                </View>
+              )}
+            </DashboardSoftCard>
+          ) : null}
 
-            {leaveRequestsQuery.isLoading ? (
-              <LoadingState />
-            ) : leaveRequestsQuery.data?.items.length ? (
-              leaveRequestsQuery.data.items.map((item) => (
-                <ActivityRow
-                  key={item.id}
-                  title={item.leaveTypeName}
-                  subtitle={item.status}
-                  meta={formatLeaveActivityMeta(item.startDate, item.endDate, item.totalDays)}
-                  status={item.status}
-                  icon="airplane-outline"
-                  iconBgClass={
-                    item.status.toLowerCase().includes("pending")
-                      ? "bg-warning"
-                      : item.status.toLowerCase().includes("approve")
-                        ? "bg-success"
-                        : "bg-primary"
-                  }
+          {showLeave ? (
+            <DashboardSoftCard
+              title="Recent leave"
+              subtitle="Your latest time-off requests"
+              icon="airplane-outline"
+              iconColor={colors.accent}
+              iconBg={colors.accentSoft}
+              action={
+                <Link href="/(tabs)/leave" asChild>
+                  <Text className="text-xs font-bold" style={{ color: colors.teal }}>
+                    View all
+                  </Text>
+                </Link>
+              }
+            >
+              {leaveRequestsQuery.isLoading ? (
+                <View className="py-6">
+                  <LoadingState />
+                </View>
+              ) : leaveRequestsQuery.data?.items.length ? (
+                leaveRequestsQuery.data.items.map((item, index, items) => (
+                  <DashboardListRow
+                    key={item.id}
+                    title={item.leaveTypeName}
+                    subtitle={item.status}
+                    meta={formatLeaveActivityMeta(item.startDate, item.endDate, item.totalDays)}
+                    status={item.status}
+                    icon="airplane-outline"
+                    iconColor={colors.accent}
+                    iconBg={colors.accentSoft}
+                    onPress={() => router.push("/(tabs)/leave")}
+                    isLast={index === items.length - 1}
+                  />
+                ))
+              ) : (
+                <View className="px-4 py-6">
+                  <Text className="text-center text-sm" style={{ color: colors.muted }}>
+                    No leave requests yet.
+                  </Text>
+                </View>
+              )}
+            </DashboardSoftCard>
+          ) : null}
+
+          <View>
+            <DashboardSectionTitle title="Quick actions" />
+            <View className="flex-row flex-wrap gap-3">
+              {showAttendance ? (
+                <QuickActionTile
+                  label="Clock in/out"
+                  icon="finger-print-outline"
+                  tone="teal"
+                  onPress={() => router.push("/(tabs)/attendance")}
                 />
-              ))
-            ) : (
-              <View
-                className="rounded-2xl border border-dashed px-4 py-6"
-                style={{ borderColor: colors.border, backgroundColor: colors.primaryLight }}
-              >
-                <Text className="text-center text-sm font-medium" style={{ color: colors.navyMid }}>
-                  No leave requests yet.
-                </Text>
-              </View>
-            )}
-
-            <View className="mt-4">
-              <DashboardCtaButton
-                title="Apply for leave"
-                onPress={() => router.push("/(tabs)/leave/apply")}
+              ) : null}
+              {showApprovals ? (
+                <QuickActionTile
+                  label="Approvals"
+                  icon="checkmark-done-outline"
+                  tone="green"
+                  onPress={() => router.push("/(tabs)/approvals")}
+                />
+              ) : null}
+              <QuickActionTile
+                label="My profile"
+                icon="person-outline"
+                tone="navy"
+                onPress={() => router.push("/(tabs)/profile")}
               />
+              {(unreadQuery.data?.unreadCount ?? 0) > 0 ? (
+                <QuickActionTile
+                  label="Alerts"
+                  icon="notifications-outline"
+                  tone="teal"
+                  onPress={() => router.push("/(tabs)/notifications")}
+                />
+              ) : null}
             </View>
           </View>
-        ) : null}
 
-        <View className="mt-6 px-4">
-          <DashboardSectionTitle title="Quick actions" />
-          <View className="flex-row flex-wrap gap-3">
-            {showAttendance ? (
-              <QuickActionTile
-                label="Clock in/out"
-                icon="finger-print-outline"
-                tone="primary"
-                onPress={() => router.push("/(tabs)/attendance")}
-              />
-            ) : null}
-            {showApprovals ? (
-              <QuickActionTile
-                label="Approvals"
-                icon="checkmark-done-outline"
-                tone="success"
-                onPress={() => router.push("/(tabs)/approvals")}
-              />
-            ) : null}
-            <QuickActionTile
-              label="My profile"
-              icon="person-outline"
-              tone="soft"
-              onPress={() => router.push("/(tabs)/profile")}
+          {showLeave ? (
+            <DashboardCtaButton
+              title="Apply for leave"
+              icon="arrow-forward"
+              onPress={() => router.push("/(tabs)/leave/apply")}
             />
-            {(unreadQuery.data?.unreadCount ?? 0) > 0 ? (
-              <QuickActionTile
-                label="Notifications"
-                icon="notifications-outline"
-                tone="accent"
-                onPress={() => router.push("/(tabs)/notifications")}
-              />
-            ) : null}
-          </View>
+          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>

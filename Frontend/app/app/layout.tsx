@@ -6,6 +6,7 @@ import { APP_NAME } from "@/config/constants";
 import { AppSidebar } from "@/components/navigation/AppSidebar";
 import { AppGlobalHeader } from "@/components/navigation/AppGlobalHeader";
 import { AppDialogsProvider } from "@/components/ui/AppDialogsProvider";
+import { AiSidekickFab, AiSidekickPanel, AiSidekickProvider } from "@/components/ai-sidekick";
 import { LicensePageGate } from "@/components/licensing/LicensePageGate";
 import { ROUTES } from "@/config/routes";
 import { isAlwaysVisibleNavHref, isNavItemVisible } from "@/lib/nav-visibility";
@@ -124,8 +125,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     getPeopleReadScope,
     getLeaveReadScope,
     hasRole,
+    refreshProfile,
   } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+    void refreshProfile();
+  }, [isLoading, isAuthenticated, refreshProfile]);
 
   useEffect(() => {
     if (isLoading || !user) return;
@@ -203,25 +210,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <AppDialogsProvider>
-      <div className="app-shell-grid flex min-h-screen">
-        <AppSidebar
-          appName={APP_NAME}
-          navGroups={filteredNavGroups}
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        />
-        <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-[var(--bg)]">
-          <AppGlobalHeader user={user} onLogout={logout} />
-          <main className="flex-1 p-6 sm:p-7" style={{ minWidth: 0 }}>
-            <LicensePageGate>{children}</LicensePageGate>
-          </main>
-          <footer className="border-t border-slate-200 bg-white/90 px-6 py-3 text-center backdrop-blur-sm sm:px-7">
-            <p className="text-xs tracking-wide text-slate-500">
-              © {new Date().getFullYear()} OpenSky HRM · Enabling Growth
-            </p>
-          </footer>
+      <AiSidekickProvider>
+        <div className="app-shell-grid flex min-h-screen">
+          <AppSidebar
+            appName={APP_NAME}
+            navGroups={filteredNavGroups}
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          />
+          <div className="app-shell-main-column flex min-h-screen min-w-0 flex-1 flex-col">
+            <AppGlobalHeader user={user} onLogout={logout} />
+            <main className="app-shell-canvas flex-1 p-6 sm:p-7" style={{ minWidth: 0 }}>
+              <LicensePageGate>{children}</LicensePageGate>
+            </main>
+            <footer className="app-shell-footer border-t px-6 py-3 text-center sm:px-7">
+              <p className="text-xs tracking-wide" style={{ color: "var(--muted)" }}>
+                © {new Date().getFullYear()} OpenSky HRM · Enabling Growth
+              </p>
+            </footer>
+          </div>
+          <AiSidekickPanel />
+          <AiSidekickFab />
         </div>
-      </div>
+      </AiSidekickProvider>
     </AppDialogsProvider>
   );
 }

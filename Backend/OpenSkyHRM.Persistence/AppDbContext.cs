@@ -138,6 +138,12 @@ public class AppDbContext : DbContext
     public DbSet<InstanceSubscription> InstanceSubscriptions => Set<InstanceSubscription>();
     public DbSet<InstanceModuleEntitlement> InstanceModuleEntitlements => Set<InstanceModuleEntitlement>();
 
+    // OpenSky AI (AiAssistant)
+    public DbSet<AiConversation> AiConversations => Set<AiConversation>();
+    public DbSet<AiMessage> AiMessages => Set<AiMessage>();
+    public DbSet<AiMessageFeedback> AiMessageFeedbacks => Set<AiMessageFeedback>();
+    public DbSet<AiToolAuditLog> AiToolAuditLogs => Set<AiToolAuditLog>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

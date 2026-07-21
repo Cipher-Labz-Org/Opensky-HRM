@@ -26,8 +26,40 @@ public static class DependencyInjection
         services.AddScoped<BiometricAdmsIngestService>();
         services.AddScoped<IRecruitmentService, RecruitmentService>();
         services.AddScoped<OpenAiSettingsResolver>();
+        services.AddScoped<IOpenAiChatClient, OpenAiChatClient>();
+        services.AddScoped<AiLlmPayloadSanitizer>();
+        services.AddScoped<IAiDataRetentionService, AiDataRetentionService>();
         services.AddScoped<IRequisitionSkillSuggestionService, RequisitionSkillSuggestionService>();
         services.AddScoped<IOpenAiSkillSuggestionService, OpenAiSkillSuggestionService>();
+        services.AddScoped<IPeopleScopeService, PeopleScopeService>();
+        services.AddScoped<AiConversationService>();
+        services.AddScoped<IAiConversationService>(sp => sp.GetRequiredService<AiConversationService>());
+        services.AddScoped<IAiContextBuilder, AiContextBuilder>();
+        services.AddScoped<IAiAuditLogger, AiAuditLogger>();
+        services.AddScoped<IAiToolExecutor, AiToolExecutor>();
+        services.AddScoped<IAiToolRegistry, AiToolRegistry>();
+        services.AddScoped<IAiAssistantService, AiAssistantService>();
+        services.AddScoped<Services.AiTools.ExplainModuleHelpTool>();
+        services.AddScoped<Services.AiTools.GetOrgHeadcountTool>();
+        services.AddScoped<Services.AiTools.GetPendingApprovalsTool>();
+        services.AddScoped<Services.AiTools.SearchEmployeesTool>();
+        services.AddScoped<Services.AiTools.GetEmployeeSummaryTool>();
+        services.AddScoped<Services.AiTools.GetMyLeaveBalanceTool>();
+        services.AddScoped<Services.AiTools.GetTeamLeaveRequestsTool>();
+        services.AddScoped<Services.AiTools.GetAttendanceSummaryTool>();
+        services.AddScoped<Services.AiTools.GetRecruitmentPipelineTool>();
+        services.AddScoped<Services.AiTools.GetUpcomingBirthdaysTool>();
+        services.AddScoped<Services.AiTools.GetEmployeesWithoutSupervisorsTool>();
+        services.AddScoped<Services.AiTools.GetRecentNewHiresTool>();
+        services.AddScoped<Services.AiTools.GetUpcomingProbationEndTool>();
+        services.AddScoped<Services.AiTools.GetPayrollBatchStatusTool>();
+        services.AddScoped<Services.AiTools.GetPendingOnboardingTasksTool>();
+        services.AddScoped<Services.AiTools.GetActiveOffboardingSummaryTool>();
+        services.AddScoped<Services.AiTools.GetVacantPositionsTool>();
+        services.AddScoped<Services.AiTools.GetEmployeesOnLeaveTodayTool>();
+        services.AddScoped<Services.AiTools.GetOverdueTrainingTool>();
+        services.AddScoped<Services.AiTools.GetExpiringDocumentsTool>();
+        services.AddScoped<Services.AiTools.GetPendingAppraisalReviewsTool>();
         services.AddScoped<IOnboardingService, OnboardingService>();
         services.AddScoped<IOffboardingService, OffboardingService>();
         services.AddScoped<IEmployeeTaskService, EmployeeTaskService>();
@@ -61,6 +93,7 @@ public static class DependencyInjection
         services.AddScoped<TrainingDueReminderJob>();
         services.AddScoped<DrugTransportLicenseExpiryReminderJob>();
         services.AddScoped<EmployeeBirthdayDigestReminderJob>();
+        services.AddScoped<AiDataRetentionJob>();
 
         return services;
     }

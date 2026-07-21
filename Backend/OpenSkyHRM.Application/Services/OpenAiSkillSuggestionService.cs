@@ -17,21 +17,21 @@ public class OpenAiSkillSuggestionService : IOpenAiSkillSuggestionService
     private static readonly TimeSpan CacheTtl = TimeSpan.FromDays(7);
 
     private readonly AppDbContext _db;
-    private readonly IHttpClientFactory _httpClientFactory;
     private readonly OpenAiSettingsResolver _openAi;
+    private readonly IOpenAiChatClient _chatClient;
     private readonly IMemoryCache _cache;
     private readonly ILogger<OpenAiSkillSuggestionService> _logger;
 
     public OpenAiSkillSuggestionService(
         AppDbContext db,
-        IHttpClientFactory httpClientFactory,
         OpenAiSettingsResolver openAi,
+        IOpenAiChatClient chatClient,
         IMemoryCache cache,
         ILogger<OpenAiSkillSuggestionService> logger)
     {
         _db = db;
-        _httpClientFactory = httpClientFactory;
         _openAi = openAi;
+        _chatClient = chatClient;
         _cache = cache;
         _logger = logger;
     }
@@ -110,9 +110,6 @@ public class OpenAiSkillSuggestionService : IOpenAiSkillSuggestionService
 
     private async Task<List<string>> CallOpenAiAsync(string roleContext, CancellationToken ct)
     {
-        var apiKey = (await _openAi.GetApiKeyAsync(ct))!;
-        var model = await _openAi.GetModelAsync(ct);
-
         var systemPrompt =
             """
             You are an HR assistant for OpenSky HRM. Given a job requisition, suggest 8–12 concise skill names suitable for a job posting and applicant screening.
@@ -127,84 +124,30 @@ public class OpenAiSkillSuggestionService : IOpenAiSkillSuggestionService
             {roleContext}
             """;
 
-        var payload = new
+        var messages = new List<object>
         {
-            model,
-            temperature = 0.4,
-            response_format = new { type = "json_object" },
-            messages = new[]
-            {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = userPrompt },
-            },
+            new { role = "system", content = systemPrompt },
+            new { role = "user", content = userPrompt },
         };
 
-        var client = _httpClientFactory.CreateClient(nameof(OpenAiSkillSuggestionService));
-        client.Timeout = TimeSpan.FromSeconds(45);
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-        using var httpContent = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-        using var response = await client.PostAsync("https://api.openai.com/v1/chat/completions", httpContent, ct);
-        var body = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning("OpenAI skill suggestion failed ({Status}): {Body}", (int)response.StatusCode, Truncate(body, 500));
-            throw new InvalidOperationException(FormatOpenAiError(response.StatusCode, body));
-        }
-
-        return ParseSkillsFromOpenAiResponse(body);
-    }
-
-    private static string FormatOpenAiError(System.Net.HttpStatusCode status, string body)
-    {
-        var openAiMessage = TryParseOpenAiErrorMessage(body);
-
-        if (status == System.Net.HttpStatusCode.Unauthorized)
-            return "OpenAI API key is invalid. Check the key in Policy & Settings → Recruitment — OpenAI.";
-
-        if (status == System.Net.HttpStatusCode.TooManyRequests)
-        {
-            if (openAiMessage?.Contains("quota", StringComparison.OrdinalIgnoreCase) == true)
-                return "OpenAI quota exceeded. Add billing or credits at platform.openai.com, or add skills manually / use role templates.";
-            return openAiMessage ?? "OpenAI rate limit reached. Wait a moment and try again.";
-        }
-
-        if (!string.IsNullOrWhiteSpace(openAiMessage))
-            return $"OpenAI: {openAiMessage}";
-
-        return "AI skill suggestion failed. Try again later or add skills manually.";
-    }
-
-    private static string? TryParseOpenAiErrorMessage(string body)
-    {
         try
         {
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("error", out var err)
-                && err.TryGetProperty("message", out var msg)
-                && msg.ValueKind == JsonValueKind.String)
-            {
-                return msg.GetString()?.Trim();
-            }
+            var content = await _chatClient.GetCompletionContentAsync(
+                messages,
+                temperature: 0.4,
+                responseFormat: new { type = "json_object" },
+                ct: ct);
+            return ParseSkillsFromContent(content);
         }
-        catch
+        catch (InvalidOperationException ex)
         {
-            /* ignore parse errors */
+            _logger.LogWarning("OpenAI skill suggestion failed: {Message}", ex.Message);
+            throw;
         }
-
-        return null;
     }
 
-    private static List<string> ParseSkillsFromOpenAiResponse(string json)
+    private static List<string> ParseSkillsFromContent(string content)
     {
-        using var doc = JsonDocument.Parse(json);
-        var content = doc.RootElement
-            .GetProperty("choices")[0]
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString();
-
         if (string.IsNullOrWhiteSpace(content))
             return [];
 
@@ -230,7 +173,4 @@ public class OpenAiSkillSuggestionService : IOpenAiSkillSuggestionService
         var normalized = Regex.Replace(title.ToLowerInvariant(), @"\s+", " ").Trim();
         return $"ai-skills:{normalized}:{jobTitleId}:{departmentId}";
     }
-
-    private static string Truncate(string value, int max) =>
-        value.Length <= max ? value : value[..max] + "…";
 }

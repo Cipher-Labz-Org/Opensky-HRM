@@ -30,26 +30,36 @@ public static class LicensingSeeder
         (Guid.Parse("10000001-0000-0000-0000-000000000024"), "Learning", "Learning & Skills", "Workforce", 50, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000030"), "OrgStructure", "Org Structure", "Intelligence", 10, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000031"), "Analytics", "Analytics & Reports", "Intelligence", 20, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000041"), "AiAssistant", "OpenSky AI", "Intelligence", 25, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000040"), "Administration", "Administration", "Administration", 10, false),
     };
 
     public static async Task EnsureAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {
-        if (!await context.LicensedModules.AnyAsync(cancellationToken))
+        var existingModuleIds = await context.LicensedModules
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+        var existingIdSet = existingModuleIds.ToHashSet();
+
+        foreach (var m in ModuleDefinitions)
         {
-            foreach (var m in ModuleDefinitions)
+            if (existingIdSet.Contains(m.Id))
             {
-                context.LicensedModules.Add(new LicensedModule
-                {
-                    Id = m.Id,
-                    Code = m.Code,
-                    DisplayName = m.DisplayName,
-                    Category = m.Category,
-                    SortOrder = m.Sort,
-                    IsRequired = m.Required,
-                    IsActive = true
-                });
+                var row = await context.LicensedModules.FirstOrDefaultAsync(x => x.Id == m.Id, cancellationToken);
+                if (row != null && row.DisplayName != m.DisplayName)
+                    row.DisplayName = m.DisplayName;
+                continue;
             }
+            context.LicensedModules.Add(new LicensedModule
+            {
+                Id = m.Id,
+                Code = m.Code,
+                DisplayName = m.DisplayName,
+                Category = m.Category,
+                SortOrder = m.Sort,
+                IsRequired = m.Required,
+                IsActive = true
+            });
         }
 
         if (!await context.InstanceSubscriptions.AnyAsync(cancellationToken))

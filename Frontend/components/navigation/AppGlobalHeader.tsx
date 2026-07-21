@@ -9,14 +9,17 @@ import { API_BASE_URL } from "@/config/constants";
 import { contextualHelpGuideHref } from "@/lib/help-topics";
 import { HeaderCalendarPopover } from "@/components/navigation/HeaderCalendarPopover";
 import { apiFetch } from "@/lib/api";
+import { OPENSKY_THEME } from "@/lib/opensky-theme";
+
+const T = OPENSKY_THEME;
 
 const iconStroke = 1.75;
 
 const iconBtn =
-  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/90 outline-none transition hover:bg-white/15 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40";
+  "app-header-icon-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--action)]/30";
 
 function Divider() {
-  return <span className="mx-1.5 hidden h-5 w-px shrink-0 bg-white/30 sm:block" aria-hidden />;
+  return <span className="mx-1.5 hidden h-5 w-px shrink-0 sm:block" style={{ backgroundColor: T.border }} aria-hidden />;
 }
 
 export type AppGlobalHeaderUser = {
@@ -257,7 +260,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
 
   return (
     <header
-      className="sticky top-0 z-[45] flex h-[60px] shrink-0 items-center justify-end rounded-none border-b border-[#157fb8] bg-[#1a92d5] px-4 sm:px-6"
+      className="app-global-header sticky top-0 z-[45] flex h-[60px] shrink-0 items-center justify-end border-b px-4 sm:px-6"
       role="banner"
     >
       <div className="flex items-center gap-0.5 sm:gap-1">
@@ -279,7 +282,10 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                 />
               </svg>
               {notifUnread > 0 ? (
-                <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-400 px-0.5 text-[10px] font-bold leading-none text-slate-900">
+                <span
+                  className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full px-0.5 text-[10px] font-bold leading-none text-white"
+                  style={{ backgroundColor: T.accent }}
+                >
                   {notifUnread > 99 ? "99+" : notifUnread}
                 </span>
               ) : null}
@@ -444,7 +450,8 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
           <Popover.Trigger asChild>
             <button
               type="button"
-              className="rounded-lg px-2.5 py-1.5 text-sm font-bold tracking-wide text-white outline-none transition hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/40"
+              className="rounded-lg px-2.5 py-1.5 text-sm font-bold tracking-wide outline-none transition hover:bg-[var(--action-soft)] focus-visible:ring-2 focus-visible:ring-[var(--action)]/30"
+              style={{ color: T.navy }}
               aria-label="Language"
             >
               EN
@@ -470,22 +477,28 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
           <Popover.Trigger asChild>
             <button
               type="button"
-              className="flex max-w-[220px] items-center gap-2 rounded-lg py-1.5 pl-2 pr-1 text-left outline-none transition hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/40"
+              className="flex max-w-[220px] items-center gap-2 rounded-lg py-1.5 pl-2 pr-1 text-left outline-none transition hover:bg-[var(--action-soft)] focus-visible:ring-2 focus-visible:ring-[var(--action)]/30"
               aria-label="Account menu"
             >
               {user.profileImageUrl ? (
                 <img
                   src={`${API_BASE_URL}${user.profileImageUrl}`}
                   alt=""
-                  className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-slate-200"
+                  className="h-8 w-8 shrink-0 rounded-full object-cover"
+                  style={{ boxShadow: `0 0 0 1px ${T.border}` }}
                 />
               ) : (
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold text-white ring-1 ring-white/30">
+                <span
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                  style={{ backgroundColor: T.actionSoft, color: T.navy }}
+                >
                   {initials}
                 </span>
               )}
-              <span className="truncate text-sm font-medium text-white">{displayName}</span>
-              <svg className="h-4 w-4 shrink-0 text-white/70" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+              <span className="truncate text-sm font-medium" style={{ color: T.navy }}>
+                {displayName}
+              </span>
+              <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" style={{ color: T.muted }} aria-hidden>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </button>
