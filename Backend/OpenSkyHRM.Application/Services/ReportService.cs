@@ -295,6 +295,12 @@ public class ReportService : IReportService
         return TryGetFilterValue(filters, "locationId", out var s) && Guid.TryParse(s, out locationId);
     }
 
+    private static bool TryGetGradeId(Dictionary<string, string>? filters, out Guid gradeId)
+    {
+        gradeId = default;
+        return TryGetFilterValue(filters, "gradeId", out var s) && Guid.TryParse(s, out gradeId);
+    }
+
     private static bool TryGetEmployeeNameFilter(Dictionary<string, string>? filters, out string search)
     {
         search = string.Empty;
@@ -386,6 +392,8 @@ public class ReportService : IReportService
             q = q.Where(e => e.Status == st);
         else
             q = q.Where(e => e.Status != "Terminated");
+        if (TryGetGradeId(filters, out var gradeId))
+            q = q.Where(e => e.GradeId == gradeId);
         q = ApplyEmployeeFilters(q, filters);
 
         var data = await q.OrderBy(e => e.FirstName).ToListAsync();
