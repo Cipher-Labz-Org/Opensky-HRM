@@ -55,22 +55,18 @@ export function parseLogoDisplaySettings(settings?: {
   };
 }
 
-/** Resets broken/low zoom values so the circle logo always starts usable. */
+/** Clamps out-of-range logo display values without resetting valid user adjustments. */
 export function normalizeLogoDisplaySettings(
   settings: CompanyLogoDisplaySettings,
 ): { settings: CompanyLogoDisplaySettings; repaired: boolean } {
-  const needsRepair = settings.scale < 70 || settings.scale > 200;
-  if (!needsRepair) {
-    return { settings: { ...settings, fitMode: "contain" }, repaired: false };
-  }
+  const scale = clampLogoScale(settings.scale);
+  const offsetX = clampLogoOffset(settings.offsetX);
+  const offsetY = clampLogoOffset(settings.offsetY);
+  const repaired =
+    scale !== settings.scale || offsetX !== settings.offsetX || offsetY !== settings.offsetY;
   return {
-    settings: {
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      fitMode: "contain",
-    },
-    repaired: true,
+    settings: { scale, offsetX, offsetY, fitMode: "contain" },
+    repaired,
   };
 }
 

@@ -74,7 +74,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<UserProfile>;
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<UserProfile>;
   logout: () => void;
   /** Reload /api/auth/me (e.g. after licensing changes). */
   refreshProfile: () => Promise<void>;
@@ -105,6 +105,25 @@ const AuthContext = createContext<AuthContextType>({
   hasPeopleDimensionRestrictions: () => false,
 });
 
+const AUTH_TOKEN_KEY = "auth_token";
+
+function readStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(AUTH_TOKEN_KEY) ?? sessionStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+function persistAuthToken(token: string, rememberMe: boolean) {
+  if (rememberMe) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    sessionStorage.removeItem(AUTH_TOKEN_KEY);
+    document.cookie = `auth_token=${token}; path=/; max-age=${8 * 60 * 60}; samesite=lax`;
+  } else {
+    sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    document.cookie = `auth_token=${token}; path=/; samesite=lax`;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -115,7 +134,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const clearAuth = useCallback(() => {
     setUser(null);
     setToken(null);
-    localStorage.removeItem("auth_token");
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    sessionStorage.removeItem(AUTH_TOKEN_KEY);
     document.cookie = "auth_token=; path=/; max-age=0";
   }, []);
 
@@ -149,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const stored = localStorage.getItem("auth_token");
+    const stored = readStoredToken();
     if (!stored) {
       setIsLoading(false);
       return;
@@ -160,7 +180,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setToken(stored);
-    // Middleware gates `/app/*` on this cookie; localStorage alone would loop: /login → /app → /login.
     document.cookie = `auth_token=${stored}; path=/; max-age=${8 * 60 * 60}; samesite=lax`;
 
     const bootstrapId = ++authBootstrapId.current;
@@ -179,13 +198,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchProfile, clearAuth]);
 
   const refreshProfile = useCallback(async () => {
-    const t = token ?? localStorage.getItem("auth_token");
+    const t = token ?? readStoredToken();
     if (!t) return;
     const profile = await fetchProfile(t);
     if (profile) setUser(profile);
   }, [fetchProfile, token]);
 
-  const login = async (username: string, password: string): Promise<UserProfile> => {
+  const login = async (username: string, password: string, rememberMe = true): Promise<UserProfile> => {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), LOGIN_FETCH_MS);
     let res: Response;
@@ -236,8 +255,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       throw new Error("Invalid response from server.");
     }
-    localStorage.setItem("auth_token", data.token);
-    document.cookie = `auth_token=${data.token}; path=/; max-age=${8 * 60 * 60}; samesite=lax`;
+    persistAuthToken(data.token, rememberMe);
     setToken(data.token);
     setUser(data.user);
     return data.user;
