@@ -76,12 +76,12 @@ export function LoginBrandPanel() {
           <span style={{ color: LOGIN_THEME.green }}>Performance.</span>
         </h1>
 
-        <p className="login-brand-copy mt-4 max-w-lg leading-relaxed" style={{ color: LOGIN_THEME.muted }}>
+        <p className="login-brand-copy max-w-lg leading-relaxed" style={{ color: LOGIN_THEME.muted }}>
           OpenSky HRM is your all-in-one platform to manage workforce, streamline HR operations and drive
           organizational success.
         </p>
 
-        <div className="login-features mt-6 pb-2">
+        <div className="login-features">
           {FEATURES.map((feature) => (
             <div key={feature.label} className="login-feature-item flex flex-col items-center text-center">
               <div
@@ -91,7 +91,7 @@ export function LoginBrandPanel() {
                 {feature.icon}
               </div>
               <span
-                className="login-feature-label mt-2 font-medium leading-tight"
+                className="login-feature-label font-medium leading-tight"
                 style={{ color: LOGIN_THEME.muted }}
               >
                 {feature.label}
@@ -101,7 +101,7 @@ export function LoginBrandPanel() {
         </div>
       </div>
 
-      <p className="login-copyright mt-auto hidden pt-6 text-xs sm:block">
+      <p className="login-copyright mt-auto hidden text-xs sm:block">
         © 2026 OpenSky HRM. All rights reserved.
       </p>
     </div>

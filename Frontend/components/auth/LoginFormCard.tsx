@@ -57,7 +57,7 @@ export function LoginFormCard({
 
   return (
     <div className="login-card relative z-10 rounded-2xl border bg-white" style={{ borderColor: LOGIN_THEME.border, boxShadow: LOGIN_THEME.cardShadow }}>
-      <div className="login-card-logo-wrap mb-6 flex justify-center sm:mb-7">
+      <div className="login-card-logo-wrap flex justify-center">
         <div className="login-card-logo-holder" aria-hidden>
           <CompanyLogoDisplay
             src={logoSrc}
@@ -74,24 +74,24 @@ export function LoginFormCard({
       <h2 className="login-card-title text-center font-bold tracking-tight" style={{ color: LOGIN_THEME.navy }}>
         Welcome Back!
       </h2>
-      <p className="login-card-subtitle mt-1.5 text-center" style={{ color: LOGIN_THEME.muted }}>
+      <p className="login-card-subtitle text-center" style={{ color: LOGIN_THEME.muted }}>
         {subtitle}
       </p>
 
-      <form onSubmit={onSubmit} className="mt-8">
+      <form onSubmit={onSubmit} className="login-card-form">
         <FormErrorAlert
           message={error}
           onDismiss={onErrorDismiss}
           className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
         />
 
-        <div className="space-y-4">
+        <div className="login-card-fields space-y-4">
           <div>
-            <label htmlFor="username" className="mb-1.5 block text-sm font-semibold" style={{ color: LOGIN_THEME.navy }}>
+            <label htmlFor="username" className="login-field-label mb-1.5 block font-semibold" style={{ color: LOGIN_THEME.navy }}>
               Username
             </label>
             <div
-              className="flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors focus-within:border-[#2E7BBF]"
+              className="login-field-box flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors focus-within:border-[#2E7BBF]"
               style={{ borderColor: LOGIN_THEME.border, backgroundColor: "#FAFBFC" }}
             >
               <span className="text-[#94A3B8]" aria-hidden>
@@ -119,11 +119,11 @@ export function LoginFormCard({
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-1.5 block text-sm font-semibold" style={{ color: LOGIN_THEME.navy }}>
+            <label htmlFor="password" className="login-field-label mb-1.5 block font-semibold" style={{ color: LOGIN_THEME.navy }}>
               Password
             </label>
             <div
-              className="flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors focus-within:border-[#2E7BBF]"
+              className="login-field-box flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors focus-within:border-[#2E7BBF]"
               style={{ borderColor: LOGIN_THEME.border, backgroundColor: "#FAFBFC" }}
             >
               <span className="text-[#94A3B8]" aria-hidden>
@@ -167,7 +167,7 @@ export function LoginFormCard({
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="login-card-actions mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <label className="flex cursor-pointer items-center gap-2 text-sm" style={{ color: LOGIN_THEME.muted }}>
             <input
               type="checkbox"
@@ -189,7 +189,7 @@ export function LoginFormCard({
         <button
           type="submit"
           disabled={submitting || !username || !password}
-          className="mt-7 flex h-[52px] w-full items-center justify-center rounded-xl text-base font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
+          className="login-submit-btn mt-7 flex w-full items-center justify-center rounded-xl font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
           style={{
             backgroundColor: LOGIN_THEME.skyBlue,
             boxShadow: submitting || !username || !password ? "none" : "0 8px 24px rgba(46,123,191,0.35)",
@@ -209,7 +209,7 @@ export function LoginFormCard({
         </button>
       </form>
 
-      <p className="mt-7 text-center text-sm" style={{ color: LOGIN_THEME.muted }}>
+      <p className="login-card-help text-center" style={{ color: LOGIN_THEME.muted }}>
         Need help?{" "}
         <Link href={ROUTES.contact} className="font-semibold hover:underline" style={{ color: LOGIN_THEME.skyBlue }}>
           Contact your administrator
