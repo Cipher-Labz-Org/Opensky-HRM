@@ -54,9 +54,9 @@ const FEATURES = [
 
 export function LoginBrandPanel() {
   return (
-    <div className="login-brand-panel relative z-10 flex h-full min-w-0 flex-col px-4 py-6 sm:px-8 sm:py-8 xl:px-14 xl:py-12">
-      <div className="flex flex-1 flex-col justify-center">
-        <div className="login-logo-slot mb-4 sm:mb-5 xl:mb-6">
+    <div className="login-brand-panel relative z-10 flex h-full min-w-0 flex-col">
+      <div className="login-brand-content flex flex-1 flex-col justify-center">
+        <div className="login-logo-slot">
           <Image
             src="/opensky-hrm-brand-logo.png?v=3"
             alt="OpenSky HRM"
@@ -68,10 +68,7 @@ export function LoginBrandPanel() {
           />
         </div>
 
-        <h1
-          className="max-w-xl text-[1.5rem] font-bold leading-tight tracking-tight sm:text-[1.75rem] xl:text-[2.25rem]"
-          style={{ color: LOGIN_THEME.navy }}
-        >
+        <h1 className="login-brand-title max-w-xl font-bold leading-tight tracking-tight" style={{ color: LOGIN_THEME.navy }}>
           Empowering{" "}
           <span style={{ color: LOGIN_THEME.skyBlue }}>People.</span>
           <br />
@@ -79,22 +76,22 @@ export function LoginBrandPanel() {
           <span style={{ color: LOGIN_THEME.green }}>Performance.</span>
         </h1>
 
-        <p className="mt-4 max-w-lg text-sm leading-relaxed sm:text-[15px]" style={{ color: LOGIN_THEME.muted }}>
+        <p className="login-brand-copy mt-4 max-w-lg leading-relaxed" style={{ color: LOGIN_THEME.muted }}>
           OpenSky HRM is your all-in-one platform to manage workforce, streamline HR operations and drive
           organizational success.
         </p>
 
-        <div className="login-features mt-6 grid grid-cols-2 gap-3 pb-2 sm:gap-4 xl:mt-10 xl:grid-cols-4 xl:gap-6 xl:pb-4">
+        <div className="login-features mt-6 pb-2">
           {FEATURES.map((feature) => (
             <div key={feature.label} className="login-feature-item flex flex-col items-center text-center">
               <div
-                className="login-feature-icon flex h-14 w-14 items-center justify-center rounded-full sm:h-16 sm:w-16"
+                className="login-feature-icon flex items-center justify-center rounded-full"
                 style={{ color: LOGIN_THEME.skyBlue }}
               >
                 {feature.icon}
               </div>
               <span
-                className="mt-2 text-[11px] font-medium leading-tight sm:text-xs"
+                className="login-feature-label mt-2 font-medium leading-tight"
                 style={{ color: LOGIN_THEME.muted }}
               >
                 {feature.label}
@@ -104,8 +101,8 @@ export function LoginBrandPanel() {
         </div>
       </div>
 
-      <p className="login-copyright mt-auto hidden pt-6 text-xs text-white/90 sm:block xl:pb-2">
-        © 2024 OpenSky HRM. All rights reserved.
+      <p className="login-copyright mt-auto hidden pt-6 text-xs sm:block">
+        © 2026 OpenSky HRM. All rights reserved.
       </p>
     </div>
   );

@@ -354,13 +354,90 @@ button:active:not(:disabled),
   .hris-meta-grid, .hris-form-grid { grid-template-columns: 1fr; }
 }
 
-/* Login page — brand mockup layout */
+/* Login page — fluid layout auto-scales to any screen size */
 .login-page {
   --login-bg: #f4f8fc;
+  --login-pad-x: clamp(1rem, 4vw, 3.5rem);
+  --login-pad-y: clamp(1rem, 3vh, 3rem);
+  --login-title-size: clamp(1.375rem, 2.5vw + 0.75rem, 2.25rem);
+  --login-copy-size: clamp(0.8125rem, 1vw + 0.7rem, 0.9375rem);
+  --login-card-title: clamp(1.25rem, 2vw + 0.75rem, 1.75rem);
+  --login-card-subtitle: clamp(0.8125rem, 1vw + 0.7rem, 0.875rem);
+  --login-card-pad: clamp(1.125rem, 3vw, 2.75rem);
+  --login-card-max: min(100%, clamp(18rem, 92vw, 31.25rem));
+  --login-logo-circle: clamp(4.5rem, 14vw, 6.75rem);
+  --login-feature-icon: clamp(2.75rem, 9vw, 4rem);
+  --login-feature-label: clamp(0.625rem, 1.5vw + 0.4rem, 0.75rem);
+  --login-shell-max: min(100%, 82.5rem);
+
+  container-type: inline-size;
+  container-name: login-page;
+
   width: 100%;
   max-width: 100%;
+  min-height: 100dvh;
+  min-height: 100svh;
   overflow-x: clip;
   background-color: var(--login-bg);
+}
+
+.login-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  max-width: var(--login-shell-max);
+  min-height: 100dvh;
+  min-height: 100svh;
+  margin-inline: auto;
+  position: relative;
+  z-index: 10;
+}
+
+.login-shell-form {
+  order: 1;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  padding:
+    max(var(--login-pad-y), env(safe-area-inset-top, 0px))
+    var(--login-pad-x)
+    max(calc(var(--login-pad-y) * 0.75), env(safe-area-inset-bottom, 0px));
+}
+
+.login-shell-brand {
+  order: 2;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.login-brand-panel {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  max-width: 100%;
+  padding:
+    calc(var(--login-pad-y) * 0.75)
+    var(--login-pad-x)
+    var(--login-pad-y);
+}
+
+.login-brand-content {
+  width: 100%;
+  min-width: 0;
+}
+
+.login-brand-title {
+  font-size: var(--login-title-size);
+}
+
+.login-brand-copy {
+  font-size: var(--login-copy-size);
 }
 
 .login-brand-panel,
@@ -375,7 +452,7 @@ button:active:not(:disabled),
   left: 0;
   right: 0;
   width: 100%;
-  height: min(58vh, 520px);
+  height: clamp(12rem, 42vh, 32.5rem);
   overflow: hidden;
 }
 
@@ -406,13 +483,15 @@ button:active:not(:disabled),
 .login-copyright {
   position: relative;
   z-index: 2;
+  color: #5b7087;
 }
 
 .login-logo-slot {
   background: transparent;
   width: 100%;
-  max-width: 15rem;
-  height: 2.75rem;
+  max-width: clamp(12rem, 40vw, 18.5rem);
+  height: clamp(2.25rem, 5vw, 3.25rem);
+  margin-bottom: clamp(1rem, 2.5vw, 1.5rem);
 }
 
 .login-logo-image {
@@ -420,99 +499,118 @@ button:active:not(:disabled),
   display: block;
   width: 100%;
   height: 100%;
-  max-height: 2.75rem;
-}
-
-@media (min-width: 640px) {
-  .login-logo-slot {
-    max-width: 17rem;
-    height: 3rem;
-  }
-
-  .login-logo-image {
-    max-height: 3rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .login-logo-slot {
-    max-width: 18.5rem;
-    height: 3.25rem;
-  }
-
-  .login-logo-image {
-    max-height: 3.25rem;
-  }
-}
-
-.login-brand-panel {
-  position: relative;
-  z-index: 1;
+  max-height: clamp(2.25rem, 5vw, 3.25rem);
+  object-fit: contain;
+  object-position: left center;
 }
 
 .login-features {
   position: relative;
   z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(0.75rem, 2.5vw, 1.5rem);
 }
 
 .login-feature-item {
   position: relative;
   z-index: 3;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .login-feature-icon {
   position: relative;
   z-index: 3;
+  width: var(--login-feature-icon);
+  height: var(--login-feature-icon);
   background: linear-gradient(145deg, #ffffff 0%, #f4f8fc 100%);
   box-shadow: 0 4px 16px rgba(46, 123, 191, 0.14), 0 0 0 1px rgba(255, 255, 255, 0.9);
 }
 
+.login-feature-icon svg {
+  width: clamp(1.25rem, 3.5vw, 1.5rem);
+  height: clamp(1.25rem, 3.5vw, 1.5rem);
+}
+
+.login-feature-label {
+  font-size: var(--login-feature-label);
+}
+
 .login-card {
+  width: 100%;
+  max-width: var(--login-card-max);
+  padding: var(--login-card-pad);
   backdrop-filter: blur(8px);
+  box-sizing: border-box;
+}
+
+.login-card-title {
+  font-size: var(--login-card-title);
+}
+
+.login-card-subtitle {
+  font-size: var(--login-card-subtitle);
+}
+
+.login-field-input {
+  font-size: max(16px, 0.9375rem);
 }
 
 .login-card-logo-holder {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 6.75rem;
-  height: 6.75rem;
+  width: var(--login-logo-circle);
+  height: var(--login-logo-circle);
   overflow: hidden;
   border-radius: 9999px;
   background: #ffffff;
   border: 2px solid rgba(46, 123, 191, 0.18);
   box-shadow:
-    0 0 0 6px rgba(46, 123, 191, 0.08),
+    0 0 0 clamp(4px, 1.2vw, 6px) rgba(46, 123, 191, 0.08),
     0 10px 28px rgba(46, 123, 191, 0.16);
 }
 
-@media (max-width: 1279px) {
-  .login-wave-bg {
-    height: min(46vh, 420px);
+@container login-page (min-width: 72rem) {
+  .login-shell {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .login-shell-form {
+    order: 2;
+    flex: 0 1 45%;
+    padding: var(--login-pad-y) var(--login-pad-x);
+  }
+
+  .login-shell-brand {
+    order: 1;
+    flex: 0 1 55%;
+    min-height: 100dvh;
+    min-height: 100svh;
   }
 
   .login-brand-panel {
-    padding-bottom: 1rem;
+    padding: var(--login-pad-y) var(--login-pad-x);
+  }
+
+  .login-features {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .login-copyright {
-    color: #5b7087;
+    color: rgba(255, 255, 255, 0.9);
+    padding-bottom: 0.5rem;
   }
 }
 
-@media (max-width: 639px) {
-  .login-wave-bg {
-    height: min(40vh, 360px);
-  }
-
-  .login-feature-icon {
-    height: 3rem;
-    width: 3rem;
-  }
-
-  .login-feature-icon svg {
-    height: 1.25rem;
-    width: 1.25rem;
+@container login-page (max-width: 24rem) {
+  .login-features {
+    gap: 0.625rem;
   }
 }
 
