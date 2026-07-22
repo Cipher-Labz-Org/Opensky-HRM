@@ -54,9 +54,9 @@ const FEATURES = [
 
 export function LoginBrandPanel() {
   return (
-    <div className="login-brand-panel relative z-10 flex h-full flex-col px-6 py-8 sm:px-10 sm:py-10 lg:px-14 lg:py-12">
+    <div className="login-brand-panel relative z-10 flex h-full min-w-0 flex-col px-4 py-6 sm:px-8 sm:py-8 xl:px-14 xl:py-12">
       <div className="flex flex-1 flex-col justify-center">
-        <div className="login-logo-slot mb-5 sm:mb-6">
+        <div className="login-logo-slot mb-4 sm:mb-5 xl:mb-6">
           <Image
             src="/opensky-hrm-brand-logo.png?v=3"
             alt="OpenSky HRM"
@@ -69,7 +69,7 @@ export function LoginBrandPanel() {
         </div>
 
         <h1
-          className="max-w-xl text-[1.75rem] font-bold leading-tight tracking-tight sm:text-[2rem] lg:text-[2.25rem]"
+          className="max-w-xl text-[1.5rem] font-bold leading-tight tracking-tight sm:text-[1.75rem] xl:text-[2.25rem]"
           style={{ color: LOGIN_THEME.navy }}
         >
           Empowering{" "}
@@ -84,7 +84,7 @@ export function LoginBrandPanel() {
           organizational success.
         </p>
 
-        <div className="login-features mt-8 grid grid-cols-2 gap-4 pb-2 sm:grid-cols-4 lg:mt-10 lg:gap-6 lg:pb-4">
+        <div className="login-features mt-6 grid grid-cols-2 gap-3 pb-2 sm:gap-4 xl:mt-10 xl:grid-cols-4 xl:gap-6 xl:pb-4">
           {FEATURES.map((feature) => (
             <div key={feature.label} className="login-feature-item flex flex-col items-center text-center">
               <div
@@ -104,7 +104,7 @@ export function LoginBrandPanel() {
         </div>
       </div>
 
-      <p className="login-copyright mt-auto pt-10 text-xs text-white/90 lg:pb-2">
+      <p className="login-copyright mt-auto hidden pt-6 text-xs text-white/90 sm:block xl:pb-2">
         © 2024 OpenSky HRM. All rights reserved.
       </p>
     </div>
