@@ -81,17 +81,17 @@ export function LoginLandingExperience() {
 
   return (
     <div
-      className="login-page relative isolate min-h-screen min-h-[100dvh] w-full max-w-[100vw] overflow-x-hidden"
+      className="login-page relative isolate"
       style={{ backgroundColor: LOGIN_THEME.background }}
     >
       <LoginWaveBackground />
 
-      <div className="relative z-10 mx-auto flex min-h-screen min-h-[100dvh] w-full min-w-0 max-w-[1320px] flex-col xl:flex-row">
-        <div className="order-2 flex min-w-0 flex-1 flex-col xl:order-1 xl:min-h-screen xl:basis-[55%]">
+      <div className="login-shell">
+        <div className="login-shell-brand">
           <LoginBrandPanel />
         </div>
 
-        <div className="order-1 flex w-full min-w-0 flex-1 items-center justify-center px-4 py-6 sm:px-6 sm:py-8 xl:order-2 xl:basis-[45%] xl:px-10 xl:py-12">
+        <div className="login-shell-form">
           <LoginFormCard
             companyName={branding.companyName || undefined}
             companyLogoUrl={branding.companyLogoUrl}

@@ -56,7 +56,7 @@ export function LoginFormCard({
   const logoSrc = resolveCompanyLogoSrc(companyLogoUrl);
 
   return (
-    <div className="login-card relative z-10 w-full min-w-0 max-w-[min(100%,28rem)] rounded-2xl border bg-white px-5 py-7 sm:px-8 sm:py-9 xl:max-w-[31.25rem] xl:px-11 xl:py-12" style={{ borderColor: LOGIN_THEME.border, boxShadow: LOGIN_THEME.cardShadow }}>
+    <div className="login-card relative z-10 rounded-2xl border bg-white" style={{ borderColor: LOGIN_THEME.border, boxShadow: LOGIN_THEME.cardShadow }}>
       <div className="login-card-logo-wrap mb-6 flex justify-center sm:mb-7">
         <div className="login-card-logo-holder" aria-hidden>
           <CompanyLogoDisplay
@@ -71,10 +71,10 @@ export function LoginFormCard({
         </div>
       </div>
 
-      <h2 className="text-center text-xl font-bold tracking-tight sm:text-2xl xl:text-[1.75rem]" style={{ color: LOGIN_THEME.navy }}>
+      <h2 className="login-card-title text-center font-bold tracking-tight" style={{ color: LOGIN_THEME.navy }}>
         Welcome Back!
       </h2>
-      <p className="mt-1.5 text-center text-sm" style={{ color: LOGIN_THEME.muted }}>
+      <p className="login-card-subtitle mt-1.5 text-center" style={{ color: LOGIN_THEME.muted }}>
         {subtitle}
       </p>
 
@@ -112,7 +112,7 @@ export function LoginFormCard({
                 autoFocus
                 autoComplete="username"
                 placeholder="Enter your username"
-                className="w-full border-0 bg-transparent py-1 text-[15px] outline-none placeholder:text-[#94A3B8]"
+                className="login-field-input w-full border-0 bg-transparent py-1 outline-none placeholder:text-[#94A3B8]"
                 style={{ color: LOGIN_THEME.navy }}
               />
             </div>
@@ -143,7 +143,7 @@ export function LoginFormCard({
                 required
                 autoComplete="current-password"
                 placeholder="Enter your password"
-                className="w-full border-0 bg-transparent py-1 text-[15px] outline-none placeholder:text-[#94A3B8]"
+                className="login-field-input w-full border-0 bg-transparent py-1 outline-none placeholder:text-[#94A3B8]"
                 style={{ color: LOGIN_THEME.navy }}
               />
               <button
