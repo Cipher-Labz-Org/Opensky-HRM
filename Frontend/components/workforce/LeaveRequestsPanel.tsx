@@ -65,10 +65,15 @@ const inputClassSlate =
 
 const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 
-const LEAVE_STATUS_OPTIONS: FormSelectOption[] = [
+import { DashboardPageHeader } from "@/components/dashboard/DashboardUi";
+import { OPENSKY_THEME } from "@/lib/opensky-theme";
+
+const T = OPENSKY_THEME;
+
+const QUICK_STATUS_FILTERS: Array<{ value: string; label: string }> = [
   { value: "", label: "All" },
   { value: "Pending", label: "Pending" },
-  { value: "PendingLevel2", label: "Pending (level 2)" },
+  { value: "PendingLevel2", label: "Pending L2" },
   { value: "Approved", label: "Approved" },
   { value: "Rejected", label: "Rejected" },
   { value: "Cancelled", label: "Cancelled" },
@@ -109,6 +114,18 @@ function leaveStatusBadgeClass(status: string): string {
   if (s.includes("pending")) return "badge badge-yellow";
   if (s.includes("cancel")) return "badge badge-blue";
   return "badge badge-blue";
+}
+
+function formatLeaveStatusLabel(status: string): string {
+  if (status === "PendingLevel2") return "Pending (L2)";
+  return status;
+}
+
+function employeeInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
 }
 
 export interface LeaveRequestsPanelProps {
@@ -261,150 +278,247 @@ export function LeaveRequestsPanel({
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const showPager = !deptFilter && totalCount > pageSize;
+  const hasActiveFilters = Boolean(deptFilter || statusFilter || fromDate || toDate);
+
+  function clearFilters() {
+    setDeptFilter("");
+    setStatusFilter("");
+    setFromDate("");
+    setToDate("");
+  }
 
   return (
-    <div className="mt-6 space-y-4">
-      <div>
-        <h2 className="text-base font-semibold text-slate-800">{sectionTitle}</h2>
-        <p className="mt-1 text-sm text-slate-500">{defaultSubtitle}</p>
-        {!hideApplyShortcut && onApplyLeave && (
-          <div className="mt-3">
-            <Button type="button" variant="secondary" onClick={onApplyLeave}>
-              Apply for leave
+    <div className="w-full min-w-0 max-w-full space-y-5">
+      <DashboardPageHeader
+        eyebrow="Leave workspace"
+        title={sectionTitle}
+        subtitle={defaultSubtitle}
+        badge={
+          !hideApplyShortcut && onApplyLeave ? (
+            <Button type="button" onClick={onApplyLeave} className="shrink-0">
+              + Apply for leave
             </Button>
-          </div>
-        )}
+          ) : undefined
+        }
+      />
+
+      <div className="flex flex-wrap gap-2">
+        {QUICK_STATUS_FILTERS.map((filter) => {
+          const active = statusFilter === filter.value;
+          return (
+            <button
+              key={filter.value || "all"}
+              type="button"
+              onClick={() => setStatusFilter(filter.value)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+                active
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50/60"
+              }`}
+            >
+              {filter.label}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="w-44 shrink-0 sm:w-52">
-          <label className={labelClass}>Department</label>
-          <FormSelect
-            value={deptFilter}
-            onValueChange={setDeptFilter}
-            options={departmentSelectOptions}
-            placeholder="All departments"
-          />
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Filters</p>
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="text-xs font-medium text-slate-500 transition hover:text-slate-800"
+            >
+              Clear all
+            </button>
+          ) : null}
         </div>
-        <div className="w-40 shrink-0">
-          <label className={labelClass}>Status</label>
-          <FormSelect
-            value={statusFilter}
-            onValueChange={setStatusFilter}
-            options={LEAVE_STATUS_OPTIONS}
-            placeholder="All"
-          />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label className={labelClass}>Department</label>
+            <FormSelect
+              value={deptFilter}
+              onValueChange={setDeptFilter}
+              options={departmentSelectOptions}
+              placeholder="All departments"
+            />
+          </div>
+          <div>
+            <label className={labelClass}>From date</label>
+            <DatePickerField
+              value={fromDate}
+              onChange={onFromDateChange}
+              max={toDate || undefined}
+              className={inputClassSlate}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>To date</label>
+            <DatePickerField
+              value={toDate}
+              onChange={onToDateChange}
+              min={fromDate || undefined}
+              className={inputClassSlate}
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full sm:w-auto"
+              onClick={() => void load()}
+              disabled={loading}
+            >
+              {loading ? "Loading…" : "Refresh"}
+            </Button>
+          </div>
         </div>
-        <div>
-          <label className={labelClass}>From date</label>
-          <DatePickerField value={fromDate} onChange={onFromDateChange} max={toDate || undefined} className={`${inputClassSlate} w-40`} />
-        </div>
-        <div>
-          <label className={labelClass}>To date</label>
-          <DatePickerField value={toDate} onChange={onToDateChange} min={fromDate || undefined} className={`${inputClassSlate} w-40`} />
-        </div>
-        <div className="flex-1" />
-        <Button type="button" variant="secondary" onClick={() => void load()} disabled={loading}>
-          {loading ? "Loading…" : "Refresh"}
-        </Button>
       </div>
 
       <InlinePageAlert message={error} className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-center text-sm text-red-700 shadow-sm scroll-mt-20" />
 
-      <div className={`${panelClass} overflow-x-auto`}>
-        <table className="hris-table min-w-[880px]">
-          <thead>
-            <tr>
-              <th>Employee</th>
-              <th>Type</th>
-              <th>Start</th>
-              <th>End</th>
-              <th className="text-right">Days</th>
-              <th>Status</th>
-              <th>Responsible</th>
-              <th className="text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
+      <div className={`${panelClass} overflow-hidden`}>
+        <div className="overflow-x-auto">
+          <table className="hris-table min-w-[920px]">
+            <thead className="bg-slate-50/90">
               <tr>
-                <td colSpan={8} className="text-center text-slate-500">
-                  Loading…
-                </td>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Employee</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Leave type</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Period</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Days</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Approver</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
               </tr>
-            )}
-            {!loading && items.length === 0 && (
-              <tr>
-                <td colSpan={8} className="text-center text-slate-500">
-                  No requests found. Try adjusting status or date range.
-                </td>
-              </tr>
-            )}
-            {!loading &&
-              items.map((r) => (
-                <tr key={r.id}>
-                  <td className="font-medium text-slate-800">
-                    {r.employeeName}
-                    {r.employeeCode ? <span className="ml-1 text-xs font-normal text-slate-500">({r.employeeCode})</span> : null}
-                  </td>
-                  <td className="text-slate-700">{r.leaveTypeName}</td>
-                  <td className="text-slate-700">{formatDate(r.startDate)}</td>
-                  <td className="text-slate-700">{formatDate(r.endDate)}</td>
-                  <td className="text-right tabular-nums text-slate-800">{Number(r.totalDays).toFixed(1)}</td>
-                  <td>
-                    <span className={leaveStatusBadgeClass(r.status)}>{r.status}</span>
-                  </td>
-                  <td className="text-slate-600">{r.responsibleUserName ?? "—"}</td>
-                  <td className="text-right">
-                    <div className="flex flex-wrap justify-end gap-x-2 gap-y-1">
-                      {r.medicalCertificateUrl ? (
-                        <a
-                          href={`${API_BASE_URL}${r.medicalCertificateUrl}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-600 hover:underline"
-                        >
-                          Certificate
-                        </a>
-                      ) : null}
-                      {canUserActOnLeaveRow(r, currentEmployeeId, showApprovalActions) ? (
-                        <>
-                          <button
-                            type="button"
-                            className="text-xs text-green-600 hover:underline"
-                            onClick={() => {
-                              setActionRow(r);
-                              setActionKind("approve");
-                              setRemarks("");
-                            }}
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            className="text-xs text-rose-600 hover:underline"
-                            onClick={() => {
-                              setActionRow(r);
-                              setActionKind("reject");
-                              setRemarks("");
-                            }}
-                          >
-                            Reject
-                          </button>
-                        </>
-                      ) : null}
+            </thead>
+            <tbody>
+              {loading &&
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={`sk-${i}`} className="animate-pulse">
+                    <td colSpan={7} className="px-4 py-4">
+                      <div className="h-10 rounded-lg bg-slate-100" />
+                    </td>
+                  </tr>
+                ))}
+              {!loading && items.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-0">
+                    <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                      <div
+                        className="mb-4 flex h-14 w-14 items-center justify-center rounded-full"
+                        style={{ backgroundColor: T.actionSoft, color: T.action }}
+                      >
+                        <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden>
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"
+                          />
+                        </svg>
+                      </div>
+                      <h3 className="text-base font-semibold text-slate-800">No leave requests found</h3>
+                      <p className="mt-2 max-w-md text-sm text-slate-500">
+                        {hasActiveFilters
+                          ? "Try clearing filters or widening the date range."
+                          : "When leave is submitted it will appear here for tracking and approval."}
+                      </p>
+                      {!hideApplyShortcut && onApplyLeave && (
+                        <Button type="button" className="mt-5" onClick={onApplyLeave}>
+                          + Apply for leave
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
-              ))}
-          </tbody>
-        </table>
+              )}
+              {!loading &&
+                items.map((r) => (
+                  <tr key={r.id} className="transition hover:bg-slate-50/70">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-[11px] font-bold text-white">
+                          {employeeInitials(r.employeeName)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-800">{r.employeeName}</p>
+                          {r.employeeCode ? (
+                            <p className="truncate text-xs text-slate-500">{r.employeeCode}</p>
+                          ) : null}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        {r.leaveTypeName}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-700">
+                      <span>{formatDate(r.startDate)}</span>
+                      <span className="mx-1.5 text-slate-300">→</span>
+                      <span>{formatDate(r.endDate)}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="inline-flex min-w-[2.25rem] justify-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold tabular-nums text-blue-700">
+                        {Number(r.totalDays).toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={leaveStatusBadgeClass(r.status)}>{formatLeaveStatusLabel(r.status)}</span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">{r.responsibleUserName ?? "—"}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        {r.medicalCertificateUrl ? (
+                          <a
+                            href={`${API_BASE_URL}${r.medicalCertificateUrl}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-600 transition hover:bg-blue-50"
+                          >
+                            PDF
+                          </a>
+                        ) : null}
+                        {canUserActOnLeaveRow(r, currentEmployeeId, showApprovalActions) ? (
+                          <>
+                            <button
+                              type="button"
+                              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                              onClick={() => {
+                                setActionRow(r);
+                                setActionKind("approve");
+                                setRemarks("");
+                              }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                              onClick={() => {
+                                setActionRow(r);
+                                setActionKind("reject");
+                                setRemarks("");
+                              }}
+                            >
+                              Reject
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {showPager && (
         <div className={`${panelClass} flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-slate-600`}>
           <span>
-            Page {page} of {totalPages} ({totalCount} total)
+            Showing page {page} of {totalPages} · {totalCount} request{totalCount === 1 ? "" : "s"} total
           </span>
           <div className="flex gap-2">
             <Button type="button" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>

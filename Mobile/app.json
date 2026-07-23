@@ -39,7 +39,8 @@
       "expo-secure-store",
       "expo-camera",
       "expo-location",
-      "expo-splash-screen"
+      "expo-splash-screen",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
@@ -47,9 +48,8 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "9e322a91-a9d5-426e-8425-99ef08efb130"
+        "projectId": "f25e6b31-a753-46c8-9b34-8c4d9b041fd1"
       }
-    },
-    "owner": "kasunsameera96"
+    }
   }
 }

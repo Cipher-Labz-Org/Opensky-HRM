@@ -26,7 +26,8 @@ import {
   resolveCompanyLogoSrc,
 } from "@/lib/company-branding";
 import { normalizeCompanyLogoUpload, pdfUrlToPngFile } from "@/lib/render-pdf-logo";
-import { API_BASE_URL, getApiBaseUrl } from "@/config/constants";
+import { API_BASE_URL } from "@/config/constants";
+import { MobileConnectionQr } from "@/components/settings/MobileConnectionQr";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
@@ -996,23 +997,7 @@ export default function SettingsPage() {
             Employees scan this QR code in the <strong>OpenSky HRM</strong> mobile app to connect to this
             company&apos;s backend. You can also share the backend URL manually if scanning is not possible.
           </p>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-            <img
-              src={`${getApiBaseUrl()}/api/mobile/connection-qr?pixelsPerModule=8`}
-              alt="Mobile connection QR code"
-              className="h-48 w-48 shrink-0 rounded-xl border border-[var(--border)] bg-white p-2"
-            />
-            <div className="min-w-0 flex-1 space-y-2">
-              <p className="text-xs font-medium text-[var(--text-muted)]">Backend URL encoded in QR</p>
-              <p className="break-all rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm text-[var(--text)]">
-                {getApiBaseUrl() || API_BASE_URL || "Configure API URL"}
-              </p>
-              <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
-                Set <code className="rounded bg-slate-100 px-1">Mobile:PublicApiBaseUrl</code> on the API when
-                the public URL differs from the request host (e.g. reverse proxy or IIS binding).
-              </p>
-            </div>
-          </div>
+          <MobileConnectionQr companyName={companyName} />
         </div>
       </div>
 

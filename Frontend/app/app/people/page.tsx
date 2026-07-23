@@ -134,6 +134,119 @@ const employmentTypeLabels: Record<string, string> = {
 };
 const employmentTypeOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
 const PEOPLE_PAGE_SIZE = 25;
+const PEOPLE_VIEW_STORAGE_KEY = "opensky.peopleHub.viewMode";
+
+type PeopleHubViewMode = "medium" | "small" | "details";
+
+const PEOPLE_VIEW_OPTIONS: { mode: PeopleHubViewMode; label: string }[] = [
+  { mode: "medium", label: "Medium icons" },
+  { mode: "small", label: "Small icons" },
+  { mode: "details", label: "Details" },
+];
+
+function PeopleViewIcon({ mode }: { mode: PeopleHubViewMode }) {
+  const cls = "h-4 w-4 shrink-0";
+  switch (mode) {
+    case "medium":
+      return (
+        <svg className={cls} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" aria-hidden>
+          <rect x="4" y="2" width="8" height="8" rx="1.25" />
+          <path d="M3 13h10" />
+        </svg>
+      );
+    case "small":
+      return (
+        <svg className={cls} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" aria-hidden>
+          <circle cx="4" cy="4" r="1.5" />
+          <circle cx="8" cy="4" r="1.5" />
+          <circle cx="12" cy="4" r="1.5" />
+          <circle cx="4" cy="8" r="1.5" />
+          <circle cx="8" cy="8" r="1.5" />
+          <circle cx="12" cy="8" r="1.5" />
+        </svg>
+      );
+    case "details":
+      return (
+        <svg className={cls} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" aria-hidden>
+          <path d="M3 4h10M3 8h10M3 12h10" />
+        </svg>
+      );
+  }
+}
+
+function employeeInitials(fullName: string) {
+  return fullName
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function PeopleEmployeeAvatar({
+  emp,
+  className,
+}: {
+  emp: Employee;
+  className: string;
+}) {
+  if (emp.profileImageUrl) {
+    return (
+      <img
+        src={`${API_BASE_URL}${emp.profileImageUrl}`}
+        alt={emp.fullName}
+        className={`rounded-full object-cover ring-1 ring-slate-200 ${className}`}
+      />
+    );
+  }
+  return (
+    <div
+      className={`flex items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-blue-50 font-semibold text-slate-500 ring-1 ring-slate-200 ${className}`}
+    >
+      {employeeInitials(emp.fullName)}
+    </div>
+  );
+}
+
+function PeopleEmployeeBadges({ emp }: { emp: Employee }) {
+  return (
+    <>
+      {emp.isTopOfHierarchy && (
+        <span title="Top of Hierarchy" className="inline-flex shrink-0">
+          <svg className="h-3 w-3 text-amber-500" fill="currentColor" viewBox="0 0 24 24">
+            <path
+              fillRule="evenodd"
+              d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005Z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </span>
+      )}
+      {emp.needsProfileSetup && (
+        <span title="New hire — complete profile" className="inline-flex shrink-0">
+          <svg className="h-3 w-3 text-amber-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+            />
+          </svg>
+        </span>
+      )}
+      {!emp.needsProfileSetup && !emp.isTopOfHierarchy && !emp.hasDirectSupervisor && (
+        <span title="No direct supervisor" className="inline-flex shrink-0">
+          <svg className="h-3 w-3 text-amber-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+            />
+          </svg>
+        </span>
+      )}
+    </>
+  );
+}
 
 type EmployeeListStatusFilter = "active" | "all" | "terminated";
 
@@ -187,6 +300,7 @@ export default function PeoplePage() {
   const [statusFilter, setStatusFilter] = useState<EmployeeListStatusFilter>("active");
   const [sortBy, setSortBy] = useState<PeopleSortKey>("employeeCode");
   const [sortAsc, setSortAsc] = useState(true);
+  const [viewMode, setViewMode] = useState<PeopleHubViewMode>("details");
 
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
@@ -405,6 +519,37 @@ export default function PeoplePage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(PEOPLE_VIEW_STORAGE_KEY);
+      if (saved && PEOPLE_VIEW_OPTIONS.some((o) => o.mode === saved)) {
+        setViewMode(saved as PeopleHubViewMode);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  function selectViewMode(mode: PeopleHubViewMode) {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(PEOPLE_VIEW_STORAGE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function openEmployeeProfile(id: string) {
+    router.push(`/app/people/${id}`);
+  }
+
+  function employeeSurfaceClass(emp: Employee, extra = "") {
+    const base = emp.needsProfileSetup
+      ? "border-amber-200/80 bg-amber-50/90 hover:bg-amber-100/70"
+      : "border-slate-100 bg-white hover:border-blue-200 hover:bg-blue-50/40";
+    return `${base} ${extra}`.trim();
+  }
+
   const selectClass =
     "w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20";
   const inputClass = selectClass;
@@ -603,7 +748,25 @@ export default function PeoplePage() {
             )}
           </button>
         </div>
-        <span className="text-[11px] text-slate-400">{totalEmployees} records{activeFilterCount > 0 ? " (filtered)" : ""}</span>
+        <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+          {PEOPLE_VIEW_OPTIONS.map((opt) => (
+            <button
+              key={opt.mode}
+              type="button"
+              onClick={() => selectViewMode(opt.mode)}
+              title={opt.label}
+              aria-label={opt.label}
+              aria-pressed={viewMode === opt.mode}
+              className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+                viewMode === opt.mode
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              }`}
+            >
+              <PeopleViewIcon mode={opt.mode} />
+            </button>
+          ))}
+        </div>
       </div>
 
       {activeFilterCount > 0 && (
@@ -778,28 +941,27 @@ export default function PeoplePage() {
                 New hires converted from recruitment are listed first. Complete job title, location, and supervisor to clear the highlight.
               </div>
             )}
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/80">
-                    <th className="w-10 py-2.5 pl-5 pr-1"></th>
-                    <PeopleSortHeader label="Employee Id" sortKey="employeeCode" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
-                    <PeopleSortHeader label="Name" sortKey="name" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
-                    <PeopleSortHeader label="Job Title" sortKey="jobTitle" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
-                    <PeopleSortHeader label="Status" sortKey="status" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
-                    <PeopleSortHeader label="Emp. Type" sortKey="employmentType" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
-                    <PeopleSortHeader label="Department" sortKey="department" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
-                    <PeopleSortHeader label="Location" sortKey="location" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
-                    <PeopleSortHeader label="Supervisor" sortKey="supervisor" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} className="pr-5" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {employees.map((emp) => {
-                    const initials = emp.fullName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
-                    return (
+            {viewMode === "details" ? (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/80">
+                      <th className="w-10 py-2.5 pl-5 pr-1"></th>
+                      <PeopleSortHeader label="Employee Id" sortKey="employeeCode" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                      <PeopleSortHeader label="Name" sortKey="name" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                      <PeopleSortHeader label="Job Title" sortKey="jobTitle" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                      <PeopleSortHeader label="Status" sortKey="status" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                      <PeopleSortHeader label="Emp. Type" sortKey="employmentType" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                      <PeopleSortHeader label="Department" sortKey="department" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                      <PeopleSortHeader label="Location" sortKey="location" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                      <PeopleSortHeader label="Supervisor" sortKey="supervisor" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} className="pr-5" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {employees.map((emp) => (
                       <tr
                         key={emp.id}
-                        onClick={() => router.push(`/app/people/${emp.id}`)}
+                        onClick={() => openEmployeeProfile(emp.id)}
                         className={`cursor-pointer border-b transition-colors ${
                           emp.needsProfileSetup
                             ? "border-amber-200/80 bg-amber-50/90 hover:bg-amber-100/70"
@@ -807,61 +969,92 @@ export default function PeoplePage() {
                         }`}
                       >
                         <td className="py-2 pl-5 pr-1">
-                          {emp.profileImageUrl ? (
-                            <img
-                              src={`${API_BASE_URL}${emp.profileImageUrl}`}
-                              alt={emp.fullName}
-                              className="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200"
-                            />
-                          ) : (
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-blue-50 ring-1 ring-slate-200 text-[10px] font-semibold text-slate-500">
-                              {initials}
-                            </div>
-                          )}
+                          <PeopleEmployeeAvatar emp={emp} className="h-8 w-8 text-[10px]" />
                         </td>
-                        <td className="py-2 px-3 text-[12px] font-mono text-slate-500">{emp.employeeCode}</td>
-                        <td className="py-2 px-3">
+                        <td className="px-3 py-2 font-mono text-[12px] text-slate-500">{emp.employeeCode}</td>
+                        <td className="px-3 py-2">
                           <div className="flex items-center gap-1">
                             <span className="text-[12px] font-medium text-slate-800">
                               {formatFirstNameOnly(emp.firstName || emp.fullName)}
                             </span>
-                            {emp.isTopOfHierarchy && (
-                              <span title="Top of Hierarchy" className="inline-flex shrink-0">
-                                <svg className="h-3 w-3 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005Z" clipRule="evenodd" /></svg>
-                              </span>
-                            )}
-                            {emp.needsProfileSetup && (
-                              <span title="New hire from recruitment — complete job title, work location, and direct supervisor" className="inline-flex shrink-0">
-                                <svg className="h-3 w-3 text-amber-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-                              </span>
-                            )}
-                            {!emp.needsProfileSetup && !emp.isTopOfHierarchy && !emp.hasDirectSupervisor && (
-                              <span title="No direct supervisor assigned" className="inline-flex shrink-0">
-                                <svg className="h-3 w-3 text-amber-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-                              </span>
-                            )}
+                            <PeopleEmployeeBadges emp={emp} />
                           </div>
                         </td>
-                        <td className="py-2 px-3 text-[12px] text-slate-600">{emp.jobTitleName ?? emp.positionTitle ?? "—"}</td>
-                        <td className="py-2 px-3">
-                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${
-                            getStatusColor(emp.status)
-                          }`}>{emp.status}</span>
+                        <td className="px-3 py-2 text-[12px] text-slate-600">{emp.jobTitleName ?? emp.positionTitle ?? "—"}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${getStatusColor(emp.status)}`}>
+                            {emp.status}
+                          </span>
                         </td>
-                        <td className="py-2 px-3 text-[11px] text-slate-500">
+                        <td className="px-3 py-2 text-[11px] text-slate-500">
                           {employmentTypeDisplayName(employmentTypes, emp.employmentType)}
                         </td>
-                        <td className="py-2 px-3 text-[12px] text-slate-600">{emp.departmentName ?? "—"}</td>
-                        <td className="py-2 px-3 text-[12px] text-slate-600">{emp.locationName ?? "—"}</td>
-                        <td className="py-2 px-3 pr-5 text-[12px] text-slate-600">
+                        <td className="px-3 py-2 text-[12px] text-slate-600">{emp.departmentName ?? "—"}</td>
+                        <td className="px-3 py-2 text-[12px] text-slate-600">{emp.locationName ?? "—"}</td>
+                        <td className="px-3 py-2 pr-5 text-[12px] text-slate-600">
                           {formatSupervisorFirstNames(emp.supervisorNames ?? emp.managerName)}
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div
+                className={`grid gap-3 p-4 ${
+                  viewMode === "medium"
+                    ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+                    : "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
+                }`}
+              >
+                {employees.map((emp) => (
+                  <button
+                    key={emp.id}
+                    type="button"
+                    onClick={() => openEmployeeProfile(emp.id)}
+                    className={`flex w-full flex-col items-center rounded-xl border p-3 text-center transition ${employeeSurfaceClass(emp)}`}
+                  >
+                    <PeopleEmployeeAvatar
+                      emp={emp}
+                      className={viewMode === "medium" ? "h-14 w-14 text-sm" : "h-10 w-10 text-[10px]"}
+                    />
+                    <div className="mt-2 flex w-full min-w-0 items-center justify-center gap-1">
+                      <p
+                        className={`line-clamp-2 font-semibold text-slate-800 ${
+                          viewMode === "small" ? "text-[10px]" : "text-xs"
+                        }`}
+                      >
+                        {emp.fullName}
+                      </p>
+                      <PeopleEmployeeBadges emp={emp} />
+                    </div>
+                    <p className="mt-0.5 w-full truncate text-[10px] font-mono text-slate-500">{emp.employeeCode}</p>
+                    {(emp.jobTitleName ?? emp.positionTitle) && (
+                      <p
+                        className={`mt-1 w-full truncate text-slate-600 ${
+                          viewMode === "small" ? "text-[9px]" : "text-[11px]"
+                        }`}
+                      >
+                        {emp.jobTitleName ?? emp.positionTitle}
+                      </p>
+                    )}
+                    {viewMode === "medium" && emp.departmentName ? (
+                      <p className="mt-0.5 w-full truncate text-[10px] text-slate-500">{emp.departmentName}</p>
+                    ) : null}
+                    {viewMode === "medium" && emp.locationName ? (
+                      <p className="mt-0.5 w-full truncate text-[10px] text-slate-400">{emp.locationName}</p>
+                    ) : null}
+                    <span
+                      className={`mt-2 inline-block rounded px-1.5 py-0.5 font-medium leading-none ${getStatusColor(emp.status)} ${
+                        viewMode === "small" ? "text-[9px]" : "text-[10px]"
+                      }`}
+                    >
+                      {emp.status}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
             <TablePagination
               page={page}
               totalPages={totalPages}

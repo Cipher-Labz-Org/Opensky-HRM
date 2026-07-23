@@ -51,7 +51,7 @@ export function WeeklyActivityBars({
   const max = Math.max(...data.map((d) => d.count), 1);
   const barMaxPx = 88;
   return (
-    <div className="flex h-[118px] items-end justify-between gap-1.5 px-0.5">
+    <div className="flex h-[118px] items-end justify-between gap-1 px-0.5 sm:gap-1.5">
       {data.map((d, i) => {
         const px = Math.round((d.count / max) * barMaxPx);
         const h = d.count > 0 ? Math.max(6, px) : 2;
@@ -78,7 +78,9 @@ export function WeeklyActivityBars({
               }
               title={`${d.count} event${d.count === 1 ? "" : "s"}`}
             />
-            <span className="text-center text-[10px] font-medium leading-tight text-slate-500">{d.label}</span>
+            <span className="w-full truncate text-center text-[9px] font-medium leading-tight text-slate-500 sm:text-[10px]">
+              {d.label}
+            </span>
           </div>
         );
       })}
