@@ -11,7 +11,7 @@ import { useClientPagination } from "@/lib/use-client-pagination";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
-import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatDate } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import {
   DonutMixChart,
@@ -19,6 +19,12 @@ import {
   HorizontalCompareBars,
   WeeklyActivityBars,
 } from "@/lib/workspace-charts";
+import {
+  DashboardCardHeader,
+  DashboardKpiGrid,
+  DashboardPageHeader,
+} from "@/components/dashboard/DashboardUi";
+import { OPENSKY_THEME } from "@/lib/opensky-theme";
 import { useAuth } from "@/contexts/auth-context";
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { LeaveRequestsPanel } from "@/components/workforce/LeaveRequestsPanel";
@@ -374,6 +380,13 @@ const SUPERVISOR_TABS: { key: PageTab; label: string }[] = [
 // ──────────────────────────── Helpers ────────────────────────────
 
 const labelClass = "mb-1 block text-xs font-medium text-slate-500";
+
+function employeeInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
+}
 const inputClass = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20";
 
 const LEAVE_YEAR_FORM_OPTIONS: FormSelectOption[] = [2024, 2025, 2026, 2027].map((y) => ({
@@ -572,61 +585,6 @@ function HolidaysCalendarPanel({
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function HolidaysSummaryLists({
-  year,
-  items,
-  onSelectHoliday,
-}: {
-  year: number;
-  items: HolidayItem[];
-  onSelectHoliday: (item: HolidayItem) => void;
-}) {
-  const grouped = useMemo(() => {
-    const buckets: Record<HolidayKind, HolidayItem[]> = { Public: [], Mercantile: [], Poya: [], Restricted: [] };
-    for (const item of items) {
-      buckets[normalizeHolidayKind(item)].push(item);
-    }
-    for (const kind of HOLIDAY_KINDS) {
-      buckets[kind].sort((a, b) => holidayIsoDate(a).localeCompare(holidayIsoDate(b)));
-    }
-    return buckets;
-  }, [items]);
-
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {HOLIDAY_KINDS.map((kind) => {
-        const styles = holidayKindStyles(kind);
-        const list = grouped[kind];
-        return (
-          <div key={kind} className={`rounded-xl border bg-gradient-to-br to-white p-3.5 ${styles.listBorder} ${styles.listBg}`}>
-            <h3 className={`text-xs font-bold uppercase tracking-wide ${styles.listTitle}`}>
-              {styles.label} ({list.length})
-            </h3>
-            <ul className="mt-2 max-h-36 space-y-1 overflow-y-auto text-xs">
-              {list.length === 0 ? (
-                <li className="text-slate-500">None for {year}.</li>
-              ) : (
-                list.map((h) => (
-                  <li key={h.id}>
-                    <button
-                      type="button"
-                      onClick={() => onSelectHoliday(h)}
-                      className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition ${styles.listHover}`}
-                    >
-                      <span className="font-medium text-slate-800">{h.name}</span>
-                      <span className={`shrink-0 tabular-nums ${styles.listDate}`}>{fmtDate(h.date)}</span>
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -875,18 +833,6 @@ function DashboardTab({
     }));
   }, [dash]);
 
-  const timelineItems = useMemo(() => {
-    if (!dash?.recentRequests?.length) return [];
-    return [...dash.recentRequests]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 8)
-      .map((r) => ({
-        at: r.createdAt,
-        title: `${r.leaveTypeName} · ${r.status}`,
-        body: `${r.employeeName} — ${fmtDate(r.startDate)} to ${fmtDate(r.endDate)} (${r.totalDays}d)`,
-      }));
-  }, [dash]);
-
   const kpis = useMemo(() => {
     if (!dash) return [];
     return [
@@ -913,20 +859,41 @@ function DashboardTab({
     ];
   }, [dash]);
 
-  const quickLinks: { tab: PageTab; title: string }[] = [
-    { tab: "applyLeave", title: "Apply leave" },
-    { tab: "requests", title: "Leave requests" },
-    { tab: "balances", title: "Leave balances" },
-    { tab: "holidays", title: "Holidays" },
-  ];
+  const quickLinks = useMemo(
+    () => [
+      { tab: "applyLeave" as PageTab, title: "Apply leave", sub: "Submit a new time-off request" },
+      { tab: "requests" as PageTab, title: "Leave requests", sub: "View and track every request" },
+      { tab: "balances" as PageTab, title: "Leave balances", sub: "Check entitlements and remaining days" },
+      {
+        tab: "holidays" as PageTab,
+        title: "Holidays",
+        sub: dash ? `${formatInt(dash.upcomingHolidays)} upcoming on the calendar` : "View the company holiday calendar",
+      },
+    ],
+    [dash],
+  );
+
+  const T = OPENSKY_THEME;
+  const hasRecentActivity = activityLast7Days.some((d) => d.count > 0);
 
   if (dashLoading) {
     return (
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" />
-        ))}
-      </div>
+      <>
+        <DashboardPageHeader
+          eyebrow="Leave workspace"
+          title="Overview"
+          subtitle="Track requests, approvals, and team leave activity at a glance."
+        />
+        <DashboardKpiGrid
+          loading
+          items={[
+            { label: "Total leave requests", value: "—", sub: "Loading…" },
+            { label: "Pending approvals", value: "—", sub: "Loading…" },
+            { label: "Approved this month", value: "—", sub: "Loading…" },
+            { label: "Upcoming holidays", value: "—", sub: "Loading…" },
+          ]}
+        />
+      </>
     );
   }
 
@@ -939,112 +906,128 @@ function DashboardTab({
   }
 
   return (
-    <>
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {kpis.map((kpi) => (
-          <div
-            key={kpi.label}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
-            <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
+    <div className="min-w-0 w-full max-w-full overflow-x-hidden [&_.opensky-dashboard-card]:min-w-0 [&_.opensky-dashboard-card]:max-w-full">
+      <DashboardPageHeader
+        eyebrow="Leave workspace"
+        title="Overview"
+        subtitle="Track requests, approvals, and team leave activity at a glance."
+        badge={
+          <Button onClick={onApplyLeave} className="shrink-0">
+            + Apply leave
+          </Button>
+        }
+      />
+
+      <DashboardKpiGrid items={kpis} />
+
+      <div className="mt-6 grid min-w-0 gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+        <div className="opensky-dashboard-card overflow-hidden !p-0">
+          <DashboardCardHeader
+            title="Leave activity"
+            subtitle="Last 7 days"
+            iconBg={T.actionSoft}
+            iconColor={T.action}
+            icon={
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+              </svg>
+            }
+          />
+          <div className="p-5 pt-0">
+            <WeeklyActivityBars data={activityLast7Days} />
+            <p className="mt-2 text-[11px]" style={{ color: T.muted }}>
+              {hasRecentActivity
+                ? "Bars show how many leave requests were submitted each day."
+                : "No leave requests were submitted in the last 7 days."}
+            </p>
           </div>
-        ))}
+        </div>
+
+        <div className="opensky-dashboard-card overflow-hidden !p-0">
+          <DashboardCardHeader
+            title="Recent leave by status"
+            subtitle="By outcome"
+            iconBg={T.accentSoft}
+            iconColor={T.accent}
+            icon={
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+              </svg>
+            }
+          />
+          <div className="p-5 pt-0">
+            {leaveStatusBars.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-sm" style={{ color: T.muted }}>
+                  No leave requests yet.
+                </p>
+                <Button variant="secondary" className="mt-4" onClick={onApplyLeave}>
+                  Create first request
+                </Button>
+              </div>
+            ) : (
+              <HorizontalCompareBars items={leaveStatusBars} />
+            )}
+          </div>
+        </div>
+
+        <div className="opensky-dashboard-card overflow-hidden !p-0">
+          <DashboardCardHeader
+            title="Status mix"
+            subtitle="Outcome share"
+            iconBg={T.primaryLight}
+            iconColor={T.navyMid}
+            icon={
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" />
+              </svg>
+            }
+          />
+          <div className="p-5 pt-0">
+            {leaveStatusBars.length === 0 ? (
+              <p className="py-8 text-center text-sm" style={{ color: T.muted }}>
+                Status breakdown appears once requests are submitted.
+              </p>
+            ) : (
+              <DonutMixChart values={leaveStatusBars} />
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Leave activity</h3>
-          </div>
-          <WeeklyActivityBars data={activityLast7Days} />
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Recent leave by status</h3>
-          </div>
-          {leaveStatusBars.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-500">No recent requests in the sample.</p>
-          ) : (
-            <HorizontalCompareBars items={leaveStatusBars} />
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Status mix</h3>
-          </div>
-          {leaveStatusBars.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-500">No distribution data.</p>
-          ) : (
-            <DonutMixChart values={leaveStatusBars} />
-          )}
-        </div>
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="text-base font-semibold text-slate-900">Recent leave</h3>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
-                {timelineItems.length} shown
-              </span>
-              <Button
-                variant="secondary"
-                className="min-h-0 rounded-lg px-3 py-1.5 text-xs"
-                onClick={() => onOpenTab("requests")}
-              >
-                All requests
-              </Button>
-              <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={onApplyLeave}>
-                + New request
-              </Button>
-            </div>
-          </div>
-          {timelineItems.length === 0 ? (
-            <p className="py-10 text-center text-sm text-slate-500">No leave requests in the dashboard sample yet.</p>
-          ) : (
-            <div className="space-y-2.5">
-              {timelineItems.map((ev, i) => (
-                <div
-                  key={`${ev.at}-${i}`}
-                  className="group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
-                >
-                  <div className="pt-0.5 text-[11px] font-medium text-slate-500">{formatDateTime(ev.at)}</div>
-                  <div className="min-w-0">
-                    <div className="mb-0.5 flex items-center gap-2">
-                      <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-amber-400" />
-                      <strong className="truncate text-sm text-slate-800">{ev.title}</strong>
-                    </div>
-                    <div className="line-clamp-2 text-sm text-slate-600">{ev.body}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4">
-            <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
-          </div>
-          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
+      <div className="mt-4">
+        <div className="opensky-dashboard-card min-w-0 overflow-hidden !p-0">
+          <DashboardCardHeader
+            compact
+            title="Quick actions"
+            subtitle="Common tasks"
+            iconBg={T.accentSoft}
+            iconColor={T.accent}
+            icon={
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+              </svg>
+            }
+          />
+          <div className="grid grid-cols-1 gap-3 px-4 pb-4 pt-1 sm:grid-cols-2 sm:px-5 sm:pb-5 sm:pt-2 lg:grid-cols-4">
             {quickLinks.map((link) => (
               <button
                 key={link.title}
                 type="button"
                 onClick={() => onOpenTab(link.tab)}
-                className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+                className="opensky-dashboard-quicklink opensky-dashboard-quicklink--compact group min-w-0 text-left"
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-800">{link.title}</div>
+                    <div className="truncate text-xs font-semibold" style={{ color: T.navy }}>
+                      {link.title}
+                    </div>
+                    <p className="truncate text-[11px]" style={{ color: T.muted }}>
+                      {link.sub}
+                    </p>
                   </div>
-                  <span className="mt-0.5 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
+                  <span className="opensky-quicklink-chev shrink-0 text-xs" style={{ color: T.action }}>
                     →
                   </span>
                 </div>
@@ -1053,7 +1036,7 @@ function DashboardTab({
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1083,8 +1066,31 @@ const BALANCE_COLORS = [
   { bg: "from-fuchsia-500 to-fuchsia-600", ring: "ring-fuchsia-200" },
 ];
 
+function getApplyLeaveTypeMeta(t: LeaveTypeItem, balances: BalanceItem[]) {
+  const balance = balances.find(
+    (x) => (x.leaveTypeId && x.leaveTypeId === t.id) || x.leaveTypeName === t.name,
+  );
+  const isNoPayRow = t.code?.toUpperCase() === "LT-NPL";
+  const isSickRow = t.code?.toUpperCase() === "LT-SIC";
+  const rowDisabled = !isNoPayRow && !balance && !isSickRow;
+  return { balance, isNoPayRow, isSickRow, rowDisabled };
+}
+
+function pickDefaultLeaveTypeId(types: LeaveTypeItem[], balances: BalanceItem[]): string {
+  for (const t of types) {
+    const { balance, rowDisabled } = getApplyLeaveTypeMeta(t, balances);
+    if (!rowDisabled && balance && balance.remaining > 0) return t.id;
+  }
+  for (const t of types) {
+    const { rowDisabled } = getApplyLeaveTypeMeta(t, balances);
+    if (!rowDisabled) return t.id;
+  }
+  return "";
+}
+
 function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: boolean; currentEmployeeId: string | null }) {
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
   const [departments, setDepartments] = useState<DepartmentLookup[]>([]);
   const [departmentFilterId, setDepartmentFilterId] = useState("");
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
@@ -1136,6 +1142,19 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
 
   function onDepartmentFilterChange(nextDepartmentId: string) {
     setDepartmentFilterId(nextDepartmentId);
+    setSelectedEmpId("");
+    setSelectedTypeId("");
+    setMessage(null);
+  }
+
+  function selectEmployee(emp: EmployeeLookup) {
+    setSelectedEmpId(emp.id);
+    setSelectedTypeId("");
+    setMessage(null);
+    setEmployees((prev) => (prev.some((e) => e.id === emp.id) ? prev : [...prev, emp]));
+  }
+
+  function clearSelectedEmployee() {
     setSelectedEmpId("");
     setSelectedTypeId("");
     setMessage(null);
@@ -1234,22 +1253,40 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   }, [isEmployeeView, currentEmployeeId]);
 
   useEffect(() => {
-    Promise.all([
-      isEmployeeView && currentEmployeeId
-        ? apiFetch<{ id: string; firstName: string; lastName: string; profileImageUrl: string | null; employeeCode?: string }>(`/api/employees/${currentEmployeeId}`)
-            .then((e) => [{ id: e.id, firstName: e.firstName, lastName: e.lastName, profileImageUrl: e.profileImageUrl, employeeCode: e.employeeCode }])
-        : isEmployeeView
-          ? Promise.resolve([] as EmployeeLookup[])
-          : apiFetch<{ items: EmployeeLookup[] }>("/api/employees?pageSize=200").then((r) => r.items ?? []),
-      apiFetch<LeaveTypeItem[]>("/api/leave/types"),
-      !isEmployeeView
-        ? apiFetch<DepartmentLookup[]>("/api/organization/departments").catch(() => [] as DepartmentLookup[])
-        : Promise.resolve([] as DepartmentLookup[]),
-    ]).then(([empList, types, deptList]) => {
-      setEmployees(empList);
-      setLeaveTypes(types);
-      setDepartments(deptList);
-    });
+    apiFetch<LeaveTypeItem[]>("/api/leave/types")
+      .then(setLeaveTypes)
+      .catch(() => setLeaveTypes([]));
+    if (!isEmployeeView) {
+      apiFetch<DepartmentLookup[]>("/api/organization/departments")
+        .then(setDepartments)
+        .catch(() => setDepartments([]));
+    }
+  }, [isEmployeeView]);
+
+  useEffect(() => {
+    if (!isEmployeeView) return;
+    if (!currentEmployeeId) {
+      setEmployees([]);
+      setEmployeesLoading(false);
+      return;
+    }
+    setEmployeesLoading(true);
+    apiFetch<{ id: string; firstName: string; lastName: string; profileImageUrl: string | null; employeeCode?: string }>(
+      `/api/employees/${currentEmployeeId}`,
+    )
+      .then((e) =>
+        setEmployees([
+          {
+            id: e.id,
+            firstName: e.firstName,
+            lastName: e.lastName,
+            profileImageUrl: e.profileImageUrl,
+            employeeCode: e.employeeCode,
+          },
+        ]),
+      )
+      .catch(() => setEmployees([]))
+      .finally(() => setEmployeesLoading(false));
   }, [isEmployeeView, currentEmployeeId]);
 
   useEffect(() => {
@@ -1260,6 +1297,12 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
       .catch(() => setBalances([]))
       .finally(() => setLoadingBal(false));
   }, [selectedEmpId, currentYear]);
+
+  useEffect(() => {
+    if (!selectedEmpId || loadingBal || selectedTypeId) return;
+    const defaultId = pickDefaultLeaveTypeId(leaveTypesForApply, balances);
+    if (defaultId) setSelectedTypeId(defaultId);
+  }, [selectedEmpId, loadingBal, selectedTypeId, leaveTypesForApply, balances]);
 
   useEffect(() => {
     setCoverageHits([]);
@@ -1409,188 +1452,178 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
 
   const selectedEmp = employees.find((e) => e.id === selectedEmpId);
   const apiOrigin = API_BASE_URL.replace(/\/$/, "");
-  const applyLabel = "mb-0.5 block text-[11px] font-medium text-slate-500";
+  const applyLabel = "mb-1 block text-xs font-medium text-slate-600";
   const applyInput =
-    "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20";
+    "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20";
 
-  return (
-    <div className="w-full max-w-[min(100%,88rem)]">
-      <div className="mb-3 flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <div className="min-w-0">
-          <h2 className="text-sm font-bold text-slate-800 sm:text-base">Apply leave</h2>
-          <p className="truncate text-[11px] text-slate-500 sm:text-xs">
-            {isEmployeeView
-              ? "Pick a leave type, then dates and submit — one screen."
-              : "Choose an employee, then a leave type and request details."}
-          </p>
-        </div>
-        {!isEmployeeView && (
-          <div className="flex w-full shrink-0 flex-col gap-2 sm:max-w-lg sm:flex-row sm:items-center">
-            <FormSelect
-              value={departmentFilterId}
-              onValueChange={onDepartmentFilterChange}
-              options={departmentFilterOptions}
-              className="w-full sm:w-44"
-              clearable={false}
-            />
-            <EmployeeSearchCombobox
-              key={departmentFilterId || "all-departments"}
-              value={selectedEmpId}
-              departmentId={departmentFilterId || undefined}
-              placeholder="Type name or employee code…"
-              className="w-full sm:min-w-[220px] sm:flex-1"
-              onPick={(emp) => {
-                setSelectedEmpId(emp?.id ?? "");
-                setSelectedTypeId("");
-                setMessage(null);
-                if (emp) {
-                  setEmployees((prev) => (prev.some((e) => e.id === emp.id) ? prev : [...prev, emp]));
-                }
-              }}
-            />
-          </div>
-        )}
-        {isEmployeeView && !currentEmployeeId && (
-          <p className="text-xs text-amber-700">Account not linked to an employee profile.</p>
+  function renderEmployeeAvatar(emp: EmployeeLookup, size: "sm" | "md" = "md") {
+    const dim = size === "sm" ? "h-8 w-8 text-[10px]" : "h-10 w-10 text-xs";
+    return (
+      <div
+        className={`flex ${dim} shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 font-bold text-white`}
+      >
+        {emp.profileImageUrl ? (
+          <img
+            src={
+              /^https?:\/\//i.test(emp.profileImageUrl)
+                ? emp.profileImageUrl
+                : `${apiOrigin}${emp.profileImageUrl.startsWith("/") ? "" : "/"}${emp.profileImageUrl}`
+            }
+            alt=""
+            className={`${dim} object-cover`}
+          />
+        ) : (
+          `${emp.firstName[0] ?? ""}${emp.lastName[0] ?? ""}`
         )}
       </div>
+    );
+  }
+
+  return (
+    <div className="w-full min-w-0 max-w-full">
+      {(!selectedEmpId || isEmployeeView) && (
+      <div className="mb-5 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-slate-800">Apply leave</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              {isEmployeeView
+                ? "Choose a leave type, pick your dates, and submit."
+                : "Search for an employee — the form opens automatically."}
+            </p>
+          </div>
+          {!isEmployeeView && !selectedEmpId && (
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-end lg:max-w-2xl">
+              <div className="w-full sm:w-48">
+                <label className={applyLabel}>Department</label>
+                <FormSelect
+                  value={departmentFilterId}
+                  onValueChange={onDepartmentFilterChange}
+                  options={departmentFilterOptions}
+                  className="w-full"
+                  clearable={false}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <label className={applyLabel}>Employee</label>
+                <EmployeeSearchCombobox
+                  key={departmentFilterId || "all-departments"}
+                  value={selectedEmpId}
+                  departmentId={departmentFilterId || undefined}
+                  placeholder="Search by name or employee code…"
+                  className="w-full"
+                  onPick={(emp) => {
+                    if (emp) selectEmployee(emp);
+                    else clearSelectedEmployee();
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {isEmployeeView && !currentEmployeeId && (
+            <p className="text-sm font-medium text-amber-700">Your account is not linked to an employee profile.</p>
+          )}
+        </div>
+      </div>
+      )}
+
+      {!selectedEmpId && !isEmployeeView && (
+        <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-10 text-center text-sm text-slate-500">
+          Search for an employee above to open the leave request form.
+        </p>
+      )}
+
+      {!selectedEmpId && isEmployeeView && currentEmployeeId && employeesLoading && (
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-16 text-sm text-slate-400">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
+          Loading your profile…
+        </div>
+      )}
 
       {selectedEmpId && (
-        <div className="grid gap-3 lg:grid-cols-12 lg:items-start lg:gap-4">
-          <div className="flex min-h-0 flex-col gap-2 lg:col-span-4 xl:col-span-3">
-            {selectedEmp && (
-              <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
-                  {selectedEmp.profileImageUrl ? (
-                    <img
-                      src={
-                        /^https?:\/\//i.test(selectedEmp.profileImageUrl)
-                          ? selectedEmp.profileImageUrl
-                          : `${apiOrigin}${selectedEmp.profileImageUrl.startsWith("/") ? "" : "/"}${selectedEmp.profileImageUrl}`
-                      }
-                      alt=""
-                      className="h-10 w-10 object-cover"
-                    />
-                  ) : (
-                    `${selectedEmp.firstName[0]}${selectedEmp.lastName[0]}`
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-800">
-                    {selectedEmp.firstName} {selectedEmp.lastName}
-                  </p>
-                  <p className="text-[10px] text-slate-400">{currentYear} balances · click a row to select</p>
-                </div>
-              </div>
-            )}
-
-            {loadingBal && <p className="py-2 text-center text-xs text-slate-400">Loading balances…</p>}
-            {!loadingBal && catalogLeaveTypes.length === 0 && selectedEmpId && (
-              <p className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-xs text-slate-500">
-                No active leave types in the catalog. Add types under <span className="font-medium">Leave Types</span> (admin).
-              </p>
-            )}
-            {!loadingBal && catalogLeaveTypes.length > 0 && leaveTypesForApply.length === 0 && selectedEmpId && (
-              <p className="rounded-lg border border-dashed border-amber-100 bg-amber-50/80 px-3 py-4 text-center text-xs text-amber-900">
-                No leave types you can apply for yet for {currentYear}. HR must assign leave types (for example Maternity)
-                under <span className="font-medium">Leave balances</span> before they appear here.
-              </p>
-            )}
-            {!loadingBal && leaveTypesForApply.length > 0 && (
-              <div className="max-h-[32vh] overflow-y-auto overflow-x-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:max-h-[min(52vh,28rem)]">
-                <p className="sticky top-0 z-[1] border-b border-slate-100 bg-slate-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  Leave types
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          {selectedEmp && (
+            <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
+              {renderEmployeeAvatar(selectedEmp, "sm")}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-slate-800">
+                  {selectedEmp.firstName} {selectedEmp.lastName}
+                  {selectedEmp.employeeCode ? (
+                    <span className="ml-1.5 font-normal text-slate-400">({selectedEmp.employeeCode})</span>
+                  ) : null}
                 </p>
-                <p className="border-b border-slate-100 bg-slate-50/90 px-2.5 py-1 text-[10px] font-medium text-slate-500">Name</p>
-                <ul className="divide-y divide-slate-100 p-1">
-                  {leaveTypesForApply.map((t, i) => {
-                    const color = BALANCE_COLORS[i % BALANCE_COLORS.length];
-                    const b = balances.find(
-                      (x) => (x.leaveTypeId && x.leaveTypeId === t.id) || x.leaveTypeName === t.name
-                    );
-                    const cfOpening =
-                      b != null
-                        ? Math.max(Number(b.broughtForwardDays ?? 0), Number(b.carriedForward ?? 0))
-                        : 0;
-                    const carryExpired = b != null && cfOpening > 0 && Number(b.carriedForward ?? 0) < cfOpening;
-                    const isNoPayRow = t.code?.toUpperCase() === "LT-NPL";
-                    const isSickRow = t.code?.toUpperCase() === "LT-SIC";
-                    const catalogMaxDays = Number.isFinite(t.defaultDaysPerYear) ? t.defaultDaysPerYear : 0;
-                    const rowDisabled = !isNoPayRow && !b && !isSickRow;
-                    const isSelected = t.id === selectedTypeId;
-                    return (
-                      <li key={t.id}>
-                        <button
-                          type="button"
-                          disabled={rowDisabled}
-                          onClick={() => setSelectedTypeId(t.id)}
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition ${
-                            isSelected
-                              ? `bg-gradient-to-r ${color.bg} text-white shadow-sm`
-                              : "hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p
-                              className={`truncate text-xs font-semibold ${isSelected ? "text-white" : "text-slate-700"}`}
-                            >
-                              {t.name}
-                            </p>
-                            <p className={`text-[10px] ${isSelected ? "text-white/75" : "text-slate-400"}`}>
-                              {b ? (
-                                <>
-                                  Ent. {b.entitled} · Used {b.used}
-                                  {cfOpening > 0
-                                    ? ` · CF ${cfOpening}${carryExpired ? " (expired)" : ""}`
-                                    : ""}
-                                </>
-                              ) : isNoPayRow ? (
-                                <>Unpaid — no balance pool</>
-                              ) : isSickRow ? (
-                                <>
-                                  PDF required if &gt; 2 days · balance optional
-                                  {catalogMaxDays > 0 ? (
-                                    <> · type default {catalogMaxDays}d/year</>
-                                  ) : null}
-                                </>
-                              ) : (
-                                <>No balance for {currentYear}</>
-                              )}
-                            </p>
-                          </div>
-                          <span
-                            className={`shrink-0 tabular-nums text-lg font-bold ${isSelected ? "text-white" : "text-slate-800"}`}
-                          >
-                            {b ? b.remaining : "—"}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {!loadingBal && balances.length === 0 && (
-                  <p className="border-t border-slate-100 px-2.5 py-2 text-[10px] leading-snug text-slate-500">
-                    No leave balances for {currentYear}. Check the employee join date and entitlement rules, or ask HR to assign balances manually.
-                  </p>
-                )}
+                <p className="text-xs text-slate-500">{currentYear} leave balances</p>
               </div>
-            )}
-          </div>
+              {!isEmployeeView && (
+                <button
+                  type="button"
+                  onClick={clearSelectedEmployee}
+                  className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  Change
+                </button>
+              )}
+            </div>
+          )}
 
-          <div className="min-w-0 lg:col-span-8 xl:col-span-9">
-            {!selectedTypeId && leaveTypesForApply.length > 0 && (
-              <div className="flex min-h-[180px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center lg:min-h-[min(52vh,28rem)]">
-                <p className="max-w-sm text-sm text-slate-500">
-                  Select a <span className="font-medium text-slate-700">leave type</span> from the list to open the
-                  request form.
-                </p>
+          {loadingBal && (
+            <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-slate-400">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
+              Loading leave balances…
+            </div>
+          )}
+
+          {!loadingBal && catalogLeaveTypes.length === 0 && (
+            <p className="px-4 py-10 text-center text-sm text-slate-500 sm:px-5">
+              No active leave types in the catalog. Add types under <span className="font-medium">Leave Types</span>.
+            </p>
+          )}
+
+          {!loadingBal && catalogLeaveTypes.length > 0 && leaveTypesForApply.length === 0 && (
+            <p className="px-4 py-10 text-center text-sm text-amber-900 sm:px-5">
+              No leave types available for {currentYear}. Ask HR to assign balances under{" "}
+              <span className="font-medium">Leave balances</span>.
+            </p>
+          )}
+
+          {!loadingBal && leaveTypesForApply.length > 0 && (
+            <div className="border-b border-slate-100 px-4 py-4 sm:px-5">
+              <label className={applyLabel}>Leave type</label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {leaveTypesForApply.map((t) => {
+                  const { balance, isNoPayRow, isSickRow, rowDisabled } = getApplyLeaveTypeMeta(t, balances);
+                  const isSelected = t.id === selectedTypeId;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      disabled={rowDisabled}
+                      onClick={() => setSelectedTypeId(t.id)}
+                      className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                        isSelected
+                          ? "border-blue-600 bg-blue-600 text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                      }`}
+                    >
+                      <span>{t.name}</span>
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
+                          isSelected ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {balance ? `${balance.remaining}d left` : isNoPayRow ? "Unpaid" : isSickRow ? "Sick" : "—"}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-            )}
+            </div>
+          )}
 
-          {selectedTypeId && (
+          {selectedTypeId && !loadingBal && (
             <form
               onSubmit={handleSubmit}
-              className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4 space-y-3"
+              className="space-y-4 px-4 py-4 sm:px-5 sm:py-5"
             >
               <FlashMessageBanner
                 msg={message}
@@ -1659,6 +1692,8 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </div>
               )}
 
+              <div className="grid gap-6 lg:grid-cols-2">
+              <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className={applyLabel}>From *</label>
@@ -1684,7 +1719,9 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
               {applyDatesInvalid && (
                 <p className="text-xs text-red-600">Dates must be today or later, and To must be on or after From.</p>
               )}
+              </div>
 
+              <div className="space-y-4">
               {isSickLeave && (
                 <div>
                   <label className={`${applyLabel} text-slate-700`} htmlFor={medicalInputId}>
@@ -1740,20 +1777,20 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </div>
               )}
 
-              <div className="grid gap-3 lg:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className={applyLabel}>Comments</label>
                   <textarea
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                     rows={2}
-                    className={applyInput + " min-h-[2.5rem] resize-y"}
+                    className={applyInput + " min-h-[2.75rem] resize-y"}
                     placeholder="Optional"
                   />
                 </div>
                 <div className="relative" ref={coverageWrapRef}>
                   <label className={applyLabel} htmlFor={coverageInputId}>
-                    Coverage person
+                    Coverage person <span className="font-normal text-slate-400">(optional)</span>
                   </label>
                   <div className="relative">
                     <input
@@ -1808,15 +1845,17 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                   )}
                 </div>
               </div>
+              </div>
+              </div>
 
-              <div className="flex justify-end gap-2 border-t border-slate-100 pt-2">
+              <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={resetApplyLeaveForm}
                   disabled={submitting}
-                  className="inline-flex min-w-[8.5rem] items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                  className="inline-flex min-h-[2.75rem] items-center justify-center rounded-lg border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
                 >
-                  Cancel
+                  Clear form
                 </button>
                 <button
                   type="submit"
@@ -1829,7 +1868,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                     missingBalance ||
                     (sickLeaveRequiresMedicalPdf && !medicalFile)
                   }
-                  className="inline-flex min-w-[8.5rem] items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50"
+                  className="inline-flex min-h-[2.75rem] items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50"
                 >
                   {submitting && (
                     <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -1839,7 +1878,6 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
               </div>
             </form>
           )}
-          </div>
         </div>
       )}
     </div>
@@ -1865,6 +1903,9 @@ function BalancesTab() {
   const [editCarriedForward, setEditCarriedForward] = useState("0");
   const [balanceSaving, setBalanceSaving] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [balanceViewMode, setBalanceViewMode] = useState<"summary" | "detail">("summary");
+  const [employeePageSize, setEmployeePageSize] = useState(50);
 
   const monthOptions = useMemo(
     () => [
@@ -1894,7 +1935,31 @@ function BalancesTab() {
 
   useEffect(() => { loadBalances(); }, [loadBalances]);
 
-  const summariesPager = useClientPagination(summaries, 15);
+  const filteredSummaries = useMemo(() => {
+    const q = employeeSearch.trim().toLowerCase();
+    if (!q) return summaries;
+    return summaries.filter(
+      (s) =>
+        s.employeeName.toLowerCase().includes(q) ||
+        (s.employeeCode?.toLowerCase().includes(q) ?? false),
+    );
+  }, [summaries, employeeSearch]);
+
+  const leaveTypeColumns = useMemo(() => {
+    const names = new Set<string>();
+    for (const s of filteredSummaries) {
+      for (const b of s.balances) names.add(b.leaveTypeName);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [filteredSummaries]);
+
+  const summariesPager = useClientPagination(filteredSummaries, employeePageSize);
+
+  useEffect(() => {
+    if (!recalcMsg) return;
+    const timer = window.setTimeout(() => setRecalcMsg(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [recalcMsg]);
 
   async function handleRecalculate() {
     setRecalculating(true);
@@ -1939,16 +2004,43 @@ function BalancesTab() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-        <div className="flex flex-wrap items-end gap-3">
+    <div className="w-full min-w-0 max-w-full space-y-5">
+      <DashboardPageHeader
+        eyebrow="Leave workspace"
+        title={`Leave balances — ${year}`}
+        subtitle={
+          <>
+            Entitlement, usage, and days remaining as of <span className="font-medium text-slate-700">{asOfMonthLabel}</span>.
+            Carried is the usable carry pool for the selected month.
+          </>
+        }
+        badge={
+          <Button type="button" onClick={handleRecalculate} disabled={recalculating} className="shrink-0">
+            {recalculating ? "Recalculating…" : "Recalculate balances"}
+          </Button>
+        }
+      />
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Filters</p>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_9rem_9rem_9rem]">
+          <div>
+            <label className={labelClass}>Search employee</label>
+            <input
+              type="search"
+              value={employeeSearch}
+              onChange={(e) => setEmployeeSearch(sanitizeSearchInput(e.target.value))}
+              placeholder="Name or employee code…"
+              className={inputClass + " w-full"}
+            />
+          </div>
           <div>
             <label className={labelClass}>Year</label>
             <FormSelect
               value={String(year)}
               onValueChange={(v) => setYear(Number(v))}
               options={LEAVE_YEAR_FORM_OPTIONS}
-              className="w-36"
+              className="w-full"
               clearable={false}
             />
           </div>
@@ -1958,182 +2050,321 @@ function BalancesTab() {
               value={String(asOfMonth)}
               onValueChange={(v) => setAsOfMonth(Number(v))}
               options={AS_OF_MONTH_FORM_OPTIONS}
-              className="w-32"
+              className="w-full"
+              clearable={false}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Rows per page</label>
+            <FormSelect
+              value={String(employeePageSize)}
+              onValueChange={(v) => setEmployeePageSize(Number(v))}
+              options={[
+                { value: "25", label: "25" },
+                { value: "50", label: "50" },
+                { value: "100", label: "100" },
+              ]}
+              className="w-full"
               clearable={false}
             />
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col items-stretch gap-3 sm:max-w-xl sm:flex-row sm:items-center sm:justify-end">
-          {recalcMsg && (
-            <div
-              className={
-                `flex min-w-0 items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm ${
-                  recalcMsg.startsWith("Done")
-                    ? "border-emerald-200/80 bg-gradient-to-r from-emerald-50/90 to-white text-emerald-900"
-                    : "border-rose-200/80 bg-gradient-to-r from-rose-50/90 to-white text-rose-800"
-                }`
-              }
-            >
-              {recalcMsg.startsWith("Done") ? (
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700" aria-hidden>
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                </span>
-              ) : (
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-700" aria-hidden>
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                </span>
-              )}
-              <p className="min-w-0 leading-relaxed">{recalcMsg}</p>
-            </div>
-          )}
-          <button
-            onClick={handleRecalculate}
-            disabled={recalculating}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-sky-200 bg-gradient-to-b from-sky-50 to-sky-50/80 px-4 py-2.5 text-sm font-semibold text-sky-900 shadow-sm transition hover:border-sky-300 hover:from-sky-100/90 hover:to-sky-50 disabled:opacity-50"
-            type="button"
-          >
-            {recalculating && <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-200 border-t-sky-800" aria-hidden />}
-            {recalculating ? "Recalculating…" : "Recalculate Balances"}
-          </button>
-        </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
-        <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
-          <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Leave Balances — {year} (as of {asOfMonthLabel})</h2>
-          <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-            Entitlement, usage, and days remaining. <span className="font-medium text-slate-600">Carried</span> is the
-            usable carry pool (it goes to 0 after the configured use-months window if unused). Values are shown for the selected month. Rows are grouped by employee.
-          </p>
+      {recalcMsg ? (
+        <div
+          className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
+            recalcMsg.startsWith("Done")
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-rose-200 bg-rose-50 text-rose-800"
+          }`}
+        >
+          {recalcMsg}
         </div>
-        <div className="max-h-[min(70vh,48rem)] overflow-x-auto overflow-y-auto">
-          <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
-            <thead>
+      ) : null}
+
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <p className="text-xs text-slate-500">
+            {balanceViewMode === "summary"
+              ? "One row per employee — best for large teams."
+              : "All balance lines — click edit on any row."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">View</span>
+            <button
+              type="button"
+              onClick={() => setBalanceViewMode("summary")}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                balanceViewMode === "summary"
+                  ? "bg-blue-600 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              Summary
+            </button>
+            <button
+              type="button"
+              onClick={() => setBalanceViewMode("detail")}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                balanceViewMode === "detail"
+                  ? "bg-blue-600 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              Detail
+            </button>
+          </div>
+        </div>
+        <div className="max-h-[min(78vh,56rem)] overflow-x-auto overflow-y-auto">
+          {balanceViewMode === "summary" ? (
+            <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-xs">
+              <thead className="bg-slate-50/90">
+                <tr>
+                  <th
+                    rowSpan={2}
+                    className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur"
+                  >
+                    ID
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur"
+                  >
+                    Name
+                  </th>
+                  {leaveTypeColumns.map((type) => (
+                    <th
+                      key={type}
+                      colSpan={2}
+                      className="sticky top-0 z-10 border-b border-slate-100 bg-slate-50/95 px-2 py-1.5 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-600 backdrop-blur"
+                    >
+                      <span className="line-clamp-2">{type}</span>
+                    </th>
+                  ))}
+                  <th
+                    rowSpan={2}
+                    className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur"
+                  >
+                    Used
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="sticky top-0 z-10 border-b border-emerald-200 bg-emerald-50/90 px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wide text-emerald-800 backdrop-blur"
+                  >
+                    Remain
+                  </th>
+                </tr>
+                <tr>
+                  {leaveTypeColumns.map((type) => (
+                    <Fragment key={`${type}-sub`}>
+                      <th className="sticky top-[1.75rem] z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-1 text-right text-[9px] font-medium uppercase tracking-wide text-slate-400 backdrop-blur">
+                        Used
+                      </th>
+                      <th className="sticky top-[1.75rem] z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-1 text-right text-[9px] font-medium uppercase tracking-wide text-emerald-700 backdrop-blur">
+                        Rem.
+                      </th>
+                    </Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading &&
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <tr key={`sum-sk-${i}`} className="animate-pulse">
+                      <td colSpan={leaveTypeColumns.length * 2 + 4} className="px-3 py-1.5">
+                        <div className="h-6 rounded bg-slate-100" />
+                      </td>
+                    </tr>
+                  ))}
+                {!loading && filteredSummaries.length === 0 && (
+                  <tr>
+                    <td colSpan={Math.max(leaveTypeColumns.length * 2 + 4, 4)} className="px-4 py-12 text-center text-sm text-slate-500">
+                      {employeeSearch.trim()
+                        ? "No employees match your search."
+                        : `No balances for ${year} as of ${asOfMonthLabel}.`}
+                    </td>
+                  </tr>
+                )}
+                {!loading &&
+                  summariesPager.pageItems.map((s) => {
+                    const totalUsed = s.balances.reduce((sum, b) => sum + b.used, 0);
+                    const totalRemaining = s.balances.reduce((sum, b) => sum + b.remaining, 0);
+                    const balanceByType = new Map(s.balances.map((b) => [b.leaveTypeName, b]));
+                    return (
+                      <tr key={s.employeeId} className="border-b border-slate-100 transition hover:bg-slate-50/80">
+                        <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">
+                          {s.employeeCode || "—"}
+                        </td>
+                        <td className="max-w-[12rem] px-3 py-1.5">
+                          <p className="truncate font-medium text-slate-800">{s.employeeName}</p>
+                        </td>
+                        {leaveTypeColumns.map((type) => {
+                          const b = balanceByType.get(type);
+                          const rem = b?.remaining ?? null;
+                          const remClass =
+                            rem == null ? "text-slate-300" : rem > 0 ? "text-emerald-700" : rem < 0 ? "text-rose-700" : "text-slate-400";
+                          return (
+                            <Fragment key={type}>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">
+                                {b ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditBalance(b)}
+                                    className="rounded px-1.5 py-0.5 transition hover:bg-slate-100"
+                                    title={`Edit ${type} — used`}
+                                  >
+                                    {b.used}
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-right tabular-nums">
+                                {b ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditBalance(b)}
+                                    className={`rounded px-1.5 py-0.5 font-semibold transition hover:bg-slate-100 ${remClass}`}
+                                    title={`Edit ${type} — remaining`}
+                                  >
+                                    {b.remaining}
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                              </td>
+                            </Fragment>
+                          );
+                        })}
+                        <td className="px-2 py-1.5 text-right font-medium tabular-nums text-slate-700">{totalUsed}</td>
+                        <td className="bg-emerald-50/30 px-2 py-1.5 text-right font-bold tabular-nums text-emerald-800">
+                          {totalRemaining}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          ) : (
+          <table className="w-full min-w-[52rem] border-separate border-spacing-0 text-xs">
+            <thead className="bg-slate-50/90">
               <tr>
-                <th
-                  className="sticky top-0 z-10 min-w-[10rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
-                  scope="col"
-                >
+                <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                  ID
+                </th>
+                <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                  Name
+                </th>
+                <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
                   Leave type
                 </th>
-                <th
-                  className="sticky top-0 z-10 min-w-[6.5rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
+                <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
                   Period
                 </th>
-                <th
-                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
-                  Entitled
+                <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                  Ent.
                 </th>
-                <th
-                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
+                <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
                   Used
                 </th>
-                <th
-                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
-                  Carried
+                <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                  Carr.
+                </th>
+                <th className="sticky top-0 z-10 border-b border-emerald-200 bg-emerald-50/90 px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wide text-emerald-800 backdrop-blur">
+                  Rem.
                 </th>
                 <th
-                  className="sticky top-0 z-10 min-w-[5.5rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur"
-                  scope="col"
-                >
-                  Remaining
-                </th>
-                <th
-                  className="sticky top-0 z-10 w-11 border-b border-slate-200/90 bg-slate-100/95 py-3 pl-1 pr-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur sm:pr-3"
-                  scope="col"
+                  className="sticky top-0 z-10 w-10 border-b border-slate-200 bg-slate-50/95 py-2 pr-2 backdrop-blur"
                   aria-label="Actions"
                 />
               </tr>
             </thead>
             <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center">
-                    <div className="inline-flex items-center gap-2 text-slate-500">
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" />
-                      <span>Loading balances…</span>
-                    </div>
+              {loading &&
+                Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={`bal-sk-${i}`} className="animate-pulse">
+                    <td colSpan={9} className="px-3 py-1.5">
+                      <div className="h-6 rounded bg-slate-100" />
                     </td>
                   </tr>
-              )}
-              {!loading && summaries.length === 0 && (
+                ))}
+              {!loading && filteredSummaries.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center">
-                    <p className="text-sm text-slate-500">No balances for <span className="font-semibold text-slate-700">{year}</span> as of <span className="font-semibold text-slate-700">{asOfMonthLabel}</span>.</p>
-                    <p className="mt-1 text-xs text-slate-400">Assign leave types or run recalculation to populate this view.</p>
+                  <td colSpan={9} className="p-0">
+                    <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+                      <h3 className="text-sm font-semibold text-slate-800">No balances found</h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {employeeSearch.trim()
+                          ? "Try a different search term."
+                          : `No data for ${year} as of ${asOfMonthLabel}.`}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               )}
               {!loading &&
-                summariesPager.pageItems.map((s) => (
-                  <Fragment key={s.employeeId}>
-                    <tr className="hover:bg-slate-50/30">
-                      <td colSpan={7} className="border-b border-slate-200/80 bg-gradient-to-r from-slate-100/80 via-slate-50/50 to-white px-4 py-2.5 sm:px-6">
-                        <div className="flex min-w-0 items-baseline justify-between gap-2">
-                          <div className="min-w-0">
-                            <span className="text-sm font-semibold text-slate-800">{s.employeeName}</span>
-                            {s.employeeCode ? <span className="ml-2 text-xs font-medium text-slate-500 tabular-nums">{s.employeeCode}</span> : null}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                    {s.balances.map((b) => {
-                      const rem = b.remaining;
-                      const remClass =
-                        rem > 0 ? "text-emerald-800" : rem < 0 ? "text-rose-700" : "text-slate-500";
-                      return (
-                        <tr
-                          key={`${s.employeeId}-${b.id}`}
-                          className="group border-b border-slate-100/90 transition hover:bg-sky-50/35"
-                        >
-                          <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-3 pr-2 align-middle transition group-hover:border-sky-500/60 group-hover:bg-sky-50/20 sm:pl-4 sm:pr-3">
-                            <span className="font-medium text-slate-800">{b.leaveTypeName}</span>
-                          </td>
-                          <td className="px-2 py-2.5 align-middle sm:px-3">
-                            <span className="inline-flex max-w-full items-center rounded-lg bg-slate-100/80 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                              {b.periodLabel ?? b.year}
-                            </span>
-                          </td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-slate-600 sm:px-3">{b.entitled}</td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-slate-600 sm:px-3">{b.used}</td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-slate-500 sm:px-3">{b.carriedForward}</td>
-                          <td className="min-w-[5.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/50 to-transparent px-2 py-2.5 text-right sm:px-3">
-                            <span className={`text-base font-semibold tabular-nums ${remClass}`}>{b.remaining}</span>
-                          </td>
-                          <td className="w-11 py-2.5 pl-0 pr-1 text-right sm:pr-3">
-                            <button
-                              type="button"
-                              onClick={() => openEditBalance(b)}
-                              className="inline-flex items-center justify-center rounded-lg p-1.5 text-slate-400 transition hover:bg-white hover:text-sky-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
-                              title="Edit this balance"
+                summariesPager.pageItems.map((s) =>
+                  s.balances.map((b, idx) => {
+                    const rem = b.remaining;
+                    const remClass =
+                      rem > 0 ? "text-emerald-700" : rem < 0 ? "text-rose-700" : "text-slate-500";
+                    return (
+                      <tr
+                        key={`${s.employeeId}-${b.id}`}
+                        className="border-b border-slate-100 transition hover:bg-slate-50/70"
+                      >
+                        {idx === 0 ? (
+                          <>
+                            <td
+                              rowSpan={s.balances.length}
+                              className="whitespace-nowrap border-r border-slate-100 bg-slate-50/40 px-2 py-1.5 align-top tabular-nums text-slate-500"
                             >
-                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125"
-                                />
-                              </svg>
-                              <span className="sr-only">Edit</span>
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </Fragment>
-                ))}
+                              {s.employeeCode || "—"}
+                            </td>
+                            <td
+                              rowSpan={s.balances.length}
+                              className="max-w-[11rem] border-r border-slate-100 bg-slate-50/40 px-2 py-1.5 align-top"
+                            >
+                              <p className="truncate font-medium text-slate-800">{s.employeeName}</p>
+                            </td>
+                          </>
+                        ) : null}
+                        <td className="px-2 py-1.5 text-slate-700">{b.leaveTypeName}</td>
+                        <td className="px-2 py-1.5 text-slate-500">{b.periodLabel ?? b.year}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{b.entitled}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{b.used}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{b.carriedForward}</td>
+                        <td className="bg-emerald-50/30 px-2 py-1.5 text-right">
+                          <span className={`font-semibold tabular-nums ${remClass}`}>{b.remaining}</span>
+                        </td>
+                        <td className="px-1 py-1.5 pr-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => openEditBalance(b)}
+                            className="inline-flex rounded p-1 text-slate-400 transition hover:bg-white hover:text-blue-700"
+                            title="Edit"
+                          >
+                            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }),
+                )}
             </tbody>
           </table>
+          )}
         </div>
-        <TablePagination page={summariesPager.page} totalPages={summariesPager.totalPages} totalCount={summariesPager.totalCount} pageSize={summariesPager.pageSize} onPageChange={summariesPager.setPage} />
+        <TablePagination
+          page={summariesPager.page}
+          totalPages={summariesPager.totalPages}
+          totalCount={summariesPager.totalCount}
+          pageSize={summariesPager.pageSize}
+          onPageChange={summariesPager.setPage}
+        />
       </div>
 
       <Modal open={!!editingBalance} onClose={() => setEditingBalance(null)} title={`Edit balance: ${editingBalance?.leaveTypeName ?? ""}`}>
@@ -2202,6 +2433,26 @@ function AssignLeaveTypeTab() {
       .finally(() => setCatalogLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (!successMsg) return;
+    const timer = window.setTimeout(() => setSuccessMsg(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [successMsg]);
+
+  useEffect(() => {
+    if (!formError) return;
+    const timer = window.setTimeout(() => setFormError(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [formError]);
+
+  const selectedLeaveType = leaveTypes.find((t) => t.id === addLeaveTypeId);
+  const remainingPreview = useMemo(() => {
+    const entitled = Number(addEntitled) || 0;
+    const used = Number(addUsed) || 0;
+    const carried = Number(addCarriedForward) || 0;
+    return entitled + carried - used;
+  }, [addEntitled, addUsed, addCarriedForward]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!addEmployeeId) {
@@ -2260,107 +2511,201 @@ function AssignLeaveTypeTab() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-1 text-lg font-bold text-slate-800">Assign leave type</h2>
-        <p className="mb-6 text-sm text-slate-600">
-          Create a leave balance line for a specific employee and leave type, for a calendar year or a custom period. Use
-          <span className="font-medium"> Leave Balances</span> to view the grid and run recalculation.
-        </p>
-        {catalogLoading ? (
-          <p className="py-8 text-center text-sm text-slate-500">Loading leave types…</p>
-        ) : (
-          <form onSubmit={handleSubmit} className="max-w-2xl space-y-4">
-            <FormErrorAlert message={formError} onDismiss={() => setFormError(null)} className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" />
-            <InlinePageAlert message={successMsg} variant="success" className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 scroll-mt-20" />
-          <div>
-            <label className={labelClass}>Employee *</label>
-            <EmployeeSearchCombobox
-              key={employeeSearchKey}
-              value={addEmployeeId}
-              placeholder="Type name or employee code…"
-              onPick={(emp) => setAddEmployeeId(emp?.id ?? "")}
-            />
-            <p className="mt-1 text-xs text-slate-500">Start typing to search; pick a name from the list.</p>
+    <div className="w-full min-w-0 max-w-full space-y-5">
+      <DashboardPageHeader
+        eyebrow="Leave workspace"
+        title="Assign leave type"
+        subtitle="Create a leave balance for one employee and leave type — for a calendar year or a custom date range."
+      />
+
+      {catalogLoading ? (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white py-16 text-sm text-slate-400">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
+          Loading leave types…
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-3 sm:px-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">New balance line</p>
+            <p className="mt-0.5 text-sm text-slate-600">
+              After saving, review balances under <span className="font-medium text-slate-800">Leave Balances</span> or run
+              recalculation if needed.
+            </p>
           </div>
-          <div>
-            <label className={labelClass}>Leave Type *</label>
-            <FormSelect
-              value={addLeaveTypeId}
-              onValueChange={setAddLeaveTypeId}
-              options={addLeaveTypeFormOptions}
-              placeholder="Select leave type…"
-              required
+
+          <div className="space-y-5 px-4 py-5 sm:px-5">
+            <FormErrorAlert
+              message={formError}
+              onDismiss={() => setFormError(null)}
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
             />
-          </div>
-          <div>
-            <label className={labelClass}>Leave period *</label>
-            <div className="space-y-3">
-                <div className="flex flex-wrap gap-4">
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="radio"
-                      name="periodKindAssign"
-                      checked={addPeriodKind === "year"}
-                      onChange={() => setAddPeriodKind("year")}
-                      className="rounded border-slate-300 text-blue-600"
-                    />
-                  <span className="text-sm text-slate-700">Calendar year</span>
-                </label>
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="radio"
-                      name="periodKindAssign"
-                      checked={addPeriodKind === "custom"}
-                      onChange={() => setAddPeriodKind("custom")}
-                      className="rounded border-slate-300 text-blue-600"
-                    />
-                  <span className="text-sm text-slate-700">Custom period</span>
-                </label>
-              </div>
-              {addPeriodKind === "year" ? (
-                <FormSelect
-                  value={String(addYear)}
-                  onValueChange={(v) => setAddYear(Number(v))}
-                  options={addYearFormOptions}
-                  placeholder={String(addYear)}
-                />
-              ) : (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="text-xs text-slate-500">From</label>
-                    <DatePickerField value={addPeriodStart} onChange={setAddPeriodStart} className={inputClass + " w-full"} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500">To</label>
-                    <DatePickerField value={addPeriodEnd} onChange={setAddPeriodEnd} className={inputClass + " w-full"} />
-                  </div>
+            <InlinePageAlert
+              message={successMsg}
+              variant="success"
+              className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 scroll-mt-20"
+            />
+
+            <div className="space-y-5">
+              <div>
+                <label className={labelClass}>Employee *</label>
+                <div className="max-w-md">
+                  <EmployeeSearchCombobox
+                    key={employeeSearchKey}
+                    value={addEmployeeId}
+                    placeholder="Search by name or employee code…"
+                    onPick={(emp) => setAddEmployeeId(emp?.id ?? "")}
+                    className="w-full"
+                  />
                 </div>
-              )}
+              </div>
+
+              <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+                <div className="max-w-sm">
+                  <label className={labelClass}>Leave type *</label>
+                  <FormSelect
+                    value={addLeaveTypeId}
+                    onValueChange={setAddLeaveTypeId}
+                    options={addLeaveTypeFormOptions}
+                    placeholder="Select leave type…"
+                    required
+                    className="w-full"
+                  />
+                  {selectedLeaveType ? (
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      Catalog default: {selectedLeaveType.defaultDaysPerYear} days/year
+                      {selectedLeaveType.description ? ` · ${selectedLeaveType.description}` : ""}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="max-w-sm">
+                  <label className={labelClass}>Leave period *</label>
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAddPeriodKind("year")}
+                      className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+                        addPeriodKind === "year"
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      Calendar year
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAddPeriodKind("custom")}
+                      className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+                        addPeriodKind === "custom"
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      Custom period
+                    </button>
+                  </div>
+                  {addPeriodKind === "year" ? (
+                    <FormSelect
+                      value={String(addYear)}
+                      onValueChange={(v) => setAddYear(Number(v))}
+                      options={addYearFormOptions}
+                      placeholder={String(addYear)}
+                      clearable={false}
+                      className="w-full"
+                    />
+                  ) : (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="text-xs text-slate-500">From</label>
+                        <DatePickerField value={addPeriodStart} onChange={setAddPeriodStart} className={inputClass + " w-full"} />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500">To</label>
+                        <DatePickerField value={addPeriodEnd} onChange={setAddPeriodEnd} className={inputClass + " w-full"} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Balance days</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className={labelClass}>Entitled</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={addEntitled}
+                        onChange={(e) => setAddEntitled(e.target.value)}
+                        className={inputClass + " w-full"}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Used</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={addUsed}
+                        onChange={(e) => setAddUsed(e.target.value)}
+                        className={inputClass + " w-full"}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Carried</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={addCarriedForward}
+                        onChange={(e) => setAddCarriedForward(e.target.value)}
+                        className={inputClass + " w-full"}
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    Estimated remaining:{" "}
+                    <span
+                      className={`font-bold tabular-nums ${remainingPreview < 0 ? "text-rose-600" : "text-emerald-700"}`}
+                    >
+                      {remainingPreview}
+                    </span>{" "}
+                  days
+                </p>
+              </div>
             </div>
           </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <label className={labelClass}>Entitled (days)</label>
-              <input type="number" min={0} step={0.5} value={addEntitled} onChange={(e) => setAddEntitled(e.target.value)} className={inputClass + " w-full"} />
-            </div>
-            <div>
-              <label className={labelClass}>Used</label>
-              <input type="number" min={0} step={0.5} value={addUsed} onChange={(e) => setAddUsed(e.target.value)} className={inputClass + " w-full"} />
-            </div>
-            <div>
-              <label className={labelClass}>Carried Forward</label>
-              <input type="number" min={0} step={0.5} value={addCarriedForward} onChange={(e) => setAddCarriedForward(e.target.value)} className={inputClass + " w-full"} />
-            </div>
-          </div>
-            <div className="pt-2">
-              <Button type="submit" disabled={saving}>
-                {saving ? "Saving..." : "Assign leave type"}
-              </Button>
+
+          <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/40 px-4 py-4 sm:flex-row sm:justify-end sm:px-5">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={saving}
+              onClick={() => {
+                setAddEmployeeId("");
+                setEmployeeSearchKey((k) => k + 1);
+                setAddLeaveTypeId("");
+                setAddPeriodKind("year");
+                setAddYear(new Date().getFullYear());
+                setAddPeriodStart("");
+                setAddPeriodEnd("");
+                setAddEntitled("0");
+                setAddUsed("0");
+                setAddCarriedForward("0");
+                setFormError(null);
+                setSuccessMsg(null);
+              }}
+            >
+              Clear form
+            </Button>
+            <Button type="submit" disabled={saving} className="min-w-[10rem]">
+              {saving ? "Saving…" : "Assign leave type"}
+            </Button>
           </div>
         </form>
-        )}
-            </div>
+      )}
     </div>
   );
 }
@@ -2391,6 +2736,8 @@ function CarryForwardTab() {
   const [empLoading, setEmpLoading] = useState(true);
   const [availableByEmployeeId, setAvailableByEmployeeId] = useState<Record<string, number>>({});
   const [balanceLoading, setBalanceLoading] = useState(true);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [employeePageSize, setEmployeePageSize] = useState(50);
   const headerIncludeRef = useRef<HTMLInputElement>(null);
 
   const fromYearOptions = useMemo<FormSelectOption[]>(
@@ -2437,13 +2784,23 @@ function CarryForwardTab() {
       .finally(() => setBalanceLoading(false));
   }, [fromYear]);
 
+  const filteredEmployees = useMemo(() => {
+    const q = employeeSearch.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter((e) => {
+      const name = `${e.firstName} ${e.lastName}`.toLowerCase();
+      const code = e.employeeCode?.toLowerCase() ?? "";
+      return name.includes(q) || code.includes(q);
+    });
+  }, [employees, employeeSearch]);
+
   const allSelected = useMemo(
-    () => employees.length > 0 && employees.every((e) => includeById[e.id]),
-    [employees, includeById]
+    () => filteredEmployees.length > 0 && filteredEmployees.every((e) => includeById[e.id]),
+    [filteredEmployees, includeById],
   );
   const someSelected = useMemo(
-    () => employees.some((e) => includeById[e.id]),
-    [employees, includeById]
+    () => filteredEmployees.some((e) => includeById[e.id]),
+    [filteredEmployees, includeById],
   );
 
   useEffect(() => {
@@ -2454,14 +2811,14 @@ function CarryForwardTab() {
   function setAllIncluded(checked: boolean) {
     setIncludeById((prev) => {
       const next = { ...prev };
-      for (const e of employees) next[e.id] = checked;
+      for (const e of filteredEmployees) next[e.id] = checked;
       return next;
     });
   }
 
   const totalAvailableListed = useMemo(
-    () => employees.reduce((sum, e) => sum + (availableByEmployeeId[e.id] ?? 0), 0),
-    [employees, availableByEmployeeId]
+    () => filteredEmployees.reduce((sum, e) => sum + (availableByEmployeeId[e.id] ?? 0), 0),
+    [filteredEmployees, availableByEmployeeId],
   );
 
   function fmtDays(n: number) {
@@ -2470,7 +2827,24 @@ function CarryForwardTab() {
     return n.toFixed(1);
   }
 
-  const employeesPager = useClientPagination(employees, 20);
+  const employeesPager = useClientPagination(filteredEmployees, employeePageSize);
+
+  const selectedCount = useMemo(
+    () => filteredEmployees.filter((e) => includeById[e.id]).length,
+    [filteredEmployees, includeById],
+  );
+
+  useEffect(() => {
+    if (!result) return;
+    const timer = window.setTimeout(() => setResult(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [result]);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
 
   async function handleRun() {
     if (toYear !== fromYear + 1) {
@@ -2499,22 +2873,38 @@ function CarryForwardTab() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-1 text-lg font-bold text-slate-800">Leave Carry Forward</h2>
-        <p className="mb-4 text-sm text-slate-600">
-          Run this at the start of a new year to move unused leave from the <strong>source</strong> year into the <strong>target</strong> year.
-          Only leave types with <strong>Allow carry forward</strong> in Policies are processed; days are capped by each policy&apos;s{" "}
-          <strong>Max carry forward days</strong>. Use the table to include or exclude employees—unchecked employees are not carried forward.
-        </p>
-        <div className="mb-4 flex flex-wrap items-end gap-4">
+    <div className="w-full min-w-0 max-w-full space-y-5">
+      <DashboardPageHeader
+        eyebrow="Leave workspace"
+        title="Carry forward"
+        subtitle={
+          <>
+            Move unused leave from <span className="font-medium text-slate-700">{fromYear}</span> into{" "}
+            <span className="font-medium text-slate-700">{toYear}</span>. Only policy-eligible types are processed.
+            Unchecked employees are skipped.
+          </>
+        }
+        badge={
+          <Button
+            onClick={handleRun}
+            disabled={running || toYear !== fromYear + 1 || empLoading || selectedCount === 0}
+            className="shrink-0"
+          >
+            {running ? "Processing…" : "Run carry forward"}
+          </Button>
+        }
+      />
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Year range</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:max-w-md">
           <div>
             <label className={labelClass}>From year (source)</label>
             <FormSelect
               value={String(fromYear)}
               onValueChange={(v) => setFromYear(Number(v))}
               options={fromYearOptions}
-              className="w-32"
+              className="w-full"
               clearable={false}
             />
           </div>
@@ -2524,149 +2914,176 @@ function CarryForwardTab() {
               value={String(toYear)}
               onValueChange={(v) => setToYear(Number(v))}
               options={toYearOptions}
-              className="w-32"
+              className="w-full"
               clearable={false}
             />
           </div>
-          <Button onClick={handleRun} disabled={running || toYear !== fromYear + 1 || empLoading}>
-            {running ? "Processing…" : "Run Carry Forward"}
-          </Button>
         </div>
         {toYear !== fromYear + 1 && (
-          <p className="mb-4 text-sm text-amber-600">To year must be exactly one year after From year.</p>
+          <p className="mt-3 text-xs text-amber-700">To year must be exactly one year after the from year.</p>
         )}
+      </div>
 
-        {!empLoading && employees.length > 0 && (
-          <div className="mb-4 rounded-xl border border-slate-200/90 bg-gradient-to-r from-slate-50/90 to-sky-50/30 px-4 py-3 sm:px-5">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Source year — available leave (preview)</p>
-            <p className="mt-1 text-sm text-slate-700">
-              Total <span className="font-semibold">remaining</span> days in <span className="font-semibold">{fromYear}</span> (all leave types, after usage), across everyone in the list:{" "}
-              {balanceLoading ? (
-                <span className="inline-block h-4 w-8 animate-pulse rounded bg-slate-200 align-middle" />
-              ) : (
-                <span className="text-lg font-semibold tabular-nums text-emerald-800">{fmtDays(totalAvailableListed)}</span>
-              )}
-              <span className="text-slate-500"> days</span>
+      {!empLoading && employees.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm">
+          <span className="text-slate-600">
+            <span className="font-semibold text-slate-800">{selectedCount}</span> of{" "}
+            <span className="font-semibold text-slate-800">{filteredEmployees.length}</span> selected
+          </span>
+          <span className="hidden h-4 w-px bg-slate-200 sm:block" />
+          <span className="text-slate-600">
+            Available in {fromYear}:{" "}
+            {balanceLoading ? (
+              <span className="inline-block h-4 w-10 animate-pulse rounded bg-slate-200 align-middle" />
+            ) : (
+              <span className="font-bold tabular-nums text-emerald-700">{fmtDays(totalAvailableListed)} days</span>
+            )}
+          </span>
+        </div>
+      )}
+
+      <FormErrorAlert message={error} onDismiss={() => setError(null)} className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" />
+
+      {result && (
+        <div className="space-y-2">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            <p className="font-semibold">Carry forward completed</p>
+            <p className="mt-1">
+              Processed {result.balancesProcessed} rows · Created {result.balancesCreated} · Updated{" "}
+              {result.balancesUpdated} · Carried {result.totalDaysCarried} days
             </p>
           </div>
-        )}
+          {result.infoMessage && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{result.infoMessage}</div>
+          )}
+        </div>
+      )}
 
-        <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
-          <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
-            <h3 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Carry forward selection — {fromYear} → {toYear}</h3>
-            <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-              Checked = include. <span className="font-medium text-slate-600">Available</span> = total days remaining in {fromYear} (Leave Balances, all types).
-            </p>
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-4 py-3 sm:px-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">
+                Employee selection — {fromYear} → {toYear}
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-500">Check employees to include in this carry forward run.</p>
+            </div>
+            <div className="grid w-full gap-3 sm:grid-cols-2 lg:max-w-xl">
+              <div>
+                <label className={labelClass}>Search</label>
+                <input
+                  type="search"
+                  value={employeeSearch}
+                  onChange={(e) => setEmployeeSearch(sanitizeSearchInput(e.target.value))}
+                  placeholder="Name or employee ID…"
+                  className={inputClass + " w-full"}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Rows per page</label>
+                <FormSelect
+                  value={String(employeePageSize)}
+                  onValueChange={(v) => setEmployeePageSize(Number(v))}
+                  options={[
+                    { value: "25", label: "25" },
+                    { value: "50", label: "50" },
+                    { value: "100", label: "100" },
+                  ]}
+                  className="w-full"
+                  clearable={false}
+                />
+              </div>
+            </div>
           </div>
-          <div className="max-h-[min(55vh,32rem)] overflow-x-auto overflow-y-auto">
-            <table className="w-full min-w-[32rem] border-separate border-spacing-0 text-sm">
-              <thead>
-                <tr>
-                  <th
-                    className="sticky top-0 z-10 w-12 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 backdrop-blur"
-                    scope="col"
-                  >
-                    <span className="sr-only">Include</span>
-                    <input
-                      ref={headerIncludeRef}
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={(e) => setAllIncluded(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30"
-                      title="Select or clear all"
-                    />
-                  </th>
-                  <th
-                    className="sticky top-0 z-10 min-w-[8rem] border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
-                    scope="col"
-                  >
-                    Employee
-                  </th>
-                  <th
-                    className="sticky top-0 z-10 min-w-[5.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                    scope="col"
-                  >
-                    ID
-                  </th>
-                  <th
-                    className="sticky top-0 z-10 min-w-[7rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pr-3"
-                    scope="col"
-                  >
-                    Available
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {empLoading && (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-16 text-center">
-                      <div className="inline-flex items-center gap-2 text-slate-500">
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" />
-                        <span>Loading…</span>
-                      </div>
+        </div>
+        <div className="max-h-[min(72vh,52rem)] overflow-x-auto overflow-y-auto">
+          <table className="w-full min-w-[36rem] border-separate border-spacing-0 text-xs">
+            <thead className="bg-slate-50/90">
+              <tr>
+                <th className="sticky top-0 z-10 w-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 backdrop-blur">
+                  <span className="sr-only">Include</span>
+                  <input
+                    ref={headerIncludeRef}
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={(e) => setAllIncluded(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
+                    title="Select or clear all on this page"
+                  />
+                </th>
+                <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                  ID
+                </th>
+                <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                  Name
+                </th>
+                <th className="sticky top-0 z-10 border-b border-emerald-200 bg-emerald-50/90 px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wide text-emerald-800 backdrop-blur">
+                  Available
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {empLoading &&
+                Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={`cf-sk-${i}`} className="animate-pulse">
+                    <td colSpan={4} className="px-3 py-1.5">
+                      <div className="h-6 rounded bg-slate-100" />
                     </td>
                   </tr>
-                )}
-                {!empLoading &&
-                  employeesPager.pageItems.map((e) => {
-                    const n = availableByEmployeeId[e.id] ?? 0;
-                    const remClass = n > 0 ? "text-emerald-800" : n < 0 ? "text-rose-700" : "text-slate-500";
-                    return (
-                      <tr key={e.id} className="group border-b border-slate-100/90 transition hover:bg-sky-50/35">
-                        <td className="px-2 py-2.5 align-middle">
-                          <input
-                            type="checkbox"
-                            checked={includeById[e.id] !== false}
-                            onChange={(ev) =>
-                              setIncludeById((prev) => ({ ...prev, [e.id]: ev.target.checked }))
-                            }
-                            className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500/30"
-                          />
-                        </td>
-                        <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-2 pr-2 text-slate-800 transition group-hover:border-sky-500/60 sm:pl-3">
-                          {e.firstName} {e.lastName}
-                        </td>
-                        <td className="px-2 py-2.5 text-xs text-slate-500 sm:px-3">
-                          {e.employeeCode ?? "—"}
-                        </td>
-                        <td
-                          className="min-w-[5.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pr-2 text-right sm:pl-1 sm:pr-3"
-                        >
-                          {balanceLoading ? (
-                            <span className="inline-block h-4 w-10 animate-pulse rounded bg-slate-200" />
-                          ) : (
-                            <span className={`text-base font-semibold tabular-nums ${remClass}`}>{fmtDays(n)}</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                {!empLoading && employees.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-16 text-center text-slate-500">No employees found.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <TablePagination page={employeesPager.page} totalPages={employeesPager.totalPages} totalCount={employeesPager.totalCount} pageSize={employeesPager.pageSize} onPageChange={employeesPager.setPage} />
+                ))}
+              {!empLoading && filteredEmployees.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">
+                    {employeeSearch.trim() ? "No employees match your search." : "No employees found."}
+                  </td>
+                </tr>
+              )}
+              {!empLoading &&
+                employeesPager.pageItems.map((e) => {
+                  const n = availableByEmployeeId[e.id] ?? 0;
+                  const remClass = n > 0 ? "text-emerald-700" : n < 0 ? "text-rose-700" : "text-slate-400";
+                  const included = includeById[e.id] !== false;
+                  return (
+                    <tr
+                      key={e.id}
+                      className={`border-b border-slate-100 transition hover:bg-slate-50/80 ${included ? "" : "opacity-60"}`}
+                    >
+                      <td className="px-2 py-1.5 align-middle">
+                        <input
+                          type="checkbox"
+                          checked={included}
+                          onChange={(ev) =>
+                            setIncludeById((prev) => ({ ...prev, [e.id]: ev.target.checked }))
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
+                        />
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">
+                        {e.employeeCode ?? "—"}
+                      </td>
+                      <td className="max-w-[14rem] px-3 py-1.5 font-medium text-slate-800">
+                        <span className="truncate">{e.firstName} {e.lastName}</span>
+                      </td>
+                      <td className="bg-emerald-50/20 px-2 py-1.5 text-right">
+                        {balanceLoading ? (
+                          <span className="inline-block h-4 w-8 animate-pulse rounded bg-slate-200" />
+                        ) : (
+                          <span className={`font-semibold tabular-nums ${remClass}`}>{fmtDays(n)}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
         </div>
-
-        <FormErrorAlert message={error} onDismiss={() => setError(null)} className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" />
-        {result && (
-          <div className="mt-4 space-y-2">
-            <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900">
-            <p className="font-semibold">Carry forward completed.</p>
-              <p className="mt-1">
-                Source balance rows considered: {result.balancesProcessed}. New balances created: {result.balancesCreated}. Balances
-                updated: {result.balancesUpdated}. Total days carried: {result.totalDaysCarried}.
-              </p>
-          </div>
-            {result.infoMessage && (
-              <div className="rounded-xl border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-900">{result.infoMessage}</div>
-            )}
-          </div>
-        )}
+        <TablePagination
+          page={employeesPager.page}
+          totalPages={employeesPager.totalPages}
+          totalCount={employeesPager.totalCount}
+          pageSize={employeesPager.pageSize}
+          onPageChange={employeesPager.setPage}
+        />
       </div>
     </div>
   );
@@ -3705,12 +4122,15 @@ function HolidaysTab() {
   const [countryCode, setCountryCode] = useState("LK");
   const [timeZoneId, setTimeZoneId] = useState("Asia/Colombo");
   const [selectedKinds, setSelectedKinds] = useState<HolidayKind[]>(() => [...ALL_HOLIDAY_KINDS]);
+  const [holidaySearch, setHolidaySearch] = useState("");
+  const [holidaysView, setHolidaysView] = useState<"calendar" | "list">("calendar");
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<HolidayItem | null>(null);
   const [defaultDate, setDefaultDate] = useState("");
   const [holidayKind, setHolidayKind] = useState<HolidayKind>("Public");
   const [saving, setSaving] = useState(false);
   const [localeSaving, setLocaleSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const countryLabel = locale?.countries.find((c) => c.code === countryCode)?.label ?? countryCode;
 
@@ -3722,9 +4142,12 @@ function HolidaysTab() {
   }, []);
 
   const load = useCallback((targetCountry = countryCode) => {
+    setLoading(true);
     apiFetch<HolidayItem[]>(
       `/api/leave/holidays?year=${year}&country=${encodeURIComponent(targetCountry)}`,
-    ).then(setItems);
+    )
+      .then(setItems)
+      .finally(() => setLoading(false));
   }, [year, countryCode]);
 
   useEffect(() => { loadLocale(); }, [loadLocale]);
@@ -3742,16 +4165,27 @@ function HolidaysTab() {
 
   const filteredItems = useMemo(() => {
     if (selectedKinds.length === 0) return [];
-    if (selectedKinds.length === ALL_HOLIDAY_KINDS.length) return items;
-    const selected = new Set(selectedKinds);
-    return items.filter((h) => selected.has(normalizeHolidayKind(h)));
-  }, [items, selectedKinds]);
+    let list = items;
+    if (selectedKinds.length < ALL_HOLIDAY_KINDS.length) {
+      const selected = new Set(selectedKinds);
+      list = list.filter((h) => selected.has(normalizeHolidayKind(h)));
+    }
+    const q = holidaySearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (h) =>
+          h.name.toLowerCase().includes(q) ||
+          (h.description?.toLowerCase().includes(q) ?? false),
+      );
+    }
+    return [...list].sort((a, b) => holidayIsoDate(a).localeCompare(holidayIsoDate(b)));
+  }, [items, selectedKinds, holidaySearch]);
 
-  const selectedKindsLabel = useMemo(() => {
-    if (selectedKinds.length === 0) return "selected types";
-    if (selectedKinds.length === ALL_HOLIDAY_KINDS.length) return "";
-    return `${selectedKinds.map((k) => holidayKindLabel(k).toLowerCase()).join(", ")} `;
-  }, [selectedKinds]);
+  const kindCounts = useMemo(() => {
+    const counts: Record<HolidayKind, number> = { Public: 0, Mercantile: 0, Poya: 0, Restricted: 0 };
+    for (const h of items) counts[normalizeHolidayKind(h)] += 1;
+    return counts;
+  }, [items]);
 
   function toggleKindFilter(kind: HolidayKind) {
     setSelectedKinds((prev) =>
@@ -3834,16 +4268,68 @@ function HolidaysTab() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 sm:p-5">
-        <div className="flex flex-wrap items-end gap-4">
+    <div className="w-full min-w-0 max-w-full space-y-5">
+      <DashboardPageHeader
+        eyebrow="Leave workspace"
+        title={`Company holidays — ${year}`}
+        subtitle={
+          <>
+            {countryLabel} calendar · <span className="font-medium text-slate-700">{timeZoneId}</span>
+            {countryCode === "LK"
+              ? " · Statutory mercantile and Poya days are seeded automatically."
+              : " · National public holidays are seeded automatically for this country."}
+          </>
+        }
+        badge={
+          <Button type="button" onClick={() => openAdd()} className="shrink-0">
+            + Add holiday
+          </Button>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {HOLIDAY_KINDS.map((kind) => {
+          const styles = holidayKindStyles(kind);
+          const active = selectedKinds.includes(kind);
+          return (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => toggleKindFilter(kind)}
+              className={`rounded-2xl border px-4 py-3 text-left shadow-sm transition ${
+                active
+                  ? `${styles.listBorder} bg-white ring-2 ring-inset ring-slate-200/80`
+                  : "border-slate-200 bg-slate-50/80 opacity-70 hover:opacity-100"
+              }`}
+            >
+              <p className={`text-[10px] font-semibold uppercase tracking-wide ${styles.listTitle}`}>{styles.label}</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{kindCounts[kind]}</p>
+              <p className="mt-0.5 text-xs text-slate-500">{active ? "Shown" : "Hidden"} · tap to toggle</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Filters</p>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_10rem_10rem_10rem]">
+          <div>
+            <label className={labelClass}>Search</label>
+            <input
+              type="search"
+              value={holidaySearch}
+              onChange={(e) => setHolidaySearch(sanitizeSearchInput(e.target.value))}
+              placeholder="Holiday name or note…"
+              className={inputClass + " w-full"}
+            />
+          </div>
           <div>
             <label className={labelClass}>Country</label>
             <FormSelect
               value={countryCode}
               onValueChange={(v) => { void handleCountryChange(v); }}
               options={countryOptions}
-              className="w-44"
+              className="w-full"
               clearable={false}
               disabled={localeSaving || countryOptions.length === 0}
             />
@@ -3854,7 +4340,7 @@ function HolidaysTab() {
               value={timeZoneId}
               onValueChange={(v) => { void handleTimeZoneChange(v); }}
               options={timeZoneOptions}
-              className="min-w-[14rem]"
+              className="w-full"
               clearable={false}
               disabled={localeSaving || timeZoneOptions.length === 0}
             />
@@ -3865,179 +4351,183 @@ function HolidaysTab() {
               value={String(year)}
               onValueChange={(v) => setYear(Number(v))}
               options={LEAVE_YEAR_FORM_OPTIONS}
-              className="w-36"
+              className="w-full"
               clearable={false}
             />
           </div>
-          <div className="ml-auto">
-            <Button onClick={() => openAdd()}>+ Add Holiday</Button>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Show</span>
+            {HOLIDAY_KINDS.map((kind) => {
+              const styles = holidayKindStyles(kind);
+              const on = selectedKinds.includes(kind);
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => toggleKindFilter(kind)}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    on ? `${styles.chip}` : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                  }`}
+                >
+                  {styles.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedKinds([...ALL_HOLIDAY_KINDS])}
+              className="text-xs font-medium text-blue-600 hover:text-blue-700"
+            >
+              All types
+            </button>
+            <span className="text-slate-300" aria-hidden>
+              |
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedKinds([])}
+              className="text-xs font-medium text-slate-500 hover:text-slate-700"
+            >
+              None
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <p className="text-xs text-slate-500">
+            {filteredItems.length} holiday{filteredItems.length === 1 ? "" : "s"} in view
+            {selectedKinds.length === 0 ? " — select a type above" : ""}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">View</span>
+            <button
+              type="button"
+              onClick={() => setHolidaysView("calendar")}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                holidaysView === "calendar"
+                  ? "bg-blue-600 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              Calendar
+            </button>
+            <button
+              type="button"
+              onClick={() => setHolidaysView("list")}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                holidaysView === "list"
+                  ? "bg-blue-600 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              List
+            </button>
           </div>
         </div>
 
-        <div className="mt-4 border-t border-slate-100 pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className={labelClass}>Show holidays</p>
-            <div className="flex gap-3 text-xs">
-              <button
-                type="button"
-                onClick={() => setSelectedKinds([...ALL_HOLIDAY_KINDS])}
-                className="font-medium text-blue-600 hover:text-blue-700"
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedKinds([])}
-                className="font-medium text-slate-500 hover:text-slate-700"
-              >
-                Clear all
-              </button>
-            </div>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
-            {HOLIDAY_KINDS.map((kind) => (
-              <label key={kind} className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={selectedKinds.includes(kind)}
-                  onChange={() => toggleKindFilter(kind)}
-                  className="rounded border-slate-300 text-blue-600"
-                />
-                <span className="text-sm text-slate-700">{holidayKindLabel(kind)}</span>
-              </label>
+        {loading ? (
+          <div className="space-y-2 p-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
             ))}
           </div>
-        </div>
-      </div>
-
-      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
-        <div className="flex h-[28rem] flex-col">
-          <HolidaysCalendarPanel
-            year={year}
-            items={filteredItems}
-            onSelectHoliday={openEdit}
-            onAddForDate={openAdd}
-          />
-        </div>
-
-        <div className="flex h-[28rem] flex-col">
-          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
-            <div className="shrink-0 border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
-              <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Company Holidays — {year}</h2>
-              <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-                {countryLabel} calendar ({timeZoneId}).{" "}
-                {countryCode === "LK"
-                  ? "Statutory mercantile and Poya days (2024–2027) are added automatically."
-                  : "National public holidays (2024–2027) are added automatically when you select this country."}
-              </p>
-            </div>
-            <div className="opensky-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-auto">
-              <table className="w-full border-separate border-spacing-0 text-sm">
-            <thead>
-              <tr>
-                <th
-                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur sm:pl-5"
-                  scope="col"
-                >
-                  Holiday
-                </th>
-                <th
-                  className="sticky top-0 z-10 border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pl-2"
-                  scope="col"
-                >
-                  Date
-                </th>
-                <th
-                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
-                  Day
-                </th>
-                <th
-                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
-                  Type
-                </th>
-                <th
-                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
-                  scope="col"
-                >
-                  Note
-                </th>
-                <th
-                  className="sticky top-0 z-10 w-28 border-b border-slate-200/90 bg-slate-100/95 py-3 pl-1 pr-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur sm:pr-3"
-                  scope="col"
-                >
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredItems.length === 0 && (
+        ) : holidaysView === "calendar" ? (
+          <div className="p-4 sm:p-5">
+            <HolidaysCalendarPanel
+              year={year}
+              items={filteredItems}
+              onSelectHoliday={openEdit}
+              onAddForDate={openAdd}
+            />
+          </div>
+        ) : (
+          <div className="max-h-[min(70vh,40rem)] overflow-x-auto overflow-y-auto">
+            <table className="w-full min-w-[36rem] border-separate border-spacing-0 text-xs">
+              <thead className="bg-slate-50/90">
                 <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center">
-                    <p className="text-sm text-slate-500">
-                      {selectedKinds.length === 0
-                        ? "Select at least one holiday type above to show dates."
-                        : `No ${selectedKindsLabel}holidays for ${countryLabel} in ${year}.`}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">Change country, year, or holiday type filters above.</p>
-                  </td>
+                  <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                    Holiday
+                  </th>
+                  <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                    Date
+                  </th>
+                  <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                    Type
+                  </th>
+                  <th className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                    Note
+                  </th>
+                  <th
+                    className="sticky top-0 z-10 w-20 border-b border-slate-200 bg-slate-50/95 py-2 pr-3 backdrop-blur"
+                    aria-label="Actions"
+                  />
                 </tr>
-              )}
-              {filteredItems.map((h) => {
-                const dayName = fmtHolidayWeekday(h.date, timeZoneId);
-                const kind = normalizeHolidayKind(h);
-                const styles = holidayKindStyles(kind);
-                return (
-                  <tr key={h.id} className="group border-b border-slate-100/90 transition hover:bg-sky-50/35">
-                    <td className="border-l-4 border-sky-400/45 bg-slate-50/25 py-2.5 pl-2 pr-2 font-medium text-slate-800 transition group-hover:border-sky-500/60 sm:pl-3 sm:pr-2">
-                      {h.name}
-                    </td>
-                    <td
-                      className="border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pl-2 pr-2 sm:pl-3 sm:pr-2"
-                    >
-                      <span className="font-semibold tabular-nums text-emerald-900">{fmtHolidayDateInZone(h.date, timeZoneId)}</span>
-                    </td>
-                    <td className="px-2 py-2.5 sm:px-3">
-                      <span className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-0.5 text-xs font-medium text-slate-700">{dayName}</span>
-                    </td>
-                    <td className="px-2 py-2.5 sm:px-3">
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${styles.badge}`}>{styles.label}</span>
-                    </td>
-                    <td className="max-w-[10rem] px-2 py-2.5 text-xs text-slate-600 sm:px-3">
-                      <span className="line-clamp-2">{h.description?.trim() ? h.description : "—"}</span>
-                    </td>
-                    <td className="py-2.5 pl-1 pr-1 text-right sm:pr-2">
-                      <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => openEdit(h)}
-                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(h.id)}
-                          className="rounded-lg border border-rose-200/80 bg-rose-50/50 px-2.5 py-1 text-xs font-medium text-rose-800 transition hover:bg-rose-100/80"
-                        >
-                          Delete
-                        </button>
-                      </div>
+              </thead>
+              <tbody>
+                {filteredItems.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-14 text-center">
+                      <p className="text-sm font-medium text-slate-700">No holidays match your filters</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {selectedKinds.length === 0
+                          ? "Turn on at least one holiday type."
+                          : "Try another year, country, or search term."}
+                      </p>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-            </div>
+                )}
+                {filteredItems.map((h) => {
+                  const kind = normalizeHolidayKind(h);
+                  const styles = holidayKindStyles(kind);
+                  return (
+                    <tr key={h.id} className="border-b border-slate-100 transition hover:bg-slate-50/80">
+                      <td className="px-3 py-2">
+                        <p className="font-medium text-slate-800">{h.name}</p>
+                        <p className="text-[11px] text-slate-500">{fmtHolidayWeekday(h.date, timeZoneId)}</p>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-700">
+                        {fmtHolidayDateInZone(h.date, timeZoneId)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${styles.badge}`}>
+                          {styles.label}
+                        </span>
+                      </td>
+                      <td className="max-w-[12rem] px-3 py-2 text-slate-600">
+                        <span className="line-clamp-2">{h.description?.trim() || "—"}</span>
+                      </td>
+                      <td className="py-2 pr-3 text-right">
+                        <div className="inline-flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(h)}
+                            className="rounded-lg px-2 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-50"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(h.id)}
+                            className="rounded-lg px-2 py-1 text-[11px] font-medium text-rose-700 hover:bg-rose-50"
+                          >
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
+        )}
       </div>
-
-      <HolidaysSummaryLists year={year} items={filteredItems} onSelectHoliday={openEdit} />
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Holiday" : "Add Holiday"}>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -4078,6 +4568,28 @@ function HolidaysTab() {
 //  PHASE 6 – Team Calendar Tab
 // ═══════════════════════════════════════════════════════════════
 
+const TEAM_LEAVE_TYPE_STYLES: Record<string, { chip: string; dot: string; label: string }> = {
+  "Annual Leave": { chip: "bg-blue-100 text-blue-800", dot: "bg-blue-500", label: "Annual Leave" },
+  "Casual Leave": { chip: "bg-teal-100 text-teal-800", dot: "bg-teal-500", label: "Casual Leave" },
+  "Sick Leave": { chip: "bg-rose-100 text-rose-800", dot: "bg-rose-500", label: "Sick Leave" },
+  "Maternity Leave": { chip: "bg-fuchsia-100 text-fuchsia-800", dot: "bg-fuchsia-500", label: "Maternity Leave" },
+  "No-Pay Leave": { chip: "bg-slate-200 text-slate-700", dot: "bg-slate-500", label: "No-Pay Leave" },
+};
+
+function teamLeaveTypeStyle(leaveTypeName: string) {
+  return (
+    TEAM_LEAVE_TYPE_STYLES[leaveTypeName] ?? {
+      chip: "bg-slate-200 text-slate-700",
+      dot: "bg-slate-400",
+      label: leaveTypeName,
+    }
+  );
+}
+
+function calendarDayFromIso(date: string): number {
+  return parseInt(date.split("T")[0]?.slice(8, 10) ?? "0", 10);
+}
+
 function CalendarTab() {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -4093,6 +4605,9 @@ function CalendarTab() {
     () => [{ value: "", label: "All departments" }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
     [departments],
   );
+
+  const selectedDepartmentLabel =
+    departmentFilterOptions.find((o) => o.value === departmentFilterId)?.label ?? "All departments";
 
   useEffect(() => {
     apiFetch<DepartmentLookup[]>("/api/organization/departments").then(setDepartments).catch(() => setDepartments([]));
@@ -4110,25 +4625,78 @@ function CalendarTab() {
     Promise.all([
       apiFetch<CalendarDay[]>(`/api/leave/calendar?month=${month}&year=${year}${deptQuery}`),
       apiFetch<HolidayItem[]>(`/api/leave/holidays?year=${year}&country=${encodeURIComponent(countryCode)}`),
-    ]).then(([cal, hol]) => {
-      setDays(cal);
-      setHolidays(hol.filter((h) => holidayMonthFromIso(h) === month));
-    }).finally(() => setLoading(false));
+    ])
+      .then(([cal, hol]) => {
+        setDays(cal);
+        setHolidays(hol.filter((h) => holidayMonthFromIso(h) === month));
+      })
+      .finally(() => setLoading(false));
   }, [month, year, countryCode, departmentFilterId]);
 
-  const daysInMonth = new Date(year, month, 0).getDate();
   const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
-  const dayMap = new Map(days.map((d) => [new Date(d.date).getDate(), d]));
-  const holidayMap = new Map(holidays.map((h) => [holidayDayFromIso(h), h]));
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const dayMap = useMemo(() => new Map(days.map((d) => [calendarDayFromIso(d.date), d])), [days]);
 
-  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const holidayByDay = useMemo(() => {
+    const map = new Map<number, HolidayItem[]>();
+    for (const h of holidays) {
+      const d = holidayDayFromIso(h);
+      const list = map.get(d) ?? [];
+      list.push(h);
+      map.set(d, list);
+    }
+    return map;
+  }, [holidays]);
+
+  const monthStats = useMemo(() => {
+    const employees = new Set<string>();
+    let entryCount = 0;
+    let busiestDay = 0;
+    let busiestCount = 0;
+    for (const d of days) {
+      const count = d.entries.length;
+      entryCount += count;
+      for (const e of d.entries) employees.add(e.employeeName);
+      if (count > busiestCount) {
+        busiestCount = count;
+        busiestDay = calendarDayFromIso(d.date);
+      }
+    }
+    return {
+      peopleOnLeave: employees.size,
+      leaveEntries: entryCount,
+      busyDays: days.filter((d) => d.entries.length > 0).length,
+      holidays: holidays.length,
+      busiestDay,
+      busiestCount,
+    };
+  }, [days, holidays]);
+
+  function goToToday() {
+    setMonth(now.getMonth() + 1);
+    setYear(now.getFullYear());
+  }
 
   function prevMonth() {
-    if (month === 1) { setMonth(12); setYear(year - 1); } else setMonth(month - 1);
+    if (month === 1) {
+      setMonth(12);
+      setYear(year - 1);
+    } else {
+      setMonth(month - 1);
+    }
   }
+
   function nextMonth() {
-    if (month === 12) { setMonth(1); setYear(year + 1); } else setMonth(month + 1);
+    if (month === 12) {
+      setMonth(1);
+      setYear(year + 1);
+    } else {
+      setMonth(month + 1);
+    }
+  }
+
+  function isoForDay(day: number) {
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
 
   const cells: (number | null)[] = [];
@@ -4136,100 +4704,203 @@ function CalendarTab() {
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const typeColors: Record<string, string> = {
-    "Annual Leave": "bg-blue-200 text-blue-800",
-    "Casual Leave": "bg-teal-200 text-teal-800",
-    "Sick Leave": "bg-red-200 text-red-800",
-    "Maternity Leave": "bg-pink-200 text-pink-800",
-    "No-Pay Leave": "bg-slate-200 text-slate-700",
-  };
-
   return (
-    <div className="space-y-5">
-      {/* Month navigation + department filter */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center justify-between gap-2 sm:justify-start">
-          <button onClick={prevMonth} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200">
-            <svg className="h-4 w-4 inline mr-1" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>Prev
-          </button>
-          <h2 className="text-lg font-bold text-slate-800">{monthNames[month - 1]} {year}</h2>
-          <button onClick={nextMonth} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200">
-            Next<svg className="h-4 w-4 inline ml-1" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-          </button>
+    <div className="w-full min-w-0 max-w-full space-y-5">
+      <DashboardPageHeader
+        eyebrow="Leave workspace"
+        title={`Team calendar — ${MONTH_NAMES[month - 1]} ${year}`}
+        subtitle={
+          <>
+            Approved leave and public holidays for <span className="font-medium text-slate-700">{selectedDepartmentLabel}</span>.
+          </>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">People on leave</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{loading ? "—" : monthStats.peopleOnLeave}</p>
+          <p className="mt-0.5 text-xs text-slate-500">Unique this month</p>
         </div>
-        <FormSelect
-          value={departmentFilterId}
-          onValueChange={setDepartmentFilterId}
-          options={departmentFilterOptions}
-          className="w-full sm:w-52"
-          clearable={false}
-        />
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Leave days</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums text-blue-700">{loading ? "—" : monthStats.busyDays}</p>
+          <p className="mt-0.5 text-xs text-slate-500">Days with at least one person away</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Holidays</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums text-emerald-700">{loading ? "—" : monthStats.holidays}</p>
+          <p className="mt-0.5 text-xs text-slate-500">In {MONTH_NAMES[month - 1]}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Busiest day</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
+            {loading ? "—" : monthStats.busiestCount > 0 ? monthStats.busiestDay : "—"}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {monthStats.busiestCount > 0 ? `${monthStats.busiestCount} away` : "No leave booked"}
+          </p>
+        </div>
       </div>
 
-      {loading ? (
-        <div className="py-10 text-center text-sm text-slate-400">Loading calendar...</div>
-      ) : (
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          {/* Day headers */}
-          <div className="grid grid-cols-7 border-b border-slate-100">
-            {dayNames.map((dn) => (
-              <div key={dn} className="py-2.5 text-center text-xs font-semibold text-slate-500">{dn}</div>
-            ))}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Filters</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="w-full sm:max-w-xs">
+            <label className={labelClass}>Department</label>
+            <FormSelect
+              value={departmentFilterId}
+              onValueChange={setDepartmentFilterId}
+              options={departmentFilterOptions}
+              className="w-full"
+              clearable={false}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={goToToday}
+            className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+          >
+            Jump to today
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
+          <div className="border-b border-slate-100 bg-gradient-to-br from-white via-sky-50/20 to-emerald-50/20 px-4 py-4 sm:px-6">
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={prevMonth}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
+                ← Prev
+              </button>
+              <div className="text-center">
+                <p className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">
+                  {MONTH_NAMES[month - 1]} {year}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">Approved leave only</p>
+              </div>
+              <button
+                type="button"
+                onClick={nextMonth}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
+                Next →
+              </button>
+            </div>
           </div>
 
-          {/* Calendar grid */}
-          <div className="grid grid-cols-7">
-            {cells.map((day, idx) => {
-              const isToday = day === now.getDate() && month === now.getMonth() + 1 && year === now.getFullYear();
-              const calDay = day ? dayMap.get(day) : null;
-              const holiday = day ? holidayMap.get(day) : null;
-              const isWeekend = idx % 7 === 0 || idx % 7 === 6;
+          {loading ? (
+            <div className="space-y-2 p-4">
+              <div className="grid grid-cols-7 gap-1">
+                {Array.from({ length: 35 }).map((_, i) => (
+                  <div key={i} className="h-20 animate-pulse rounded-lg bg-slate-100" />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="grid shrink-0 grid-cols-7 border-b border-slate-100 bg-slate-50/80">
+                {DAY_NAMES_SHORT.map((dn) => (
+                  <div key={dn} className="py-2.5 text-center text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    {dn}
+                  </div>
+                ))}
+              </div>
 
-              return (
-                <div
-                  key={idx}
-                  className={`min-h-[100px] border-b border-r border-slate-100 p-1.5 ${!day ? "bg-slate-50/50" : isWeekend ? "bg-slate-50/30" : ""}`}
-                >
-                  {day && (
-                    <>
-                      <div className={`mb-1 text-right text-xs font-medium ${isToday ? "rounded-full bg-blue-600 text-white w-6 h-6 flex items-center justify-center ml-auto" : "text-slate-500"}`}>
+              <div className="grid grid-cols-7">
+                {cells.map((day, idx) => {
+                  if (!day) {
+                    return <div key={`empty-${idx}`} className="min-h-[5.5rem] border-b border-r border-slate-100 bg-slate-50/40" />;
+                  }
+
+                  const iso = isoForDay(day);
+                  const calDay = dayMap.get(day);
+                  const dayHolidays = holidayByDay.get(day) ?? [];
+                  const entryCount = calDay?.entries.length ?? 0;
+                  const isToday = day === now.getDate() && month === now.getMonth() + 1 && year === now.getFullYear();
+                  const isWeekend = idx % 7 === 0 || idx % 7 === 6;
+
+                  return (
+                    <div
+                      key={iso}
+                      className={`min-h-[5.5rem] border-b border-r border-slate-100 p-1.5 ${
+                        isWeekend ? "bg-slate-50/30" : "bg-white"
+                      }`}
+                    >
+                      <div
+                        className={`mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
+                          isToday ? "bg-[#2E7BBF] text-white" : "text-slate-600"
+                        }`}
+                      >
                         {day}
                       </div>
-                      {holiday && (
-                        <div className={`mb-0.5 rounded px-1 py-0.5 text-[10px] font-medium truncate ${holidayKindStyles(normalizeHolidayKind(holiday)).chip}`} title={holiday.name}>
-                          {holiday.name}
+                      {dayHolidays.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {dayHolidays.slice(0, 1).map((holiday) => {
+                            const chip = holidayKindStyles(normalizeHolidayKind(holiday)).chip;
+                            return (
+                              <span
+                                key={holiday.id}
+                                className={`block truncate rounded-md px-1 py-0.5 text-[10px] font-semibold leading-tight ${chip}`}
+                                title={holiday.name}
+                              >
+                                {holiday.name}
+                              </span>
+                            );
+                          })}
                         </div>
-                      )}
-                      {calDay?.entries.map((entry, ei) => (
-                        <div
-                          key={ei}
-                          className={`mb-0.5 rounded px-1 py-0.5 text-[10px] font-medium truncate ${typeColors[entry.leaveTypeName] ?? "bg-slate-200 text-slate-700"}`}
-                          title={`${entry.employeeName} — ${entry.leaveTypeName}`}
-                        >
-                          {entry.employeeName.split(" ")[0]}
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                      ) : null}
+                      {calDay?.entries.slice(0, 2).map((entry, ei) => {
+                        const style = teamLeaveTypeStyle(entry.leaveTypeName);
+                        return (
+                          <span
+                            key={`${entry.employeeName}-${ei}`}
+                            className={`mb-0.5 block truncate rounded-md px-1 py-0.5 text-[10px] font-semibold leading-tight ${style.chip}`}
+                            title={`${entry.employeeName} — ${entry.leaveTypeName}`}
+                          >
+                            {entry.employeeName.split(" ")[0]}
+                          </span>
+                        );
+                      })}
+                      {entryCount > 2 ? (
+                        <span className="block px-1 text-[9px] font-medium text-slate-500">+{entryCount - 2} more</span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs font-medium text-slate-500">Legend:</span>
-        {Object.entries(typeColors).map(([name, cls]) => (
-          <span key={name} className={`rounded px-2 py-0.5 text-[10px] font-medium ${cls}`}>{name}</span>
-        ))}
-        {HOLIDAY_KINDS.map((kind) => {
-          const styles = holidayKindStyles(kind);
-          return (
-            <span key={kind} className={`rounded px-2 py-0.5 text-[10px] font-medium ${styles.legendChip}`}>{styles.label}</span>
-          );
-        })}
+              <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-3 sm:px-5">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Leave types</span>
+                {Object.values(TEAM_LEAVE_TYPE_STYLES).map((style) => (
+                  <span
+                    key={style.label}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${style.chip}`}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${style.dot}`} aria-hidden />
+                    {style.label}
+                  </span>
+                ))}
+                <span className="mx-1 hidden h-4 w-px bg-slate-200 sm:inline" aria-hidden />
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Holidays</span>
+                {HOLIDAY_KINDS.map((kind) => {
+                  const styles = holidayKindStyles(kind);
+                  return (
+                    <span
+                      key={kind}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${styles.legendChip}`}
+                    >
+                      <span className={`h-2 w-2 rounded-full ${styles.legendDot}`} aria-hidden />
+                      {styles.label}
+                    </span>
+                  );
+                })}
+              </div>
+            </>
+          )}
       </div>
     </div>
   );

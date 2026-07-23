@@ -89,6 +89,7 @@ export function DashboardCardHeader({
   iconColor = T.action,
   iconBg = T.actionSoft,
   trailing,
+  compact = false,
 }: {
   title: string;
   subtitle?: string;
@@ -96,30 +97,34 @@ export function DashboardCardHeader({
   iconColor?: string;
   iconBg?: string;
   trailing?: ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <div className="opensky-dashboard-card-header">
-      <div className="flex min-w-0 items-center gap-3">
+    <div
+      className={`opensky-dashboard-card-header${trailing ? " opensky-dashboard-card-header--with-trailing" : ""}${compact ? " opensky-dashboard-card-header--compact" : ""}`}
+    >
+      <div className="opensky-dashboard-card-header-main">
         {icon ? (
           <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+            className={`flex shrink-0 items-center justify-center rounded-lg ${compact ? "h-8 w-8" : "h-9 w-9 rounded-xl sm:h-10 sm:w-10"}`}
             style={{ backgroundColor: iconBg, color: iconColor }}
           >
             {icon}
           </div>
         ) : null}
-        <div className="min-w-0">
-          <h3 className="text-sm font-bold" style={{ color: T.navy }}>
+        <div className="min-w-0 flex-1">
+          <h3 className={`font-bold leading-snug ${compact ? "text-[13px]" : "text-sm"}`} style={{ color: T.navy }}>
             {title}
           </h3>
           {subtitle ? (
-            <p className="text-xs" style={{ color: T.muted }}>
+            <p className={`mt-0.5 leading-snug break-words ${compact ? "text-[11px]" : "text-xs"}`} style={{ color: T.muted }}>
               {subtitle}
             </p>
           ) : null}
         </div>
+        {trailing && compact ? <div className="opensky-dashboard-card-header-trailing-inline shrink-0">{trailing}</div> : null}
       </div>
-      {trailing}
+      {trailing && !compact ? <div className="opensky-dashboard-card-header-trailing">{trailing}</div> : null}
     </div>
   );
 }

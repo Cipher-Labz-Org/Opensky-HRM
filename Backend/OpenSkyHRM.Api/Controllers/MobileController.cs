@@ -76,6 +76,14 @@ public class MobileController : ControllerBase
             return configured.TrimEnd('/');
         }
 
+        var forwardedHost = Request.Headers["X-Forwarded-Host"].FirstOrDefault();
+        var forwardedProto = Request.Headers["X-Forwarded-Proto"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(forwardedHost))
+        {
+            var scheme = string.IsNullOrWhiteSpace(forwardedProto) ? Request.Scheme : forwardedProto;
+            return $"{scheme}://{forwardedHost}".TrimEnd('/');
+        }
+
         var request = HttpContext.Request;
         return $"{request.Scheme}://{request.Host.Value}".TrimEnd('/');
     }

@@ -127,25 +127,90 @@ button:active:not(:disabled),
   border: 1px solid var(--border);
   background: var(--panel);
   padding: 1.25rem;
+  min-width: 0;
   box-shadow: 0 8px 32px rgba(8, 31, 62, 0.08), 0 2px 8px rgba(8, 31, 62, 0.04);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .opensky-dashboard-card:hover {
-  transform: translateY(-2px);
   border-color: rgba(40, 169, 224, 0.28);
   box-shadow: 0 14px 40px -14px rgba(8, 31, 62, 0.14);
 }
 
+@media (hover: hover) and (min-width: 1024px) {
+  .opensky-dashboard-card:hover {
+    transform: translateY(-2px);
+  }
+}
+
 .opensky-dashboard-card-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin: -1.25rem -1.25rem 1rem;
-  padding: 0.875rem 1.25rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0.875rem 1rem;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, var(--action-soft) 0%, var(--primary-soft) 100%);
   border-radius: 1.25rem 1.25rem 0 0;
+  min-width: 0;
+}
+
+.opensky-dashboard-card-header-main {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.625rem;
+}
+
+.opensky-dashboard-card-header-trailing {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.opensky-dashboard-card-header--with-trailing .opensky-dashboard-card-header-trailing {
+  padding-top: 0.125rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.opensky-dashboard-card-header--compact {
+  gap: 0.375rem;
+  padding: 0.625rem 0.875rem;
+}
+
+.opensky-dashboard-card-header--compact .opensky-dashboard-card-header-main {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.opensky-dashboard-card-header--compact.opensky-dashboard-card-header--with-trailing
+  .opensky-dashboard-card-header-trailing {
+  display: none;
+}
+
+.opensky-dashboard-card-header-trailing-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+}
+
+.opensky-dashboard-quicklink--compact {
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .opensky-dashboard-card-header {
+    padding: 0.875rem 1.25rem;
+  }
+
+  .opensky-dashboard-card-header--compact {
+    padding: 0.625rem 0.875rem;
+  }
 }
 
 .opensky-dashboard-quicklink {
@@ -281,6 +346,8 @@ button:active:not(:disabled),
 }
 
 .app-shell-canvas {
+  min-width: 0;
+  overflow-x: clip;
   background: var(--shell-canvas);
 }
 

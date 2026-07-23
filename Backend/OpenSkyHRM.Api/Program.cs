@@ -221,7 +221,7 @@ if (configuredCors is { Length: > 0 })
 }
 else
 {
-    corsOrigins = localNextDevOrigins;
+    corsOrigins = localNextDevOrigins.Concat(localExpoDevOrigins).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 }
 
 builder.Services.AddCors(options =>

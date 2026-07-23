@@ -4,12 +4,12 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "build:apk": "eas build --profile preview --platform android",
+    "build:apk": "eas build --profile production --platform android",
     "build:apk:local": "eas build --profile preview --platform android --local"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
     "expo-camera": "~57.0.0",
     "expo-constants": "~57.0.3",
     "expo-document-picker": "~57.0.0",
+    "expo-font": "~57.0.1",
     "expo-image-picker": "~57.0.2",
     "expo-linear-gradient": "~57.0.0",
     "expo-linking": "~57.0.1",
@@ -39,6 +40,7 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
     "react-native-web": "^0.21.2",
+    "react-native-worklets": "0.10.0",
     "tailwindcss": "^3.4.17",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"

@@ -45,8 +45,9 @@ export async function apiFetch<T>(endpoint: string, options?: ApiFetchOptions): 
   const isFormData =
     typeof FormData !== "undefined" && fetchInit.body instanceof FormData;
 
+  const hasBody = fetchInit.body != null;
   const headers: Record<string, string> = {
-    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    ...(hasBody && !isFormData ? { "Content-Type": "application/json" } : {}),
     ...(fetchInit.headers as Record<string, string>),
   };
 

@@ -427,7 +427,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+      <div className="mt-6 grid min-w-0 gap-4 sm:grid-cols-2 2xl:grid-cols-3">
         <div className="opensky-dashboard-card overflow-hidden !p-0">
           <DashboardCardHeader
             title="Workforce distribution"
