@@ -22,6 +22,13 @@ public class CustomerDataResetSqlBuilderTests
     }
 
     [Fact]
+    public void PurgeMatrix_Includes_Departments()
+    {
+        var tables = CustomerTransactionPurgeMatrix.TransactionTables;
+        Assert.Contains("Departments", tables);
+    }
+
+    [Fact]
     public void PurgeMatrix_DoesNotInclude_LicensingOrUsers_MasterData()
     {
         var tables = CustomerTransactionPurgeMatrix.TransactionTables;

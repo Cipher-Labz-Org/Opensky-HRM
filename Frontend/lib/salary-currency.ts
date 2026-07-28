@@ -1,18 +1,22 @@
-export const DEFAULT_SALARY_CURRENCY = "LKR";
+import {
+  CURRENCY_DEFINITIONS,
+  DEFAULT_CURRENCY,
+  normalizeCurrencyCode,
+} from "./currencies";
 
-export const SALARY_CURRENCY_OPTIONS = ["LKR", "USD", "EUR", "GBP", "AUD"] as const;
+export const DEFAULT_SALARY_CURRENCY = DEFAULT_CURRENCY;
 
-export const SALARY_CURRENCY_FORM_OPTIONS = SALARY_CURRENCY_OPTIONS.map((code) => ({
-  value: code,
-  label: code,
+export const SALARY_CURRENCY_OPTIONS = CURRENCY_DEFINITIONS.map((c) => c.code);
+
+export const SALARY_CURRENCY_FORM_OPTIONS = CURRENCY_DEFINITIONS.map((c) => ({
+  value: c.code,
+  label: c.code,
 }));
 
-export type SalaryCurrencyCode = (typeof SALARY_CURRENCY_OPTIONS)[number];
+export type SalaryCurrencyCode = string;
 
 export function normalizeSalaryCurrency(value: string | null | undefined): string {
-  const code = value?.trim().toUpperCase();
-  if (code && SALARY_CURRENCY_OPTIONS.includes(code as SalaryCurrencyCode)) return code;
-  return DEFAULT_SALARY_CURRENCY;
+  return normalizeCurrencyCode(value);
 }
 
 export function formatSalaryRange(

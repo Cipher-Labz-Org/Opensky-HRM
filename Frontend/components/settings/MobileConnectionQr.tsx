@@ -8,7 +8,6 @@ import {
   getMobilePublicApiBaseUrl,
   type MobileConnectionPayload,
 } from "@/lib/mobile-connection";
-import { API_ASSET_BASE_URL } from "@/config/constants";
 
 type ConnectionInfoResponse = {
   apiBaseUrl?: string;
@@ -23,7 +22,6 @@ type MobileConnectionQrProps = {
 
 export function MobileConnectionQr({ companyName = "OpenSky HRM" }: MobileConnectionQrProps) {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [publicApiBaseUrl, setPublicApiBaseUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,7 +54,6 @@ export function MobileConnectionQr({ companyName = "OpenSky HRM" }: MobileConnec
         });
 
         if (!cancelled) {
-          setPublicApiBaseUrl(payload.apiBaseUrl);
           setQrDataUrl(dataUrl);
         }
       } catch (err) {
@@ -89,14 +86,15 @@ export function MobileConnectionQr({ companyName = "OpenSky HRM" }: MobileConnec
         )}
       </div>
       <div className="min-w-0 flex-1 space-y-2">
-        <p className="text-xs font-medium text-[var(--text-muted)]">Backend URL encoded in QR</p>
-        <p className="break-all rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm text-[var(--text)]">
-          {publicApiBaseUrl || API_ASSET_BASE_URL || "Configure API URL"}
+        <p className="text-sm font-medium text-[var(--text)]">Scan with the mobile app</p>
+        <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
+          Employees scan this code in OpenSky HRM mobile to connect to your company workspace. The
+          connection details are embedded in the QR only — they are not shown here.
         </p>
         <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
-          Set <code className="rounded bg-slate-100 px-1">Mobile:PublicApiBaseUrl</code> on the API when
-          the public URL differs from the request host (e.g. reverse proxy or IIS binding). For local testing
-          from a phone, use your computer&apos;s LAN IP instead of <code className="rounded bg-slate-100 px-1">127.0.0.1</code>.
+          Administrators: set <code className="rounded bg-slate-100 px-1">Mobile:PublicApiBaseUrl</code> on
+          the API when the public URL differs from the request host (reverse proxy or IIS). For local phone
+          testing, use your computer&apos;s LAN IP instead of localhost.
         </p>
       </div>
     </div>

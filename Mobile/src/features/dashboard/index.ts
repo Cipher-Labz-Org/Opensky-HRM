@@ -1,4 +1,8 @@
+export { DashboardDateHeader } from "./DashboardDateHeader";
 export { DashboardBrandBar } from "./DashboardBrandBar";
+export { DashboardEmptyHint } from "./DashboardEmptyHint";
+export { DashboardLinkChip } from "./DashboardLinkChip";
+export { DashboardQuickActionsRow } from "./DashboardQuickActionsRow";
 export { DashboardWelcomeCard } from "./DashboardWelcomeCard";
 export { DashboardOverviewCard } from "./DashboardOverviewCard";
 export { DashboardAttendanceCard } from "./DashboardAttendanceCard";

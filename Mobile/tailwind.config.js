@@ -21,6 +21,12 @@ module.exports = {
           DEFAULT: palette.accent,
           soft: palette.accentSoft,
         },
+        action: palette.action,
+        sky: palette.skyBlue,
+        teal: {
+          DEFAULT: palette.teal,
+          soft: palette.tealSoft,
+        },
         surface: palette.surface,
         soft: palette.soft,
         background: palette.background,

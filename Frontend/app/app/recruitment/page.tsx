@@ -15,15 +15,12 @@ import { ROUTES } from "@/config/routes";
 import { apiFetch } from "@/lib/api";
 import { modalShellWidthClass } from "@/lib/modal-layout";
 import { formatBusinessDateTime, formatDate } from "@/lib/date-utils";
-import { currencySelectOptions, DEFAULT_CURRENCY } from "@/lib/currencies";
+import { DEFAULT_CURRENCY } from "@/lib/currencies";
+import { CurrencySearchCombobox } from "@/components/forms/CurrencySearchCombobox";
 import { type EmploymentTypeCatalogItem, employmentTypeSelectOptions } from "@/lib/employment-types";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { formatRecruitmentActivityDescription } from "@/lib/recruitment-activity";
-import {
-  DEFAULT_SALARY_CURRENCY,
-  SALARY_CURRENCY_FORM_OPTIONS,
-  normalizeSalaryCurrency,
-} from "@/lib/salary-currency";
+import { normalizeSalaryCurrency } from "@/lib/salary-currency";
 import {
   defaultScheduleTitle,
   inferInterviewTypeFromTitle,
@@ -1699,10 +1696,9 @@ function EditRequisitionModal({ requisition, onClose, onSaved }: { requisition: 
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Salary currency</label>
-              <FormSelect
+              <CurrencySearchCombobox
                 value={form.salaryCurrency || DEFAULT_CURRENCY}
                 onValueChange={(v) => setForm({ ...form, salaryCurrency: v })}
-                options={currencySelectOptions()}
               />
             </div>
             <div>

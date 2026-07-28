@@ -1,11 +1,13 @@
 import { Tabs, Redirect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Platform } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { canApproveLeave, hasLicensedModule } from "@/utils/permissions";
 import { LICENSED_MODULES } from "@/config/constants";
 import { getUnreadCount } from "@/api/endpoints/notifications";
 import { colors } from "@/theme/colors";
+
 export default function TabsLayout() {
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
@@ -30,28 +32,41 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.accent,
+        tabBarActiveTintColor: colors.brandGreen,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: {
-          height: 72,
-          paddingBottom: 10,
+          height: Platform.OS === "ios" ? 84 : 72,
+          paddingBottom: Platform.OS === "ios" ? 24 : 10,
           paddingTop: 8,
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
+          backgroundColor: "#FFFFFF",
+          borderTopWidth: 0,
+          elevation: 16,
+          shadowColor: colors.brandNavy,
+          shadowOffset: { width: 0, height: -6 },
+          shadowOpacity: 0.08,
+          shadowRadius: 16,
         },
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: "600",
           marginTop: 2,
         },
-        tabBarBadgeStyle: { backgroundColor: colors.accent },
+        tabBarBadgeStyle: {
+          backgroundColor: colors.brandGreen,
+          fontSize: 10,
+          fontWeight: "700",
+          minWidth: 18,
+          height: 18,
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "home" : "home-outline"} color={color} size={size} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -59,7 +74,9 @@ export default function TabsLayout() {
         options={{
           href: showLeave ? undefined : null,
           title: "Leave",
-          tabBarIcon: ({ color, size }) => <Ionicons name="calendar-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "calendar" : "calendar-outline"} color={color} size={size} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -67,7 +84,9 @@ export default function TabsLayout() {
         options={{
           href: showAttendance ? undefined : null,
           title: "Attendance",
-          tabBarIcon: ({ color, size }) => <Ionicons name="time-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "time" : "time-outline"} color={color} size={size} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -75,7 +94,13 @@ export default function TabsLayout() {
         options={{
           href: showApprovals ? undefined : null,
           title: "Approvals",
-          tabBarIcon: ({ color, size }) => <Ionicons name="checkmark-done-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "checkmark-done" : "checkmark-done-outline"}
+              color={color}
+              size={size}
+            />
+          ),
         }}
       />
       <Tabs.Screen
@@ -83,7 +108,13 @@ export default function TabsLayout() {
         options={{
           title: "Alerts",
           tabBarBadge: unread?.unreadCount ? unread.unreadCount : undefined,
-          tabBarIcon: ({ color, size }) => <Ionicons name="notifications-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "notifications" : "notifications-outline"}
+              color={color}
+              size={size}
+            />
+          ),
         }}
       />
       <Tabs.Screen
@@ -91,14 +122,18 @@ export default function TabsLayout() {
         options={{
           href: showPayslips ? undefined : null,
           title: "Payslips",
-          tabBarIcon: ({ color, size }) => <Ionicons name="wallet-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "wallet" : "wallet-outline"} color={color} size={size} />
+          ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "person" : "person-outline"} color={color} size={size} />
+          ),
         }}
       />
     </Tabs>

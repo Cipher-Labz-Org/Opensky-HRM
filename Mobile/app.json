@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#2e7bbf"
+      "backgroundColor": "#28A9E0"
     },
     "ios": {
       "supportsTablet": true,
@@ -19,7 +19,7 @@
     "android": {
       "package": "com.openskyhrm.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#2e7bbf",
+        "backgroundColor": "#28A9E0",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

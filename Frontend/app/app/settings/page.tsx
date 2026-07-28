@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/Button";
 import { CompanyLogoDisplay } from "@/components/branding/CompanyLogoDisplay";
 import { PhoneInput, EmailInput, FlashMessageBanner, type FlashMessage, FormSelect } from "@/components/ui";
 import { isValidPhone, isValidEmailInput, isValidEmailFormat, PHONE_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
-import { currencySelectOptions, DEFAULT_CURRENCY } from "@/lib/currencies";
+import { DEFAULT_CURRENCY } from "@/lib/currencies";
+import { CurrencySearchCombobox } from "@/components/forms/CurrencySearchCombobox";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal";
 import { apiFetch } from "@/lib/api";
@@ -914,10 +915,9 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Default currency</label>
-              <FormSelect
+              <CurrencySearchCombobox
                 value={defaultCurrency}
                 onValueChange={(v) => setDefaultCurrency(v.toUpperCase())}
-                options={currencySelectOptions()}
               />
               <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">
                 Used as the default for recruitment salary ranges and other monetary fields.

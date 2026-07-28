@@ -2,17 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, Platform, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
-import { Field } from "@/components/ui";
+import { Ionicons } from "@expo/vector-icons";
 import {
   AuthErrorBanner,
-  AuthFormCard,
-  AuthPrimaryButton,
-  AuthScreen,
-  AuthSecondaryButton,
+  AuthInputField,
+  LoginFormCard,
+  LoginPrimaryButton,
+  LoginScreenLayout,
+  LoginSecondaryButton,
 } from "@/features/auth";
 import { getBranding, getMobileConnectionInfo } from "@/api/endpoints/auth";
 import { useConfigStore } from "@/store/configStore";
 import { normalizeApiBaseUrl, parseConnectionPayload } from "@/utils/connect";
+import { LOGIN_THEME } from "@/theme/loginTheme";
 
 const DEFAULT_DEV_BACKEND = "http://localhost:5000";
 
@@ -87,66 +89,88 @@ export default function ConnectScreen() {
   };
 
   return (
-    <AuthScreen
-      eyebrow="Get started"
-      title="Connect to company"
-      subtitle="Scan the QR code from Settings or enter your backend URL"
-    >
-      <AuthFormCard title="Company connection" icon="qr-code-outline">
-        {!permission?.granted ? (
-          <View className="gap-3">
-            <Text className="text-sm text-muted">
-              Camera access is needed to scan your company QR code.
+    <LoginScreenLayout compact={false}>
+      <LoginFormCard
+        showLogo={false}
+        title="Connect to company"
+        subtitle="Scan the QR code from Settings or enter your backend URL"
+      >
+        <View
+          className="gap-4 rounded-xl border p-4"
+          style={{ borderColor: LOGIN_THEME.border, backgroundColor: LOGIN_THEME.fieldBg }}
+        >
+          <View className="flex-row items-center gap-2">
+            <View
+              className="items-center justify-center rounded-xl p-2"
+              style={{ backgroundColor: "#E8F6FC" }}
+            >
+              <Ionicons name="business-outline" size={18} color={LOGIN_THEME.skyBlue} />
+            </View>
+            <Text className="text-sm font-bold" style={{ color: LOGIN_THEME.navy }}>
+              Company connection
             </Text>
-            <AuthSecondaryButton title="Allow camera" onPress={() => void requestPermission()} />
           </View>
-        ) : scanning ? (
-          <View className="overflow-hidden rounded-2xl border border-border">
-            <CameraView
-              style={{ height: 280 }}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-              onBarcodeScanned={onBarcodeScanned}
-            />
-          </View>
-        ) : null}
 
-        <AuthSecondaryButton
-          title={scanning ? "Enter URL manually" : "Scan QR code"}
-          onPress={() => {
-            setScanned(false);
-            setScanning((value) => !value);
-          }}
-        />
+          {!permission?.granted ? (
+            <View className="gap-3">
+              <Text className="text-sm" style={{ color: LOGIN_THEME.muted }}>
+                Camera access is needed to scan your company QR code.
+              </Text>
+              <LoginSecondaryButton title="Allow camera" onPress={() => void requestPermission()} />
+            </View>
+          ) : scanning ? (
+            <View
+              className="overflow-hidden rounded-xl border-2"
+              style={{ borderColor: LOGIN_THEME.skyBlue }}
+            >
+              <CameraView
+                style={{ height: 220 }}
+                facing="back"
+                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                onBarcodeScanned={onBarcodeScanned}
+              />
+            </View>
+          ) : null}
 
-        <Field
-          label="Backend URL"
-          placeholder="https://your-backend.openskyhrm.com"
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-          value={manualUrl}
-          onChangeText={setManualUrl}
-        />
-
-        <AuthPrimaryButton
-          title="Connect"
-          icon="link-outline"
-          loading={loading}
-          onPress={() => void onManualConnect()}
-        />
-
-        {error ? (
-          <AuthErrorBanner
-            message={error}
-            hint={
-              Platform.OS === "web"
-                ? "Ensure the API is running on port 5000 and has been restarted after the latest changes."
-                : undefined
-            }
+          <LoginSecondaryButton
+            title={scanning ? "Enter URL manually" : "Scan QR code"}
+            onPress={() => {
+              setScanned(false);
+              setScanning((value) => !value);
+            }}
           />
-        ) : null}
-      </AuthFormCard>
-    </AuthScreen>
+
+          <AuthInputField
+            label="Backend URL"
+            icon="link-outline"
+            placeholder="https://your-backend.openskyhrm.com"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            value={manualUrl}
+            onChangeText={setManualUrl}
+          />
+
+          <LoginPrimaryButton
+            title="Connect"
+            icon="link-outline"
+            variant="green"
+            loading={loading}
+            onPress={() => void onManualConnect()}
+          />
+
+          {error ? (
+            <AuthErrorBanner
+              message={error}
+              hint={
+                Platform.OS === "web"
+                  ? "Ensure the API is running on port 5000 and has been restarted after the latest changes."
+                  : undefined
+              }
+            />
+          ) : null}
+        </View>
+      </LoginFormCard>
+    </LoginScreenLayout>
   );
 }
