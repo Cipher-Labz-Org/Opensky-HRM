@@ -1,5 +1,5 @@
 import { Text, View } from "react-native";
-import { colors } from "@/theme/colors";
+import { LOGIN_THEME } from "@/theme/loginTheme";
 import type { ReactNode } from "react";
 
 interface DashboardSectionTitleProps {
@@ -10,7 +10,7 @@ interface DashboardSectionTitleProps {
 export function DashboardSectionTitle({ title, action }: DashboardSectionTitleProps) {
   return (
     <View className="mb-3 flex-row items-center justify-between">
-      <Text className="text-lg font-bold" style={{ color: colors.navy }}>
+      <Text className="text-base font-bold" style={{ color: LOGIN_THEME.navy }}>
         {title}
       </Text>
       {action}

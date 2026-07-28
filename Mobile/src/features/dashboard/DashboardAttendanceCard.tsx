@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Text, View, type DimensionValue } from "react-native";
-import { colors } from "@/theme/colors";
 import type { AttendanceSummary } from "@/types/attendance";
-import { softCardShadow } from "./dashboardStyles";
+import { LOGIN_THEME } from "@/theme/loginTheme";
+import { dashboardCardStyle } from "./dashboardStyles";
 
 interface AttendanceBar {
   label: string;
@@ -21,15 +21,15 @@ function ProgressBar({ label, value, max, color }: AttendanceBar & { max: number
   return (
     <View className="mb-3">
       <View className="mb-1.5 flex-row items-center justify-between">
-        <Text className="text-sm font-medium" style={{ color: colors.navy }}>
+        <Text className="text-sm font-medium" style={{ color: LOGIN_THEME.navy }}>
           {label}
         </Text>
-        <Text className="text-sm font-bold" style={{ color: colors.navyMid }}>
+        <Text className="text-sm font-bold" style={{ color: LOGIN_THEME.skyBlue }}>
           {value}
         </Text>
       </View>
-      <View className="h-2.5 overflow-hidden rounded-full" style={{ backgroundColor: colors.soft }}>
-        <View className="h-2.5 rounded-full" style={{ width, backgroundColor: color }} />
+      <View className="h-2 overflow-hidden rounded-full" style={{ backgroundColor: "#EEF4FA" }}>
+        <View className="h-2 rounded-full" style={{ width, backgroundColor: color }} />
       </View>
     </View>
   );
@@ -38,35 +38,34 @@ function ProgressBar({ label, value, max, color }: AttendanceBar & { max: number
 export function DashboardAttendanceCard({ summary, monthLabel }: DashboardAttendanceCardProps) {
   const onTime = Math.max(0, summary.totalPresent - summary.totalLate);
   const bars: AttendanceBar[] = [
-    { label: "On time", value: onTime, color: colors.accent },
-    { label: "Late", value: summary.totalLate, color: colors.teal },
-    { label: "Absent", value: summary.totalAbsent, color: colors.warning },
+    { label: "On time", value: onTime, color: LOGIN_THEME.green },
+    { label: "Late", value: summary.totalLate, color: LOGIN_THEME.skyBlue },
+    { label: "Absent", value: summary.totalAbsent, color: "#D97706" },
     { label: "No record", value: summary.totalNoPunch, color: "#94A3B8" },
   ];
   const max = Math.max(...bars.map((bar) => bar.value), 1);
 
   return (
-    <View
-      className="overflow-hidden rounded-[24px] border border-border bg-surface p-4"
-      style={softCardShadow}
-    >
+    <View className="overflow-hidden rounded-2xl border bg-white p-4" style={dashboardCardStyle}>
       <View className="mb-4 flex-row items-center justify-between">
-        <View className="flex-row items-center gap-2">
-          <View className="rounded-xl p-2" style={{ backgroundColor: colors.tealSoft }}>
-            <Ionicons name="time-outline" size={18} color={colors.teal} />
+        <View className="flex-row items-center gap-2.5">
+          <View className="rounded-xl p-2" style={{ backgroundColor: "#E8F6FC" }}>
+            <Ionicons name="time-outline" size={18} color={LOGIN_THEME.skyBlue} />
           </View>
           <View>
-            <Text className="text-base font-bold" style={{ color: colors.navy }}>
+            <Text className="text-base font-bold" style={{ color: LOGIN_THEME.navy }}>
               This month
             </Text>
-            <Text className="text-xs" style={{ color: colors.muted }}>
+            <Text className="text-xs" style={{ color: LOGIN_THEME.muted }}>
               Attendance summary
             </Text>
           </View>
         </View>
-        <Text className="text-[11px] font-medium" style={{ color: colors.muted }}>
-          {monthLabel}
-        </Text>
+        <View className="rounded-full px-2.5 py-1" style={{ backgroundColor: "#F4F8FC" }}>
+          <Text className="text-[11px] font-semibold" style={{ color: LOGIN_THEME.muted }}>
+            {monthLabel}
+          </Text>
+        </View>
       </View>
 
       {bars.map((bar) => (
@@ -74,13 +73,13 @@ export function DashboardAttendanceCard({ summary, monthLabel }: DashboardAttend
       ))}
 
       <View
-        className="mt-1 flex-row items-center justify-between rounded-2xl px-3 py-2.5"
-        style={{ backgroundColor: colors.primaryLight }}
+        className="mt-1 flex-row items-center justify-between rounded-xl px-3 py-2.5"
+        style={{ backgroundColor: "#EEF6E4" }}
       >
-        <Text className="text-xs font-medium" style={{ color: colors.muted }}>
+        <Text className="text-xs font-medium" style={{ color: LOGIN_THEME.muted }}>
           Avg hours / day
         </Text>
-        <Text className="text-sm font-bold" style={{ color: colors.navyMid }}>
+        <Text className="text-sm font-bold" style={{ color: LOGIN_THEME.green }}>
           {summary.averageWorkHours.toFixed(1)}h
         </Text>
       </View>

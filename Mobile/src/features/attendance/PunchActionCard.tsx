@@ -89,6 +89,9 @@ export function PunchActionCard({
   onPunchOut,
 }: PunchActionCardProps) {
   const [now, setNow] = useState(() => new Date());
+  const isOpenSession = Boolean(todayRecord?.punchIn && !todayRecord?.punchOut);
+  const canPunchIn = !isOpenSession;
+  const canPunchOut = isOpenSession;
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -112,7 +115,7 @@ export function PunchActionCard({
       >
         <Ionicons name="finger-print-outline" size={18} color={colors.accent} />
         <Text className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.navy }}>
-          Clock in / out
+          Punch in / out
         </Text>
       </View>
 
@@ -131,14 +134,14 @@ export function PunchActionCard({
           <View className="min-h-[88px] flex-1">
             <Pressable
               onPress={onPunchIn}
-              disabled={!!punching}
+              disabled={!!punching || !canPunchIn}
               style={({ pressed }) => ({
                 flex: 1,
                 minHeight: 88,
                 borderRadius: 16,
                 overflow: "hidden",
                 backgroundColor: colors.accent,
-                opacity: pressed || punching ? 0.88 : 1,
+                opacity: !canPunchIn ? 0.45 : pressed || punching ? 0.88 : 1,
               })}
             >
               <View className="flex-1 items-center justify-center px-3 py-4">
@@ -153,7 +156,7 @@ export function PunchActionCard({
                       <Ionicons name="log-in-outline" size={24} color="#ffffff" />
                     </View>
                     <Text style={{ fontSize: 16, fontWeight: "700", color: "#ffffff" }}>
-                      Clock in
+                      Punch in
                     </Text>
                   </>
                 )}
@@ -164,7 +167,7 @@ export function PunchActionCard({
           <View className="min-h-[88px] flex-1">
             <Pressable
               onPress={onPunchOut}
-              disabled={!!punching}
+              disabled={!!punching || !canPunchOut}
               style={({ pressed }) => ({
                 flex: 1,
                 minHeight: 88,
@@ -173,7 +176,7 @@ export function PunchActionCard({
                 backgroundColor: colors.surface,
                 borderWidth: 2,
                 borderColor: colors.navyMid,
-                opacity: pressed || punching ? 0.88 : 1,
+                opacity: !canPunchOut ? 0.45 : pressed || punching ? 0.88 : 1,
               })}
             >
               <View className="flex-1 items-center justify-center px-3 py-4">
@@ -188,7 +191,7 @@ export function PunchActionCard({
                       <Ionicons name="log-out-outline" size={24} color={colors.navyMid} />
                     </View>
                     <Text style={{ fontSize: 16, fontWeight: "700", color: colors.navyMid }}>
-                      Clock out
+                      Punch out
                     </Text>
                   </>
                 )}

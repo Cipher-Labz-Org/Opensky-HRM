@@ -78,6 +78,7 @@ Cleared transactional tables include (not exhaustive):
 - Payroll/compensation instances and statements
 - Performance/appraisal instances
 - Learning assignment records
+- Department org structure (and related positions)
 - Operational analytics snapshots and audit/event logs
 - Outbound email logs
 - Hangfire runtime tables (optional, default `includeHangfire=true`)

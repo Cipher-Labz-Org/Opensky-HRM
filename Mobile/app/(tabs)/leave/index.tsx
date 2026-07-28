@@ -1,8 +1,7 @@
-import { RefreshControl, ScrollView, View } from "react-native";
+import { RefreshControl, View } from "react-native";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { EmptyState, LoadingState } from "@/components/ui";
+import { EmptyState, LoadingState, ScreenShell } from "@/components/ui";
 import { ActivityRow, DashboardCtaButton, formatLeaveActivityMeta } from "@/features/dashboard";
 import {
   LeaveBalanceCard,
@@ -46,42 +45,39 @@ export default function LeaveScreen() {
 
   if (!employeeId) {
     return (
-      <SafeAreaView className="flex-1 bg-background">
-        <LeavePageHeader title="Leave" subtitle="Your time off" />
-        <View className="px-4 pt-6">
+      <ScreenShell header={<LeavePageHeader title="Leave" subtitle="Your time off" />}>
+        <View className="px-4 pt-2">
           <EmptyState
             title="No employee profile"
             description="Your account is not linked to an employee record."
+            icon="person-outline"
           />
         </View>
-      </SafeAreaView>
+      </ScreenShell>
     );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={["top", "left", "right"]}>
-      <ScrollView
-        className="flex-1"
-        contentContainerClassName="pb-8"
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              void balancesQuery.refetch();
-              void requestsQuery.refetch();
-            }}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
+    <ScreenShell
+      header={
         <LeaveTopSection
           title="Leave"
           subtitle="Balances, requests & apply for time off"
           stats={summaryStats}
           onApply={() => router.push("/(tabs)/leave/apply")}
         />
-
-        <View className="mt-6 px-4">
+      }
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => {
+            void balancesQuery.refetch();
+            void requestsQuery.refetch();
+          }}
+        />
+      }
+    >
+        <View className="mt-2 px-4">
           <LeaveSectionTitle title="Your balances" />
           {balancesQuery.isLoading ? (
             <LoadingState />
@@ -146,7 +142,6 @@ export default function LeaveScreen() {
             />
           </View>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+    </ScreenShell>
   );
 }

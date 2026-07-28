@@ -1,7 +1,5 @@
-import { useState } from "react";
-import { Alert, RefreshControl, ScrollView, View } from "react-native";
-import * as Location from "expo-location";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RefreshControl, ScrollView, View } from "react-native";
+import { useQuery } from "@tanstack/react-query";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { EmptyState, LoadingState } from "@/components/ui";
 import { ActivityRow } from "@/features/dashboard";
@@ -14,10 +12,11 @@ import {
   attendanceStatusToBadgeTone,
   attendanceStatusToIcon,
   attendanceStatusToIconBg,
-  findTodayRecord,
   formatAttendanceMeta,
+  useAttendancePunch,
+  useTodayAttendanceRecord,
 } from "@/features/attendance";
-import { getAttendanceRecords, getAttendanceSummary, punchAttendance } from "@/api/endpoints/attendance";
+import { getAttendanceRecords, getAttendanceSummary } from "@/api/endpoints/attendance";
 import { useAuthStore } from "@/store/authStore";
 import { getEmployeeId } from "@/utils/permissions";
 import { endOfMonthIso, formatDate, monthYearLabel, startOfMonthIso } from "@/utils/format";
@@ -25,13 +24,14 @@ import { colors } from "@/theme/colors";
 
 export default function AttendanceScreen() {
   const employeeId = getEmployeeId(useAuthStore((s) => s.user));
-  const queryClient = useQueryClient();
-  const [punching, setPunching] = useState<"in" | "out" | null>(null);
+  const { punch, punching } = useAttendancePunch();
 
   const now = new Date();
   const from = startOfMonthIso(now);
   const to = endOfMonthIso(now);
   const monthLabel = monthYearLabel(now.getMonth() + 1, now.getFullYear());
+
+  const todayRecordQuery = useTodayAttendanceRecord(employeeId);
 
   const recordsQuery = useQuery({
     queryKey: ["attendance", "records", employeeId, from, to],
@@ -45,39 +45,17 @@ export default function AttendanceScreen() {
     enabled: !!employeeId,
   });
 
-  const punchMutation = useMutation({
-    mutationFn: async (type: "in" | "out") => {
-      setPunching(type);
-      let latitude: number | undefined;
-      let longitude: number | undefined;
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        const location = await Location.getCurrentPositionAsync({});
-        latitude = location.coords.latitude;
-        longitude = location.coords.longitude;
-      }
-      return punchAttendance({ type, latitude, longitude, source: "Mobile" });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["attendance"] });
-      Alert.alert("Success", "Attendance punch recorded.");
-    },
-    onError: (error) => {
-      Alert.alert("Punch failed", error instanceof Error ? error.message : "Could not record punch.");
-    },
-    onSettled: () => setPunching(null),
-  });
-
-  const refreshing = recordsQuery.isRefetching || summaryQuery.isRefetching;
+  const refreshing =
+    recordsQuery.isRefetching || summaryQuery.isRefetching || todayRecordQuery.isRefetching;
   const records = recordsQuery.data?.items ?? [];
-  const todayRecord = findTodayRecord(records);
+  const todayRecord = todayRecordQuery.data;
 
   if (!employeeId) {
     return (
       <SafeAreaView className="flex-1 bg-background">
         <AttendancePageHeader
           title="Attendance"
-          subtitle="Clock in/out and view records"
+          subtitle="Punch in/out and view records"
           monthLabel={monthLabel}
         />
         <View className="px-4 pt-6">
@@ -101,6 +79,7 @@ export default function AttendanceScreen() {
             onRefresh={() => {
               void recordsQuery.refetch();
               void summaryQuery.refetch();
+              void todayRecordQuery.refetch();
             }}
           />
         }
@@ -108,14 +87,14 @@ export default function AttendanceScreen() {
       >
         <AttendanceTopSection
           title="Attendance"
-          subtitle="Clock in/out and track this month's presence"
+          subtitle="Punch in/out and track this month's presence"
           monthLabel={monthLabel}
         >
           <PunchActionCard
             todayRecord={todayRecord}
             punching={punching}
-            onPunchIn={() => punchMutation.mutate("in")}
-            onPunchOut={() => punchMutation.mutate("out")}
+            onPunchIn={() => punch("in")}
+            onPunchOut={() => punch("out")}
           />
 
           {summaryQuery.data ? (
@@ -152,7 +131,7 @@ export default function AttendanceScreen() {
             >
               <EmptyState
                 title="No attendance records"
-                description="Clock in above to start tracking your attendance."
+                description="Punch in above to start tracking your attendance."
               />
             </View>
           )}

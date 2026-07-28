@@ -71,6 +71,9 @@ public static class CustomerTransactionPurgeMatrix
         // Org planning instances
         "SuccessionPlans",
 
+        // Org structure (cleared after employees — see CustomerDataResetService)
+        "Departments",
+
         // Analytics & operational logs
         "AnalyticsSnapshotCaches",
         "AuditLogs",

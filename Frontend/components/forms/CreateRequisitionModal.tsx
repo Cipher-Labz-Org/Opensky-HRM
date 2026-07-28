@@ -11,7 +11,8 @@ import {
   type RequisitionDescriptionSnapshot,
 } from "@/lib/generate-requisition-description";
 import { formatDate } from "@/lib/date-utils";
-import { DEFAULT_CURRENCY, currencySelectOptions } from "@/lib/currencies";
+import { DEFAULT_CURRENCY } from "@/lib/currencies";
+import { CurrencySearchCombobox } from "@/components/forms/CurrencySearchCombobox";
 import { getSystemSetting } from "@/lib/system-settings";
 import { RequisitionSkillsPicker } from "@/components/recruitment/RequisitionSkillsPicker";
 
@@ -111,11 +112,6 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   const locationFormOpts = useMemo<FormSelectOption[]>(
     () => [{ value: "", label: "Select…" }, ...locations.map((l) => ({ value: l.id, label: l.name }))],
     [locations]
-  );
-
-  const currencyFormOpts = useMemo<FormSelectOption[]>(
-    () => currencySelectOptions(),
-    []
   );
 
   const jobTitleLabel = useMemo(
@@ -311,10 +307,9 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <label className={labelClass}>Salary currency</label>
-            <FormSelect
+            <CurrencySearchCombobox
               value={salaryCurrency}
               onValueChange={setSalaryCurrency}
-              options={currencyFormOpts}
             />
           </div>
           <div><label className={labelClass}>Salary Min</label><input name="salaryMin" type="number" min={0} className={inputClass} /></div>

@@ -1,20 +1,27 @@
-/** OpenSky landing / product palette — navy + brand green */
+/**
+ * OpenSky HRM brand palette — derived from the logo:
+ * OPEN = navy (#0A2540), SKY = cyan (#28A9E0), HRM = green (#76B82A)
+ */
 module.exports = {
-  primary: "#1E3A8A",
-  primaryDeep: "#0A2540",
-  primarySoft: "#E8EEF7",
-  navy: "#081F3E",
-  navyMid: "#1E3A8A",
+  primary: "#0A2540",
+  primaryDeep: "#081F3E",
+  primarySoft: "#E8F6FC",
+  navy: "#0A2540",
+  navyMid: "#0A2540",
+  loginNavy: "#0A2540",
+  skyBlue: "#28A9E0",
   accent: "#76B82A",
   accentSoft: "#EEF6E4",
-  teal: "#22A6D6",
-  tealSoft: "#E6F6FC",
+  action: "#28A9E0",
+  teal: "#28A9E0",
+  tealSoft: "#E8F6FC",
   background: "#F4F8FC",
   surface: "#ffffff",
   soft: "#EEF4FA",
-  text: "#081F3E",
+  text: "#0A2540",
   muted: "#5B7087",
   border: "#D4DEE8",
+  fieldBg: "#FAFBFC",
   success: "#76B82A",
   successSoft: "#EEF6E4",
   warning: "#D97706",

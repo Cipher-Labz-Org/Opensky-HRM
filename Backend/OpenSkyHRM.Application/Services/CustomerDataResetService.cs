@@ -104,6 +104,7 @@ public class CustomerDataResetService : ICustomerDataResetService
 
                 var toTruncate = targetTables
                     .Where(t => !string.Equals(t, "Employees", StringComparison.Ordinal))
+                    .Where(t => !string.Equals(t, "Departments", StringComparison.Ordinal))
                     .ToArray();
 
                 if (toTruncate.Length > 0)
@@ -115,6 +116,17 @@ public class CustomerDataResetService : ICustomerDataResetService
                 // Employees uses GUID IDs (no identity), so DELETE is fine.
                 if (targetTables.Contains("Employees"))
                     await _db.Database.ExecuteSqlRawAsync("DELETE FROM \"Employees\";", cancellationToken);
+
+                // Departments are referenced by employees/positions; clear after employee purge.
+                if (targetTables.Contains("Departments"))
+                {
+                    await _db.Database.ExecuteSqlRawAsync(
+                        "TRUNCATE TABLE \"Positions\" RESTART IDENTITY CASCADE;",
+                        cancellationToken);
+                    await _db.Database.ExecuteSqlRawAsync(
+                        "TRUNCATE TABLE \"Departments\" RESTART IDENTITY CASCADE;",
+                        cancellationToken);
+                }
 
                 // Keep only the primary system admin user (username = 'admin').
                 // Remove other user-role links first, then delete the users themselves.

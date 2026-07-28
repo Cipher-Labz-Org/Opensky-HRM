@@ -89,6 +89,10 @@ RESTART IDENTITY CASCADE;
 -- Clear employees last (DELETE works with FK constraints; TRUNCATE would require truncating Users too).
 DELETE FROM "Employees";
 
+-- Org structure tied to employees (positions reference departments).
+TRUNCATE TABLE "Positions" RESTART IDENTITY CASCADE;
+TRUNCATE TABLE "Departments" RESTART IDENTITY CASCADE;
+
 -- Keep only the primary admin user account (username = 'admin').
 DELETE FROM "UserRoles" ur
 USING "Users" u

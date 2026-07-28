@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Image, Text, View } from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { LOGIN_THEME } from "@/theme/loginTheme";
 import { colors } from "@/theme/colors";
-import { getInitials, getTimeGreeting } from "@/utils/greeting";
-import { softCardShadow } from "./dashboardStyles";
+import { getInitials } from "@/utils/greeting";
+import { dashboardCardStyle } from "./dashboardStyles";
 import type { ComponentProps } from "react";
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
@@ -12,6 +14,7 @@ interface WelcomeStat {
   value: string | number;
   icon: IoniconName;
   tone?: "teal" | "green" | "navy";
+  onPress?: () => void;
 }
 
 interface DashboardWelcomeCardProps {
@@ -24,26 +27,44 @@ interface DashboardWelcomeCardProps {
 }
 
 const toneStyles = {
-  teal: { bg: colors.tealSoft, icon: colors.teal, value: colors.teal },
-  green: { bg: colors.accentSoft, icon: colors.accent, value: colors.accent },
-  navy: { bg: colors.primaryLight, icon: colors.navyMid, value: colors.navyMid },
+  teal: { bg: colors.tealSoft, icon: colors.brandSky, value: colors.brandSky },
+  green: { bg: colors.accentSoft, icon: colors.brandGreen, value: colors.brandGreen },
+  navy: { bg: colors.primarySoft, icon: colors.brandNavy, value: colors.brandNavy },
 } as const;
 
-function WelcomeStatPill({ label, value, icon, tone = "teal" }: WelcomeStat) {
+function WelcomeStatPill({ label, value, icon, tone = "teal", onPress }: WelcomeStat) {
   const style = toneStyles[tone];
-  return (
-    <View className="min-w-0 flex-1 rounded-2xl px-2 py-3" style={{ backgroundColor: style.bg }}>
+  const content = (
+    <View className="min-w-0 flex-1 rounded-2xl px-2 py-3.5" style={{ backgroundColor: style.bg }}>
       <View className="items-center">
-        <Ionicons name={icon} size={18} color={style.icon} />
-        <Text className="mt-1.5 text-xl font-bold" style={{ color: style.value }}>
+        <Ionicons name={icon} size={20} color={style.icon} />
+        <Text className="mt-2 text-2xl font-bold leading-none" style={{ color: style.value }}>
           {value}
         </Text>
-        <Text className="mt-0.5 text-center text-[10px] font-medium" style={{ color: colors.muted }} numberOfLines={2}>
+        <Text
+          className="mt-1.5 text-center text-[10px] font-semibold uppercase tracking-wide"
+          style={{ color: LOGIN_THEME.muted }}
+          numberOfLines={2}
+        >
           {label}
         </Text>
       </View>
     </View>
   );
+
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        className="min-w-0 flex-1"
+        style={({ pressed }) => ({ opacity: pressed ? 0.88 : 1 })}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View className="min-w-0 flex-1">{content}</View>;
 }
 
 export function DashboardWelcomeCard({
@@ -54,56 +75,59 @@ export function DashboardWelcomeCard({
   photoUri,
   stats,
 }: DashboardWelcomeCardProps) {
-  const greeting = getTimeGreeting();
-
   return (
-    <View
-      className="overflow-hidden rounded-[24px] border border-border bg-surface p-4"
-      style={softCardShadow}
-    >
-      <View className="flex-row items-center gap-3">
-        <View
-          className="overflow-hidden rounded-2xl border-2"
-          style={{ width: 56, height: 56, borderColor: colors.tealSoft, backgroundColor: colors.primaryLight }}
-        >
-          {photoUri ? (
-            <Image source={{ uri: photoUri }} className="h-full w-full" resizeMode="cover" />
-          ) : (
-            <View className="h-full w-full items-center justify-center">
-              <Text className="text-lg font-bold" style={{ color: colors.navyMid }}>
-                {getInitials(displayName)}
-              </Text>
-            </View>
-          )}
-        </View>
-        <View className="min-w-0 flex-1">
+    <View className="overflow-hidden rounded-2xl border bg-white" style={dashboardCardStyle}>
+      <LinearGradient
+        colors={[colors.brandNavy, colors.brandSky]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ paddingHorizontal: 18, paddingTop: 18, paddingBottom: 22 }}
+      >
+        <View className="flex-row items-center gap-3.5">
           <View
-            className="self-start rounded-full px-2.5 py-0.5"
-            style={{ backgroundColor: colors.tealSoft }}
+            className="overflow-hidden rounded-full"
+            style={{
+              width: 56,
+              height: 56,
+              borderWidth: 2,
+              borderColor: "rgba(255,255,255,0.4)",
+              backgroundColor: "rgba(255,255,255,0.12)",
+            }}
           >
-            <Text className="text-[10px] font-bold uppercase tracking-wide" style={{ color: colors.teal }}>
-              {greeting}
-            </Text>
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} className="h-full w-full" resizeMode="cover" />
+            ) : (
+              <View className="h-full w-full items-center justify-center">
+                <Text className="text-lg font-bold text-white">{getInitials(displayName)}</Text>
+              </View>
+            )}
           </View>
-          <Text className="mt-1 text-lg font-bold" style={{ color: colors.navy }} numberOfLines={1}>
-            {displayName}
-          </Text>
-          <Text className="text-xs" style={{ color: colors.muted }} numberOfLines={1}>
-            {companyName}
-            {subtitle ? ` · ${subtitle}` : ""}
-          </Text>
+          <View className="min-w-0 flex-1">
+            <Text className="text-xl font-bold text-white" numberOfLines={1}>
+              {displayName}
+            </Text>
+            <Text className="mt-0.5 text-sm text-white/90" numberOfLines={1}>
+              {companyName}
+            </Text>
+            {subtitle ? (
+              <Text className="mt-0.5 text-xs text-white/75" numberOfLines={1}>
+                {subtitle}
+              </Text>
+            ) : null}
+          </View>
+          {employeeCode ? (
+            <View
+              className="rounded-full px-2.5 py-1"
+              style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+            >
+              <Text className="text-[11px] font-bold text-white">#{employeeCode}</Text>
+            </View>
+          ) : null}
         </View>
-        {employeeCode ? (
-          <View className="rounded-full px-2.5 py-1" style={{ backgroundColor: colors.soft }}>
-            <Text className="text-[11px] font-semibold" style={{ color: colors.navyMid }}>
-              #{employeeCode}
-            </Text>
-          </View>
-        ) : null}
-      </View>
+      </LinearGradient>
 
       {stats.length ? (
-        <View className="mt-4 flex-row gap-2">
+        <View className="flex-row gap-2.5 p-4">
           {stats.map((stat, index) => (
             <WelcomeStatPill
               key={stat.label}
