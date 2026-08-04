@@ -168,6 +168,9 @@ public class AuthService : IAuthService
         if (dto.RoleIds == null || dto.RoleIds.Count == 0)
             throw new InvalidOperationException("At least one role is required.");
 
+        if (dto.RoleIds.Count > 1)
+            throw new InvalidOperationException("Each user can only have one role. Select a single role.");
+
         if (await _db.Users.AnyAsync(u => u.Username == dto.Username))
             throw new InvalidOperationException(
                 $"Username '{dto.Username}' is already in use (including archived accounts). Choose a different username.");
@@ -242,6 +245,12 @@ public class AuthService : IAuthService
 
         if (dto.RoleIds != null)
         {
+            if (dto.RoleIds.Count == 0)
+                throw new InvalidOperationException("A role is required.");
+
+            if (dto.RoleIds.Count > 1)
+                throw new InvalidOperationException("Each user can only have one role. Select a single role.");
+
             _db.UserRoles.RemoveRange(user.UserRoles);
             await _db.SaveChangesAsync();
 

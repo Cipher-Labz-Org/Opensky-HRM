@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { API_BASE_URL } from "@/config/constants";
+import { resolveAssetUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { OPENSKY_THEME } from "@/lib/opensky-theme";
 import { useAuth } from "@/hooks/use-auth";
@@ -59,9 +59,7 @@ export function AppSidebar({ appName, navGroups, collapsed, onToggle }: AppSideb
   const [searchQuery, setSearchQuery] = useState("");
 
   const [profileImageVersion, setProfileImageVersion] = useState(0);
-  const profileImageUrl = user?.profileImageUrl
-    ? `${API_BASE_URL}${user.profileImageUrl}${user.profileImageUrl.includes("?") ? "&" : "?"}v=${profileImageVersion}`
-    : null;
+  const profileImageUrl = resolveAssetUrl(user?.profileImageUrl, profileImageVersion);
   const roleLabel = user?.roles?.[0]?.replaceAll("_", " ") ?? "Employee";
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredNavGroups = normalizedQuery

@@ -3,7 +3,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Recruitment;
+using Microsoft.Extensions.Options;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Application.Options;
+using OpenSkyHRM.Api.Services.Storage;
 using OpenSkyHRM.Api.Filters;
 
 namespace OpenSkyHRM.Api.Controllers;
@@ -17,15 +20,18 @@ public class SystemSettingsController : ControllerBase
     private readonly ISystemSettingService _service;
     private readonly OpenAiSettingsResolver _openAi;
     private readonly IFileStorageService _files;
+    private readonly FileStorageOptions _fileStorage;
 
     public SystemSettingsController(
         ISystemSettingService service,
         OpenAiSettingsResolver openAi,
-        IFileStorageService files)
+        IFileStorageService files,
+        IOptions<FileStorageOptions> fileStorage)
     {
         _service = service;
         _openAi = openAi;
         _files = files;
+        _fileStorage = fileStorage.Value;
     }
 
     [HttpGet]
@@ -167,12 +173,24 @@ public class SystemSettingsController : ControllerBase
         if (file.Length > 5 * 1024 * 1024)
             return BadRequest(new { error = "File size must be less than 5 MB." });
 
-        var fileName = $"company_logo_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
+        var companyFolder = FileStoragePathHelper.SanitizeSegment(_fileStorage.ResolvedCompanyFolder);
+        var fileName = $"company_logo_{companyFolder}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
         var logoUrl = _files.BuildLogicalPath("branding", fileName);
 
-        await using (var stream = file.OpenReadStream())
+        try
         {
-            await _files.SaveAsync(logoUrl, stream, contentType);
+            await using (var stream = file.OpenReadStream())
+            {
+                await _files.SaveAsync(logoUrl, stream, contentType);
+            }
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new
+            {
+                error = "Could not save logo to storage. Check FileStorage settings (S3 bucket, CompanyFolder, AWS credentials) on this server.",
+                detail = ex.Message,
+            });
         }
 
         await _service.SetAsync("CompanyLogoUrl", logoUrl);

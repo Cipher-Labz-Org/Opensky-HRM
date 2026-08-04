@@ -75,6 +75,40 @@ export function tenantBackendUrl(): string | null {
 }
 
 /**
+ * Resolve `/uploads/...` (or absolute URL) to the correct backend origin per tenant.
+ * Tenant hosts must load files from their IIS API — not Vercel's single API_URL rewrite.
+ */
+export function resolveAssetUrl(path: string | null | undefined, cacheBuster?: number | string): string | null {
+  const raw = path?.trim() ?? "";
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const normalized = raw.startsWith("/") ? raw : `/${raw}`;
+  let url: string;
+
+  if (typeof window !== "undefined") {
+    const tenant = getTenantByHostname(window.location.hostname);
+    if (tenant) {
+      url = `${tenant.apiUrl.replace(/\/$/, "")}${normalized}`;
+    } else if (isProductionAppHost(window.location.hostname)) {
+      url = normalized;
+    } else {
+      const base = getApiBaseUrl().replace(/\/$/, "");
+      url = base ? `${base}${normalized}` : normalized;
+    }
+  } else {
+    url = `${getAssetBaseUrl()}${normalized}`;
+  }
+
+  if (cacheBuster !== undefined && cacheBuster !== "") {
+    const sep = url.includes("?") ? "&" : "?";
+    url = `${url}${sep}v=${encodeURIComponent(String(cacheBuster))}`;
+  }
+
+  return url;
+}
+
+/**
  * Auth endpoints on tenant hosts use same-origin `/api/auth/*` so Vercel proxies to IIS.
  * Avoids browser CORS blocks when the backend returns 500 without CORS headers.
  */

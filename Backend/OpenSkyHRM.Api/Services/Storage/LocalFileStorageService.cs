@@ -120,7 +120,8 @@ public sealed class LocalFileStorageService : IFileStorageService
     {
         yield return FileStoragePathHelper.ToPhysicalPath(_env.ContentRootPath, _options, logicalPath);
         yield return FileStoragePathHelper.ToIntermediatePhysicalPath(_env.ContentRootPath, _options, logicalPath);
-        yield return FileStoragePathHelper.ToLegacyPhysicalPath(_env.ContentRootPath, logicalPath);
+        if (FileStoragePathHelper.ShouldAllowLegacyFallback(_options))
+            yield return FileStoragePathHelper.ToLegacyPhysicalPath(_env.ContentRootPath, logicalPath);
     }
 
     private static string? GuessContentType(string path)
