@@ -177,9 +177,20 @@ public class SystemSettingsController : ControllerBase
         var fileName = $"company_logo_{companyFolder}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
         var logoUrl = _files.BuildLogicalPath("branding", fileName);
 
-        await using (var stream = file.OpenReadStream())
+        try
         {
-            await _files.SaveAsync(logoUrl, stream, contentType);
+            await using (var stream = file.OpenReadStream())
+            {
+                await _files.SaveAsync(logoUrl, stream, contentType);
+            }
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new
+            {
+                error = "Could not save logo to storage. Check FileStorage settings (S3 bucket, CompanyFolder, AWS credentials) on this server.",
+                detail = ex.Message,
+            });
         }
 
         await _service.SetAsync("CompanyLogoUrl", logoUrl);
