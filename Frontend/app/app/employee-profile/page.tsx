@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
-import { resolveAssetUrl } from "@/config/constants";
+import { getApiBaseUrl, resolveAssetUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
 import { displayWorkEmail } from "@/lib/employee-email";
@@ -1621,7 +1621,7 @@ export default function EmployeeProfilePage() {
                   <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-2 text-sm">
                     <span className="font-medium text-slate-800">{d.fileName}</span>
                     <a
-                      href={`${API_BASE_URL}/api/employees/${emp.id}/immigration-documents/${d.id}/download`}
+                      href={`${getApiBaseUrl()}/api/employees/${emp.id}/immigration-documents/${d.id}/download`}
                       target="_blank"
                       rel="noreferrer"
                       className="text-xs font-semibold text-[#2B7DE9] hover:underline"
@@ -1665,7 +1665,7 @@ export default function EmployeeProfilePage() {
                       <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{formatDateTime(a.dateAdded)}</td>
                       <td className="px-4 py-2.5 text-right">
                         <a
-                          href={`${API_BASE_URL}/api/employees/${emp.id}/attachments/${a.id}/download`}
+                          href={`${getApiBaseUrl()}/api/employees/${emp.id}/attachments/${a.id}/download`}
                           target="_blank"
                           rel="noreferrer"
                           className="text-xs font-semibold text-[#2B7DE9] hover:underline"
