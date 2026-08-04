@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { DatePickerField, FormSelect, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { API_BASE_URL } from "@/config/constants";
+import { resolveAssetUrl } from "@/config/constants";
 import { formatDate } from "@/lib/date-utils";
 import { applyFromDateInRange, applyToDateInRange } from "@/lib/datePickerIso";
 import { appAlert } from "@/components/ui/appDialogs";
@@ -472,7 +472,7 @@ export function LeaveRequestsPanel({
                       <div className="flex flex-wrap justify-end gap-1.5">
                         {r.medicalCertificateUrl ? (
                           <a
-                            href={`${API_BASE_URL}${r.medicalCertificateUrl}`}
+                            href={resolveAssetUrl(r.medicalCertificateUrl) ?? "#"}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-600 transition hover:bg-blue-50"

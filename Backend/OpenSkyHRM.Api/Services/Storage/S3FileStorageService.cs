@@ -144,7 +144,8 @@ public sealed class S3FileStorageService : IFileStorageService, IDisposable
     {
         yield return FileStoragePathHelper.ToObjectKey(_options, logicalPath);
         yield return FileStoragePathHelper.ToIntermediateObjectKey(_options, logicalPath);
-        yield return FileStoragePathHelper.ToLegacyObjectKey(_options, logicalPath);
+        if (FileStoragePathHelper.ShouldAllowLegacyFallback(_options))
+            yield return FileStoragePathHelper.ToLegacyObjectKey(_options, logicalPath);
     }
 
     private static string GuessContentType(string logicalPath)

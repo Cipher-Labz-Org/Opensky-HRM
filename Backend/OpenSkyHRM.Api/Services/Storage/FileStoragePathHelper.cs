@@ -94,6 +94,16 @@ internal static class FileStoragePathHelper
         }
     }
 
+    /// <summary>
+    /// Shared-bucket tenants must use a dedicated company folder. Legacy flat paths are only
+    /// consulted when no company folder is configured (local dev / single-tenant).
+    /// </summary>
+    public static bool ShouldAllowLegacyFallback(FileStorageOptions options)
+    {
+        return string.IsNullOrWhiteSpace(options.CompanyFolder)
+            || string.Equals(options.ResolvedCompanyFolder, "default", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string StripUploadsPrefix(string normalizedPath)
     {
         if (normalizedPath.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase))

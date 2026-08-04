@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
-import { API_BASE_URL } from "@/config/constants";
+import { resolveAssetUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
 import { displayWorkEmail } from "@/lib/employee-email";
@@ -1119,7 +1119,7 @@ export default function EmployeeProfilePage() {
           <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center">
             {emp.profileImageUrl ? (
               <img
-                src={`${API_BASE_URL}${emp.profileImageUrl}`}
+                src={resolveAssetUrl(emp.profileImageUrl) ?? ""}
                 alt=""
                 className="h-28 w-28 shrink-0 rounded-2xl border-4 border-white object-cover shadow-lg shadow-slate-900/10"
               />

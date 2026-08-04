@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { FormSelect, TablePagination, FormErrorAlert, UsernameInput, EmailInput, type FormSelectOption } from "@/components/ui";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
+import { UserAdvancedPermissionsPanel } from "@/components/user-management/UserAdvancedPermissionsPanel";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
@@ -71,11 +72,6 @@ export default function UserManagementPage() {
   const [selectedBusinessUnitIds, setSelectedBusinessUnitIds] = useState<string[]>([]);
   const [selectedGradeIds, setSelectedGradeIds] = useState<string[]>([]);
   const [selectedJobTitleIds, setSelectedJobTitleIds] = useState<string[]>([]);
-  const [locationPickerKey, setLocationPickerKey] = useState(0);
-  const [buPickerKey, setBuPickerKey] = useState(0);
-  const [gradePickerKey, setGradePickerKey] = useState(0);
-  const [jobTitlePickerKey, setJobTitlePickerKey] = useState(0);
-  const [rolePickerKey, setRolePickerKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -87,7 +83,7 @@ export default function UserManagementPage() {
   const [mustChangePassword, setMustChangePassword] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [employeeId, setEmployeeId] = useState("");
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [selectedRoleId, setSelectedRoleId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const searchFilter = useApplyFilter();
@@ -139,16 +135,11 @@ export default function UserManagementPage() {
     setMustChangePassword(true);
     setIsActive(true);
     setEmployeeId("");
-    setSelectedRoles([]);
+    setSelectedRoleId("");
     setSelectedLocationIds([]);
     setSelectedBusinessUnitIds([]);
     setSelectedGradeIds([]);
     setSelectedJobTitleIds([]);
-    setLocationPickerKey((k) => k + 1);
-    setBuPickerKey((k) => k + 1);
-    setGradePickerKey((k) => k + 1);
-    setJobTitlePickerKey((k) => k + 1);
-    setRolePickerKey((k) => k + 1);
     setError("");
     setShowModal(true);
   }
@@ -161,16 +152,11 @@ export default function UserManagementPage() {
     setIsActive(u.isActive);
     setEmployeeId(u.employeeId || "");
     const roleIds = roles.filter((r) => u.roles.includes(r.name)).map((r) => r.id);
-    setSelectedRoles(roleIds);
+    setSelectedRoleId(roleIds[0] ?? "");
     setSelectedLocationIds((u.assignedLocationIds ?? []).map(String));
     setSelectedBusinessUnitIds((u.assignedBusinessUnitIds ?? []).map(String));
     setSelectedGradeIds((u.assignedGradeIds ?? []).map(String));
     setSelectedJobTitleIds((u.assignedJobTitleIds ?? []).map(String));
-    setLocationPickerKey((k) => k + 1);
-    setBuPickerKey((k) => k + 1);
-    setGradePickerKey((k) => k + 1);
-    setJobTitlePickerKey((k) => k + 1);
-    setRolePickerKey((k) => k + 1);
     setError("");
     setShowModal(true);
   }
@@ -197,7 +183,7 @@ export default function UserManagementPage() {
     }
     if (!editUser && !password) { setError("Password is required for new users."); return; }
     if (!editUser && password.length < 6) { setError("Password must be at least 6 characters."); return; }
-    if (selectedRoles.length === 0) { setError("At least one role is required."); return; }
+    if (!selectedRoleId) { setError("A role is required."); return; }
 
     setSaving(true);
     try {
@@ -209,7 +195,7 @@ export default function UserManagementPage() {
             email,
             isActive,
             employeeId: employeeId || null,
-            roleIds: selectedRoles,
+            roleIds: [selectedRoleId],
             assignedLocationIds: selectedLocationIds,
             assignedBusinessUnitIds: selectedBusinessUnitIds,
             assignedGradeIds: selectedGradeIds,
@@ -226,7 +212,7 @@ export default function UserManagementPage() {
             isActive,
             mustChangePassword,
             employeeId: employeeId || null,
-            roleIds: selectedRoles,
+            roleIds: [selectedRoleId],
             assignedLocationIds: selectedLocationIds.length > 0 ? selectedLocationIds : undefined,
             assignedBusinessUnitIds:
               selectedBusinessUnitIds.length > 0 ? selectedBusinessUnitIds : undefined,
@@ -292,56 +278,10 @@ export default function UserManagementPage() {
     []
   );
 
-  const roleAddOptions = useMemo<FormSelectOption[]>(() => {
-    const remaining = roles.filter((r) => !selectedRoles.includes(r.id));
-    if (remaining.length === 0) {
-      return [{ value: "", label: roles.length ? "All roles added" : "— None available —" }];
-    }
-    return [{ value: "", label: "Add role…" }, ...remaining.map((r) => ({ value: r.id, label: r.name }))];
-  }, [roles, selectedRoles]);
-
-  const locationAddOptions = useMemo<FormSelectOption[]>(() => {
-    const remaining = locations.filter((loc) => !selectedLocationIds.includes(loc.id));
-    if (remaining.length === 0) {
-      return [{ value: "", label: locations.length ? "All locations added" : "— None available —" }];
-    }
-    return [{ value: "", label: "Add work location…" }, ...remaining.map((l) => ({ value: l.id, label: l.name }))];
-  }, [locations, selectedLocationIds]);
-
-  const buAddOptions = useMemo<FormSelectOption[]>(() => {
-    const remaining = businessUnits.filter((b) => !selectedBusinessUnitIds.includes(b.id));
-    if (remaining.length === 0) {
-      return [
-        {
-          value: "",
-          label: businessUnits.length ? "All business units added" : "— None available —",
-        },
-      ];
-    }
-    return [{ value: "", label: "Add business unit…" }, ...remaining.map((b) => ({ value: b.id, label: b.name }))];
-  }, [businessUnits, selectedBusinessUnitIds]);
-
-  const gradeAddOptions = useMemo<FormSelectOption[]>(() => {
-    const remaining = grades.filter((g) => !selectedGradeIds.includes(g.id));
-    if (remaining.length === 0) {
-      return [{ value: "", label: grades.length ? "All grades added" : "— None available —" }];
-    }
-    return [
-      { value: "", label: "Add grade…" },
-      ...remaining.map((g) => ({
-        value: g.id,
-        label: g.level != null ? `${g.name} · L${g.level}` : g.name,
-      })),
-    ];
-  }, [grades, selectedGradeIds]);
-
-  const jobTitleAddOptions = useMemo<FormSelectOption[]>(() => {
-    const remaining = jobTitles.filter((j) => !selectedJobTitleIds.includes(j.id));
-    if (remaining.length === 0) {
-      return [{ value: "", label: jobTitles.length ? "All job titles added" : "— None available —" }];
-    }
-    return [{ value: "", label: "Add job title…" }, ...remaining.map((j) => ({ value: j.id, label: j.name }))];
-  }, [jobTitles, selectedJobTitleIds]);
+  const roleOptions = useMemo<FormSelectOption[]>(
+    () => [{ value: "", label: "Select a role…" }, ...roles.map((r) => ({ value: r.id, label: r.name }))],
+    [roles]
+  );
 
   const activeUserCount = useMemo(() => users.filter((u) => u.isActive).length, [users]);
   const linkedEmployeeCount = useMemo(() => users.filter((u) => u.employeeId).length, [users]);
@@ -500,11 +440,13 @@ export default function UserManagementPage() {
                         )}
                       </td>
                       <td className="px-6 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {u.roles.map((r) => (
-                            <span key={r} className="inline-block rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-800">{r}</span>
-                          ))}
-                        </div>
+                        {u.roles[0] ? (
+                          <span className="inline-block rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-800">
+                            {u.roles[0]}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-3">
                         <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${u.isActive ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>
@@ -642,196 +584,33 @@ export default function UserManagementPage() {
               </div>
 
               <div>
-                <label className={labelClass}>Roles *</label>
+                <label className={labelClass}>Role *</label>
                 <FormSelect
-                  key={rolePickerKey}
-                  value=""
-                  onValueChange={(v) => {
-                    if (!v) return;
-                    setSelectedRoles((p) => (p.includes(v) ? p : [...p, v]));
-                    setRolePickerKey((k) => k + 1);
-                  }}
-                  options={roleAddOptions}
-                  placeholder="Add role…"
+                  value={selectedRoleId}
+                  onValueChange={setSelectedRoleId}
+                  options={roleOptions}
+                  placeholder="Select a role…"
                   disabled={roles.length === 0}
                 />
-                {selectedRoles.length > 0 && (
-                  <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-                    {selectedRoles.map((id) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setSelectedRoles((prev) => prev.filter((x) => x !== id))}
-                        className="rounded-full border border-indigo-400 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-800 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-900"
-                        title="Click to remove"
-                      >
-                        {roles.find((r) => r.id === id)?.name ?? id} ×
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Each user is assigned one role. Permissions come from that role.
+                </p>
               </div>
 
-              <div>
-                <label className={labelClass}>People — allowed work locations</label>
-                {locations.length === 0 ? (
-                  <p className="text-xs text-amber-700">No locations defined. Add locations under Organization first.</p>
-                ) : (
-                  <>
-                    <FormSelect
-                      key={locationPickerKey}
-                      value=""
-                      onValueChange={(v) => {
-                        if (!v) return;
-                        setSelectedLocationIds((p) => (p.includes(v) ? p : [...p, v]));
-                        setLocationPickerKey((k) => k + 1);
-                      }}
-                      options={locationAddOptions}
-                      placeholder="Add work location…"
-                      disabled={locations.length === 0}
-                    />
-                    {selectedLocationIds.length > 0 && (
-                      <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-                        {selectedLocationIds.map((id) => (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() => setSelectedLocationIds((prev) => prev.filter((x) => x !== id))}
-                            className="rounded-full border border-sky-500 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-900"
-                            title="Click to remove"
-                          >
-                            {locations.find((l) => l.id === id)?.name ?? id} ×
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <div>
-                <label className={labelClass}>People — allowed business units</label>
-                {businessUnits.length === 0 ? (
-                  <p className="text-xs text-amber-700">
-                    No business units loaded. Add business units under Organization (Org Structure module), or check
-                    your license.
-                  </p>
-                ) : (
-                  <>
-                    <FormSelect
-                      key={buPickerKey}
-                      value=""
-                      onValueChange={(v) => {
-                        if (!v) return;
-                        setSelectedBusinessUnitIds((p) => (p.includes(v) ? p : [...p, v]));
-                        setBuPickerKey((k) => k + 1);
-                      }}
-                      options={buAddOptions}
-                      placeholder="Add business unit…"
-                      disabled={businessUnits.length === 0}
-                    />
-                    {selectedBusinessUnitIds.length > 0 && (
-                      <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-                        {selectedBusinessUnitIds.map((id) => (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() =>
-                              setSelectedBusinessUnitIds((prev) => prev.filter((x) => x !== id))
-                            }
-                            className="rounded-full border border-sky-500 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-900"
-                            title="Click to remove"
-                          >
-                            {businessUnits.find((b) => b.id === id)?.name ?? id} ×
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <div>
-                <label className={labelClass}>People — allowed grades &amp; bands</label>
-                {grades.length === 0 ? (
-                  <p className="text-xs text-amber-700">
-                    No grades loaded. Add grades under Organization, or check your license.
-                  </p>
-                ) : (
-                  <>
-                    <FormSelect
-                      key={gradePickerKey}
-                      value=""
-                      onValueChange={(v) => {
-                        if (!v) return;
-                        setSelectedGradeIds((p) => (p.includes(v) ? p : [...p, v]));
-                        setGradePickerKey((k) => k + 1);
-                      }}
-                      options={gradeAddOptions}
-                      placeholder="Add grade…"
-                      disabled={grades.length === 0}
-                    />
-                    {selectedGradeIds.length > 0 && (
-                      <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-                        {selectedGradeIds.map((id) => {
-                          const g = grades.find((x) => x.id === id);
-                          const label = g ? (g.level != null ? `${g.name} · L${g.level}` : g.name) : id;
-                          return (
-                            <button
-                              key={id}
-                              type="button"
-                              onClick={() => setSelectedGradeIds((prev) => prev.filter((x) => x !== id))}
-                              className="rounded-full border border-sky-500 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-900"
-                              title="Click to remove"
-                            >
-                              {label} ×
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <div>
-                <label className={labelClass}>People — allowed job catalog</label>
-                {jobTitles.length === 0 ? (
-                  <p className="text-xs text-amber-700">
-                    No job titles loaded. Add job titles under Organization, or check your license.
-                  </p>
-                ) : (
-                  <>
-                    <FormSelect
-                      key={jobTitlePickerKey}
-                      value=""
-                      onValueChange={(v) => {
-                        if (!v) return;
-                        setSelectedJobTitleIds((p) => (p.includes(v) ? p : [...p, v]));
-                        setJobTitlePickerKey((k) => k + 1);
-                      }}
-                      options={jobTitleAddOptions}
-                      placeholder="Add job title…"
-                      disabled={jobTitles.length === 0}
-                    />
-                    {selectedJobTitleIds.length > 0 && (
-                      <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-                        {selectedJobTitleIds.map((id) => (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() => setSelectedJobTitleIds((prev) => prev.filter((x) => x !== id))}
-                            className="rounded-full border border-sky-500 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-900"
-                            title="Click to remove"
-                          >
-                            {jobTitles.find((j) => j.id === id)?.name ?? id} ×
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+              <UserAdvancedPermissionsPanel
+                locations={locations}
+                businessUnits={businessUnits}
+                grades={grades}
+                jobTitles={jobTitles}
+                selectedLocationIds={selectedLocationIds}
+                selectedBusinessUnitIds={selectedBusinessUnitIds}
+                selectedGradeIds={selectedGradeIds}
+                selectedJobTitleIds={selectedJobTitleIds}
+                onLocationChange={setSelectedLocationIds}
+                onBusinessUnitChange={setSelectedBusinessUnitIds}
+                onGradeChange={setSelectedGradeIds}
+                onJobTitleChange={setSelectedJobTitleIds}
+              />
             </div>
 
             <div className="mt-5 flex items-center justify-end gap-3">

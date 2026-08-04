@@ -47,6 +47,14 @@ const TENANT_META: Record<string, Omit<TenantConfig, "apiUrl">> = {
     companyId: "cipherlabz",
     companyName: "Cipherlabz",
   },
+  "nexawave.openskyhrm.com": {
+    companyId: "nexawave",
+    companyName: "NexaWave",
+  },
+  "besttrend.openskyhrm.com": {
+    companyId: "besttrend",
+    companyName: "Best Trend",
+  },
 };
 
 function buildTenants(): Record<string, TenantConfig> {

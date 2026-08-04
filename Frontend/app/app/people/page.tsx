@@ -10,7 +10,7 @@ import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 import { filterLookupsByAllowedIds } from "@/lib/people-scope-filters";
 import { apiFetch } from "@/lib/api";
-import { API_BASE_URL } from "@/config/constants";
+import { resolveAssetUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { formatDate } from "@/lib/date-utils";
 import {
@@ -193,7 +193,7 @@ function PeopleEmployeeAvatar({
   if (emp.profileImageUrl) {
     return (
       <img
-        src={`${API_BASE_URL}${emp.profileImageUrl}`}
+        src={resolveAssetUrl(emp.profileImageUrl) ?? ""}
         alt={emp.fullName}
         className={`rounded-full object-cover ring-1 ring-slate-200 ${className}`}
       />
@@ -689,7 +689,7 @@ export default function PeoplePage() {
                       onClick={() => { setShowSuggestions(false); router.push(`/app/people/${emp.id}`); }}
                     >
                       {emp.profileImageUrl ? (
-                        <img src={`${API_BASE_URL}${emp.profileImageUrl}`} alt={emp.fullName} className="h-7 w-7 rounded-full object-cover ring-1 ring-slate-200" />
+                        <img src={resolveAssetUrl(emp.profileImageUrl) ?? ""} alt={emp.fullName} className="h-7 w-7 rounded-full object-cover ring-1 ring-slate-200" />
                       ) : (
                         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-blue-50 ring-1 ring-slate-200 text-[9px] font-semibold text-slate-500">{initials}</div>
                       )}
