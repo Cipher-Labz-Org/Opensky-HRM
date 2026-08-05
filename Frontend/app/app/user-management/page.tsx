@@ -92,7 +92,7 @@ export default function UserManagementPage() {
   const [activeSection, setActiveSection] = useState<"users" | "roles">("users");
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const PAGE_SIZE = 20;
+  const PAGE_SIZE = 10;
 
   async function loadData() {
     setLoading(true);
@@ -364,23 +364,26 @@ export default function UserManagementPage() {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-slate-50/50 px-6 py-3">
-              <div className="relative flex-1 min-w-[200px]">
-                <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-                <input
-                  value={searchFilter.input}
-                  onChange={(e) => searchFilter.setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      searchFilter.apply();
-                      setPage(1);
-                    }
-                  }}
-                  placeholder="Search username, email, or name… (Enter)"
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-                />
+            <div className="flex flex-wrap items-end gap-3 border-b border-slate-100 bg-slate-50/50 px-6 py-3">
+              <div className="flex min-w-[200px] flex-1 flex-col gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Search</span>
+                <div className="relative">
+                  <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+                  <input
+                    value={searchFilter.input}
+                    onChange={(e) => searchFilter.setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        searchFilter.apply();
+                        setPage(1);
+                      }
+                    }}
+                    placeholder="Search username, email, or name… (Enter)"
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                </div>
               </div>
-              <div className="flex min-w-0 flex-col gap-1 sm:w-44">
+              <div className="flex w-full min-w-0 flex-col gap-1 sm:w-44">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Role</span>
                 <FormSelect
                   value={filterRole}
@@ -389,7 +392,7 @@ export default function UserManagementPage() {
                   placeholder="All Roles"
                 />
               </div>
-              <div className="flex min-w-0 flex-col gap-1 sm:w-40">
+              <div className="flex w-full min-w-0 flex-col gap-1 sm:w-40">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
                 <FormSelect
                   value={filterStatus}
@@ -407,7 +410,7 @@ export default function UserManagementPage() {
                   Clear filters
                 </button>
               )}
-              <span className="text-xs text-slate-400">{totalCount} user(s)</span>
+              <span className="pb-2 text-xs text-slate-400">{totalCount} user(s)</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -415,7 +418,6 @@ export default function UserManagementPage() {
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
                     <th className="px-6 py-3">Username</th>
-                    <th className="px-6 py-3">Email</th>
                     <th className="px-6 py-3">Employee</th>
                     <th className="px-6 py-3">Locations</th>
                     <th className="px-6 py-3">Roles</th>
@@ -428,7 +430,6 @@ export default function UserManagementPage() {
                   {users.map((u) => (
                     <tr key={u.id} className="border-b border-slate-50 transition hover:bg-slate-50/70">
                       <td className="px-6 py-3 font-medium text-slate-800">{u.username}</td>
-                      <td className="px-6 py-3 text-slate-600">{u.email}</td>
                       <td className="px-6 py-3 text-slate-600">{u.employeeName || "\u2014"}</td>
                       <td className="px-6 py-3 max-w-[200px] text-xs text-slate-600">
                         {!u.assignedLocationIds || u.assignedLocationIds.length === 0 ? (
@@ -489,7 +490,7 @@ export default function UserManagementPage() {
                     </tr>
                   ))}
                   {users.length === 0 && (
-                    <tr><td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-400">{users.length === 0 ? "No users found." : "No users match your search."}</td></tr>
+                    <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-400">{users.length === 0 ? "No users found." : "No users match your search."}</td></tr>
                   )}
                 </tbody>
               </table>
