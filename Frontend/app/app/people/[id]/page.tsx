@@ -1410,9 +1410,26 @@ export default function EmployeeDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    let e: EmployeeDetail;
     try {
-      const [e, deps, bus, locs, grs, jts, sts, empTypes, supCands, subCands, settings, atts] = await Promise.all([
-        apiFetch<EmployeeDetail>(`/api/employees/${id}`),
+      e = await apiFetch<EmployeeDetail>(`/api/employees/${id}`);
+    } catch {
+      setMsg({ type: "err", text: "Employee not found." });
+      setLoading(false);
+      return;
+    }
+
+    setEmp(e);
+    setPdFirstName(e.firstName);
+    setPdMiddleName(e.middleName ?? "");
+    setPdLastName(e.lastName);
+    setPdNationality(e.nationality ?? "");
+    setEpfNumber(e.epfNumber ?? "");
+    setEtfNumber(e.etfNumber ?? "");
+    setLoading(false);
+
+    try {
+      const [deps, bus, locs, grs, jts, sts, empTypes, supCands, subCands, settings, atts] = await Promise.all([
         apiFetch<Lookup[]>("/api/organization/departments"),
         apiFetch<Lookup[]>("/api/organization/business-units"),
         apiFetch<Lookup[]>("/api/organization/locations"),
@@ -1424,17 +1441,11 @@ export default function EmployeeDetailPage() {
           .then((r) => (r.items ?? []).map((m) => ({ id: m.id, name: m.fullName })))
           .catch(() => [] as Lookup[]),
         apiFetch<{ items: { id: string; fullName: string }[] }>("/api/employees?pageSize=200&excludeTerminated=true")
-          .then((r) => r.items.filter((m) => m.id !== id).map((m) => ({ id: m.id, name: m.fullName }))),
+          .then((r) => (r.items ?? []).filter((m) => m.id !== id).map((m) => ({ id: m.id, name: m.fullName })))
+          .catch(() => [] as Lookup[]),
         apiFetch<Record<string, string>>("/api/system-settings").catch((): Record<string, string> => ({})),
         apiFetch<Attachment[]>(`/api/employees/${id}/attachments`).catch(() => [] as Attachment[]),
       ]);
-      setEmp(e);
-      setPdFirstName(e.firstName);
-      setPdMiddleName(e.middleName ?? "");
-      setPdLastName(e.lastName);
-      setPdNationality(e.nationality ?? "");
-      setEpfNumber(e.epfNumber ?? "");
-      setEtfNumber(e.etfNumber ?? "");
       setDepartments(deps);
       setBusinessUnits(bus);
       setLocations(locs);
@@ -1509,8 +1520,7 @@ export default function EmployeeDetailPage() {
           setVisibleWidgets(normalizeVisibleWidgetIds(saved));
         } catch { /* defaults */ }
       }
-    } catch { setMsg({ type: "err", text: "Employee not found." }); }
-    finally { setLoading(false); }
+    } catch { /* supplementary lookups failed — profile shell already visible */ }
   }, [id, syncReportingDraft]);
 
   const loadLifecycleTimeline = useCallback(async () => {
