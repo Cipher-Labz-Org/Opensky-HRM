@@ -4,7 +4,7 @@
  */
 
 import type { NextRequest } from "next/server";
-import { getTenantByHostname } from "@/config/tenants";
+import { getBackendUrlForHostname } from "@/config/tenants";
 
 function requestHostname(req: NextRequest): string {
   const raw =
@@ -18,8 +18,8 @@ function requestHostname(req: NextRequest): string {
  * Resolves the IIS backend base URL for an incoming server-side request.
  */
 export function backendBaseForRequest(req: NextRequest): string {
-  const tenant = getTenantByHostname(requestHostname(req));
-  if (tenant) return tenant.apiUrl.replace(/\/$/, "");
+  const backend = getBackendUrlForHostname(requestHostname(req));
+  if (backend) return backend;
 
   return (
     process.env.API_URL?.trim() ||

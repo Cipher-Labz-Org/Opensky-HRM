@@ -222,10 +222,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? e.name === "AbortError"
           : e instanceof Error && e.name === "AbortError";
       if (aborted) {
+        const backend = tenantBackendUrl() || API_BASE_URL || getApiBaseUrl();
         throw new Error(
-          API_BASE_URL
-            ? `Login request timed out after ${LOGIN_FETCH_MS / 1000}s. Check that the API is running and NEXT_PUBLIC_API_URL points to it (${API_BASE_URL}).`
-            : `Login request timed out after ${LOGIN_FETCH_MS / 1000}s. The frontend could not reach the HR API via /api/auth/login. On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend (e.g. https://gammabackend.openskyhrm.com) and ensure that host responds to /health.`
+          backend
+            ? `Login request timed out after ${LOGIN_FETCH_MS / 1000}s. Check that the API is running at ${backend} (open ${backend}/health in a browser).`
+            : `Login request timed out after ${LOGIN_FETCH_MS / 1000}s. The frontend could not reach the HR API. On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend (e.g. https://gammabackend.openskyhrm.com) and ensure that host responds to /health.`
         );
       }
       const backend = tenantBackendUrl() || API_BASE_URL || getApiBaseUrl();
