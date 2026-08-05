@@ -1,6 +1,7 @@
 import { DEFAULT_API_TIMEOUT_MS } from "@/config/constants";
 import { useAuthStore } from "@/store/authStore";
 import { useConfigStore } from "@/store/configStore";
+import { resolveRuntimeApiBaseUrl } from "@/utils/connect";
 
 export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;
@@ -36,9 +37,15 @@ export async function apiFetch<T>(endpoint: string, options?: ApiFetchOptions): 
     options ?? {};
 
   const configBase = useConfigStore.getState().apiBaseUrl;
-  const requestBase = (baseUrl ?? configBase)?.replace(/\/+$/, "");
-  if (!requestBase) {
+  const rawBase = (baseUrl ?? configBase)?.replace(/\/+$/, "");
+  if (!rawBase) {
     throw new Error("Not connected to a company backend. Scan the QR code first.");
+  }
+  let requestBase: string;
+  try {
+    requestBase = resolveRuntimeApiBaseUrl(rawBase);
+  } catch {
+    requestBase = rawBase;
   }
 
   const token = skipAuth ? null : useAuthStore.getState().token;
@@ -58,18 +65,25 @@ export async function apiFetch<T>(endpoint: string, options?: ApiFetchOptions): 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  const requestUrl = `${requestBase}${endpoint}`;
   let response: Response;
   try {
-    response = await fetch(`${requestBase}${endpoint}`, {
+    response = await fetch(requestUrl, {
       ...fetchInit,
       headers,
       signal: controller.signal,
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Request timed out after ${timeoutMs}ms.`);
+      throw new Error(`Request timed out after ${timeoutMs}ms at ${requestUrl}.`);
     }
-    throw new Error("Cannot reach the server. Check your connection and backend URL.");
+    const detail =
+      error instanceof Error
+        ? [error.name, error.message].filter(Boolean).join(": ")
+        : String(error);
+    throw new Error(
+      `Cannot reach the server at ${requestUrl}. ${detail || "Network request failed."}`
+    );
   } finally {
     clearTimeout(timeoutId);
   }

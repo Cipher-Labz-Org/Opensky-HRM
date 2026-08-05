@@ -19,6 +19,7 @@ public class UserNotificationService : IUserNotificationService
     {
         take = Math.Clamp(take, 1, 100);
         await PruneStaleBirthdayRemindersAsync(userId, cancellationToken);
+        await PruneExpiredBirthdayWishHistoryAsync(userId, cancellationToken);
 
         var unread = await _db.UserNotifications.AsNoTracking()
             .CountAsync(
@@ -58,6 +59,7 @@ public class UserNotificationService : IUserNotificationService
     public async Task<int> GetUnreadCountAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         await PruneStaleBirthdayRemindersAsync(userId, cancellationToken);
+        await PruneExpiredBirthdayWishHistoryAsync(userId, cancellationToken);
         return await _db.UserNotifications.AsNoTracking()
             .CountAsync(
                 n => n.UserId == userId && n.ReadAt == null && n.Category != "BirthdayWishMyReply",
@@ -74,9 +76,72 @@ public class UserNotificationService : IUserNotificationService
         if (n.ReadAt is null)
         {
             n.ReadAt = DateTime.UtcNow;
+            if (string.Equals(n.Category, "BirthdayWish", StringComparison.Ordinal))
+                await MarkLinkedBirthdayWishSentReadAsync(n.DedupeKey, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// When the birthday recipient reads a wish, mark the sender's matching BirthdayWishSent confirmation as read too.
+    /// Dedupe keys: wish <c>BD-WISH:{runDate}:{senderUserId}:{toEmployeeId}:{recipientUserId}</c>,
+    /// sent <c>BD-WISH-SENT:{runDate}:{senderUserId}:{toEmployeeId}</c>.
+    /// </summary>
+    private async Task MarkLinkedBirthdayWishSentReadAsync(string? wishDedupeKey, CancellationToken cancellationToken)
+    {
+        if (!TryParseBirthdayWishDedupe(wishDedupeKey, out var runDate, out var senderUserId, out var toEmployeeId))
+            return;
+
+        var sentDedupe = $"BD-WISH-SENT:{runDate}:{senderUserId:D}:{toEmployeeId:D}";
+        var sentPrefix = sentDedupe + ":";
+        var sentNotices = await _db.UserNotifications
+            .Where(n => n.UserId == senderUserId
+                        && n.Category == "BirthdayWishSent"
+                        && (n.DedupeKey == sentDedupe || n.DedupeKey.StartsWith(sentPrefix)))
+            .ToListAsync(cancellationToken);
+        var readAt = DateTime.UtcNow;
+        foreach (var sentNotice in sentNotices.Where(n => n.ReadAt == null))
+            sentNotice.ReadAt = readAt;
+    }
+
+    private static bool TryParseBirthdayWishDedupe(
+        string? dedupeKey,
+        out string runDate,
+        out Guid senderUserId,
+        out Guid toEmployeeId)
+    {
+        runDate = "";
+        senderUserId = Guid.Empty;
+        toEmployeeId = Guid.Empty;
+        if (string.IsNullOrEmpty(dedupeKey)
+            || !dedupeKey.StartsWith("BD-WISH:", StringComparison.Ordinal)
+            || dedupeKey.StartsWith("BD-WISH-SENT:", StringComparison.Ordinal))
+            return false;
+
+        var rest = dedupeKey["BD-WISH:".Length..];
+        var dateEnd = rest.IndexOf(':');
+        if (dateEnd <= 0)
+            return false;
+        runDate = rest[..dateEnd];
+        rest = rest[(dateEnd + 1)..];
+
+        if (!TryConsumeGuidPrefix(ref rest, out senderUserId))
+            return false;
+        return TryConsumeGuidPrefix(ref rest, out toEmployeeId);
+    }
+
+    private static bool TryConsumeGuidPrefix(ref string rest, out Guid guid)
+    {
+        guid = Guid.Empty;
+        rest = rest.TrimStart(':');
+        if (rest.Length < 36)
+            return false;
+        var segment = rest[..36];
+        if (!Guid.TryParse(segment, out guid))
+            return false;
+        rest = rest.Length > 36 ? rest[36..].TrimStart(':') : "";
         return true;
     }
 
@@ -245,6 +310,41 @@ public class UserNotificationService : IUserNotificationService
             await _db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Removes sender wish-history and consumed recipient wishes from prior calendar months (UTC),
+    /// so entries disappear after month end per product rules.
+    /// </summary>
+    private async Task PruneExpiredBirthdayWishHistoryAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var utcNow = DateTime.UtcNow;
+        var currentYear = utcNow.Year;
+        var currentMonth = utcNow.Month;
+
+        var candidates = await _db.UserNotifications
+            .Where(n => n.UserId == userId
+                        && (n.Category == "BirthdayWishSent"
+                            || (n.Category == "BirthdayWish" && n.ReadAt != null)))
+            .ToListAsync(cancellationToken);
+
+        if (candidates.Count == 0)
+            return;
+
+        var removed = false;
+        foreach (var n in candidates)
+        {
+            var created = n.CreatedAt;
+            if (created.Year > currentYear)
+                continue;
+            if (created.Year == currentYear && created.Month >= currentMonth)
+                continue;
+            _db.UserNotifications.Remove(n);
+            removed = true;
+        }
+
+        if (removed)
+            await _db.SaveChangesAsync(cancellationToken);
+    }
+
     private static bool TryParseBirthdayReminderIsoDate(string? body, out DateOnly occasion)
     {
         occasion = default;
@@ -283,12 +383,8 @@ public class UserNotificationService : IUserNotificationService
     {
         if (!string.Equals(category, "BirthdayWish", StringComparison.Ordinal))
             return null;
-        if (string.IsNullOrEmpty(dedupeKey) || !dedupeKey.StartsWith("BD-WISH:", StringComparison.Ordinal))
-            return null;
-        var parts = dedupeKey.Split(':');
-        // BD-WISH:{runDate}:{fromUserId}:{toEmployeeId}:{recipientUserId}
-        if (parts.Length < 5)
-            return null;
-        return Guid.TryParse(parts[2], out var senderId) ? senderId : null;
+        return TryParseBirthdayWishDedupe(dedupeKey, out _, out var senderUserId, out _)
+            ? senderUserId
+            : null;
     }
 }

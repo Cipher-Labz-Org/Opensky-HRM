@@ -2,16 +2,18 @@ import type { ComponentProps, ReactNode } from "react";
 import {
   ActivityIndicator,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   Text,
+  TouchableOpacity,
   View,
   type ScrollViewProps,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppBackground } from "@/components/ui/AppBackground";
-import { colors, softCardShadow } from "@/theme/colors";
+import { colors } from "@/theme/colors";
 import { OPENSKY_HRM_LOGO } from "@/config/branding";
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
@@ -103,7 +105,6 @@ export function AuthPageHeader({
               backgroundColor: colors.surface,
               width: 72,
               height: 72,
-              ...softCardShadow,
             }}
           >
             <Image source={{ uri: logoUri }} className="h-full w-full" resizeMode="contain" />
@@ -135,22 +136,42 @@ interface AuthFormCardProps {
 
 export function AuthFormCard({ title, icon = "shield-checkmark-outline", children }: AuthFormCardProps) {
   return (
-    <View className="overflow-hidden rounded-[24px] border border-border bg-surface" style={softCardShadow}>
+    // No elevation — nested Android elevation can paint child buttons invisible.
+    <View
+      style={{
+        overflow: "hidden",
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+      }}
+    >
       <View
-        className="flex-row items-center gap-2.5 border-b border-border px-5 py-3.5"
-        style={{ backgroundColor: colors.soft }}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          paddingHorizontal: 20,
+          paddingVertical: 14,
+          backgroundColor: colors.soft,
+        }}
       >
         <View
-          className="items-center justify-center rounded-xl p-2"
-          style={{ backgroundColor: colors.tealSoft }}
+          style={{
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 12,
+            padding: 8,
+            backgroundColor: colors.tealSoft,
+          }}
         >
           <Ionicons name={icon} size={18} color={colors.skyBlue} />
         </View>
-        <Text className="text-sm font-bold" style={{ color: colors.navy }}>
-          {title}
-        </Text>
+        <Text style={{ fontSize: 14, fontWeight: "700", color: colors.navy }}>{title}</Text>
       </View>
-      <View className="gap-4 p-5">{children}</View>
+      <View style={{ gap: 16, padding: 20 }}>{children}</View>
     </View>
   );
 }
@@ -170,35 +191,45 @@ export function AuthPrimaryButton({
   onPress,
   icon = "log-in-outline",
 }: AuthPrimaryButtonProps) {
-  const isDisabled = disabled || loading;
+  const isLoading = Boolean(loading);
+  const isDisabled = Boolean(disabled) || isLoading;
 
   return (
-    <Pressable
+    <TouchableOpacity
+      activeOpacity={0.85}
       onPress={onPress}
       disabled={isDisabled}
-      style={({ pressed }) => ({
-        minHeight: 52,
-        borderRadius: 16,
-        backgroundColor: colors.accent,
-        opacity: pressed || isDisabled ? 0.88 : 1,
-        shadowColor: colors.accent,
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.35,
-        shadowRadius: 10,
-        elevation: 4,
-      })}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: isDisabled }}
+      style={{
+        alignSelf: "stretch",
+        width: "100%",
+        minHeight: 54,
+        borderRadius: 12,
+        backgroundColor: "#76B82A",
+        borderWidth: 2,
+        borderColor: "#5A8F1F",
+        opacity: isDisabled ? 0.65 : 1,
+        justifyContent: "center",
+        alignItems: "center",
+        flexDirection: "row",
+        paddingHorizontal: 16,
+        ...Platform.select({
+          android: { elevation: 0 },
+          default: {},
+        }),
+      }}
     >
-      <View className="min-h-[52px] flex-row items-center justify-center gap-2 px-4">
-        {loading ? (
-          <ActivityIndicator color="#ffffff" />
-        ) : (
-          <>
-            <Ionicons name={icon} size={18} color="#ffffff" />
-            <Text style={{ fontSize: 16, fontWeight: "700", color: "#ffffff" }}>{title}</Text>
-          </>
-        )}
-      </View>
-    </Pressable>
+      {isLoading ? (
+        <ActivityIndicator color="#FFFFFF" />
+      ) : (
+        <>
+          <Ionicons name={icon} size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+          <Text style={{ fontSize: 17, fontWeight: "800", color: "#FFFFFF" }}>{title}</Text>
+        </>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -260,13 +291,20 @@ interface AuthErrorBannerProps {
 export function AuthErrorBanner({ message, hint }: AuthErrorBannerProps) {
   return (
     <View
-      className="rounded-2xl border px-4 py-3"
-      style={{ borderColor: colors.dangerSoft, backgroundColor: colors.dangerSoft }}
+      style={{
+        alignSelf: "stretch",
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: colors.dangerSoft,
+        backgroundColor: colors.dangerSoft,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+      }}
     >
-      <Text className="text-sm font-medium" style={{ color: colors.danger }}>
-        {message}
-      </Text>
-      {hint ? <Text className="mt-2 text-xs leading-4 text-muted">{hint}</Text> : null}
+      <Text style={{ fontSize: 14, fontWeight: "500", color: colors.danger }}>{message}</Text>
+      {hint ? (
+        <Text style={{ marginTop: 8, fontSize: 12, lineHeight: 16, color: colors.muted }}>{hint}</Text>
+      ) : null}
     </View>
   );
 }
@@ -293,19 +331,30 @@ export function AuthScreen({
 }: AuthScreenProps) {
   return (
     <AppBackground variant="auth">
-      <SafeAreaView className="flex-1" edges={["top", "left", "right"]}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right", "bottom"]}>
         <ScrollView
-          className="flex-1"
-          contentContainerClassName="pb-10"
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 40 }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           {...scrollProps}
         >
           {showBrandHero && !logoUri ? <AuthBrandHero /> : null}
 
+          {/* No elevation on this shell — Android elevation can hide nested action buttons. */}
           <View
-            className="mx-4 mt-2 gap-4 rounded-[28px] border border-border bg-surface px-5 pb-6 pt-6"
-            style={softCardShadow}
+            style={{
+              marginHorizontal: 16,
+              marginTop: 8,
+              gap: 16,
+              borderRadius: 28,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+              paddingHorizontal: 20,
+              paddingTop: 24,
+              paddingBottom: 24,
+            }}
           >
             <AuthPageHeader
               eyebrow={eyebrow}
@@ -317,7 +366,16 @@ export function AuthScreen({
             {children}
           </View>
 
-          <Text className="mt-6 text-center text-xs text-muted">© 2026 OpenSky HRM. All rights reserved.</Text>
+          <Text
+            style={{
+              marginTop: 24,
+              textAlign: "center",
+              fontSize: 12,
+              color: colors.muted,
+            }}
+          >
+            © 2026 OpenSky HRM. All rights reserved.
+          </Text>
         </ScrollView>
       </SafeAreaView>
     </AppBackground>

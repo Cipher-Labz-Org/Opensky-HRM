@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
-import { FormSelect } from "@/components/ui/FormSelect";
 import { DatePickerField } from "@/components/ui";
+import { FormSelect } from "@/components/ui/FormSelect";
 import { applyFromDateInRange, applyToDateInRange } from "@/lib/datePickerIso";
 import { formatDateTime } from "@/lib/date-utils";
 import { formatInt } from "@/lib/workspace-charts";
@@ -14,6 +14,18 @@ import { useApplyFilter } from "@/lib/use-apply-filter";
 import { getApiBaseUrl } from "@/config/constants";
 import { useAuth } from "@/contexts/auth-context";
 import { filterLookupsByAllowedIds } from "@/lib/people-scope-filters";
+import { sanitizeSearchInput } from "@/lib/input-validation";
+import { ReportParametersSearchBar } from "@/components/reports/ReportParametersSearchBar";
+import {
+  EMPLOYEE_MASTER_GROUP_BY_OPTIONS,
+  groupReportRowsByColumn,
+  isValidReportGroupByKey,
+  reportGroupByColumn,
+  type ReportFilterPill,
+  type ReportFilterSection,
+  type ReportGroupByKey,
+  type ReportParamFilterKey,
+} from "@/lib/report-parameters-search";
 
 interface ReportItem {
   key: string;
@@ -289,6 +301,8 @@ export default function ReportsPage() {
   const [filterYear, setFilterYear] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
   const [filterDate, setFilterDate] = useState("");
+  const [reportGroupBy, setReportGroupBy] = useState<ReportGroupByKey | null>(null);
+  const [collapsedReportGroups, setCollapsedReportGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     apiFetch<ReportCategory[]>("/api/reports/catalog").then((cats) => {
@@ -296,6 +310,14 @@ export default function ReportsPage() {
       if (cats.length > 0) setSelectedCategory(cats[0].key);
     }).catch(() => {});
   }, []);
+
+  // Drop invalid / legacy group-by keys (e.g. old "fullName") that break the table.
+  useEffect(() => {
+    if (reportGroupBy && !isValidReportGroupByKey(reportGroupBy)) {
+      setReportGroupBy(null);
+      setCollapsedReportGroups(new Set());
+    }
+  }, [reportGroupBy]);
 
   useEffect(() => {
     apiFetch<DepartmentOption[]>("/api/organization/departments")
@@ -347,19 +369,33 @@ export default function ReportsPage() {
     setFilterTo(to);
   }
 
-  function collectParamsFromForm(item: ReportItem | null | undefined): Record<string, string> {
+  function collectParamsFromForm(
+    item: ReportItem | null | undefined,
+    overrides?: Partial<{
+      departmentId: string;
+      locationId: string;
+      employeeName: string;
+      status: string;
+      gradeId: string;
+    }>,
+  ): Record<string, string> {
     const p: Record<string, string> = {};
     if (!item) return p;
-    if (item.supportsDepartmentFilter && filterDepartmentId.trim())
-      p.departmentId = filterDepartmentId.trim();
-    if (item.supportsDepartmentFilter && filterLocationId.trim())
-      p.locationId = filterLocationId.trim();
-    if (item.supportsDepartmentFilter && filterEmployeeName.trim())
-      p.employeeName = filterEmployeeName.trim();
-    if (item.key === EMPLOYEE_MASTER_REPORT_KEY && filterStatus.trim())
-      p.status = filterStatus.trim();
-    if (item.key === EMPLOYEE_MASTER_REPORT_KEY && filterGradeId.trim())
-      p.gradeId = filterGradeId.trim();
+    const departmentId = overrides?.departmentId ?? filterDepartmentId;
+    const locationId = overrides?.locationId ?? filterLocationId;
+    const employeeName = overrides?.employeeName ?? filterEmployeeName;
+    const status = overrides?.status ?? filterStatus;
+    const gradeId = overrides?.gradeId ?? filterGradeId;
+    if (item.supportsDepartmentFilter && departmentId.trim())
+      p.departmentId = departmentId.trim();
+    if (item.supportsDepartmentFilter && locationId.trim())
+      p.locationId = locationId.trim();
+    if (item.supportsDepartmentFilter && employeeName.trim())
+      p.employeeName = employeeName.trim();
+    if (item.key === EMPLOYEE_MASTER_REPORT_KEY && status.trim())
+      p.status = status.trim();
+    if (item.key === EMPLOYEE_MASTER_REPORT_KEY && gradeId.trim())
+      p.gradeId = gradeId.trim();
     const mode = item.periodFilterMode || "none";
     if (mode === "dateRange") {
       if (filterFrom) p.from = filterFrom;
@@ -392,6 +428,8 @@ export default function ReportsPage() {
       setReportError("");
       setLoading(true);
       setSortCol(null);
+      setReportGroupBy(null);
+      setCollapsedReportGroups(new Set());
       resultsSearch.clear();
       const merged = resolveReportQueryParams(item, urlOverrides);
       syncFilterInputsFromParams(merged);
@@ -415,14 +453,124 @@ export default function ReportsPage() {
     return c?.reports.find((r) => r.key === selectedReport) ?? null;
   }, [catalog, selectedCategory, selectedReport]);
 
-  async function applyReportFilters() {
+  const isEmployeeMasterReport = activeReportDef?.key === EMPLOYEE_MASTER_REPORT_KEY;
+
+  const reportFilterSections = useMemo<ReportFilterSection[]>(() => {
+    if (!activeReportDef?.supportsDepartmentFilter) return [];
+    const sections: ReportFilterSection[] = [
+      {
+        key: "departmentId",
+        label: "Department",
+        options: departments.map((d) => ({ value: d.id, label: d.name })),
+      },
+      {
+        key: "locationId",
+        label: "Location",
+        options: visibleLocations.map((l) => ({ value: l.id, label: l.name })),
+      },
+    ];
+    if (isEmployeeMasterReport) {
+      sections.push(
+        {
+          key: "status",
+          label: "Status",
+          options: employeeStatuses.map((s) => ({ value: s.name, label: s.name })),
+        },
+        {
+          key: "gradeId",
+          label: "Grade",
+          options: visibleGrades.map((g) => ({ value: g.id, label: g.name })),
+        },
+      );
+    }
+    return sections;
+  }, [activeReportDef, departments, visibleLocations, employeeStatuses, visibleGrades, isEmployeeMasterReport]);
+
+  const reportFilterPills = useMemo<ReportFilterPill[]>(() => {
+    const pills: ReportFilterPill[] = [];
+    if (filterDepartmentId) {
+      pills.push({
+        key: "departmentId",
+        label: departments.find((d) => d.id === filterDepartmentId)?.name ?? "Department",
+      });
+    }
+    if (filterLocationId) {
+      pills.push({
+        key: "locationId",
+        label: locations.find((l) => l.id === filterLocationId)?.name ?? "Location",
+      });
+    }
+    if (filterStatus) pills.push({ key: "status", label: filterStatus });
+    if (filterGradeId) {
+      pills.push({
+        key: "gradeId",
+        label: grades.find((g) => g.id === filterGradeId)?.name ?? "Grade",
+      });
+    }
+    return pills;
+  }, [filterDepartmentId, filterLocationId, filterStatus, filterGradeId, departments, locations, grades]);
+
+  function getReportFilterValue(key: ReportParamFilterKey): string {
+    switch (key) {
+      case "departmentId": return filterDepartmentId;
+      case "locationId": return filterLocationId;
+      case "status": return filterStatus;
+      case "gradeId": return filterGradeId;
+      default: return "";
+    }
+  }
+
+  function handleReportFilterChange(key: ReportParamFilterKey, value: string) {
+    const next = getReportFilterValue(key) === value ? "" : value;
+    void applyReportFilters({ [key]: next });
+  }
+
+  function handleRemoveReportFilter(key: ReportParamFilterKey) {
+    void applyReportFilters({ [key]: "" });
+  }
+
+  function handleClearReportFilters() {
+    setReportGroupBy(null);
+    setCollapsedReportGroups(new Set());
+    void applyReportFilters({
+      departmentId: "",
+      locationId: "",
+      employeeName: "",
+      status: "",
+      gradeId: "",
+    });
+  }
+
+  function toggleReportGroupCollapsed(key: string) {
+    setCollapsedReportGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  async function applyReportFilters(
+    overrides?: Partial<{
+      departmentId: string;
+      locationId: string;
+      employeeName: string;
+      status: string;
+      gradeId: string;
+    }>,
+  ) {
     if (!selectedCategory || !selectedReport) return;
+    if (overrides?.departmentId !== undefined) setFilterDepartmentId(overrides.departmentId);
+    if (overrides?.locationId !== undefined) setFilterLocationId(overrides.locationId);
+    if (overrides?.employeeName !== undefined) setFilterEmployeeName(overrides.employeeName);
+    if (overrides?.status !== undefined) setFilterStatus(overrides.status);
+    if (overrides?.gradeId !== undefined) setFilterGradeId(overrides.gradeId);
     setLoading(true);
     setReportError("");
     setSortCol(null);
     resultsSearch.clear();
     try {
-      const params = collectParamsFromForm(activeReportDef);
+      const params = collectParamsFromForm(activeReportDef, overrides);
       await loadReport(selectedCategory, selectedReport, params);
       const qs = buildReportUrlQuery(selectedCategory, selectedReport, activeReportDef, params);
       const sig = `${selectedCategory}:${selectedReport}:${canonicalFilterSig(filterParamsForUrlSig(params))}`;
@@ -455,7 +603,19 @@ export default function ReportsPage() {
     else { setSortCol(col); setSortAsc(true); }
   };
 
-  const closeReport = () => { setResult(null); setSelectedReport(""); setLoading(false); setReportError(""); };
+  const closeReport = () => {
+    setResult(null);
+    setSelectedReport("");
+    setLoading(false);
+    setReportError("");
+    setReportGroupBy(null);
+    setCollapsedReportGroups(new Set());
+    resultsSearch.clear();
+    lastHandledReportUrlSig.current = null;
+    router.replace(pathname, { scroll: false });
+  };
+
+  const isReportOpen = Boolean(result || loading || selectedReport);
 
   const activeCat = catalog.find(c => c.key === selectedCategory);
 
@@ -476,6 +636,36 @@ export default function ReportsPage() {
         return sortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
       })
     : filteredRows;
+
+  const reportRowGroups = useMemo(() => {
+    if (!isEmployeeMasterReport || !isValidReportGroupByKey(reportGroupBy) || !result) return null;
+    const column = reportGroupByColumn(reportGroupBy);
+    const groups = groupReportRowsByColumn(sortedRows, column, getReportCell);
+    return groups.length > 0 ? groups : null;
+  }, [isEmployeeMasterReport, reportGroupBy, sortedRows, result]);
+
+  const reportGroupByOptions = isEmployeeMasterReport
+    ? EMPLOYEE_MASTER_GROUP_BY_OPTIONS.map((o) => ({ key: o.key, label: o.label }))
+    : [];
+
+  const tableBodyEntries = useMemo(() => {
+    type DataEntry = { kind: "data"; row: Record<string, unknown>; index: number };
+    type GroupEntry = { kind: "group"; key: string; count: number };
+    if (!reportRowGroups) {
+      return sortedRows.map((row, index): DataEntry => ({ kind: "data", row, index }));
+    }
+    const entries: Array<DataEntry | GroupEntry> = [];
+    let index = 0;
+    for (const group of reportRowGroups) {
+      entries.push({ kind: "group", key: group.key, count: group.items.length });
+      if (!collapsedReportGroups.has(group.key)) {
+        for (const row of group.items) {
+          entries.push({ kind: "data", row, index: index++ });
+        }
+      }
+    }
+    return entries;
+  }, [reportRowGroups, sortedRows, collapsedReportGroups]);
 
   const showLeaveInsightsTemplate =
     selectedCategory === "leave" &&
@@ -552,132 +742,139 @@ export default function ReportsPage() {
 
   return (
     <>
-      <AppTopbar title="Reports" subtitle="Generate, view, and export standard HR reports across all modules." />
+      {!isReportOpen && (
+        <>
+          <AppTopbar title="Reports" subtitle="Generate, view, and export standard HR reports across all modules." />
 
-      <div className="mt-6 flex flex-col gap-6 lg:flex-row" style={{ minHeight: "calc(100vh - 160px)" }}>
-        <div className="w-full shrink-0 lg:w-72">
-          <div className="lg:sticky lg:top-4 space-y-2">
-            {catalog.map((cat) => {
-              const isActive = selectedCategory === cat.key;
-              return (
-                <button
-                  key={cat.key}
-                  type="button"
-                  onClick={() => {
-                    setSelectedCategory(cat.key);
-                    setSelectedReport("");
-                    setResult(null);
-                  }}
-                  className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition ${
-                    isActive
-                      ? "border-slate-300 bg-white text-slate-900 shadow-sm"
-                      : "border-slate-200/80 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
-                  }`}
-                >
-                  <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${CATEGORY_COLORS[cat.key] ?? "bg-slate-500"} text-white`}
-                  >
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d={ICONS[cat.icon] ?? ICONS.users} />
-                    </svg>
-                  </span>
-                  <div className="min-w-0">
-                    <div className="truncate">{cat.name}</div>
-                    <div className="text-[10px] font-normal text-slate-500">
-                      {cat.reports.length} report{cat.reports.length !== 1 ? "s" : ""}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="min-w-0 flex-1 space-y-6">
-          {catalog.length > 0 && (
-            <div className="grid gap-6 sm:grid-cols-3">
-              {reportStatsKpis.map((kpi) => (
-                <div
-                  key={kpi.label}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                >
-                  <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
-                  <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeCat && (
-            <div>
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-slate-900">{activeCat.name} reports</h3>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {activeCat.reports.map((rpt) => {
-                  const reportIconPaths = getReportIconPaths(activeCat.key, rpt.key);
+          <div className="mt-6 flex flex-col gap-6 lg:flex-row" style={{ minHeight: "calc(100vh - 160px)" }}>
+            <div className="w-full shrink-0 lg:w-72">
+              <div className="lg:sticky lg:top-4 space-y-2">
+                {catalog.map((cat) => {
+                  const isActive = selectedCategory === cat.key;
                   return (
-                  <button
-                    key={rpt.key}
-                    type="button"
-                    onClick={() => runReport(activeCat.key, rpt.key)}
-                    className="group rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
-                  >
-                    <div className="flex items-start gap-3">
+                    <button
+                      key={cat.key}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategory(cat.key);
+                        setSelectedReport("");
+                        setResult(null);
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition ${
+                        isActive
+                          ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                          : "border-slate-200/80 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+                      }`}
+                    >
                       <span
-                        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${CATEGORY_COLORS[activeCat.key] ?? "bg-slate-500"} bg-opacity-10`}
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${CATEGORY_COLORS[cat.key] ?? "bg-slate-500"} text-white`}
                       >
-                        <svg
-                          className={`h-4 w-4 ${CATEGORY_COLORS[activeCat.key]?.replace("bg-", "text-") ?? "text-slate-500"}`}
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={1.5}
-                          viewBox="0 0 24 24"
-                        >
-                          {reportIconPaths.map((d, i) => (
-                            <path key={i} strokeLinecap="round" strokeLinejoin="round" d={d} />
-                          ))}
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d={ICONS[cat.icon] ?? ICONS.users} />
                         </svg>
                       </span>
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-slate-800 transition group-hover:text-slate-900">
-                          {rpt.name}
+                        <div className="truncate">{cat.name}</div>
+                        <div className="text-[10px] font-normal text-slate-500">
+                          {cat.reports.length} report{cat.reports.length !== 1 ? "s" : ""}
                         </div>
                       </div>
-                    </div>
-                  </button>
+                    </button>
                   );
                 })}
               </div>
             </div>
-          )}
 
-        </div>
-      </div>
+            <div className="min-w-0 flex-1 space-y-6">
+              {catalog.length > 0 && (
+                <div className="grid gap-6 sm:grid-cols-3">
+                  {reportStatsKpis.map((kpi) => (
+                    <div
+                      key={kpi.label}
+                      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                    >
+                      <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
+                      <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-      {/* Report panel: below AppGlobalHeader (h-[52px] z-[45]); does not cover the app header */}
-      {(result || loading || selectedReport) && (
-        <div className="fixed inset-x-0 bottom-0 top-[52px] z-40 flex flex-col border-l border-slate-200 bg-white shadow-lg lg:left-72 lg:right-0">
-          {/* Top bar */}
-          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-3">
-            <div className="flex items-center gap-4">
+              {activeCat && (
+                <div>
+                  <div className="mb-4">
+                    <h3 className="text-lg font-semibold text-slate-900">{activeCat.name} reports</h3>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {activeCat.reports.map((rpt) => {
+                      const reportIconPaths = getReportIconPaths(activeCat.key, rpt.key);
+                      return (
+                        <button
+                          key={rpt.key}
+                          type="button"
+                          onClick={() => runReport(activeCat.key, rpt.key)}
+                          className="group rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+                        >
+                          <div className="flex items-start gap-3">
+                            <span
+                              className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${CATEGORY_COLORS[activeCat.key] ?? "bg-slate-500"} bg-opacity-10`}
+                            >
+                              <svg
+                                className={`h-4 w-4 ${CATEGORY_COLORS[activeCat.key]?.replace("bg-", "text-") ?? "text-slate-500"}`}
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                                viewBox="0 0 24 24"
+                              >
+                                {reportIconPaths.map((d, i) => (
+                                  <path key={i} strokeLinecap="round" strokeLinejoin="round" d={d} />
+                                ))}
+                              </svg>
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-slate-800 transition group-hover:text-slate-900">
+                                {rpt.name}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Full-page report view — hides catalog so headers never stack/crash */}
+      {isReportOpen && (
+        <div className="fixed inset-x-0 bottom-0 top-[52px] z-40 flex flex-col bg-white lg:left-72">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3">
+            <div className="flex min-w-0 items-center gap-3">
               <button
+                type="button"
                 onClick={closeReport}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
               >
                 <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
                 Back
               </button>
-              {result && (
-                <>
-                  <h2 className="text-base font-semibold text-slate-800">{result.reportName}</h2>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">{result.totalRows} record{result.totalRows !== 1 ? "s" : ""}</span>
-                </>
-              )}
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-slate-800">
+                  {result?.reportName ?? activeReportDef?.name ?? "Report"}
+                </h2>
+                {result && (
+                  <p className="text-[11px] text-slate-500">
+                    {result.totalRows} record{result.totalRows !== 1 ? "s" : ""}
+                  </p>
+                )}
+              </div>
             </div>
             {result && (
-              <div className="flex items-center gap-2">
-                <div className="relative">
+              <div className="flex shrink-0 items-center gap-2">
+                <div className="relative hidden sm:block">
                   <input
                     type="text"
                     placeholder="Search results… (Enter)"
@@ -686,18 +883,17 @@ export default function ReportsPage() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") resultsSearch.apply();
                     }}
-                    className="rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 w-56"
+                    className="w-48 rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 md:w-56"
                   />
                   <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                 </div>
                 <button
+                  type="button"
                   onClick={() => {
                     if (!selectedCategory || !selectedReport || !result) return;
                     const params = collectParamsFromForm(activeReportDef);
                     const filename = `${result.reportName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-                    void exportReportToExcel(selectedCategory, selectedReport, params, filename).catch(() => {
-                      /* ignore */
-                    });
+                    void exportReportToExcel(selectedCategory, selectedReport, params, filename).catch(() => {});
                   }}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
                 >
@@ -705,6 +901,7 @@ export default function ReportsPage() {
                   Export Excel
                 </button>
                 <button
+                  type="button"
                   onClick={() => printReport(result, sortedRows)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
                 >
@@ -712,8 +909,9 @@ export default function ReportsPage() {
                   Print
                 </button>
                 <button
+                  type="button"
                   onClick={closeReport}
-                  className="ml-2 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                   title="Close"
                 >
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -725,77 +923,37 @@ export default function ReportsPage() {
           {activeReportDef &&
             (activeReportDef.supportsDepartmentFilter ||
               (activeReportDef.periodFilterMode && activeReportDef.periodFilterMode !== "none")) && (
-            <div className="border-b border-slate-200 bg-slate-50/80 px-6 py-3">
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">Report parameters</p>
-              <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-0.5">
-              {activeReportDef.supportsDepartmentFilter && (
-                <div className="w-[10.5rem] shrink-0">
-                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Department</label>
-                  <FormSelect
-                    value={filterDepartmentId}
-                    onValueChange={setFilterDepartmentId}
-                    placeholder="All departments"
-                    options={[
-                      { value: "", label: "All departments" },
-                      ...departments.map((d) => ({ value: d.id, label: d.name })),
-                    ]}
-                  />
-                </div>
-              )}
-              {activeReportDef.supportsDepartmentFilter && (
-                <div className="w-[10.5rem] shrink-0">
-                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Location</label>
-                  <FormSelect
-                    value={filterLocationId}
-                    onValueChange={setFilterLocationId}
-                    placeholder="All locations"
-                    options={[
-                      { value: "", label: "All locations" },
-                      ...visibleLocations.map((l) => ({ value: l.id, label: l.name })),
-                    ]}
-                  />
-                </div>
-              )}
-              {activeReportDef.supportsDepartmentFilter && (
-                <div className="w-[11rem] shrink-0">
-                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Employee name</label>
-                  <input
-                    type="search"
-                    value={filterEmployeeName}
-                    onChange={(e) => setFilterEmployeeName(e.target.value)}
-                    placeholder="Name or employee code"
-                    className="h-[42px] w-full rounded-xl border border-slate-200/90 bg-white px-3 text-sm text-slate-800 shadow-sm outline-none focus:border-[#2E7BBF] focus:ring-[3px] focus:ring-[#2E7BBF]/20"
-                  />
-                </div>
-              )}
-              {activeReportDef.key === EMPLOYEE_MASTER_REPORT_KEY && (
-                <div className="w-[10.5rem] shrink-0">
-                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Status</label>
-                  <FormSelect
-                    value={filterStatus}
-                    onValueChange={setFilterStatus}
-                    placeholder="All statuses"
-                    options={[
-                      { value: "", label: "All statuses" },
-                      ...employeeStatuses.map((s) => ({ value: s.name, label: s.name })),
-                    ]}
-                  />
-                </div>
-              )}
-              {activeReportDef.key === EMPLOYEE_MASTER_REPORT_KEY && (
-                <div className="w-[10.5rem] shrink-0">
-                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Grade</label>
-                  <FormSelect
-                    value={filterGradeId}
-                    onValueChange={setFilterGradeId}
-                    placeholder="All grades"
-                    options={[
-                      { value: "", label: "All grades" },
-                      ...visibleGrades.map((g) => ({ value: g.id, label: g.name })),
-                    ]}
-                  />
-                </div>
-              )}
+            <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-3.5">
+              <div className="flex flex-col gap-3">
+                {activeReportDef.supportsDepartmentFilter && (
+                  <ReportParametersSearchBar
+                      employeeSearch={filterEmployeeName}
+                      onEmployeeSearchChange={(value) => setFilterEmployeeName(sanitizeSearchInput(value))}
+                      onApply={() => void applyReportFilters()}
+                      groupBy={reportGroupBy}
+                      onGroupByChange={(key) => {
+                        setReportGroupBy(key);
+                        setCollapsedReportGroups(new Set());
+                      }}
+                      groupByOptions={reportGroupByOptions}
+                      filterSections={reportFilterSections}
+                      filterPills={reportFilterPills}
+                      onFilterChange={handleReportFilterChange}
+                      onRemoveFilter={handleRemoveReportFilter}
+                      activeFilterValues={{
+                        departmentId: filterDepartmentId || undefined,
+                        locationId: filterLocationId || undefined,
+                        status: filterStatus || undefined,
+                        gradeId: filterGradeId || undefined,
+                      }}
+                      onClearAll={handleClearReportFilters}
+                      loading={loading}
+                    />
+                )}
+                {(activeReportDef.periodFilterMode && activeReportDef.periodFilterMode !== "none") && (
+                  <div>
+                    <p className="mb-2 text-[11px] font-medium text-slate-500">Date range</p>
+                    <div className="flex flex-wrap items-end gap-3">
               {activeReportDef.periodFilterMode === "dateRange" && (
                 <>
                   <div className="w-[9.5rem] shrink-0">
@@ -857,10 +1015,13 @@ export default function ReportsPage() {
                 type="button"
                 onClick={() => void applyReportFilters()}
                 disabled={loading}
-                className="ml-auto shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
+                className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
               >
                 Apply filters
               </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -928,16 +1089,34 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedRows.map((row, i) => (
-                        <tr key={i} className={`border-b border-slate-100 transition hover:bg-[#eef6ff] ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"}`}>
-                          <td className="py-2 px-3 text-[10px] font-medium text-slate-400">{i + 1}</td>
-                          {result.columns.map(col => (
-                            <td key={col} className="py-2 px-3 text-slate-700 whitespace-nowrap">
-                              {formatCell(col, getReportCell(row, col))}
+                      {tableBodyEntries.map((entry, i) =>
+                        entry.kind === "group" ? (
+                          <tr key={`group-${entry.key}`} className="border-b border-slate-200 bg-slate-50/90">
+                            <td colSpan={result.columns.length + 1} className="py-2 px-3">
+                              <button
+                                type="button"
+                                onClick={() => toggleReportGroupCollapsed(entry.key)}
+                                className="flex w-full items-center gap-2 text-left text-[12px] font-semibold text-slate-700"
+                              >
+                                <svg className={`h-3.5 w-3.5 shrink-0 text-slate-500 transition ${collapsedReportGroups.has(entry.key) ? "-rotate-90" : ""}`} fill="currentColor" viewBox="0 0 20 20" aria-hidden>
+                                  <path d="M10 14l-5-5h10l-5 5z" />
+                                </svg>
+                                <span>{entry.key}</span>
+                                <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-600">{entry.count}</span>
+                              </button>
                             </td>
-                          ))}
-                        </tr>
-                      ))}
+                          </tr>
+                        ) : (
+                          <tr key={`row-${entry.index}-${i}`} className={`border-b border-slate-100 transition hover:bg-[#eef6ff] ${entry.index % 2 === 0 ? "bg-white" : "bg-slate-50/40"}`}>
+                            <td className="py-2 px-3 text-[10px] font-medium text-slate-400">{entry.index + 1}</td>
+                            {result.columns.map((col) => (
+                              <td key={col} className="py-2 px-3 text-slate-700 whitespace-nowrap">
+                                {formatCell(col, getReportCell(entry.row, col))}
+                              </td>
+                            ))}
+                          </tr>
+                        ),
+                      )}
                     </tbody>
                   </table>
                 </div>

@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
-import { Button } from "@/components/ui/Button";
-import { FormSelect, TablePagination, type FormSelectOption } from "@/components/ui";
+import { TablePagination } from "@/components/ui";
 import { CreateEmployeeModal } from "@/components/forms/CreateEmployeeModal";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
@@ -20,6 +19,24 @@ import {
 } from "@/lib/employment-types";
 import { sanitizeSearchInput } from "@/lib/input-validation";
 import { formatFirstNameOnly, formatSupervisorFirstNames } from "@/lib/person-display";
+import { PeopleHubSearchBar } from "@/components/people/PeopleHubSearchBar";
+import { PeopleHubEmployeeFavoriteButton } from "@/components/people/PeopleHubEmployeeFavoriteButton";
+import {
+  loadPeopleHubEmployeeFavorites,
+  savePeopleHubEmployeeFavorites,
+  createPeopleHubEmployeeFavorite,
+  type PeopleHubEmployeeFavorite,
+  type PeopleHubDiscoverEmployee,
+} from "@/lib/people-hub-employee-favorites";
+import {
+  groupEmployeesByKey,
+  peopleGroupByLabel,
+  type PeopleGroupByKey,
+  type PeopleHubStatusFilter,
+  type PeopleHubFieldFilterKey,
+  type PeopleHubFilterPill,
+  type PeopleHubFilterSection,
+} from "@/lib/people-hub-search";
 
 interface Employee {
   id: string;
@@ -43,7 +60,6 @@ interface Employee {
 }
 
 interface Lookup { id: string; name: string }
-interface StatusLookup { id: string; name: string; code: string }
 
 interface Filters {
   search: string;
@@ -132,7 +148,6 @@ const employmentTypeLabels: Record<string, string> = {
   FullTimePermanent: "Full-Time Permanent", FullTimeProbation: "Full-Time Probation",
   PartTimeContract: "Part-Time Contract", PartTimeInternship: "Part-Time Internship", PartTimePermanent: "Part-Time Permanent",
 };
-const employmentTypeOptions = ["Freelance", "FullTimeContract", "FullTimeInternship", "FullTimePermanent", "FullTimeProbation", "PartTimeContract", "PartTimeInternship", "PartTimePermanent"];
 const PEOPLE_PAGE_SIZE = 25;
 const PEOPLE_VIEW_STORAGE_KEY = "opensky.peopleHub.viewMode";
 
@@ -248,15 +263,8 @@ function PeopleEmployeeBadges({ emp }: { emp: Employee }) {
   );
 }
 
-type EmployeeListStatusFilter = "active" | "all" | "terminated";
+type EmployeeListStatusFilter = PeopleHubStatusFilter;
 
-const EMPLOYEE_LIST_STATUS_OPTIONS: FormSelectOption[] = [
-  { value: "active", label: "Active" },
-  { value: "all", label: "All" },
-  { value: "terminated", label: "Terminated" },
-];
-
-const peopleFilterLabelClass = "mb-1 block text-xs font-medium text-slate-500";
 
 function applyEmployeeListStatusParams(
   params: URLSearchParams,
@@ -281,14 +289,16 @@ export default function PeoplePage() {
   const peopleScope = getPeopleReadScope();
   const showSimplifiedView = peopleScope === "Own";
   const [showCreate, setShowCreate] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
   const [quickSearch, setQuickSearch] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState<Employee[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionTotal, setSuggestionTotal] = useState(0);
-  const searchRef = useRef<HTMLDivElement>(null);
   const suggestDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const favoritesDiscoverDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [favoritesDiscoverQuery, setFavoritesDiscoverQuery] = useState("");
+  const [favoritesDiscoverResults, setFavoritesDiscoverResults] = useState<PeopleHubDiscoverEmployee[]>([]);
+  const [favoritesDiscoverLoading, setFavoritesDiscoverLoading] = useState(false);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(emptyFilters);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -301,12 +311,15 @@ export default function PeoplePage() {
   const [sortBy, setSortBy] = useState<PeopleSortKey>("employeeCode");
   const [sortAsc, setSortAsc] = useState(true);
   const [viewMode, setViewMode] = useState<PeopleHubViewMode>("details");
+  const [groupBy, setGroupBy] = useState<PeopleGroupByKey | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [employeeFavorites, setEmployeeFavorites] = useState<PeopleHubEmployeeFavorite[]>([]);
+  const [favoriteSaveNotice, setFavoriteSaveNotice] = useState<string | null>(null);
 
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [managers, setManagers] = useState<Lookup[]>([]);
-  const [employeeStatuses, setEmployeeStatuses] = useState<StatusLookup[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   const [stats, setStats] = useState({ total: 0, departments: 0, locations: 0, jobTitles: 0 });
 
@@ -334,14 +347,12 @@ export default function PeoplePage() {
         .then((r) => r.items.map((e) => ({ id: e.id, name: e.fullName })))
         .catch(() => []),
       apiFetch<{ totalCount: number }>("/api/employees?pageSize=1&excludeTerminated=true").catch(() => ({ totalCount: 0 })),
-      apiFetch<StatusLookup[]>("/api/organization/employee-statuses").catch(() => [] as StatusLookup[]),
       apiFetch<EmploymentTypeCatalogItem[]>("/api/organization/employment-statuses").catch(() => [] as EmploymentTypeCatalogItem[]),
-    ]).then(([d, j, l, m, empResult, statuses, empTypes]) => {
+    ]).then(([d, j, l, m, empResult, empTypes]) => {
       setDepartments(d);
       setJobTitles(j);
       setLocations(l);
       setManagers(m);
-      setEmployeeStatuses(statuses);
       setEmploymentTypes(empTypes);
       setStats({ total: empResult.totalCount, departments: d.length, locations: l.length, jobTitles: j.length });
     });
@@ -387,6 +398,23 @@ export default function PeoplePage() {
     loadEmployees(appliedFilters, page, listPageSize, statusFilter, sortBy, sortAsc);
   }, [appliedFilters, page, listPageSize, statusFilter, sortBy, sortAsc, loadEmployees]);
 
+  useEffect(() => {
+    setEmployeeFavorites(loadPeopleHubEmployeeFavorites());
+  }, []);
+
+  const employeeFavoriteIds = useMemo(
+    () => new Set(employeeFavorites.map((fav) => fav.employeeId)),
+    [employeeFavorites],
+  );
+
+  useEffect(() => {
+    if (!groupBy) return;
+    if (totalEmployees > PEOPLE_PAGE_SIZE && listPageSize === PEOPLE_PAGE_SIZE) {
+      setListPageSize(totalEmployees);
+      setPage(1);
+    }
+  }, [groupBy, totalEmployees, listPageSize]);
+
   function resetEmployeeListPaging() {
     setPage(1);
     setListPageSize(PEOPLE_PAGE_SIZE);
@@ -394,26 +422,20 @@ export default function PeoplePage() {
 
   function handleQuickSearch() {
     const term = quickSearch.trim();
-    if (!term) {
-      handleReset();
-      setShowSuggestions(false);
-      return;
-    }
-    const next = { ...emptyFilters, search: term };
+    const next = { ...appliedFilters, search: term };
     setFilters(next);
     setAppliedFilters(next);
-    setPage(1);
-    setListPageSize(PEOPLE_PAGE_SIZE);
+    resetEmployeeListPaging();
     setShowSuggestions(false);
   }
 
-  function handleSearch() {
-    const next = { ...filters };
-    setAppliedFilters(next);
+  function applyFieldFilter(key: PeopleHubFieldFilterKey, value: string) {
+    const current = appliedFilters[key];
+    const nextValue = current === value ? "" : value;
+    const next = { ...appliedFilters, [key]: nextValue };
     setFilters(next);
-    setQuickSearch(next.search);
+    setAppliedFilters(next);
     resetEmployeeListPaging();
-    setShowFilters(false);
   }
 
   function handleReset() {
@@ -424,13 +446,98 @@ export default function PeoplePage() {
     setSortBy("employeeCode");
     setSortAsc(true);
     setStatusFilter("active");
+    setGroupBy(null);
+    setCollapsedGroups(new Set());
   }
 
-  function openFilters() {
-    setFilters({ ...appliedFilters });
-    setQuickSearch(appliedFilters.search);
-    setShowFilters(true);
+  function handleGroupByChange(key: PeopleGroupByKey | null) {
+    setGroupBy(key);
+    setCollapsedGroups(new Set());
+    setPage(1);
+    if (!key) {
+      setListPageSize(PEOPLE_PAGE_SIZE);
+    }
   }
+
+  function toggleEmployeeFavorite(emp: Employee | PeopleHubDiscoverEmployee) {
+    const isFavorite = employeeFavoriteIds.has(emp.id);
+    const next = isFavorite
+      ? employeeFavorites.filter((fav) => fav.employeeId !== emp.id)
+      : [createPeopleHubEmployeeFavorite(emp), ...employeeFavorites.filter((fav) => fav.employeeId !== emp.id)];
+    setEmployeeFavorites(next);
+    savePeopleHubEmployeeFavorites(next);
+    setFavoriteSaveNotice(isFavorite ? "Removed from favorites" : "Added to favorites");
+    window.setTimeout(() => setFavoriteSaveNotice(null), 2500);
+  }
+
+  function handleDeleteEmployeeFavorite(id: string) {
+    const next = employeeFavorites.filter((fav) => fav.id !== id);
+    setEmployeeFavorites(next);
+    savePeopleHubEmployeeFavorites(next);
+    setFavoriteSaveNotice("Removed from favorites");
+    window.setTimeout(() => setFavoriteSaveNotice(null), 2500);
+  }
+
+  function openEmployeeFavorite(favorite: PeopleHubEmployeeFavorite) {
+    setShowSuggestions(false);
+    router.push(`/app/people/${favorite.employeeId}`);
+  }
+
+  function toggleGroupCollapsed(key: string) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  const employeeGroups = useMemo(() => {
+    if (!groupBy) return null;
+    return groupEmployeesByKey(employees, groupBy, employmentTypes);
+  }, [employees, groupBy, employmentTypes]);
+
+  const filterSections = useMemo<PeopleHubFilterSection[]>(
+    () => [
+      {
+        key: "employmentType",
+        label: "Employment Type",
+        options: employmentTypeFilterOpts,
+      },
+      {
+        key: "managerId",
+        label: "Supervisor Name",
+        options: managers.map((m) => ({ value: m.id, label: m.name })),
+      },
+      {
+        key: "jobTitleId",
+        label: "Job Title",
+        options: visibleJobTitles.map((j) => ({ value: j.id, label: j.name })),
+      },
+      {
+        key: "departmentId",
+        label: "Sub Unit / Department",
+        options: departments.map((d) => ({ value: d.id, label: d.name })),
+      },
+      {
+        key: "locationId",
+        label: "Location",
+        options: visibleLocations.map((l) => ({ value: l.id, label: l.name })),
+      },
+    ],
+    [employmentTypeFilterOpts, managers, visibleJobTitles, departments, visibleLocations],
+  );
+
+  const activeFilterValues = useMemo(
+    () => ({
+      employmentType: appliedFilters.employmentType || undefined,
+      managerId: appliedFilters.managerId || undefined,
+      jobTitleId: appliedFilters.jobTitleId || undefined,
+      departmentId: appliedFilters.departmentId || undefined,
+      locationId: appliedFilters.locationId || undefined,
+    }),
+    [appliedFilters],
+  );
 
   function removeAppliedFilter(key: keyof Filters) {
     const next = { ...appliedFilters, [key]: "" };
@@ -463,8 +570,25 @@ export default function PeoplePage() {
     }
   }
 
-  const activeFilterEntries = (Object.entries(appliedFilters) as [keyof Filters, string][])
-    .filter(([, value]) => Boolean(value));
+  const filterPills = useMemo<PeopleHubFilterPill[]>(() => {
+    return (Object.entries(appliedFilters) as [keyof Filters, string][])
+      .filter(
+        ([key, value]) =>
+          Boolean(value) &&
+          key !== "status" &&
+          key !== "search" &&
+          key !== "employeeCode",
+      )
+      .map(([key, value]) => ({
+        key,
+        label: filterLabel(key, value),
+      }));
+  }, [appliedFilters, departments, jobTitles, locations, managers, employmentTypes]);
+
+  const hasActiveSearch = Boolean(appliedFilters.search.trim() || appliedFilters.employeeCode.trim());
+
+  const hasListFilters =
+    filterPills.length > 0 || statusFilter !== "active" || groupBy !== null || hasActiveSearch;
 
   function handleSortColumn(key: PeopleSortKey) {
     setPage(1);
@@ -474,8 +598,6 @@ export default function PeoplePage() {
       setSortAsc(true);
     }
   }
-
-  const activeFilterCount = activeFilterEntries.length + (statusFilter !== "active" ? 1 : 0);
 
   useEffect(() => {
     if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
@@ -511,13 +633,47 @@ export default function PeoplePage() {
     };
   }, [quickSearch, statusFilter]);
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowSuggestions(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+  const handleFavoritesDiscoverQueryChange = useCallback((query: string) => {
+    setFavoritesDiscoverQuery(query);
   }, []);
+
+  useEffect(() => {
+    if (favoritesDiscoverDebounceRef.current) clearTimeout(favoritesDiscoverDebounceRef.current);
+    const q = favoritesDiscoverQuery.trim();
+    if (q.length < 1) {
+      setFavoritesDiscoverResults([]);
+      setFavoritesDiscoverLoading(false);
+      return;
+    }
+    setFavoritesDiscoverLoading(true);
+    favoritesDiscoverDebounceRef.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          pageSize: "10",
+          search: q,
+        });
+        applyEmployeeListStatusParams(params, statusFilter, emptyFilters);
+        const r = await apiFetch<{ items: Employee[] }>(`/api/employees?${params.toString()}`);
+        setFavoritesDiscoverResults(
+          r.items.map((emp) => ({
+            id: emp.id,
+            employeeCode: emp.employeeCode,
+            fullName: emp.fullName,
+            departmentName: emp.departmentName,
+            jobTitleName: emp.jobTitleName,
+            profileImageUrl: emp.profileImageUrl,
+          })),
+        );
+      } catch {
+        setFavoritesDiscoverResults([]);
+      } finally {
+        setFavoritesDiscoverLoading(false);
+      }
+    }, 280);
+    return () => {
+      if (favoritesDiscoverDebounceRef.current) clearTimeout(favoritesDiscoverDebounceRef.current);
+    };
+  }, [favoritesDiscoverQuery, statusFilter]);
 
   useEffect(() => {
     try {
@@ -529,6 +685,90 @@ export default function PeoplePage() {
       /* ignore */
     }
   }, []);
+
+  const searchSuggestionsPanel = showSuggestions && quickSearch.trim().length >= 1 ? (
+    <div className="absolute left-0 top-[calc(100%+6px)] z-50 w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl shadow-slate-200/50">
+      <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        {suggestionsLoading ? "Searching…" : "Employees"}
+      </div>
+      {!suggestionsLoading && searchSuggestions.length === 0 && (
+        <div className="px-3 py-3 text-[12px] text-slate-500">
+          No employees found
+          {statusFilter === "active" ? " (active only)" : statusFilter === "terminated" ? " (terminated only)" : ""}.
+          {statusFilter === "active" && (
+            <span className="mt-1 block text-[11px] text-slate-400">
+              Switch to All or Terminated in the status filter to widen results.
+            </span>
+          )}
+        </div>
+      )}
+      {searchSuggestions.map((emp) => {
+        const initials = emp.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+        const idx = emp.fullName.toLowerCase().indexOf(quickSearch.toLowerCase());
+        const isFavorite = employeeFavoriteIds.has(emp.id);
+        return (
+          <div
+            key={emp.id}
+            className="flex w-full items-center gap-2 px-3 py-2 transition-colors hover:bg-blue-50/60"
+          >
+            <button
+              type="button"
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+              onClick={() => {
+                setShowSuggestions(false);
+                router.push(`/app/people/${emp.id}`);
+              }}
+            >
+              {emp.profileImageUrl ? (
+                <img src={`${API_BASE_URL}${emp.profileImageUrl}`} alt={emp.fullName} className="h-7 w-7 rounded-full object-cover ring-1 ring-slate-200" />
+              ) : (
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-blue-50 ring-1 ring-slate-200 text-[9px] font-semibold text-slate-500">
+                  {initials}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12px] font-medium text-slate-800">
+                  {idx >= 0 ? (
+                    <>
+                      {emp.fullName.slice(0, idx)}
+                      <span className="bg-yellow-100 text-yellow-800">{emp.fullName.slice(idx, idx + quickSearch.length)}</span>
+                      {emp.fullName.slice(idx + quickSearch.length)}
+                    </>
+                  ) : (
+                    emp.fullName
+                  )}
+                </div>
+                <div className="truncate text-[10px] text-slate-400">
+                  {emp.employeeCode}
+                  {emp.departmentName ? ` · ${emp.departmentName}` : ""}
+                  {emp.jobTitleName ? ` · ${emp.jobTitleName}` : ""}
+                </div>
+              </div>
+            </button>
+            <PeopleHubEmployeeFavoriteButton
+              active={isFavorite}
+              size="sm"
+              onToggle={() => toggleEmployeeFavorite(emp)}
+            />
+          </div>
+        );
+      })}
+      {!suggestionsLoading && suggestionTotal > searchSuggestions.length && (
+        <button
+          className="flex w-full items-center justify-center gap-1 border-t border-slate-100 py-2 text-[11px] font-medium text-blue-600 transition hover:bg-blue-50/40"
+          onClick={() => {
+            setShowSuggestions(false);
+            handleQuickSearch();
+          }}
+        >
+          Show all {suggestionTotal} results
+          <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+    </div>
+  ) : null;
 
   function selectViewMode(mode: PeopleHubViewMode) {
     setViewMode(mode);
@@ -543,17 +783,148 @@ export default function PeoplePage() {
     router.push(`/app/people/${id}`);
   }
 
+  function renderGroupHeader(groupKey: string, count: number) {
+    const collapsed = collapsedGroups.has(groupKey);
+    const groupTitle = groupBy ? peopleGroupByLabel(groupBy) : "";
+    return (
+      <button
+        type="button"
+        onClick={() => toggleGroupCollapsed(groupKey)}
+        className="flex w-full items-center gap-2 border-b border-slate-200 bg-slate-50/90 px-5 py-2.5 text-left transition hover:bg-slate-100/80"
+      >
+        <svg
+          className={`h-3.5 w-3.5 shrink-0 text-slate-500 transition ${collapsed ? "-rotate-90" : ""}`}
+          fill="currentColor"
+          viewBox="0 0 20 20"
+          aria-hidden
+        >
+          <path d="M10 14l-5-5h10l-5 5z" />
+        </svg>
+        <span className="text-[12px] font-semibold text-slate-700">
+          {groupTitle}: {groupKey}
+        </span>
+        <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-600">
+          {count}
+        </span>
+      </button>
+    );
+  }
+
+  function renderDetailsRow(emp: Employee) {
+    const isFavorite = employeeFavoriteIds.has(emp.id);
+    return (
+      <tr
+        key={emp.id}
+        onClick={() => openEmployeeProfile(emp.id)}
+        className={`cursor-pointer border-b transition-colors ${
+          emp.needsProfileSetup
+            ? "border-amber-200/80 bg-amber-50/90 hover:bg-amber-100/70"
+            : "border-slate-100 hover:bg-blue-50/40"
+        }`}
+      >
+        <td className="py-2 pl-5 pr-1">
+          <PeopleEmployeeAvatar emp={emp} className="h-8 w-8 text-[10px]" />
+        </td>
+        <td className="px-3 py-2 font-mono text-[12px] text-slate-500">{emp.employeeCode}</td>
+        <td className="px-3 py-2">
+          <div className="flex items-center gap-1">
+            <span className="text-[12px] font-medium text-slate-800">
+              {formatFirstNameOnly(emp.firstName || emp.fullName)}
+            </span>
+            <PeopleEmployeeBadges emp={emp} />
+          </div>
+        </td>
+        <td className="px-3 py-2 text-[12px] text-slate-600">{emp.jobTitleName ?? emp.positionTitle ?? "—"}</td>
+        <td className="px-3 py-2">
+          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${getStatusColor(emp.status)}`}>
+            {emp.status}
+          </span>
+        </td>
+        <td className="px-3 py-2 text-[11px] text-slate-500">
+          {employmentTypeDisplayName(employmentTypes, emp.employmentType)}
+        </td>
+        <td className="px-3 py-2 text-[12px] text-slate-600">{emp.departmentName ?? "—"}</td>
+        <td className="px-3 py-2 text-[12px] text-slate-600">{emp.locationName ?? "—"}</td>
+        <td className="px-3 py-2 text-[12px] text-slate-600">
+          {formatSupervisorFirstNames(emp.supervisorNames ?? emp.managerName)}
+        </td>
+        <td className="px-2 py-2 pr-5">
+          <PeopleHubEmployeeFavoriteButton
+            active={isFavorite}
+            size="sm"
+            onToggle={() => toggleEmployeeFavorite(emp)}
+          />
+        </td>
+      </tr>
+    );
+  }
+
+  function renderGridCard(emp: Employee) {
+    const isFavorite = employeeFavoriteIds.has(emp.id);
+    return (
+      <div
+        key={emp.id}
+        className={`relative rounded-xl border ${employeeSurfaceClass(emp)}`}
+      >
+        <PeopleHubEmployeeFavoriteButton
+          active={isFavorite}
+          size="sm"
+          className="absolute right-1.5 top-1.5 z-10"
+          onToggle={() => toggleEmployeeFavorite(emp)}
+        />
+        <button
+          type="button"
+          onClick={() => openEmployeeProfile(emp.id)}
+          className="flex w-full flex-col items-center p-3 pt-8 text-center"
+        >
+        <PeopleEmployeeAvatar
+          emp={emp}
+          className={viewMode === "medium" ? "h-14 w-14 text-sm" : "h-10 w-10 text-[10px]"}
+        />
+        <div className="mt-2 flex w-full min-w-0 items-center justify-center gap-1">
+          <p
+            className={`line-clamp-2 font-semibold text-slate-800 ${
+              viewMode === "small" ? "text-[10px]" : "text-xs"
+            }`}
+          >
+            {emp.fullName}
+          </p>
+          <PeopleEmployeeBadges emp={emp} />
+        </div>
+        <p className="mt-0.5 w-full truncate text-[10px] font-mono text-slate-500">{emp.employeeCode}</p>
+        {(emp.jobTitleName ?? emp.positionTitle) && (
+          <p
+            className={`mt-1 w-full truncate text-slate-600 ${
+              viewMode === "small" ? "text-[9px]" : "text-[11px]"
+            }`}
+          >
+            {emp.jobTitleName ?? emp.positionTitle}
+          </p>
+        )}
+        {viewMode === "medium" && emp.departmentName ? (
+          <p className="mt-0.5 w-full truncate text-[10px] text-slate-500">{emp.departmentName}</p>
+        ) : null}
+        {viewMode === "medium" && emp.locationName ? (
+          <p className="mt-0.5 w-full truncate text-[10px] text-slate-400">{emp.locationName}</p>
+        ) : null}
+        <span
+          className={`mt-2 inline-block rounded px-1.5 py-0.5 font-medium leading-none ${getStatusColor(emp.status)} ${
+            viewMode === "small" ? "text-[9px]" : "text-[10px]"
+          }`}
+        >
+          {emp.status}
+        </span>
+        </button>
+      </div>
+    );
+  }
+
   function employeeSurfaceClass(emp: Employee, extra = "") {
     const base = emp.needsProfileSetup
       ? "border-amber-200/80 bg-amber-50/90 hover:bg-amber-100/70"
       : "border-slate-100 bg-white hover:border-blue-200 hover:bg-blue-50/40";
     return `${base} ${extra}`.trim();
   }
-
-  const selectClass =
-    "w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20";
-  const inputClass = selectClass;
-  const labelClass = "mb-1 block text-xs font-semibold text-[var(--primary)]";
 
   useEffect(() => {
     if (showSimplifiedView && user?.employeeId) {
@@ -644,111 +1015,45 @@ export default function PeoplePage() {
       </div>
 
       {/* Search & Filters Bar */}
-      <div className="mb-5 flex items-end justify-between gap-3">
-        <div className="flex items-end gap-2">
-          <div className="relative">
-            <span className={`${peopleFilterLabelClass} invisible block`} aria-hidden="true">
-              Status
-            </span>
-            <div className="relative" ref={searchRef}>
-            <input
-              type="text"
-              placeholder="Search employees… (Enter)"
-              className="h-9 w-[280px] rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-              value={quickSearch}
-              onChange={(e) => { setQuickSearch(sanitizeSearchInput(e.target.value)); setShowSuggestions(true); }}
-              onFocus={() => setShowSuggestions(true)}
-              onKeyDown={(e) => { if (e.key === "Enter") { handleQuickSearch(); } if (e.key === "Escape") setShowSuggestions(false); }}
-            />
-            <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            {showSuggestions && quickSearch.trim().length >= 1 && (
-              <div className="absolute left-0 top-full z-50 mt-1 w-[320px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  {suggestionsLoading ? "Searching…" : "Suggestions"}
-                </div>
-                {!suggestionsLoading && searchSuggestions.length === 0 && (
-                  <div className="px-3 py-3 text-[12px] text-slate-500">
-                    No employees found
-                    {statusFilter === "active" ? " (active only)" : statusFilter === "terminated" ? " (terminated only)" : ""}.
-                    {statusFilter === "active" && (
-                      <span className="mt-1 block text-[11px] text-slate-400">
-                        Switch to All or Terminated in the status filter to widen results.
-                      </span>
-                    )}
-                  </div>
-                )}
-                {searchSuggestions.map((emp) => {
-                  const initials = emp.fullName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
-                  const idx = emp.fullName.toLowerCase().indexOf(quickSearch.toLowerCase());
-                  return (
-                    <button
-                      key={emp.id}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-blue-50/60"
-                      onClick={() => { setShowSuggestions(false); router.push(`/app/people/${emp.id}`); }}
-                    >
-                      {emp.profileImageUrl ? (
-                        <img src={`${API_BASE_URL}${emp.profileImageUrl}`} alt={emp.fullName} className="h-7 w-7 rounded-full object-cover ring-1 ring-slate-200" />
-                      ) : (
-                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-blue-50 ring-1 ring-slate-200 text-[9px] font-semibold text-slate-500">{initials}</div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[12px] font-medium text-slate-800">
-                          {idx >= 0 ? (
-                            <>{emp.fullName.slice(0, idx)}<span className="bg-yellow-100 text-yellow-800">{emp.fullName.slice(idx, idx + quickSearch.length)}</span>{emp.fullName.slice(idx + quickSearch.length)}</>
-                          ) : emp.fullName}
-                        </div>
-                        <div className="truncate text-[10px] text-slate-400">{emp.employeeCode}{emp.departmentName ? ` · ${emp.departmentName}` : ""}{emp.jobTitleName ? ` · ${emp.jobTitleName}` : ""}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-                {!suggestionsLoading && suggestionTotal > searchSuggestions.length && (
-                  <button
-                    className="flex w-full items-center justify-center gap-1 border-t border-slate-100 py-2 text-[11px] font-medium text-blue-600 transition hover:bg-blue-50/40"
-                    onClick={() => { setShowSuggestions(false); handleQuickSearch(); }}
-                  >
-                    Show all {suggestionTotal} results
-                    <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-                  </button>
-                )}
-              </div>
-            )}
-            </div>
-          </div>
-          <div className="w-36 shrink-0">
-            <label className={peopleFilterLabelClass} htmlFor="people-status-filter">
-              Status
-            </label>
-            <FormSelect
-              id="people-status-filter"
-              value={statusFilter}
-              onValueChange={(value) => {
-                setStatusFilter(value as EmployeeListStatusFilter);
-                resetEmployeeListPaging();
-              }}
-              options={EMPLOYEE_LIST_STATUS_OPTIONS}
-              clearable={false}
-              className="!h-9 min-h-9 text-[13px]"
-            />
-          </div>
-          <button
-            onClick={() => (showFilters ? setShowFilters(false) : openFilters())}
-            className={`relative flex h-9 w-9 items-center justify-center rounded-xl border shadow-sm transition ${showFilters ? "border-blue-400 bg-blue-50 text-blue-600" : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600"}`}
-            title={showFilters ? "Hide Filters" : "Filters"}
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-            </svg>
-            {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
+      <div className="mb-5 flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+        <PeopleHubSearchBar
+          quickSearch={quickSearch}
+          onQuickSearchChange={(value) => {
+            setQuickSearch(sanitizeSearchInput(value));
+            setShowSuggestions(true);
+          }}
+          onQuickSearchSubmit={handleQuickSearch}
+          groupBy={groupBy}
+          onGroupByChange={handleGroupByChange}
+          statusFilter={statusFilter}
+          onStatusFilterChange={(value) => {
+            setStatusFilter(value);
+            resetEmployeeListPaging();
+          }}
+          filterSections={filterSections}
+          filterPills={filterPills}
+          onFilterChange={applyFieldFilter}
+          onRemoveFilter={removeAppliedFilter}
+          activeFilterValues={activeFilterValues}
+          onClearAll={handleReset}
+          employeeFavorites={employeeFavorites}
+          onOpenEmployeeFavorite={openEmployeeFavorite}
+          onDeleteEmployeeFavorite={handleDeleteEmployeeFavorite}
+          onFavoritesDiscoverQueryChange={handleFavoritesDiscoverQueryChange}
+          favoritesDiscoverResults={favoritesDiscoverResults}
+          favoritesDiscoverLoading={favoritesDiscoverLoading}
+          isEmployeeFavorite={(employeeId) => employeeFavoriteIds.has(employeeId)}
+          onToggleEmployeeFavorite={toggleEmployeeFavorite}
+          showSuggestions={showSuggestions}
+          onFocusSearch={() => {
+            if (quickSearch.trim().length >= 1) setShowSuggestions(true);
+          }}
+          onDismissSuggestions={() => setShowSuggestions(false)}
+          suggestionsSlot={searchSuggestionsPanel}
+        />
         </div>
-        <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+        <div className="flex shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
           {PEOPLE_VIEW_OPTIONS.map((opt) => (
             <button
               key={opt.mode}
@@ -769,42 +1074,6 @@ export default function PeoplePage() {
         </div>
       </div>
 
-      {activeFilterCount > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-medium text-slate-500">Active filters:</span>
-          {activeFilterEntries.map(([key, value]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => removeAppliedFilter(key)}
-              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-900"
-              title="Remove filter"
-            >
-              {filterLabel(key, value)}
-              <span aria-hidden>×</span>
-            </button>
-          ))}
-          {statusFilter !== "active" && (
-            <button
-              type="button"
-              onClick={() => { setStatusFilter("active"); resetEmployeeListPaging(); }}
-              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-900"
-              title="Remove filter"
-            >
-              {statusFilter === "terminated" ? "Terminated only" : "All statuses"}
-              <span aria-hidden>×</span>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handleReset}
-            className="text-[11px] font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
-          >
-            Clear all
-          </button>
-        </div>
-      )}
-
       {canCreateEmployee && (
       <CreateEmployeeModal
         open={showCreate}
@@ -813,117 +1082,9 @@ export default function PeoplePage() {
       />
       )}
 
-      {/* Advanced Filter Panel */}
-      {showFilters && (
-        <div className="hris-card mb-6">
-          <div className="mb-4 rounded-xl bg-[var(--primary)] px-5 py-3">
-            <h3 className="text-base font-bold text-white">Filter Employees By</h3>
-          </div>
-          <div className="grid gap-4 px-1 sm:grid-cols-2">
-            <div>
-              <label className={labelClass}>Employee Name</label>
-              <input
-                type="text"
-                className={inputClass}
-                placeholder="Employee Name"
-                value={filters.search}
-                onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Employee Id</label>
-              <input
-                type="text"
-                className={inputClass}
-                placeholder="Employee Code"
-                value={filters.employeeCode}
-                onChange={(e) => setFilters((f) => ({ ...f, employeeCode: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Status</label>
-              <select
-                className={selectClass}
-                value={filters.status}
-                onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-              >
-                <option value="">All</option>
-                {employeeStatuses.map((s) => (
-                  <option key={s.id} value={s.name}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Employment Type</label>
-              <select
-                className={selectClass}
-                value={filters.employmentType}
-                onChange={(e) => setFilters((f) => ({ ...f, employmentType: e.target.value }))}
-              >
-                <option value="">All</option>
-                {employmentTypeOptions.map((s) => (
-                  <option key={s} value={s}>{employmentTypeLabels[s]}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Supervisor Name</label>
-              <select
-                className={selectClass}
-                value={filters.managerId}
-                onChange={(e) => setFilters((f) => ({ ...f, managerId: e.target.value }))}
-              >
-                <option value="">All</option>
-                {managers.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Job Title</label>
-              <select
-                className={selectClass}
-                value={filters.jobTitleId}
-                onChange={(e) => setFilters((f) => ({ ...f, jobTitleId: e.target.value }))}
-              >
-                <option value="">All</option>
-                {visibleJobTitles.map((j) => (
-                  <option key={j.id} value={j.id}>{j.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Sub Unit / Department</label>
-              <select
-                className={selectClass}
-                value={filters.departmentId}
-                onChange={(e) => setFilters((f) => ({ ...f, departmentId: e.target.value }))}
-              >
-                <option value="">All</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Location</label>
-              <select
-                className={selectClass}
-                value={filters.locationId}
-                onChange={(e) => setFilters((f) => ({ ...f, locationId: e.target.value }))}
-              >
-                <option value="">All</option>
-                {visibleLocations.map((l) => (
-                  <option key={l.id} value={l.id}>{l.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <Button variant="secondary" onClick={handleReset}>Reset</Button>
-            <Button variant="secondary" onClick={() => setShowFilters(false)}>Cancel</Button>
-            <Button onClick={handleSearch}>Search</Button>
-          </div>
+      {favoriteSaveNotice && (
+        <div className="mb-3 rounded-xl bg-emerald-50 px-4 py-2.5 text-[12px] font-medium text-emerald-700 ring-1 ring-emerald-100">
+          {favoriteSaveNotice}
         </div>
       )}
 
@@ -932,7 +1093,7 @@ export default function PeoplePage() {
           <p className="py-10 text-center text-xs text-slate-400">Loading...</p>
         ) : employees.length === 0 ? (
           <p className="py-10 text-center text-xs text-slate-400">
-            {activeFilterCount > 0 ? "No employees match your filters." : "No employees found. Create one to get started."}
+            {hasListFilters ? "No employees match your filters." : "No employees found. Create one to get started."}
           </p>
         ) : (
           <>
@@ -942,6 +1103,39 @@ export default function PeoplePage() {
               </div>
             )}
             {viewMode === "details" ? (
+              employeeGroups ? (
+                <div>
+                  {employeeGroups.map((group) => (
+                    <div key={group.key}>
+                      {renderGroupHeader(group.key, group.items.length)}
+                      {!collapsedGroups.has(group.key) && (
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="border-b border-slate-200 bg-slate-50/80">
+                                <th className="w-10 py-2.5 pl-5 pr-1"></th>
+                                <PeopleSortHeader label="Employee Id" sortKey="employeeCode" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                                <PeopleSortHeader label="Name" sortKey="name" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                                <PeopleSortHeader label="Job Title" sortKey="jobTitle" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                                <PeopleSortHeader label="Status" sortKey="status" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                                <PeopleSortHeader label="Emp. Type" sortKey="employmentType" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                                <PeopleSortHeader label="Department" sortKey="department" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                                <PeopleSortHeader label="Location" sortKey="location" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                                <PeopleSortHeader label="Supervisor" sortKey="supervisor" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                                <th className="w-10 py-2.5 pr-5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                  <span className="sr-only">Favorite</span>
+                                  ★
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>{group.items.map((emp) => renderDetailsRow(emp))}</tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead>
@@ -954,50 +1148,35 @@ export default function PeoplePage() {
                       <PeopleSortHeader label="Emp. Type" sortKey="employmentType" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
                       <PeopleSortHeader label="Department" sortKey="department" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
                       <PeopleSortHeader label="Location" sortKey="location" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
-                      <PeopleSortHeader label="Supervisor" sortKey="supervisor" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} className="pr-5" />
+                      <PeopleSortHeader label="Supervisor" sortKey="supervisor" activeKey={sortBy} asc={sortAsc} onSort={handleSortColumn} />
+                      <th className="w-10 py-2.5 pr-5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        <span className="sr-only">Favorite</span>
+                        ★
+                      </th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {employees.map((emp) => (
-                      <tr
-                        key={emp.id}
-                        onClick={() => openEmployeeProfile(emp.id)}
-                        className={`cursor-pointer border-b transition-colors ${
-                          emp.needsProfileSetup
-                            ? "border-amber-200/80 bg-amber-50/90 hover:bg-amber-100/70"
-                            : "border-slate-100 hover:bg-blue-50/40"
+                  <tbody>{employees.map((emp) => renderDetailsRow(emp))}</tbody>
+                </table>
+              </div>
+              )
+            ) : employeeGroups ? (
+              <div className="space-y-2 p-4">
+                {employeeGroups.map((group) => (
+                  <div key={group.key}>
+                    {renderGroupHeader(group.key, group.items.length)}
+                    {!collapsedGroups.has(group.key) && (
+                      <div
+                        className={`grid gap-3 pt-3 ${
+                          viewMode === "medium"
+                            ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+                            : "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
                         }`}
                       >
-                        <td className="py-2 pl-5 pr-1">
-                          <PeopleEmployeeAvatar emp={emp} className="h-8 w-8 text-[10px]" />
-                        </td>
-                        <td className="px-3 py-2 font-mono text-[12px] text-slate-500">{emp.employeeCode}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-1">
-                            <span className="text-[12px] font-medium text-slate-800">
-                              {formatFirstNameOnly(emp.firstName || emp.fullName)}
-                            </span>
-                            <PeopleEmployeeBadges emp={emp} />
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-[12px] text-slate-600">{emp.jobTitleName ?? emp.positionTitle ?? "—"}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${getStatusColor(emp.status)}`}>
-                            {emp.status}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-[11px] text-slate-500">
-                          {employmentTypeDisplayName(employmentTypes, emp.employmentType)}
-                        </td>
-                        <td className="px-3 py-2 text-[12px] text-slate-600">{emp.departmentName ?? "—"}</td>
-                        <td className="px-3 py-2 text-[12px] text-slate-600">{emp.locationName ?? "—"}</td>
-                        <td className="px-3 py-2 pr-5 text-[12px] text-slate-600">
-                          {formatSupervisorFirstNames(emp.supervisorNames ?? emp.managerName)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        {group.items.map((emp) => renderGridCard(emp))}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             ) : (
               <div
@@ -1007,54 +1186,10 @@ export default function PeoplePage() {
                     : "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
                 }`}
               >
-                {employees.map((emp) => (
-                  <button
-                    key={emp.id}
-                    type="button"
-                    onClick={() => openEmployeeProfile(emp.id)}
-                    className={`flex w-full flex-col items-center rounded-xl border p-3 text-center transition ${employeeSurfaceClass(emp)}`}
-                  >
-                    <PeopleEmployeeAvatar
-                      emp={emp}
-                      className={viewMode === "medium" ? "h-14 w-14 text-sm" : "h-10 w-10 text-[10px]"}
-                    />
-                    <div className="mt-2 flex w-full min-w-0 items-center justify-center gap-1">
-                      <p
-                        className={`line-clamp-2 font-semibold text-slate-800 ${
-                          viewMode === "small" ? "text-[10px]" : "text-xs"
-                        }`}
-                      >
-                        {emp.fullName}
-                      </p>
-                      <PeopleEmployeeBadges emp={emp} />
-                    </div>
-                    <p className="mt-0.5 w-full truncate text-[10px] font-mono text-slate-500">{emp.employeeCode}</p>
-                    {(emp.jobTitleName ?? emp.positionTitle) && (
-                      <p
-                        className={`mt-1 w-full truncate text-slate-600 ${
-                          viewMode === "small" ? "text-[9px]" : "text-[11px]"
-                        }`}
-                      >
-                        {emp.jobTitleName ?? emp.positionTitle}
-                      </p>
-                    )}
-                    {viewMode === "medium" && emp.departmentName ? (
-                      <p className="mt-0.5 w-full truncate text-[10px] text-slate-500">{emp.departmentName}</p>
-                    ) : null}
-                    {viewMode === "medium" && emp.locationName ? (
-                      <p className="mt-0.5 w-full truncate text-[10px] text-slate-400">{emp.locationName}</p>
-                    ) : null}
-                    <span
-                      className={`mt-2 inline-block rounded px-1.5 py-0.5 font-medium leading-none ${getStatusColor(emp.status)} ${
-                        viewMode === "small" ? "text-[9px]" : "text-[10px]"
-                      }`}
-                    >
-                      {emp.status}
-                    </span>
-                  </button>
-                ))}
+                {employees.map((emp) => renderGridCard(emp))}
               </div>
             )}
+            {!groupBy && (
             <TablePagination
               page={page}
               totalPages={totalPages}
@@ -1073,6 +1208,7 @@ export default function PeoplePage() {
               }}
               showPagePicker={!(listPageSize >= totalEmployees && totalEmployees > PEOPLE_PAGE_SIZE)}
             />
+            )}
           </>
         )}
       </div>

@@ -31,8 +31,8 @@ public class AuthService : IAuthService
         if (string.IsNullOrEmpty(loginInput))
             throw new UnauthorizedAccessException("Invalid username or password.");
 
-        // Allow login by username or email (case-insensitive)
-        var loginLower = loginInput.ToLower();
+        // Allow login by username, user email, employee email, or employee code (case-insensitive).
+        var loginLower = loginInput.ToLowerInvariant();
         var user = await _db.Users
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.Permissions)
             .Include(u => u.Employee)
@@ -41,8 +41,10 @@ public class AuthService : IAuthService
             .Include(u => u.AssignedGrades)
             .Include(u => u.AssignedJobTitles)
             .FirstOrDefaultAsync(u => !u.IsDeleted && (
-                u.Username.ToLower() == loginLower ||
-                (u.Email != null && u.Email.ToLower() == loginLower)));
+                (u.Username != null && u.Username.ToLower() == loginLower) ||
+                (u.Email != null && u.Email.ToLower() == loginLower) ||
+                (u.Employee != null && u.Employee.Email != null && u.Employee.Email.ToLower() == loginLower) ||
+                (u.Employee != null && u.Employee.EmployeeCode != null && u.Employee.EmployeeCode.ToLower() == loginLower)));
 
         if (user == null)
             throw new UnauthorizedAccessException("Invalid username or password.");
@@ -51,7 +53,7 @@ public class AuthService : IAuthService
         try
         {
             if (!string.IsNullOrEmpty(user.PasswordHash))
-                passwordValid = BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash);
+                passwordValid = BCrypt.Net.BCrypt.Verify(dto.Password ?? "", user.PasswordHash);
         }
         catch
         {
@@ -364,6 +366,17 @@ public class AuthService : IAuthService
             TotalCount = total,
             Page = page,
             PageSize = pageSize,
+        };
+    }
+
+    public async Task<UserSummaryDto> GetUserSummaryAsync()
+    {
+        var users = _db.Users.AsNoTracking().Where(u => !u.IsDeleted);
+        return new UserSummaryDto
+        {
+            TotalUsers = await users.CountAsync(),
+            ActiveUsers = await users.CountAsync(u => u.IsActive),
+            LinkedToEmployee = await users.CountAsync(u => u.EmployeeId != null),
         };
     }
 

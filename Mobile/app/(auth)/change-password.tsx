@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert } from "react-native";
+import { Alert, View } from "react-native";
 import { router } from "expo-router";
 import { Field } from "@/components/ui";
 import { AuthFormCard, AuthPrimaryButton, AuthScreen } from "@/features/auth";
@@ -19,8 +19,8 @@ export default function ChangePasswordScreen() {
       Alert.alert("Required fields", "Enter your current and new password.");
       return;
     }
-    if (newPassword.length < 8) {
-      Alert.alert("Weak password", "New password must be at least 8 characters.");
+    if (newPassword.length < 6) {
+      Alert.alert("Weak password", "New password must be at least 6 characters.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -64,14 +64,21 @@ export default function ChangePasswordScreen() {
           secureTextEntry
           value={confirmPassword}
           onChangeText={setConfirmPassword}
+          returnKeyType="go"
+          onSubmitEditing={() => void onSubmit()}
         />
+      </AuthFormCard>
+
+      {/* Outside the form card so Android never paints the action invisible */}
+      <View style={{ marginTop: 4, alignSelf: "stretch", width: "100%" }}>
         <AuthPrimaryButton
           title="Update password"
           icon="shield-checkmark-outline"
           loading={loading}
+          disabled={loading}
           onPress={() => void onSubmit()}
         />
-      </AuthFormCard>
+      </View>
     </AuthScreen>
   );
 }

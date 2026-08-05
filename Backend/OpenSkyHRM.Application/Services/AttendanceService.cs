@@ -481,6 +481,7 @@ public class AttendanceService : IAttendanceService
                 existing.WorkedHours = Math.Round((decimal)(now - (existing.PunchIn ?? now)).TotalHours, 2);
                 if (dto.Latitude.HasValue) existing.Latitude = dto.Latitude;
                 if (dto.Longitude.HasValue) existing.Longitude = dto.Longitude;
+                await ApplyBusinessUnitPunchMetaAsync(existing, dto, source);
                 await _db.SaveChangesAsync();
                 var rosters = await _db.Set<RosterAssignment>()
                     .Include(ra => ra.RosterTemplate).ThenInclude(rt => rt.DefaultShiftPattern)
@@ -507,6 +508,7 @@ public class AttendanceService : IAttendanceService
             Latitude = dto.Latitude,
             Longitude = dto.Longitude,
         };
+        await ApplyBusinessUnitPunchMetaAsync(newRecord, dto, source);
         _db.Set<AttendanceRecord>().Add(newRecord);
         await _db.SaveChangesAsync();
 
@@ -517,6 +519,30 @@ public class AttendanceService : IAttendanceService
             .Include(ra => ra.RosterTemplate).ThenInclude(rt => rt.DefaultShiftPattern)
             .Where(ra => ra.EmployeeId == employeeId).ToListAsync();
         return MapToDto(full, allRosters, onLeaveToday);
+    }
+
+    private async Task ApplyBusinessUnitPunchMetaAsync(AttendanceRecord record, PunchRequestDto dto, string source)
+    {
+        if (!dto.BusinessUnitId.HasValue || dto.BusinessUnitId == Guid.Empty)
+            return;
+
+        var bu = await _db.Set<BusinessUnit>().AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == dto.BusinessUnitId.Value && !b.IsDeleted);
+
+        var label = string.IsNullOrWhiteSpace(dto.Source) || source.Equals("Mobile", StringComparison.OrdinalIgnoreCase)
+            ? "Mobile QR"
+            : source;
+        record.Source = label;
+
+        var remark = bu is null
+            ? $"BU:{dto.BusinessUnitId:D}"
+            : $"BU:{bu.Code} ({bu.Name})";
+
+        if (!string.IsNullOrWhiteSpace(record.Remarks) && record.Remarks.Contains(remark, StringComparison.OrdinalIgnoreCase))
+            return;
+        record.Remarks = string.IsNullOrWhiteSpace(record.Remarks)
+            ? remark
+            : $"{record.Remarks} | {remark}";
     }
 
     public async Task<List<OvertimeNopayResultDto>> CalculateOvertimeNopayAsync(

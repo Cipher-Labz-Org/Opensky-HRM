@@ -773,10 +773,30 @@ public class EmployeesController : ControllerBase
         if (string.IsNullOrWhiteSpace(senderName))
             return Unauthorized();
 
+        var targetEmployee = await _db.Employees.AsNoTracking()
+            .Where(e => e.Id == dto.ToEmployeeId)
+            .Select(e => new { e.Email, e.OtherEmail })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var employeeEmails = new List<string>();
+        if (!string.IsNullOrWhiteSpace(targetEmployee?.Email))
+            employeeEmails.Add(targetEmployee.Email.Trim().ToLowerInvariant());
+        if (!string.IsNullOrWhiteSpace(targetEmployee?.OtherEmail))
+            employeeEmails.Add(targetEmployee.OtherEmail.Trim().ToLowerInvariant());
+
         var linkedUserIds = await _db.Users.AsNoTracking()
-            .Where(u => u.EmployeeId == dto.ToEmployeeId && u.IsActive && !u.IsDeleted)
+            .Where(u => u.IsActive && !u.IsDeleted && u.EmployeeId == dto.ToEmployeeId)
             .Select(u => u.Id)
             .ToListAsync(cancellationToken);
+
+        if (employeeEmails.Count > 0)
+        {
+            var byEmail = await _db.Users.AsNoTracking()
+                .Where(u => u.IsActive && !u.IsDeleted && employeeEmails.Contains(u.Email.ToLower()))
+                .Select(u => u.Id)
+                .ToListAsync(cancellationToken);
+            linkedUserIds = linkedUserIds.Concat(byEmail).Distinct().ToList();
+        }
 
         if (linkedUserIds.Count == 0)
             return Ok(new { sent = false, reason = "noLinkedUser", notificationsCreated = 0 });
@@ -785,22 +805,43 @@ public class EmployeesController : ControllerBase
         if (toUserIds.Count == 0)
             return Ok(new { sent = false, reason = "noOtherRecipients", notificationsCreated = 0 });
 
+        var msg = (dto.Message ?? "").Trim();
+        if (msg.Length == 0)
+            return BadRequest(new { message = "Message is required." });
+        if (msg.Length > 500)
+            msg = msg.Substring(0, 500);
+
         const string title = "Birthday wishes!";
-        var body = $"{senderName} wished you a happy birthday. 🎉";
-        if (!string.IsNullOrWhiteSpace(dto.Message))
-        {
-            var msg = dto.Message.Trim();
-            if (msg.Length > 500)
-                msg = msg.Substring(0, 500);
-            body += $"{Environment.NewLine}{Environment.NewLine}{msg}";
-        }
+        var body = $"{senderName} wished you a happy birthday. 🎉{Environment.NewLine}{Environment.NewLine}{msg}";
         const string category = "BirthdayWish";
         var runDate = DateTime.UtcNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
         var inserted = 0;
 
         foreach (var uid in toUserIds)
         {
-            var dedupe = $"BD-WISH:{runDate}:{fromUserId.Value}:{dto.ToEmployeeId}:{uid}";
+            var dedupe = $"BD-WISH:{runDate}:{fromUserId.Value:D}:{dto.ToEmployeeId:D}:{uid:D}";
+            var dedupeLegacy = $"BD-WISH:{runDate}:{fromUserId.Value}:{dto.ToEmployeeId}:{uid}";
+            var existing = await _db.UserNotifications
+                .FirstOrDefaultAsync(
+                    n => n.UserId == uid && (n.DedupeKey == dedupe || n.DedupeKey == dedupeLegacy),
+                    cancellationToken);
+
+            if (existing != null)
+            {
+                if (existing.ReadAt == null)
+                {
+                    existing.Title = title;
+                    existing.Body = body;
+                    existing.SourceUserId = fromUserId.Value;
+                    existing.Category = category;
+                    await _db.SaveChangesAsync(cancellationToken);
+                    inserted++;
+                    continue;
+                }
+
+                dedupe = $"BD-WISH:{runDate}:{fromUserId.Value:D}:{dto.ToEmployeeId:D}:{uid:D}:{Guid.NewGuid():N}";
+            }
+
             if (await _notifications.TryCreateDedupedAsync(uid, dedupe, title, body, category, null, fromUserId.Value,
                     cancellationToken))
                 inserted++;
@@ -815,15 +856,44 @@ public class EmployeesController : ControllerBase
                     : (e.FirstName + " " + e.MiddleName + " " + e.LastName).Trim())
                 .FirstOrDefaultAsync(cancellationToken) ?? "your colleague";
             var sentDedupe = $"BD-WISH-SENT:{runDate}:{fromUserId.Value:D}:{dto.ToEmployeeId:D}";
-            await _notifications.TryCreateDedupedAsync(
-                fromUserId.Value,
-                sentDedupe,
-                "Birthday wish sent",
-                $"Your birthday wish was delivered to {toName}.",
-                "BirthdayWishSent",
-                null,
-                null,
-                cancellationToken);
+            var existingSent = await _db.UserNotifications
+                .FirstOrDefaultAsync(
+                    n => n.UserId == fromUserId.Value && n.DedupeKey == sentDedupe,
+                    cancellationToken);
+            if (existingSent != null)
+            {
+                if (existingSent.ReadAt == null)
+                {
+                    existingSent.Title = "Birthday wish sent";
+                    existingSent.Body = $"Your birthday wish was delivered to {toName}.";
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+                else
+                {
+                    sentDedupe = $"BD-WISH-SENT:{runDate}:{fromUserId.Value:D}:{dto.ToEmployeeId:D}:{Guid.NewGuid():N}";
+                    await _notifications.TryCreateDedupedAsync(
+                        fromUserId.Value,
+                        sentDedupe,
+                        "Birthday wish sent",
+                        $"Your birthday wish was delivered to {toName}.",
+                        "BirthdayWishSent",
+                        null,
+                        null,
+                        cancellationToken);
+                }
+            }
+            else
+            {
+                await _notifications.TryCreateDedupedAsync(
+                    fromUserId.Value,
+                    sentDedupe,
+                    "Birthday wish sent",
+                    $"Your birthday wish was delivered to {toName}.",
+                    "BirthdayWishSent",
+                    null,
+                    null,
+                    cancellationToken);
+            }
         }
 
         return Ok(new { sent = inserted > 0, notificationsCreated = inserted });
@@ -957,6 +1027,6 @@ public sealed record BirthdaySummaryResponse(
 public sealed class BirthdayWishRequest
 {
     public Guid ToEmployeeId { get; set; }
-    /// <summary>Optional personal note appended to the wish notification (max 500 characters).</summary>
+    /// <summary>Personal note appended to the wish notification (required, max 500 characters).</summary>
     public string? Message { get; set; }
 }

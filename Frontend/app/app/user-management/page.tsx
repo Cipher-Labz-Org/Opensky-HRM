@@ -5,7 +5,8 @@ import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
-import { FormSelect, TablePagination, FormErrorAlert, UsernameInput, EmailInput, type FormSelectOption } from "@/components/ui";
+import { FormSelect, TablePagination, FormErrorAlert, FlashMessageBanner, UsernameInput, EmailInput, type FormSelectOption, type FlashMessage } from "@/components/ui";
+import { SUCCESS_BANNER_DISMISS_MS } from "@/lib/use-auto-dismiss";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
@@ -96,7 +97,8 @@ export default function UserManagementPage() {
   const [activeSection, setActiveSection] = useState<"users" | "roles">("users");
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const PAGE_SIZE = 20;
+  const [userSummary, setUserSummary] = useState({ totalUsers: 0, activeUsers: 0, linkedToEmployee: 0 });
+  const PAGE_SIZE = 10;
 
   async function loadData() {
     setLoading(true);
@@ -108,8 +110,9 @@ export default function UserManagementPage() {
       if (filterStatus === "active") params.set("isActive", "true");
       if (filterStatus === "disabled") params.set("isActive", "false");
 
-      const [u, r, loc, bu, gr, jt] = await Promise.all([
+      const [u, summary, r, loc, bu, gr, jt] = await Promise.all([
         apiFetch<{ items: UserItem[]; totalCount: number }>(`/api/user?${params}`),
+        apiFetch<{ totalUsers: number; activeUsers: number; linkedToEmployee: number }>("/api/user/summary"),
         apiFetch<RoleItem[]>("/api/auth/roles"),
         apiFetch<OrgLocation[]>("/api/organization/locations").catch(() => [] as OrgLocation[]),
         apiFetch<OrgLocation[]>("/api/organization/business-units").catch(() => [] as OrgLocation[]),
@@ -118,6 +121,11 @@ export default function UserManagementPage() {
       ]);
       setUsers(u.items ?? []);
       setTotalCount(u.totalCount ?? 0);
+      setUserSummary({
+        totalUsers: summary.totalUsers ?? 0,
+        activeUsers: summary.activeUsers ?? 0,
+        linkedToEmployee: summary.linkedToEmployee ?? 0,
+      });
       setRoles(r);
       setLocations(loc);
       setBusinessUnits(bu);
@@ -130,6 +138,11 @@ export default function UserManagementPage() {
   }
 
   useEffect(() => { void loadData(); }, [page, searchFilter.applied, filterRole, filterStatus]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    if (page > maxPage) setPage(maxPage);
+  }, [totalCount, page]);
 
   function openCreate() {
     setEditUser(null);
@@ -343,17 +356,14 @@ export default function UserManagementPage() {
     return [{ value: "", label: "Add job title…" }, ...remaining.map((j) => ({ value: j.id, label: j.name }))];
   }, [jobTitles, selectedJobTitleIds]);
 
-  const activeUserCount = useMemo(() => users.filter((u) => u.isActive).length, [users]);
-  const linkedEmployeeCount = useMemo(() => users.filter((u) => u.employeeId).length, [users]);
-
   const kpiStats = useMemo(
     () => [
-      { label: "Total users", value: users.length,},
-      { label: "Active", value: activeUserCount, },
-      { label: "Roles defined", value: roles.length, },
-      { label: "Linked to employee", value: linkedEmployeeCount, },
+      { label: "Total users", value: userSummary.totalUsers },
+      { label: "Active", value: userSummary.activeUsers },
+      { label: "Roles defined", value: roles.length },
+      { label: "Linked to employee", value: userSummary.linkedToEmployee },
     ],
-    [users.length, activeUserCount, roles.length, linkedEmployeeCount]
+    [userSummary.totalUsers, userSummary.activeUsers, userSummary.linkedToEmployee, roles.length]
   );
 
   const inputClass =
@@ -398,7 +408,7 @@ export default function UserManagementPage() {
         </div>
 
         {activeSection === "roles" && isAdmin ? (
-          <RolesPermissionsSection roles={roles} onSaved={loadData} />
+          <RolesPermissionsSection roles={roles} onSaved={() => void loadData()} />
         ) : loading ? (
           <div className={`flex items-center justify-center py-20 ${panelClass}`}>
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
@@ -415,7 +425,7 @@ export default function UserManagementPage() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-800">User accounts</h2>
-                <p className="text-xs text-slate-500">{users.length} user{users.length !== 1 ? "s" : ""} registered</p>
+                <p className="text-xs text-slate-500">{userSummary.totalUsers} user{userSummary.totalUsers !== 1 ? "s" : ""} registered</p>
               </div>
               {isAdmin && (
                 <Button type="button" onClick={openCreate}>
@@ -424,23 +434,26 @@ export default function UserManagementPage() {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-slate-50/50 px-6 py-3">
-              <div className="relative flex-1 min-w-[200px]">
-                <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-                <input
-                  value={searchFilter.input}
-                  onChange={(e) => searchFilter.setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      searchFilter.apply();
-                      setPage(1);
-                    }
-                  }}
-                  placeholder="Search username, email, or name… (Enter)"
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-                />
+            <div className="flex flex-wrap items-end gap-3 border-b border-slate-100 bg-slate-50/50 px-6 py-3">
+              <div className="flex min-w-[200px] flex-1 flex-col gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Search</span>
+                <div className="relative">
+                  <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+                  <input
+                    value={searchFilter.input}
+                    onChange={(e) => searchFilter.setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        searchFilter.apply();
+                        setPage(1);
+                      }
+                    }}
+                    placeholder="Search username, email, or name… (Enter)"
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                </div>
               </div>
-              <div className="flex min-w-0 flex-col gap-1 sm:w-44">
+              <div className="flex w-full min-w-0 flex-col gap-1 sm:w-44">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Role</span>
                 <FormSelect
                   value={filterRole}
@@ -449,7 +462,7 @@ export default function UserManagementPage() {
                   placeholder="All Roles"
                 />
               </div>
-              <div className="flex min-w-0 flex-col gap-1 sm:w-40">
+              <div className="flex w-full min-w-0 flex-col gap-1 sm:w-40">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
                 <FormSelect
                   value={filterStatus}
@@ -467,7 +480,7 @@ export default function UserManagementPage() {
                   Clear filters
                 </button>
               )}
-              <span className="text-xs text-slate-400">{totalCount} user(s)</span>
+              <span className="pb-2 text-xs text-slate-400">{totalCount} user(s)</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -475,7 +488,6 @@ export default function UserManagementPage() {
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
                     <th className="px-6 py-3">Username</th>
-                    <th className="px-6 py-3">Email</th>
                     <th className="px-6 py-3">Employee</th>
                     <th className="px-6 py-3">Locations</th>
                     <th className="px-6 py-3">Roles</th>
@@ -488,7 +500,6 @@ export default function UserManagementPage() {
                   {users.map((u) => (
                     <tr key={u.id} className="border-b border-slate-50 transition hover:bg-slate-50/70">
                       <td className="px-6 py-3 font-medium text-slate-800">{u.username}</td>
-                      <td className="px-6 py-3 text-slate-600">{u.email}</td>
                       <td className="px-6 py-3 text-slate-600">{u.employeeName || "\u2014"}</td>
                       <td className="px-6 py-3 max-w-[200px] text-xs text-slate-600">
                         {!u.assignedLocationIds || u.assignedLocationIds.length === 0 ? (
@@ -547,7 +558,7 @@ export default function UserManagementPage() {
                     </tr>
                   ))}
                   {users.length === 0 && (
-                    <tr><td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-400">{users.length === 0 ? "No users found." : "No users match your search."}</td></tr>
+                    <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-400">{users.length === 0 ? "No users found." : "No users match your search."}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -872,6 +883,7 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   const [permissions, setPermissions] = useState<Record<string, Record<string, { enabled: boolean; scope: string }>>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState<FlashMessage | null>(null);
 
   useEffect(() => {
     apiFetch<{ module: string; label: string }[]>("/api/auth/roles/available-modules")
@@ -880,6 +892,11 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   }, []);
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
+
+  useEffect(() => {
+    setSuccessMsg(null);
+    setError("");
+  }, [selectedRoleId]);
 
   useEffect(() => {
     if (!selectedRole) {
@@ -923,6 +940,7 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   async function handleSave() {
     if (!selectedRoleId) return;
     setError("");
+    setSuccessMsg(null);
     setSaving(true);
     const perms: { module: string; action: string; scope: string }[] = [];
     for (const [mod, acts] of Object.entries(permissions)) {
@@ -935,11 +953,16 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
         method: "PUT",
         body: JSON.stringify({ permissions: perms }),
       });
-      await onSaved();
+      setSuccessMsg({
+        type: "ok",
+        text: `Permissions saved successfully for ${selectedRole?.name ?? "role"}.`,
+      });
+      onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save permissions");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   return (
@@ -981,6 +1004,12 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
             <p className="text-sm text-slate-400 py-8">Select a role to configure its permissions.</p>
           ) : (
             <>
+              <FlashMessageBanner
+                msg={successMsg}
+                onClear={() => setSuccessMsg(null)}
+                dismissMs={SUCCESS_BANNER_DISMISS_MS}
+                className="mb-4"
+              />
               <FormErrorAlert
                 message={error}
                 onDismiss={() => setError("")}
@@ -1029,7 +1058,7 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
                 </table>
               </div>
               <div className="mt-6 flex justify-end">
-                <Button type="button" onClick={handleSave} disabled={saving}>
+                <Button type="button" onClick={() => void handleSave()} disabled={saving}>
                   {saving ? "Saving…" : "Save permissions"}
                 </Button>
               </div>

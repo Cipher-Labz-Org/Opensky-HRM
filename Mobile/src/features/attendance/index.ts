@@ -3,6 +3,7 @@ export {
   AttendanceSummaryCard,
   AttendanceTopSection,
   AttendanceSectionTitle,
+  AttendanceQrHeader,
 } from "./AttendancePageHeader";
 export type { AttendanceSummaryStat } from "./AttendancePageHeader";
 export { PunchActionCard } from "./PunchActionCard";
@@ -16,3 +17,8 @@ export {
   findTodayRecord,
   todayIsoDate,
 } from "./attendanceUtils";
+export {
+  parseBusinessUnitAttendanceQr,
+  BUSINESS_UNIT_ATTENDANCE_QR_TYPE,
+} from "./attendanceQr";
+export type { BusinessUnitAttendanceQrPayload } from "./attendanceQr";

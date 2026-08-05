@@ -18,3 +18,4 @@ export function useAutoDismiss(
 
 export const ERROR_ALERT_DISMISS_MS = 5000;
 export const SUCCESS_ALERT_DISMISS_MS = 5000;
+export const SUCCESS_BANNER_DISMISS_MS = 3000;

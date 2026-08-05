@@ -9,6 +9,7 @@ import { API_BASE_URL } from "@/config/constants";
 import { contextualHelpGuideHref } from "@/lib/help-topics";
 import { HeaderCalendarPopover } from "@/components/navigation/HeaderCalendarPopover";
 import { apiFetch } from "@/lib/api";
+import { isVisibleHeaderNotification, shouldMarkReadFromHeader } from "@/lib/notification-visibility";
 import { OPENSKY_THEME } from "@/lib/opensky-theme";
 
 const T = OPENSKY_THEME;
@@ -223,7 +224,9 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
     try {
       const data = await apiFetch<unknown>("/api/notifications?take=100");
       const inbox = normalizeNotificationInbox(data);
-      const filtered = inbox.items.filter((n) => n.category !== "BirthdayWishMyReply");
+      const filtered = inbox.items.filter(
+        (n) => n.category !== "BirthdayWishMyReply" && isVisibleHeaderNotification(n)
+      );
       setNotifItems(sortNotificationInbox(filtered));
       setNotifUnread(inbox.unreadCount);
     } catch (e) {
@@ -337,7 +340,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                                 const target = birthdaysNoticesTargetHref(pathname, focusId);
                                 router.push(target);
                               }
-                              if (!unread) return;
+                              if (!unread || !shouldMarkReadFromHeader(n.category)) return;
                               try {
                                 await apiFetch(`/api/notifications/${n.id}/read`, { method: "POST" });
                                 setNotifItems((prev) =>
@@ -347,7 +350,9 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                                     )
                                   )
                                 );
-                                setNotifUnread((c) => Math.max(0, c - 1));
+                                await refreshUnreadCount();
+                                await loadInbox({ silent: true });
+                                window.dispatchEvent(new Event("opensky:notifications-changed"));
                               } catch {
                                 /* ignore */
                               }

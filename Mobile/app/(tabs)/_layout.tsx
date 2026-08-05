@@ -23,6 +23,10 @@ export default function TabsLayout() {
     return <Redirect href="/(auth)/login" />;
   }
 
+  if (user?.mustChangePassword) {
+    return <Redirect href="/(auth)/change-password" />;
+  }
+
   const showLeave = hasLicensedModule(user, LICENSED_MODULES.LEAVE);
   const showAttendance = hasLicensedModule(user, LICENSED_MODULES.ATTENDANCE);
   const showApprovals = showLeave && canApproveLeave(user);

@@ -24,26 +24,32 @@ export function AuthInputField({
   secureTextEntry,
   onFocus,
   onBlur,
+  style,
   ...props
 }: AuthInputFieldProps) {
   const [focused, setFocused] = useState(false);
-  const [hidden, setHidden] = useState(secureTextEntry ?? false);
+  // Password fields must start hidden when secureToggle is used.
+  const [hidden, setHidden] = useState(secureToggle ? true : Boolean(secureTextEntry));
 
   return (
-    <View className="gap-1.5">
-      <Text className="text-sm font-semibold" style={{ color: LOGIN_THEME.navy }}>
-        {label}
-      </Text>
+    <View style={{ alignSelf: "stretch", width: "100%", gap: 6 }}>
+      <Text style={{ fontSize: 14, fontWeight: "600", color: LOGIN_THEME.navy }}>{label}</Text>
       <View
-        className="flex-row items-center gap-3 rounded-xl border px-4 py-3"
         style={{
+          alignSelf: "stretch",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          borderRadius: 12,
+          borderWidth: 1,
           borderColor: focused ? LOGIN_THEME.skyBlue : LOGIN_THEME.border,
           backgroundColor: LOGIN_THEME.fieldBg,
+          paddingHorizontal: 16,
+          paddingVertical: 12,
         }}
       >
         <Ionicons name={icon} size={20} color="#94A3B8" />
         <TextInput
-          className="flex-1 py-0.5 text-[15px]"
           placeholderTextColor="#94A3B8"
           secureTextEntry={secureToggle ? hidden : secureTextEntry}
           onFocus={(event) => {
@@ -54,7 +60,16 @@ export function AuthInputField({
             setFocused(false);
             onBlur?.(event);
           }}
-          style={{ color: LOGIN_THEME.navy }}
+          style={[
+            {
+              flex: 1,
+              minWidth: 0,
+              paddingVertical: 2,
+              fontSize: 15,
+              color: LOGIN_THEME.navy,
+            },
+            style,
+          ]}
           {...props}
         />
         {secureToggle ? (

@@ -838,3 +838,65 @@ body:has(.login-page) {
     animation: none;
   }
 }
+
+/* Floating success popup */
+@keyframes toast-popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-popup-check-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes toast-popup-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.toast-popup {
+  animation: toast-popup-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.toast-popup-check {
+  animation: toast-popup-check-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.toast-popup-progress {
+  animation-name: toast-popup-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-popup,
+  .toast-popup-check,
+  .toast-popup-progress {
+    animation: none;
+  }
+
+  .toast-popup-progress {
+    transform: scaleX(0);
+  }
+}

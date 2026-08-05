@@ -17,11 +17,16 @@ namespace OpenSkyHRM.Api.Controllers;
 public class AttendanceController : ControllerBase
 {
     private readonly IAttendanceService _attendanceService;
+    private readonly IAttendanceQrTokenService _attendanceQrTokenService;
     private readonly AppDbContext _db;
 
-    public AttendanceController(IAttendanceService attendanceService, AppDbContext db)
+    public AttendanceController(
+        IAttendanceService attendanceService,
+        IAttendanceQrTokenService attendanceQrTokenService,
+        AppDbContext db)
     {
         _attendanceService = attendanceService;
+        _attendanceQrTokenService = attendanceQrTokenService;
         _db = db;
     }
 
@@ -132,6 +137,10 @@ public class AttendanceController : ControllerBase
                 return Forbid();
         }
 
+        var qrError = await ResolveBusinessUnitFromQrAsync(dto);
+        if (qrError != null)
+            return BadRequest(new { message = qrError });
+
         try
         {
             var result = await _attendanceService.PunchAsync(targetEmployeeId, dto);
@@ -141,6 +150,85 @@ public class AttendanceController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Returns a stable attendance QR payload for a business unit (printable location code).
+    /// </summary>
+    [HttpGet("business-unit-qr/{businessUnitId:guid}")]
+    public async Task<IActionResult> GetBusinessUnitQr(Guid businessUnitId)
+    {
+        var bu = await _db.Set<BusinessUnit>().AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == businessUnitId && !b.IsDeleted);
+        if (bu is null)
+            return NotFound(new { message = "Business unit not found." });
+        if (!bu.IsActive)
+            return BadRequest(new { message = "Business unit is inactive." });
+
+        var assigned = await PeopleAccessHelper.GetAssignedBusinessUnitIdsAsync(User, _db);
+        if (assigned != null && !assigned.Contains(businessUnitId))
+            return Forbid();
+
+        return Ok(_attendanceQrTokenService.IssueBusinessUnitQr(bu.Id, bu.Name, bu.Code));
+    }
+
+    /// <summary>
+    /// Validates a business-unit attendance QR payload without punching.
+    /// </summary>
+    [HttpPost("qr-validate")]
+    public async Task<IActionResult> ValidateQr([FromBody] ValidateBusinessUnitAttendanceQrRequestDto dto)
+    {
+        var raw = dto.Token ?? dto.Payload;
+        if (string.IsNullOrWhiteSpace(raw))
+            return BadRequest(new { message = "Token or payload is required." });
+
+        var result = _attendanceQrTokenService.Validate(raw);
+        if (!result.Valid || !result.BusinessUnitId.HasValue)
+            return BadRequest(new { message = result.Message, valid = false });
+
+        var bu = await _db.Set<BusinessUnit>().AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == result.BusinessUnitId.Value && !b.IsDeleted);
+        if (bu is null || !bu.IsActive)
+            return BadRequest(new { message = "Business unit is not available.", valid = false });
+
+        result.BusinessUnitName = bu.Name;
+        result.BusinessUnitCode = bu.Code;
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// When a QR payload is present, validate it and set BusinessUnitId. When BusinessUnitId is
+    /// sent alone, ensure the unit exists.
+    /// </summary>
+    private async Task<string?> ResolveBusinessUnitFromQrAsync(PunchRequestDto dto)
+    {
+        if (!string.IsNullOrWhiteSpace(dto.QrPayload))
+        {
+            var result = _attendanceQrTokenService.Validate(dto.QrPayload);
+            if (!result.Valid || !result.BusinessUnitId.HasValue)
+                return result.Message ?? "Invalid business unit QR code.";
+
+            if (dto.BusinessUnitId.HasValue
+                && dto.BusinessUnitId.Value != Guid.Empty
+                && dto.BusinessUnitId.Value != result.BusinessUnitId.Value)
+            {
+                return "QR code does not match the selected business unit.";
+            }
+
+            dto.BusinessUnitId = result.BusinessUnitId;
+        }
+
+        if (!dto.BusinessUnitId.HasValue || dto.BusinessUnitId == Guid.Empty)
+            return null;
+
+        var bu = await _db.Set<BusinessUnit>().AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == dto.BusinessUnitId.Value && !b.IsDeleted);
+        if (bu is null)
+            return "Business unit not found.";
+        if (!bu.IsActive)
+            return "Business unit is inactive.";
+
+        return null;
     }
 
     [HttpGet("overtime-nopay")]

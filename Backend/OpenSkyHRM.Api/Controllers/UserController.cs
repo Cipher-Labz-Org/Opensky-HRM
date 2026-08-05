@@ -36,6 +36,12 @@ public class UserController : ControllerBase
         return Ok(users);
     }
 
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSummary()
+    {
+        return Ok(await _authService.GetUserSummaryAsync());
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id)
     {

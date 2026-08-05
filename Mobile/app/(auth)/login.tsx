@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Platform, Text, TouchableOpacity, View } from "react-native";
 import { router } from "expo-router";
 import {
+  AuthErrorBanner,
   AuthInputField,
   AuthTextLink,
   LoginFormCard,
@@ -22,6 +23,7 @@ export default function LoginScreen() {
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const logoUri = buildAssetUrl(apiBaseUrl ?? "", companyLogoUrl);
   const subtitle = companyName
@@ -29,84 +31,145 @@ export default function LoginScreen() {
     : "Sign in to access your OpenSky HRM workspace";
 
   const onSubmit = async () => {
-    if (!username.trim() || !password) {
-      Alert.alert("Missing credentials", "Enter your username and password.");
+    const user = username.trim();
+    // Do not trim password — trailing spaces may be intentional; leading/trailing username spaces are not.
+    if (!user || !password) {
+      setError("Enter your username and password.");
       return;
     }
+    setError(null);
     try {
-      const response = await login(username.trim(), password);
+      const response = await login(user, password);
+      if (!response?.user) {
+        setError("Sign-in succeeded but the user profile was missing. Try again.");
+        return;
+      }
       if (response.user.mustChangePassword) {
         router.replace("/(auth)/change-password");
         return;
       }
       router.replace("/(tabs)");
-    } catch (error) {
-      Alert.alert("Sign in failed", error instanceof Error ? error.message : "Invalid credentials.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Invalid credentials.";
+      const hint =
+        /invalid username or password/i.test(message)
+          ? `${message}\n\nUse the exact username or email from People → Login (not the display name).`
+          : message;
+      setError(hint);
+      if (Platform.OS !== "web") {
+        Alert.alert("Sign in failed", hint);
+      }
     }
   };
 
   return (
     <LoginScreenLayout compact>
-      <LoginFormCard title="Welcome Back!" subtitle={subtitle} logoUri={logoUri}>
-        <View className="mb-4">
-          <AuthInputField
-            label="Username"
-            icon="person-outline"
-            autoCapitalize="none"
-            autoCorrect={false}
-            placeholder="Enter your username"
-            value={username}
-            onChangeText={setUsername}
-          />
-        </View>
+      <View style={{ alignSelf: "stretch", width: "100%" }}>
+        <LoginFormCard title="Welcome Back!" subtitle={subtitle} logoUri={logoUri}>
+          <View style={{ marginBottom: 16, alignSelf: "stretch" }}>
+            <AuthInputField
+              label="Username or email"
+              icon="person-outline"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="username"
+              textContentType="username"
+              placeholder="Enter your username or email"
+              value={username}
+              returnKeyType="next"
+              onChangeText={(value) => {
+                setUsername(value);
+                if (error) setError(null);
+              }}
+            />
+          </View>
 
-        <View className="mb-3">
-          <AuthInputField
-            label="Password"
-            icon="lock-closed-outline"
-            secureToggle
-            placeholder="Enter your password"
-            value={password}
-            onChangeText={setPassword}
-          />
-        </View>
+          <View style={{ marginBottom: 12, alignSelf: "stretch" }}>
+            <AuthInputField
+              label="Password"
+              icon="lock-closed-outline"
+              secureToggle
+              autoComplete="password"
+              textContentType="password"
+              placeholder="Enter your password"
+              value={password}
+              returnKeyType="go"
+              blurOnSubmit={false}
+              onSubmitEditing={() => void onSubmit()}
+              onChangeText={(value) => {
+                setPassword(value);
+                if (error) setError(null);
+              }}
+            />
+          </View>
 
-        <View className="mb-4 flex-row items-center justify-end">
-          <AuthTextLink
-            title="Forgot Password?"
-            color={LOGIN_THEME.skyBlue}
-            onPress={() => router.push("/(auth)/forgot-password")}
-          />
-        </View>
+          <View
+            style={{
+              marginBottom: 16,
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              alignSelf: "stretch",
+            }}
+          >
+            <AuthTextLink
+              title="Forgot Password?"
+              color={LOGIN_THEME.skyBlue}
+              onPress={() => router.push("/(auth)/forgot-password")}
+            />
+          </View>
 
-        <View className="mb-4">
+          {error ? (
+            <View style={{ marginBottom: 16, alignSelf: "stretch" }}>
+              <AuthErrorBanner message={error} />
+            </View>
+          ) : null}
+        </LoginFormCard>
+
+        {/* Sign In OUTSIDE the card so Android never paints it invisible */}
+        <View style={{ marginTop: 16, marginBottom: 12, alignSelf: "stretch", width: "100%" }}>
           <LoginPrimaryButton
             title="Sign In"
+            icon="log-in-outline"
             loading={isAuthenticating}
-            disabled={!username.trim() || !password}
+            disabled={isAuthenticating}
             onPress={() => void onSubmit()}
           />
         </View>
 
-        <Text className="mb-3 text-center text-sm" style={{ color: LOGIN_THEME.muted }}>
-          Need help?{" "}
+        <Text
+          style={{
+            marginBottom: 12,
+            textAlign: "center",
+            fontSize: 14,
+            color: LOGIN_THEME.muted,
+          }}
+        >
+          Wrong company?{" "}
           <Text
             style={{ color: LOGIN_THEME.skyBlue, fontWeight: "600" }}
             onPress={() => router.push("/(auth)/connect")}
           >
-            Contact your administrator
+            Reconnect backend
           </Text>
         </Text>
 
-        <Pressable
+        <TouchableOpacity
           onPress={() => router.replace("/(auth)/connect")}
-          style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
+          activeOpacity={0.75}
+          style={{ paddingVertical: 8 }}
         >
-          <Text className="text-center text-sm font-semibold" style={{ color: LOGIN_THEME.skyBlue }}>
+          <Text
+            style={{
+              textAlign: "center",
+              fontSize: 14,
+              fontWeight: "600",
+              color: LOGIN_THEME.skyBlue,
+            }}
+          >
             Change company
           </Text>
-        </Pressable>
-      </LoginFormCard>
+        </TouchableOpacity>
+      </View>
     </LoginScreenLayout>
   );
 }

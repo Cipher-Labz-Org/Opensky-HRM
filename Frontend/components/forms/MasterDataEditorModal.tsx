@@ -38,6 +38,8 @@ interface Props {
   toForm?: (item: Item) => Record<string, string | number | boolean>;
   /** maps form data → API payload */
   toPayload?: (fd: FormData) => Record<string, unknown>;
+  /** When set, shows a QR action that opens attendance QR for the row. */
+  onShowAttendanceQr?: (item: Item) => void;
 }
 
 export function MasterDataEditorModal({
@@ -49,6 +51,7 @@ export function MasterDataEditorModal({
   codeColumnHeader = "Code",
   toForm,
   toPayload,
+  onShowAttendanceQr,
 }: Props) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
@@ -259,6 +262,15 @@ export function MasterDataEditorModal({
                   </td>
                   <td><span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-mono">{item.code}</span></td>
                   <td className="text-right">
+                    {onShowAttendanceQr ? (
+                      <button
+                        type="button"
+                        onClick={() => onShowAttendanceQr(item)}
+                        className="mr-2 text-xs font-medium text-[var(--primary)] hover:underline"
+                      >
+                        QR
+                      </button>
+                    ) : null}
                     <button
                       onClick={() => { setEditingId(item.id); setShowAdd(false); }}
                       className="mr-2 text-xs font-medium text-[var(--primary)] hover:underline"

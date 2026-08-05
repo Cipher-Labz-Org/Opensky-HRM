@@ -4,12 +4,18 @@ import * as Location from "expo-location";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { punchAttendance } from "@/api/endpoints/attendance";
 
+export type PunchWithQrInput = {
+  type: "in" | "out";
+  businessUnitId: string;
+  qrPayload: string;
+};
+
 export function useAttendancePunch() {
   const queryClient = useQueryClient();
   const [punching, setPunching] = useState<"in" | "out" | null>(null);
 
   const mutation = useMutation({
-    mutationFn: async (type: "in" | "out") => {
+    mutationFn: async ({ type, businessUnitId, qrPayload }: PunchWithQrInput) => {
       setPunching(type);
       let latitude: number | undefined;
       let longitude: number | undefined;
@@ -27,9 +33,16 @@ export function useAttendancePunch() {
         // Location is optional for punch
       }
 
-      return punchAttendance({ type, latitude, longitude, source: "Mobile" });
+      return punchAttendance({
+        type,
+        latitude,
+        longitude,
+        source: "Mobile QR",
+        businessUnitId,
+        qrPayload,
+      });
     },
-    onSuccess: (_, type) => {
+    onSuccess: (_, { type }) => {
       void queryClient.invalidateQueries({ queryKey: ["attendance"] });
       Alert.alert(
         "Success",
@@ -46,7 +59,7 @@ export function useAttendancePunch() {
   });
 
   return {
-    punch: mutation.mutate,
+    punch: mutation.mutateAsync,
     punching,
     isPunching: mutation.isPending,
   };

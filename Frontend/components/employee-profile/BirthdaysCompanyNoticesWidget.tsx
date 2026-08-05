@@ -5,7 +5,8 @@ import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL } from "@/config/constants";
-import { useAuth } from "@/contexts/auth-context";
+import { AUTH_VISIT_ID_KEY, useAuth } from "@/contexts/auth-context";
+import { isVisibleCompanyNotice } from "@/lib/notification-visibility";
 
 type BirthdayPerson = {
   employeeId: string;
@@ -50,13 +51,37 @@ type BirthdayWishThreadDto = {
   messages: BirthdayWishThreadMessageDto[];
 };
 
-const digestCategories = new Set(["BirthdayToday", "BirthdayUpcoming", "EmployeeBirthdayDigest"]);
-const inboxHiddenCategories = new Set<string>([
-  ...Array.from(digestCategories),
-  "BirthdayWishMyReply",
-]);
-
 /** One-tap inserts for birthday wish messages (UTF-16 safe slice/length in textarea). */
+const WISH_PENDING_VISIT_PREFIX = "opensky:birthday-wish-pending-visit:";
+
+function getAuthVisitId(): string | null {
+  if (typeof window === "undefined") return null;
+  return sessionStorage.getItem(AUTH_VISIT_ID_KEY);
+}
+
+function wishPendingKey(userId: string, wishId: string) {
+  return `${WISH_PENDING_VISIT_PREFIX}${userId}:${wishId}`;
+}
+
+/** Mark read on next login when the stored visit id differs from the current one. */
+function shouldConsumeBirthdayWishOnVisit(userId: string, wishId: string): boolean {
+  const pendingVisit = localStorage.getItem(wishPendingKey(userId, wishId));
+  const currentVisit = getAuthVisitId();
+  if (!pendingVisit || !currentVisit) return false;
+  return pendingVisit !== currentVisit;
+}
+
+function markBirthdayWishSeenForNextVisit(userId: string, wishId: string) {
+  const visit = getAuthVisitId();
+  if (!visit) return;
+  localStorage.setItem(wishPendingKey(userId, wishId), visit);
+}
+
+function clearBirthdayWishVisitFlags(userId: string, wishId: string) {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(wishPendingKey(userId, wishId));
+}
+
 const WISH_QUICK_EMOJIS = ["🎉", "🎂", "🎁", "🥳", "❤️", "✨", "🙌", "👏", "💐", "😊", "⭐", "🍰"] as const;
 
 type NoticeKind = "important" | "event" | "reminder" | "wish" | "reply" | "notice";
@@ -211,8 +236,8 @@ function BirthdaysCompanyNoticesWidgetInner() {
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
   const [wishBusyId, setWishBusyId] = React.useState<string | null>(null);
-  const [wishHint, setWishHint] = React.useState<string | null>(null);
-  /** Optional personal note per recipient (today's birthdays), keyed by employee id. */
+  const [wishHint, setWishHint] = React.useState<{ text: string; kind: "success" | "error" } | null>(null);
+  /** Personal note per recipient (today's birthdays), keyed by employee id. */
   const [wishNoteByEmployee, setWishNoteByEmployee] = React.useState<Record<string, string>>({});
   const [replyDraftByNotice, setReplyDraftByNotice] = React.useState<Record<string, string>>({});
   const [replyBusyNoticeId, setReplyBusyNoticeId] = React.useState<string | null>(null);
@@ -225,9 +250,22 @@ function BirthdaysCompanyNoticesWidgetInner() {
   const [selectedWishEmployeeId, setSelectedWishEmployeeId] = React.useState<string | null>(null);
   const [wishedEmployeeIds, setWishedEmployeeIds] = React.useState<Set<string>>(() => new Set());
   const [noticesExpanded, setNoticesExpanded] = React.useState(false);
+  /** Inline validation when Send Wish is clicked with an empty message. */
+  const [wishBlankErrorEmployeeId, setWishBlankErrorEmployeeId] = React.useState<string | null>(null);
 
   const upcomingStripRef = React.useRef<HTMLDivElement>(null);
+  const companyNoticesRef = React.useRef<HTMLDivElement>(null);
+  const displayedWishIdsRef = React.useRef(new Set<string>());
   const upcomingLimited = React.useMemo(() => (summary?.upcoming ?? []).slice(0, 80), [summary]);
+
+  const incomingBirthdayWishes = React.useMemo(
+    () => notices.filter((n) => n.category === "BirthdayWish"),
+    [notices]
+  );
+  const otherCompanyNotices = React.useMemo(
+    () => notices.filter((n) => n.category !== "BirthdayWish"),
+    [notices]
+  );
 
   const scrollUpcomingStrip = React.useCallback((dir: 1 | -1) => {
     const el = upcomingStripRef.current;
@@ -236,9 +274,9 @@ function BirthdaysCompanyNoticesWidgetInner() {
     el.scrollBy({ left: dir * step, behavior: "smooth" });
   }, []);
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (opts?: { silent?: boolean }) => {
     setErr(null);
-    setLoading(true);
+    if (!opts?.silent) setLoading(true);
     try {
       const [bd, inbox] = await Promise.all([
         apiFetch<BirthdaySummary>("/api/employees/birthdays/summary"),
@@ -256,10 +294,38 @@ function BirthdaysCompanyNoticesWidgetInner() {
         )
       );
       const items = Array.isArray(inbox.items) ? inbox.items : [];
-      const sorted = sortNoticesForDisplay(items.filter((n) => !inboxHiddenCategories.has(n.category)));
+      const readNow = new Date().toISOString();
+      const unreadWishes = items.filter((n) => n.category === "BirthdayWish" && !n.readAt);
+      const userId = user?.id?.trim() ?? "";
+
+      const consumedIds = new Set<string>();
+      if (userId) {
+        await Promise.all(
+          unreadWishes.map(async (w) => {
+            if (!shouldConsumeBirthdayWishOnVisit(userId, w.id)) return;
+            try {
+              await apiFetch(`/api/notifications/${w.id}/read`, { method: "POST" });
+              consumedIds.add(w.id);
+              clearBirthdayWishVisitFlags(userId, w.id);
+              displayedWishIdsRef.current.delete(w.id);
+            } catch {
+              /* ignore */
+            }
+          })
+        );
+      }
+
+      if (consumedIds.size > 0 && typeof window !== "undefined") {
+        window.dispatchEvent(new Event("opensky:notifications-changed"));
+      }
+
+      const displayItems = items.map((n) =>
+        consumedIds.has(n.id) ? { ...n, readAt: n.readAt ?? readNow } : n
+      );
+      const sorted = sortNoticesForDisplay(displayItems.filter(isVisibleCompanyNotice));
       setNotices(sorted);
 
-      const wishes = sorted.filter((n) => n.category === "BirthdayWish");
+      const wishes = sorted.filter((n) => n.category === "BirthdayWish" && !n.readAt);
       const nextThreads: Record<string, BirthdayWishThreadDto> = {};
       await Promise.all(
         wishes.map(async (w) => {
@@ -276,13 +342,63 @@ function BirthdaysCompanyNoticesWidgetInner() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not load birthdays or notices.");
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  React.useEffect(() => {
+    const refresh = () => void load({ silent: true });
+    window.addEventListener("focus", refresh);
+    window.addEventListener("opensky:notifications-changed", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("opensky:notifications-changed", refresh);
+    };
+  }, [load]);
+
+  /** While a delivered-wish notice is still unread, poll until the recipient reads it. */
+  React.useEffect(() => {
+    const awaitingRead = notices.some((n) => n.category === "BirthdayWishSent" && !n.readAt);
+    if (!awaitingRead) return;
+    const id = window.setInterval(() => void load({ silent: true }), 15_000);
+    return () => window.clearInterval(id);
+  }, [notices, load]);
+
+  /** Auto-open company notices when there are unread non-wish notices. */
+  React.useEffect(() => {
+    if (loading) return;
+    const hasUnreadOther = otherCompanyNotices.some((n) => !n.readAt);
+    if (hasUnreadOther) setNoticesExpanded(true);
+  }, [loading, otherCompanyNotices]);
+
+  /** Track birthday wishes shown this login visit (stay visible until the next login). */
+  React.useEffect(() => {
+    if (loading) return;
+    incomingBirthdayWishes
+      .filter((n) => !n.readAt)
+      .forEach((n) => displayedWishIdsRef.current.add(n.id));
+  }, [loading, incomingBirthdayWishes]);
+
+  /** Remember displayed wishes so they clear on the next login + refresh. */
+  React.useEffect(() => {
+    const userId = user?.id?.trim();
+    if (!userId) return;
+    const markPendingOnLeave = () => {
+      displayedWishIdsRef.current.forEach((wishId) => {
+        markBirthdayWishSeenForNextVisit(userId, wishId);
+      });
+    };
+    window.addEventListener("pagehide", markPendingOnLeave);
+    window.addEventListener("opensky:before-logout", markPendingOnLeave);
+    return () => {
+      window.removeEventListener("pagehide", markPendingOnLeave);
+      window.removeEventListener("opensky:before-logout", markPendingOnLeave);
+    };
+  }, [user?.id]);
 
   React.useEffect(() => {
     if (!wishFocusParam) return;
@@ -348,6 +464,14 @@ function BirthdaysCompanyNoticesWidgetInner() {
     () => (selectedWishEmployeeId ? today.find((p) => p.employeeId === selectedWishEmployeeId) ?? null : null),
     [selectedWishEmployeeId, today]
   );
+
+  const composeWishDraftLen = selectedWishPerson
+    ? (wishNoteByEmployee[selectedWishPerson.employeeId] ?? "").trim().length
+    : 0;
+  const composeShowBlankError =
+    selectedWishPerson != null && wishBlankErrorEmployeeId === selectedWishPerson.employeeId;
+  const composeSendDisabled =
+    !selectedWishPerson || wishBusyId === selectedWishPerson.employeeId || composeWishDraftLen === 0;
 
   const openWishPanelFor = React.useCallback(
     (employeeId: string) => {
@@ -433,9 +557,17 @@ function BirthdaysCompanyNoticesWidgetInner() {
   }, [replyBusyNoticeId]);
 
   async function sendWish(employeeId: string) {
+    const message = (wishNoteByEmployee[employeeId] ?? "").trim();
+    if (!message) {
+      setWishBlankErrorEmployeeId(employeeId);
+      const ta = document.getElementById(`birthday-wish-note-${employeeId}`) as HTMLTextAreaElement | null;
+      ta?.focus();
+      return;
+    }
+
+    setWishBlankErrorEmployeeId(null);
     setWishHint(null);
     setWishBusyId(employeeId);
-    const message = (wishNoteByEmployee[employeeId] ?? "").trim();
     try {
       const res = await apiFetch<{ sent?: boolean; Sent?: boolean; notificationsCreated?: number; reason?: string }>(
         "/api/employees/birthdays/wish",
@@ -444,7 +576,7 @@ function BirthdaysCompanyNoticesWidgetInner() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             toEmployeeId: employeeId,
-            ...(message.length > 0 ? { message } : {}),
+            message,
           }),
         }
       );
@@ -453,7 +585,8 @@ function BirthdaysCompanyNoticesWidgetInner() {
         res.Sent === true ||
         (typeof res.notificationsCreated === "number" && res.notificationsCreated > 0);
       if (delivered) {
-        setWishHint("Wish sent.");
+        setWishHint({ text: "Wish sent.", kind: "success" });
+        setWishNoteByEmployee((prev) => ({ ...prev, [employeeId]: "" }));
         setWishedEmployeeIds((prev) => {
           const nextSet = new Set([...prev, employeeId]);
           const nextPerson = today.find(
@@ -466,19 +599,29 @@ function BirthdaysCompanyNoticesWidgetInner() {
           }
           return nextSet;
         });
-      } else if (res.reason === "noLinkedUser") setWishHint("This person has no linked login yet.");
-      else if (res.reason === "noOtherRecipients")
-        setWishHint("There is no other login linked to this employee to notify (you cannot wish yourself).");
-      else {
-        setWishHint("Already sent today, or could not deliver.");
+        setNoticesExpanded(true);
+        await load({ silent: true });
+        window.requestAnimationFrame(() => {
+          companyNoticesRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
+      } else if (res.reason === "noLinkedUser") {
+        setWishHint({ text: "This person has no linked login yet.", kind: "error" });
+      } else if (res.reason === "noOtherRecipients") {
+        setWishHint({
+          text: "There is no other login linked to this employee to notify (you cannot wish yourself).",
+          kind: "error",
+        });
+      } else {
+        setWishHint({ text: "Already sent today, or could not deliver.", kind: "error" });
         setWishedEmployeeIds((prev) => new Set([...prev, employeeId]));
         setSelectedWishEmployeeId(null);
         setWishesPanelOpen(false);
       }
-      // Clear draft whenever the server returns 2xx (including noLinkedUser / dedupe cases).
-      setWishNoteByEmployee((prev) => ({ ...prev, [employeeId]: "" }));
     } catch (e) {
-      setWishHint(e instanceof Error ? e.message : "Could not send wish.");
+      setWishHint({
+        text: e instanceof Error ? e.message : "Could not send wish.",
+        kind: "error",
+      });
     } finally {
       setWishBusyId(null);
       if (typeof window !== "undefined") {
@@ -491,8 +634,10 @@ function BirthdaysCompanyNoticesWidgetInner() {
   async function sendWishReply(noticeId: string) {
     const text = (replyDraftByNotice[noticeId] ?? "").trim();
     if (!text) {
-      setWishHint("Type a reply first.");
-      window.setTimeout(() => setWishHint(null), 3000);
+      setWishHint({ text: "Please enter a message before sending your reply.", kind: "error" });
+      window.setTimeout(() => setWishHint(null), 4000);
+      const ta = document.getElementById(`birthday-reply-draft-${noticeId}`) as HTMLTextAreaElement | null;
+      ta?.focus();
       return;
     }
     setWishHint(null);
@@ -503,7 +648,7 @@ function BirthdaysCompanyNoticesWidgetInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
       });
-      setWishHint("Reply sent.");
+      setWishHint({ text: "Reply sent.", kind: "success" });
       setReplyDraftByNotice((prev) => {
         const next = { ...prev };
         delete next[noticeId];
@@ -512,7 +657,10 @@ function BirthdaysCompanyNoticesWidgetInner() {
       await markRead(noticeId);
       await load();
     } catch (e) {
-      setWishHint(e instanceof Error ? e.message : "Could not send reply.");
+      setWishHint({
+        text: e instanceof Error ? e.message : "Could not send reply.",
+        kind: "error",
+      });
     } finally {
       setReplyBusyNoticeId(null);
       if (typeof window !== "undefined") {
@@ -522,36 +670,64 @@ function BirthdaysCompanyNoticesWidgetInner() {
     }
   }
 
-  async function markRead(id: string) {
+  async function markWishSeen(id: string) {
     try {
       await apiFetch(`/api/notifications/${id}/read`, { method: "POST" });
-      setNotices((prev) => prev.map((n) => (n.id === id ? { ...n, readAt: new Date().toISOString() } : n)));
+      const userId = user?.id?.trim();
+      if (userId) clearBirthdayWishVisitFlags(userId, id);
+      displayedWishIdsRef.current.delete(id);
+      setNotices((prev) =>
+        prev
+          .map((n) => (n.id === id ? { ...n, readAt: new Date().toISOString() } : n))
+          .filter(isVisibleCompanyNotice)
+      );
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("opensky:notifications-changed"));
+      }
     } catch {
       /* ignore */
     }
   }
 
+  async function markRead(id: string) {
+    const notice = notices.find((n) => n.id === id);
+    if (notice?.readAt) return;
+    if (notice?.category === "BirthdayWish") return;
+    await markWishSeen(id);
+  }
+
   async function markAllCompanyRead() {
-    const unread = notices.filter((n) => !n.readAt);
+    const unread = notices.filter((n) => !n.readAt && n.category !== "BirthdayWish");
     if (unread.length === 0) return;
     setMarkingAll(true);
     try {
       for (const n of unread) {
         await apiFetch(`/api/notifications/${n.id}/read`, { method: "POST" });
       }
-      setNotices((prev) => prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })));
+      setNotices((prev) =>
+        prev
+          .map((n) =>
+            unread.some((u) => u.id === n.id) ? { ...n, readAt: n.readAt ?? new Date().toISOString() } : n
+          )
+          .filter(isVisibleCompanyNotice)
+      );
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("opensky:notifications-changed"));
+      }
     } finally {
       setMarkingAll(false);
     }
   }
 
-  const hasUnreadNotices = notices.some((n) => !n.readAt);
+  const hasUnreadCompanyNotices = otherCompanyNotices.some((n) => !n.readAt);
   const noticesUnreadCount = notices.filter((n) => !n.readAt).length;
+  const otherNoticesUnreadCount = otherCompanyNotices.filter((n) => !n.readAt).length;
+  const birthdayWishUnreadCount = incomingBirthdayWishes.filter((n) => !n.readAt).length;
   const canSendWishesToOthers = pendingWishCount > 0;
 
   const renderNoticeRow = (n: NoticeItem) => {
     const kind = classifyNotice(n.category);
-    const label = noticeLabel(kind);
+    const label = n.category === "BirthdayWishSent" ? "Wish history" : noticeLabel(kind);
     const unread = !n.readAt;
     const line = ((n.body?.trim() || n.title) ?? "").trim();
     const canReplyToWish = n.category === "BirthdayWish";
@@ -563,17 +739,29 @@ function BirthdaysCompanyNoticesWidgetInner() {
         className="overflow-hidden rounded-xl border border-slate-200/90 bg-white transition hover:border-violet-200 hover:shadow-sm"
       >
         <div
-          role="button"
-          tabIndex={0}
-          onClick={() => void markRead(n.id)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              void markRead(n.id);
-            }
-          }}
-          className={`flex w-full cursor-pointer items-stretch gap-3 p-3 text-left outline-none transition hover:bg-violet-50/40 focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 ${noticeRowRound}`}
-          aria-label={unread ? "Mark notice as read" : "Notice (already read)"}
+          role={canReplyToWish ? undefined : "button"}
+          tabIndex={canReplyToWish ? undefined : 0}
+          onClick={canReplyToWish ? undefined : () => void markRead(n.id)}
+          onKeyDown={
+            canReplyToWish
+              ? undefined
+              : (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    void markRead(n.id);
+                  }
+                }
+          }
+          className={`flex w-full items-stretch gap-3 p-3 text-left outline-none transition ${canReplyToWish ? "" : "cursor-pointer hover:bg-violet-50/40 focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2"} ${noticeRowRound}`}
+          aria-label={
+            canReplyToWish
+              ? unread
+                ? "Birthday wish for you"
+                : "Birthday wish (already read)"
+              : unread
+                ? "Mark notice as read"
+                : "Notice (already read)"
+          }
         >
           <NoticeIcon kind={kind} />
           <span className="min-w-0 flex-1">
@@ -731,8 +919,15 @@ function BirthdaysCompanyNoticesWidgetInner() {
       </div>
 
       {wishHint ? (
-        <p className="border-b border-slate-100 bg-emerald-50/95 px-5 py-2.5 text-center text-sm font-medium text-emerald-900 sm:px-6">
-          {wishHint}
+        <p
+          role="alert"
+          className={`border-b px-5 py-2.5 text-center text-sm font-medium sm:px-6 ${
+            wishHint.kind === "success"
+              ? "border-slate-100 bg-emerald-50/95 text-emerald-900"
+              : "border-red-100 bg-red-50/95 text-red-900"
+          }`}
+        >
+          {wishHint.text}
         </p>
       ) : null}
 
@@ -904,7 +1099,7 @@ function BirthdaysCompanyNoticesWidgetInner() {
                 )}
               </div>
 
-              <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
+              <div className="border-t border-slate-100 px-5 py-4 sm:px-6" ref={companyNoticesRef} id="company-notices-panel">
                 <button
                   type="button"
                   onClick={() => setNoticesExpanded((e) => !e)}
@@ -916,19 +1111,19 @@ function BirthdaysCompanyNoticesWidgetInner() {
                     </span>
                     <span className="min-w-0">
                       <span className="block text-[15px] font-bold text-slate-800">Company Notices</span>
-                      {notices.length === 0 ? (
+                      {otherCompanyNotices.length === 0 ? (
                         <span className="text-xs text-slate-500">Nothing new</span>
                       ) : (
                         <span className="text-xs text-slate-500">
-                          {noticesUnreadCount > 0 ? `${noticesUnreadCount} unread` : "All caught up"}
+                          {otherNoticesUnreadCount > 0 ? `${otherNoticesUnreadCount} unread` : "All caught up"}
                         </span>
                       )}
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
-                    {notices.length > 0 ? (
+                    {otherCompanyNotices.length > 0 ? (
                       <span className="inline-flex min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-sky-100 px-2 text-xs font-bold text-sky-900">
-                        {notices.length}
+                        {otherCompanyNotices.length}
                       </span>
                     ) : null}
                     <ChevronRight
@@ -940,6 +1135,24 @@ function BirthdaysCompanyNoticesWidgetInner() {
             </div>
           </div>
 
+          {/* Incoming birthday wishes — always visible for the recipient */}
+          {incomingBirthdayWishes.length > 0 ? (
+            <div className="border-t border-violet-100 bg-violet-50/30 px-5 py-4 sm:px-6">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="text-lg leading-none" aria-hidden>
+                  🎉
+                </span>
+                <h3 className="text-[15px] font-bold text-violet-900">Birthday wishes for you</h3>
+                {birthdayWishUnreadCount > 0 ? (
+                  <span className="inline-flex min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-violet-600 px-2 text-xs font-bold text-white">
+                    {birthdayWishUnreadCount}
+                  </span>
+                ) : null}
+              </div>
+              <ul className="flex flex-col gap-2.5">{incomingBirthdayWishes.map((n) => renderNoticeRow(n))}</ul>
+            </div>
+          ) : null}
+
           {/* Collapsible: compose wishes */}
           {wishesPanelOpen && selectedWishPerson && isWishablePerson(selectedWishPerson.employeeId) ? (
             <div className="border-t border-slate-100 bg-violet-50/40 px-5 py-4 sm:px-6">
@@ -947,20 +1160,48 @@ function BirthdaysCompanyNoticesWidgetInner() {
               <div className="rounded-xl border border-violet-200/80 bg-white p-3 shadow-sm">
                 <p className="text-sm font-bold text-slate-900">{selectedWishPerson.fullName}</p>
                 <label htmlFor={`birthday-wish-note-${selectedWishPerson.employeeId}`} className="sr-only">
-                  Personal message for {selectedWishPerson.fullName} (optional)
+                  Birthday message for {selectedWishPerson.fullName} (required, max 500 characters)
                 </label>
                 <textarea
                   id={`birthday-wish-note-${selectedWishPerson.employeeId}`}
                   rows={2}
                   maxLength={500}
-                  value={wishNoteByEmployee[selectedWishPerson.employeeId] ?? ""}
-                  onChange={(e) =>
-                    setWishNoteByEmployee((prev) => ({ ...prev, [selectedWishPerson.employeeId]: e.target.value }))
+                  required
+                  aria-required="true"
+                  aria-invalid={composeShowBlankError || undefined}
+                  aria-describedby={
+                    composeShowBlankError ? `birthday-wish-note-error-${selectedWishPerson.employeeId}` : undefined
                   }
+                  value={wishNoteByEmployee[selectedWishPerson.employeeId] ?? ""}
+                  onChange={(e) => {
+                    setWishBlankErrorEmployeeId(null);
+                    setWishNoteByEmployee((prev) => ({
+                      ...prev,
+                      [selectedWishPerson.employeeId]: e.target.value,
+                    }));
+                  }}
+                  onBlur={() => {
+                    if (!(wishNoteByEmployee[selectedWishPerson.employeeId] ?? "").trim()) {
+                      setWishBlankErrorEmployeeId(selectedWishPerson.employeeId);
+                    }
+                  }}
                   disabled={wishBusyId === selectedWishPerson.employeeId}
-                  placeholder="Optional message (max 500 characters)…"
-                  className="mt-2 min-h-[2.75rem] w-full resize-y rounded-lg border border-slate-200 bg-slate-50/90 px-2.5 py-1.5 text-xs leading-snug text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 disabled:opacity-60"
+                  placeholder="Write your birthday message (max 500 characters)…"
+                  className={`mt-2 min-h-[2.75rem] w-full resize-y rounded-lg border bg-slate-50/90 px-2.5 py-1.5 text-xs leading-snug text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 disabled:opacity-60 ${
+                    composeShowBlankError
+                      ? "border-red-400 focus:border-red-400 focus:ring-red-400"
+                      : "border-slate-200 focus:border-violet-400 focus:ring-violet-400"
+                  }`}
                 />
+                {composeShowBlankError ? (
+                  <p
+                    id={`birthday-wish-note-error-${selectedWishPerson.employeeId}`}
+                    role="alert"
+                    className="mt-1.5 text-xs font-medium text-red-700"
+                  >
+                    Please enter a message before sending your wish.
+                  </p>
+                ) : null}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1" role="toolbar" aria-label="Insert emoji into wish message">
                   {WISH_QUICK_EMOJIS.map((em) => (
                     <button
@@ -977,7 +1218,7 @@ function BirthdaysCompanyNoticesWidgetInner() {
                 </div>
                 <button
                   type="button"
-                  disabled={wishBusyId === selectedWishPerson.employeeId}
+                  disabled={composeSendDisabled}
                   onClick={() => void sendWish(selectedWishPerson.employeeId)}
                   className="mt-2 inline-flex items-center gap-1.5 rounded-lg border-2 border-violet-600 bg-violet-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
                 >
@@ -998,18 +1239,18 @@ function BirthdaysCompanyNoticesWidgetInner() {
                 role="region"
                 aria-label="Company notices list"
               >
-                {notices.length === 0 ? (
+                {otherCompanyNotices.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
                     No notices in your inbox yet.
                   </p>
                 ) : (
-                  <ul className="flex flex-col gap-2.5">{notices.map((n) => renderNoticeRow(n))}</ul>
+                  <ul className="flex flex-col gap-2.5">{otherCompanyNotices.map((n) => renderNoticeRow(n))}</ul>
                 )}
               </div>
               <div className="border-t border-slate-100 bg-sky-50/90 px-5 py-3 sm:px-6">
                 <button
                   type="button"
-                  disabled={markingAll || !hasUnreadNotices}
+                  disabled={markingAll || !hasUnreadCompanyNotices}
                   onClick={() => void markAllCompanyRead()}
                   className="flex w-full items-center justify-center gap-2 text-sm font-semibold text-sky-800 transition hover:text-sky-950 disabled:cursor-not-allowed disabled:opacity-40"
                 >

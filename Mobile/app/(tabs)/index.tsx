@@ -1,13 +1,9 @@
 import { useMemo } from "react";
 import { RefreshControl, View } from "react-native";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { LoadingState, ScreenShell } from "@/components/ui";
-import {
-  PunchActionCard,
-  useAttendancePunch,
-  useTodayAttendanceRecord,
-} from "@/features/attendance";
+import { PunchActionCard, useTodayAttendanceRecord } from "@/features/attendance";
 import {
   DashboardAttendanceCard,
   DashboardCtaButton,
@@ -117,7 +113,6 @@ export default function HomeScreen() {
 
   const unreadCount = unreadQuery.data?.unreadCount ?? 0;
 
-  const { punch, punching } = useAttendancePunch();
   const todayRecordQuery = useTodayAttendanceRecord(employeeId);
   const todayRecord = todayRecordQuery.data;
   const isOpenSession = Boolean(todayRecord?.punchIn && !todayRecord?.punchOut);
@@ -204,9 +199,10 @@ export default function HomeScreen() {
             />
             <PunchActionCard
               todayRecord={todayRecord}
-              punching={punching}
-              onPunchIn={() => punch("in")}
-              onPunchOut={() => punch("out")}
+              onPunched={() => {
+                void todayRecordQuery.refetch();
+                void attendanceSummaryQuery.refetch();
+              }}
             />
           </View>
         ) : null}
@@ -216,20 +212,10 @@ export default function HomeScreen() {
           <DashboardQuickActionsRow>
             {showAttendance ? (
               <QuickActionTile
-                label="Punch in"
-                icon="log-in-outline"
-                tone="green"
-                disabled={isOpenSession || !!punching}
-                onPress={() => punch("in")}
-              />
-            ) : null}
-            {showAttendance ? (
-              <QuickActionTile
-                label="Punch out"
-                icon="log-out-outline"
-                tone="navy"
-                disabled={!isOpenSession || !!punching}
-                onPress={() => punch("out")}
+                label={isOpenSession ? "Scan to punch out" : "Scan to punch in"}
+                icon={isOpenSession ? "log-out-outline" : "qr-code-outline"}
+                tone={isOpenSession ? "navy" : "green"}
+                onPress={() => router.push("/(tabs)/attendance/qr" as Href)}
               />
             ) : null}
             {showLeave ? (

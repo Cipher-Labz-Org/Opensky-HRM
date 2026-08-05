@@ -32,6 +32,8 @@ export interface PunchRequest {
   latitude?: number | null;
   longitude?: number | null;
   source?: string;
+  businessUnitId?: string | null;
+  qrPayload?: string | null;
 }
 
 export interface PagedAttendanceResult {
@@ -40,4 +42,19 @@ export interface PagedAttendanceResult {
   page: number;
   pageSize: number;
   totalPages: number;
+}
+
+export interface BusinessUnitAttendanceQr {
+  businessUnitId: string;
+  name: string;
+  code: string;
+  payload: string;
+}
+
+export interface ValidateAttendanceQrResult {
+  valid: boolean;
+  message?: string | null;
+  businessUnitId?: string | null;
+  businessUnitName?: string | null;
+  businessUnitCode?: string | null;
 }

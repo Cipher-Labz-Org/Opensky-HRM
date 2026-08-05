@@ -11,6 +11,7 @@ interface LoginFormCardProps {
   children: ReactNode;
 }
 
+/** Full-width card with NO elevation (Android elevation can hide child controls). */
 export function LoginFormCard({
   title = "Welcome Back!",
   subtitle,
@@ -20,53 +21,67 @@ export function LoginFormCard({
 }: LoginFormCardProps) {
   return (
     <View
-      className="rounded-2xl border bg-white px-5 py-5"
       style={{
+        alignSelf: "stretch",
+        width: "100%",
+        borderRadius: 16,
+        borderWidth: 1,
         borderColor: LOGIN_THEME.border,
-        ...LOGIN_THEME.cardShadow,
+        backgroundColor: "#FFFFFF",
+        paddingHorizontal: 20,
+        paddingVertical: 20,
       }}
     >
       {showLogo ? (
-        <View className="mb-4 items-center">
+        <View style={{ marginBottom: 16, alignItems: "center" }}>
           <View
-            className="items-center justify-center overflow-hidden rounded-full border"
             style={{
               width: 72,
               height: 72,
+              borderRadius: 36,
+              borderWidth: 1,
               borderColor: LOGIN_THEME.border,
               backgroundColor: LOGIN_THEME.fieldBg,
+              alignItems: "center",
+              justifyContent: "center",
+              overflow: "hidden",
             }}
           >
             {logoUri ? (
-              <Image source={{ uri: logoUri }} className="h-full w-full" resizeMode="contain" />
+              <Image source={{ uri: logoUri }} style={{ width: 72, height: 72 }} resizeMode="contain" />
             ) : (
-              <Image
-                source={OPENSKY_HRM_LOGO}
-                style={{ width: 52, height: 52 }}
-                resizeMode="contain"
-              />
+              <Image source={OPENSKY_HRM_LOGO} style={{ width: 52, height: 52 }} resizeMode="contain" />
             )}
           </View>
         </View>
       ) : null}
 
       <Text
-        className="text-center text-xl font-bold tracking-tight"
-        style={{ color: LOGIN_THEME.navy }}
+        style={{
+          textAlign: "center",
+          fontSize: 20,
+          fontWeight: "700",
+          color: LOGIN_THEME.navy,
+        }}
       >
         {title}
       </Text>
       {subtitle ? (
         <Text
-          className="mt-1 text-center text-sm leading-5"
-          style={{ color: LOGIN_THEME.muted }}
+          style={{
+            marginTop: 4,
+            textAlign: "center",
+            fontSize: 14,
+            lineHeight: 20,
+            color: LOGIN_THEME.muted,
+          }}
           numberOfLines={2}
         >
           {subtitle}
         </Text>
       ) : null}
 
-      <View className="mt-5">{children}</View>
+      <View style={{ marginTop: 20, alignSelf: "stretch", width: "100%" }}>{children}</View>
     </View>
   );
 }
