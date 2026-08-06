@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { API_BASE_URL } from "@/config/constants";
+import { resolveAssetUrl } from "@/config/constants";
 import {
   PEOPLE_GROUP_BY_OPTIONS,
   PEOPLE_STATUS_FILTER_OPTIONS,
@@ -586,7 +586,7 @@ export function PeopleHubSearchBar({
                           >
                             {emp.profileImageUrl ? (
                               <img
-                                src={`${API_BASE_URL}${emp.profileImageUrl}`}
+                                src={resolveAssetUrl(emp.profileImageUrl) ?? ""}
                                 alt={emp.fullName}
                                 className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-slate-200"
                               />
