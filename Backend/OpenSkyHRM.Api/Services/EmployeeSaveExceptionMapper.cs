@@ -46,7 +46,7 @@ public static class EmployeeSaveExceptionMapper
             {
                 var column = pg.ColumnName ?? "";
                 if (column.Contains("Email", StringComparison.OrdinalIgnoreCase))
-                    return "Work email is required on this server. Enter an email address, or ask your administrator to apply the latest database update.";
+                    return "Work email could not be saved. Enter an email address or contact your administrator.";
                 return "A required employee field is missing. Check department, name, and dates.";
             }
 
