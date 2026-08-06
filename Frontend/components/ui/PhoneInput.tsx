@@ -23,7 +23,7 @@ export const PhoneInput = forwardRef<HTMLInputElement, PhoneInputProps>(function
       type="tel"
       inputMode="tel"
       autoComplete={props.autoComplete ?? "tel"}
-      placeholder={placeholder ?? "+94771234567 or 0762535363"}
+      placeholder={placeholder ?? "0762535363"}
       title={title ?? PHONE_VALIDATION_MESSAGE}
       onChange={handleChange}
       {...props}

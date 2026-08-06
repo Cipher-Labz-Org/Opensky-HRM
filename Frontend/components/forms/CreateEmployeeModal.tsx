@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { DatePickerField, PasswordVisibilityToggle, FormErrorAlert } from "@/components/ui";
 import { FormSelect } from "@/components/ui/FormSelect";
 import { PersonNameInput, PhoneInput, UsernameInput, EmailInput } from "@/components/ui";
-import { isValidPhone, isValidUsername, isValidEmailInput, isValidEmailFormat, sanitizeUsernameInput, PHONE_VALIDATION_MESSAGE, USERNAME_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
+import { isValidPhone, isValidUsername, isValidEmailInput, isValidEmailFormat, sanitizeUsernameInput, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE, USERNAME_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { apiFetch } from "@/lib/api";
 import { getSystemSetting } from "@/lib/system-settings";
@@ -192,15 +192,46 @@ export function CreateEmployeeModal({
 
     const fd = new FormData(e.currentTarget);
     const joinDate = ((fd.get("joinDate") as string) ?? "").trim();
+    const dateOfBirth = ((fd.get("dateOfBirth") as string) ?? "").trim();
     const todayIso = formatLocalDateToIso(new Date());
-    if (joinDate && joinDate > todayIso) {
+
+    if (!dateOfBirth) {
+      setError("Date of birth is required.");
+      setSubmitting(false);
+      return;
+    }
+    if (dateOfBirth > todayIso) {
+      setError("Date of birth cannot be in the future.");
+      setSubmitting(false);
+      return;
+    }
+
+    if (!joinDate) {
+      setError("Join date is required.");
+      setSubmitting(false);
+      return;
+    }
+    if (joinDate > todayIso) {
       setError("Join date cannot be in the future.");
+      setSubmitting(false);
+      return;
+    }
+    if (joinDate < dateOfBirth) {
+      setError("Join date cannot be before date of birth.");
+      setSubmitting(false);
+      return;
+    }
+
+    const departmentId = ((fd.get("departmentId") as string) ?? "").trim();
+    if (!departmentId) {
+      setError("Department is required.");
+      setSubmitting(false);
       return;
     }
 
     setSubmitting(true);
 
-    const phoneRaw = ((fd.get("phone") as string) ?? "").trim();
+    const phoneRaw = sanitizePhoneInput(((fd.get("phone") as string) ?? "").trim());
     if (phoneRaw && !isValidPhone(phoneRaw)) {
       setError(PHONE_VALIDATION_MESSAGE);
       setSubmitting(false);
@@ -229,21 +260,26 @@ export function CreateEmployeeModal({
     if (supervisorRoleId) roleIds.push(supervisorRoleId);
     if (adminRoleId) roleIds.push(adminRoleId);
 
+    const readOptionalId = (name: string) => {
+      const value = ((fd.get(name) as string) ?? "").trim();
+      return value || null;
+    };
+
     const payload: Record<string, unknown> = {
       employeeCode: (fd.get("employeeCode") as string)?.trim() || "",
       firstName: fd.get("firstName"),
       middleName: fd.get("middleName") || null,
       lastName: fd.get("lastName"),
       email: ((fd.get("email") as string) ?? "").trim(),
-      phone: fd.get("phone") || null,
-      dateOfBirth: fd.get("dateOfBirth"),
+      phone: phoneRaw || null,
+      dateOfBirth,
       gender: fd.get("gender"),
-      joinDate: fd.get("joinDate"),
-      departmentId: fd.get("departmentId"),
-      businessUnitId: fd.get("businessUnitId") || null,
-      locationId: fd.get("locationId") || null,
-      gradeId: fd.get("gradeId") || null,
-      jobTitleId: fd.get("jobTitleId") || null,
+      joinDate,
+      departmentId,
+      businessUnitId: readOptionalId("businessUnitId"),
+      locationId: readOptionalId("locationId"),
+      gradeId: readOptionalId("gradeId"),
+      jobTitleId: readOptionalId("jobTitleId"),
       positionId: initialValues?.positionId || null,
     };
 
@@ -334,7 +370,7 @@ export function CreateEmployeeModal({
               defaultValue={initialValues?.email ?? ""}
               title={candidateId ? "Email is required for employee conversion." : "Optional. When set, must be a valid email (e.g. name@company.com)"}
               className={inputClass}
-              placeholder="john@openskyhrm.com"
+              placeholder="Optional — name@company.com"
               onChange={(e) => {
                 if (createLogin && !loginUsername) {
                   setLoginUsername(sanitizeUsernameInput(e.target.value.split("@")[0] ?? ""));
@@ -398,10 +434,15 @@ export function CreateEmployeeModal({
           </div>
         </div>
 
-        <div>
-          <label className={labelClass}>Phone</label>
-          <PhoneInput name="phone" defaultValue={initialValues?.phone ?? ""} className={inputClass} />
-        </div>
+          <div>
+            <label className={labelClass}>Phone</label>
+            <PhoneInput
+              name="phone"
+              defaultValue={initialValues?.phone ?? ""}
+              className={inputClass}
+              placeholder="0762535363"
+            />
+          </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
