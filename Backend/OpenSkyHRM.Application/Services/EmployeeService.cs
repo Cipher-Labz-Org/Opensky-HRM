@@ -283,7 +283,9 @@ public class EmployeeService : IEmployeeService
         InputValidators.ValidatePersonName(dto.FirstName, "First name");
         InputValidators.ValidatePersonName(dto.MiddleName, "Middle name", required: false);
         InputValidators.ValidatePersonName(dto.LastName, "Last name");
+        dto.Phone = InputValidators.NormalizePhone(dto.Phone);
         InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
+        InputValidators.ValidateEmployeeHireDates(dto.DateOfBirth, dto.JoinDate);
         InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
         InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
         InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
@@ -317,7 +319,10 @@ public class EmployeeService : IEmployeeService
             ? await _settings.GenerateNextEmployeeCodeAsync()
             : dto.EmployeeCode.Trim();
 
-        var resolvedEmail = EmployeeEmailHelper.NormalizeForSave(dto.Email);
+        dto.DateOfBirth = ToWallDate(dto.DateOfBirth);
+        dto.JoinDate = ToWallDate(dto.JoinDate);
+
+        var resolvedEmail = EmployeeEmailHelper.ResolveForCreate(code, dto.Email);
 
         await EmployeeUniqueness.ValidateForCreateAsync(_db, code, resolvedEmail);
 
@@ -330,7 +335,7 @@ public class EmployeeService : IEmployeeService
             Email = resolvedEmail,
             Phone = dto.Phone,
             DateOfBirth = dto.DateOfBirth,
-            Gender = Enum.Parse<Gender>(dto.Gender, true),
+            Gender = ParseGender(dto.Gender),
             MaritalStatus = dto.MaritalStatus,
             Nationality = dto.Nationality,
             Religion = dto.Religion,
@@ -384,7 +389,14 @@ public class EmployeeService : IEmployeeService
         _db.Employees.Add(employee);
         await _db.SaveChangesAsync();
 
-        await _lifecycleService.RecordJoinedAsync(employee);
+        try
+        {
+            await _lifecycleService.RecordJoinedAsync(employee);
+        }
+        catch
+        {
+            // Employee record is saved; lifecycle timeline can be backfilled later.
+        }
 
         try
         {
@@ -826,4 +838,25 @@ public class EmployeeService : IEmployeeService
         JobTitleId = e.JobTitleId,
         ManagerId = e.ManagerId,
     };
+
+    private static Gender ParseGender(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException("Gender is required.");
+
+        if (!Enum.TryParse<Gender>(value.Trim(), ignoreCase: true, out var gender)
+            || !Enum.IsDefined(typeof(Gender), gender))
+        {
+            throw new InvalidOperationException("Gender must be Male, Female, or Other.");
+        }
+
+        return gender;
+    }
+
+    private static DateTime ToWallDate(DateTime value)
+    {
+        if (value == default)
+            return value;
+        return DateTime.SpecifyKind(value.Date, DateTimeKind.Unspecified);
+    }
 }

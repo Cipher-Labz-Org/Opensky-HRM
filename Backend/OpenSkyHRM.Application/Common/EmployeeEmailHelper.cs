@@ -20,4 +20,21 @@ public static class EmployeeEmailHelper
         if (string.IsNullOrEmpty(trimmed) || IsPlaceholder(trimmed)) return null;
         return trimmed;
     }
+
+    /// <summary>
+    /// Work email for new employees. When the user leaves email blank, stores a unique
+    /// internal placeholder so older databases where Email is NOT NULL still accept the row.
+    /// UI hides placeholders via <see cref="ToDisplayEmail"/>.
+    /// </summary>
+    public static string ResolveForCreate(string employeeCode, string? email)
+    {
+        var normalized = NormalizeForSave(email);
+        if (!string.IsNullOrEmpty(normalized)) return normalized;
+
+        var code = employeeCode.Trim();
+        if (string.IsNullOrEmpty(code))
+            throw new InvalidOperationException("Employee code is required.");
+
+        return $"{code.ToLowerInvariant()}{PlaceholderDomain}";
+    }
 }
