@@ -61,6 +61,76 @@ const kpiTileClass =
   "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
 const panelClass = "rounded-2xl border border-slate-200 bg-white shadow-sm";
 
+function isNotFoundError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message.toLowerCase() : "";
+  return msg.includes("not found") || msg.includes("(404)");
+}
+
+async function fetchUsersForPage(
+  params: URLSearchParams,
+  pageSize: number,
+): Promise<{ items: UserItem[]; totalCount: number }> {
+  try {
+    const paged = await apiFetch<{ items?: UserItem[]; totalCount?: number } | UserItem[]>(`/api/user?${params}`);
+    if (Array.isArray(paged)) {
+      return { items: paged, totalCount: paged.length };
+    }
+    return {
+      items: paged.items ?? [],
+      totalCount: paged.totalCount ?? paged.items?.length ?? 0,
+    };
+  } catch (err) {
+    if (!isNotFoundError(err)) throw err;
+  }
+
+  const legacy = await apiFetch<UserItem[] | { items?: UserItem[] }>("/api/user");
+  const all = Array.isArray(legacy) ? legacy : legacy.items ?? [];
+  const search = (params.get("search") ?? "").trim().toLowerCase();
+  const role = params.get("role") ?? "";
+  const isActive = params.get("isActive");
+  const page = Math.max(1, Number(params.get("page") ?? "1"));
+
+  let filtered = all;
+  if (search) {
+    filtered = filtered.filter(
+      (u) =>
+        u.username.toLowerCase().includes(search)
+        || u.email.toLowerCase().includes(search)
+        || (u.employeeName ?? "").toLowerCase().includes(search),
+    );
+  }
+  if (role) {
+    filtered = filtered.filter((u) => u.roles.includes(role));
+  }
+  if (isActive === "true") filtered = filtered.filter((u) => u.isActive);
+  if (isActive === "false") filtered = filtered.filter((u) => !u.isActive);
+
+  const start = (page - 1) * pageSize;
+  return {
+    items: filtered.slice(start, start + pageSize),
+    totalCount: filtered.length,
+  };
+}
+
+async function fetchUserSummaryFallback(): Promise<{
+  totalUsers: number;
+  activeUsers: number;
+  linkedToEmployee: number;
+}> {
+  try {
+    return await apiFetch<{ totalUsers: number; activeUsers: number; linkedToEmployee: number }>("/api/user/summary");
+  } catch (err) {
+    if (!isNotFoundError(err)) throw err;
+    const legacy = await apiFetch<UserItem[] | { items?: UserItem[] }>("/api/user");
+    const all = Array.isArray(legacy) ? legacy : legacy.items ?? [];
+    return {
+      totalUsers: all.length,
+      activeUsers: all.filter((u) => u.isActive).length,
+      linkedToEmployee: all.filter((u) => u.employeeId).length,
+    };
+  }
+}
+
 export default function UserManagementPage() {
   const { isAdmin } = useAuth();
   const [users, setUsers] = useState<UserItem[]>([]);
@@ -106,9 +176,9 @@ export default function UserManagementPage() {
       if (filterStatus === "active") params.set("isActive", "true");
       if (filterStatus === "disabled") params.set("isActive", "false");
 
-      const [u, summary, r, loc, bu, gr, jt] = await Promise.all([
-        apiFetch<{ items: UserItem[]; totalCount: number }>(`/api/user?${params}`),
-        apiFetch<{ totalUsers: number; activeUsers: number; linkedToEmployee: number }>("/api/user/summary"),
+      const u = await fetchUsersForPage(params, PAGE_SIZE);
+      const [summary, r, loc, bu, gr, jt] = await Promise.all([
+        fetchUserSummaryFallback(),
         apiFetch<RoleItem[]>("/api/auth/roles"),
         apiFetch<OrgLocation[]>("/api/organization/locations").catch(() => [] as OrgLocation[]),
         apiFetch<OrgLocation[]>("/api/organization/business-units").catch(() => [] as OrgLocation[]),
