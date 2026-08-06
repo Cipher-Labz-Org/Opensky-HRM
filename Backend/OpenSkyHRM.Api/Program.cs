@@ -233,9 +233,25 @@ builder.Services.AddCors(options =>
                 if (corsOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase)) return true;
                 if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)) return false;
                 var host = uri.Host;
-                return host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
+                if (host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
                     || host.Equals("openskyhrm.com", StringComparison.OrdinalIgnoreCase)
-                    || host.EndsWith(".openskyhrm.com", StringComparison.OrdinalIgnoreCase);
+                    || host.EndsWith(".openskyhrm.com", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                // Local phone / LAN testing (Expo Go, device browsers).
+                if (System.Net.IPAddress.TryParse(host, out var ip)
+                    && System.Net.IPAddress.IsLoopback(ip) == false
+                    && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                {
+                    var bytes = ip.GetAddressBytes();
+                    var isPrivate =
+                        bytes[0] == 10
+                        || (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+                        || (bytes[0] == 192 && bytes[1] == 168);
+                    if (isPrivate) return true;
+                }
+
+                return false;
             })
             .AllowAnyHeader()
             .AllowAnyMethod());

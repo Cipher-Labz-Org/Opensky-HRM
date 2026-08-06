@@ -118,6 +118,14 @@ public class UserListDto
     public List<Guid> AssignedJobTitleIds { get; set; } = new();
 }
 
+/// <summary>Global user totals for User Management KPI tiles (not page/filter scoped).</summary>
+public class UserSummaryDto
+{
+    public int TotalUsers { get; set; }
+    public int ActiveUsers { get; set; }
+    public int LinkedToEmployee { get; set; }
+}
+
 public class SecurityRoleDto
 {
     public Guid Id { get; set; }

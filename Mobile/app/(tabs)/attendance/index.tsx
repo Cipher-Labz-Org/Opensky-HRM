@@ -13,7 +13,6 @@ import {
   attendanceStatusToIcon,
   attendanceStatusToIconBg,
   formatAttendanceMeta,
-  useAttendancePunch,
   useTodayAttendanceRecord,
 } from "@/features/attendance";
 import { getAttendanceRecords, getAttendanceSummary } from "@/api/endpoints/attendance";
@@ -24,8 +23,6 @@ import { colors } from "@/theme/colors";
 
 export default function AttendanceScreen() {
   const employeeId = getEmployeeId(useAuthStore((s) => s.user));
-  const { punch, punching } = useAttendancePunch();
-
   const now = new Date();
   const from = startOfMonthIso(now);
   const to = endOfMonthIso(now);
@@ -87,14 +84,16 @@ export default function AttendanceScreen() {
       >
         <AttendanceTopSection
           title="Attendance"
-          subtitle="Punch in/out and track this month's presence"
+          subtitle="Scan the business unit QR to punch in or out"
           monthLabel={monthLabel}
         >
           <PunchActionCard
             todayRecord={todayRecord}
-            punching={punching}
-            onPunchIn={() => punch("in")}
-            onPunchOut={() => punch("out")}
+            onPunched={() => {
+              void todayRecordQuery.refetch();
+              void recordsQuery.refetch();
+              void summaryQuery.refetch();
+            }}
           />
 
           {summaryQuery.data ? (
@@ -131,7 +130,7 @@ export default function AttendanceScreen() {
             >
               <EmptyState
                 title="No attendance records"
-                description="Punch in above to start tracking your attendance."
+                description="Scan a business unit QR above to start tracking your attendance."
               />
             </View>
           )}

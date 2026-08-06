@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Application.Options;
 using OpenSkyHRM.Api.Services.Storage;
@@ -76,23 +77,6 @@ public class MobileController : ControllerBase
             FileStoragePathHelper.SanitizeSegment(_fileStorage.ResolvedCompanyFolder));
     }
 
-    private string ResolvePublicApiBaseUrl()
-    {
-        var configured = (_config["Mobile:PublicApiBaseUrl"] ?? "").Trim();
-        if (!string.IsNullOrEmpty(configured))
-        {
-            return configured.TrimEnd('/');
-        }
-
-        var forwardedHost = Request.Headers["X-Forwarded-Host"].FirstOrDefault();
-        var forwardedProto = Request.Headers["X-Forwarded-Proto"].FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(forwardedHost))
-        {
-            var scheme = string.IsNullOrWhiteSpace(forwardedProto) ? Request.Scheme : forwardedProto;
-            return $"{scheme}://{forwardedHost}".TrimEnd('/');
-        }
-
-        var request = HttpContext.Request;
-        return $"{request.Scheme}://{request.Host.Value}".TrimEnd('/');
-    }
+    private string ResolvePublicApiBaseUrl() =>
+        PublicApiUrlResolver.Resolve(_config, Request);
 }

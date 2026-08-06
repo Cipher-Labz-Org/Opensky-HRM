@@ -14,23 +14,34 @@ interface LoginScreenLayoutProps {
 
 export function LoginScreenLayout({ children, compact = true }: LoginScreenLayoutProps) {
   return (
-    <View className="flex-1" style={{ backgroundColor: LOGIN_THEME.background }}>
+    <View style={{ flex: 1, backgroundColor: LOGIN_THEME.background }}>
       <LoginWaveBackground />
-      <SafeAreaView className="flex-1" edges={["top", "left", "right", "bottom"]}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right", "bottom"]}>
         <KeyboardAvoidingView
-          className="flex-1"
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 4 : 0}
         >
           <ScrollView
-            className="flex-1"
+            style={{ flex: 1 }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
+            contentContainerStyle={{
+              flexGrow: 1,
+              paddingBottom: 32,
+              paddingHorizontal: 16,
+            }}
           >
             {compact ? <LoginCompactHeader /> : <LoginBrandPanel />}
-            <View className="mt-2 px-4">{children}</View>
-            <Text className="mt-4 px-4 text-center text-xs" style={{ color: LOGIN_THEME.muted }}>
+            <View style={{ marginTop: 8, alignSelf: "stretch", width: "100%" }}>{children}</View>
+            <Text
+              style={{
+                marginTop: 16,
+                textAlign: "center",
+                fontSize: 12,
+                color: LOGIN_THEME.muted,
+              }}
+            >
               © 2026 OpenSky HRM. All rights reserved.
             </Text>
           </ScrollView>

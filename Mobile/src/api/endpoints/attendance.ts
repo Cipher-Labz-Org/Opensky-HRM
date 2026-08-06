@@ -4,6 +4,7 @@ import type {
   AttendanceSummary,
   PunchRequest,
   PagedAttendanceResult,
+  ValidateAttendanceQrResult,
 } from "@/types/attendance";
 
 export async function punchAttendance(body: PunchRequest): Promise<AttendanceRecord> {
@@ -11,7 +12,7 @@ export async function punchAttendance(body: PunchRequest): Promise<AttendanceRec
     method: "POST",
     body: JSON.stringify({
       ...body,
-      source: body.source ?? "Mobile",
+      source: body.source ?? "Mobile QR",
     }),
   });
 }
@@ -44,4 +45,14 @@ export async function getAttendanceSummary(params: {
     to: params.to,
   });
   return apiFetch<AttendanceSummary>(`/api/Attendance/summary?${search.toString()}`);
+}
+
+export async function validateAttendanceQr(input: {
+  token?: string;
+  payload?: string;
+}): Promise<ValidateAttendanceQrResult> {
+  return apiFetch<ValidateAttendanceQrResult>("/api/Attendance/qr-validate", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }

@@ -14,7 +14,7 @@ export function useTodayAttendanceRecord(employeeId: string | null | undefined) 
         to: today,
         pageSize: 10,
       });
-      return findTodayRecord(result.items);
+      return findTodayRecord(result.items) ?? null;
     },
     enabled: !!employeeId,
     refetchInterval: 60_000,

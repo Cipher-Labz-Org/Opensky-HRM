@@ -17,6 +17,7 @@ public interface IAuthService
     Task ResetPasswordAsync(Guid id, string newPassword);
     Task<List<UserListDto>> GetUsersAsync();
     Task<PagedResult<UserListDto>> GetUsersPagedAsync(int page = 1, int pageSize = 20, string? search = null, string? role = null, bool? isActive = null);
+    Task<UserSummaryDto> GetUserSummaryAsync();
     Task<UserListDto?> GetUserByIdAsync(Guid id);
     Task<List<SecurityRoleDto>> GetRolesAsync();
     Task<SecurityRoleDto> CreateRoleAsync(CreateRoleDto dto);

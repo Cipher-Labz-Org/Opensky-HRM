@@ -122,7 +122,7 @@ export default function PayslipsScreen() {
 
           title="Payslips"
 
-          subtitle="View and download your salary statements"
+          subtitle="View your salary statements"
 
           summary={
 

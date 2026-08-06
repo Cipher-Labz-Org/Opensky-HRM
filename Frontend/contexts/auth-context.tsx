@@ -106,6 +106,26 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 const AUTH_TOKEN_KEY = "auth_token";
+/** Rotates on each login; stable across refresh within the same browser session. */
+export const AUTH_VISIT_ID_KEY = "opensky:auth-visit-id";
+
+function ensureAuthVisitId() {
+  if (typeof window === "undefined") return;
+  if (!sessionStorage.getItem(AUTH_VISIT_ID_KEY)) {
+    sessionStorage.setItem(
+      AUTH_VISIT_ID_KEY,
+      `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+    );
+  }
+}
+
+function rotateAuthVisitId() {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(
+    AUTH_VISIT_ID_KEY,
+    `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+  );
+}
 
 function readStoredToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -187,6 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then((profile) => {
         if (bootstrapId !== authBootstrapId.current) return;
         if (profile) {
+          ensureAuthVisitId();
           setUser(profile);
         } else {
           clearAuth();
@@ -257,12 +278,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Invalid response from server.");
     }
     persistAuthToken(data.token, rememberMe);
+    rotateAuthVisitId();
     setToken(data.token);
     setUser(data.user);
     return data.user;
   };
 
   const logout = () => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("opensky:before-logout"));
+      sessionStorage.removeItem(AUTH_VISIT_ID_KEY);
+    }
     clearAuth();
     window.location.href = "/login";
   };

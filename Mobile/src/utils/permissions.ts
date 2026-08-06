@@ -7,7 +7,7 @@ export function hasPermission(
   scopes: string[] = ["Own", "Team", "All"]
 ): boolean {
   if (!user) return false;
-  if (user.roles.includes("ADMIN")) return true;
+  if (user.roles.some((role) => role.toUpperCase() === "ADMIN")) return true;
   return user.permissions.some(
     (p: Permission) =>
       p.module === module && p.action === action && scopes.includes(p.scope)

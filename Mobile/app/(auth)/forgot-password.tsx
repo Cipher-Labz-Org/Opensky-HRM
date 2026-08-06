@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert } from "react-native";
+import { Alert, View } from "react-native";
 import { router } from "expo-router";
 import { Field } from "@/components/ui";
 import {
@@ -79,7 +79,6 @@ export default function ForgotPasswordScreen() {
               onChangeText={setEmployeeCode}
             />
             <Field label="Full name" value={employeeName} onChangeText={setEmployeeName} />
-            <AuthPrimaryButton title="Verify" loading={loading} onPress={() => void onVerify()} />
           </>
         ) : (
           <>
@@ -89,18 +88,24 @@ export default function ForgotPasswordScreen() {
               secureTextEntry
               value={confirmPassword}
               onChangeText={setConfirmPassword}
-            />
-            <AuthPrimaryButton
-              title="Reset password"
-              icon="checkmark-circle-outline"
-              loading={loading}
-              onPress={() => void onReset()}
+              returnKeyType="go"
+              onSubmitEditing={() => void onReset()}
             />
           </>
         )}
-
-        <AuthTextLink title="Back to sign in" onPress={() => router.replace("/(auth)/login")} />
       </AuthFormCard>
+
+      {/* Outside the form card so Android never paints the action invisible */}
+      <View style={{ marginTop: 4, alignSelf: "stretch", width: "100%", gap: 14 }}>
+        <AuthPrimaryButton
+          title={step === "verify" ? "Verify" : "Reset password"}
+          icon={step === "verify" ? "checkmark-outline" : "checkmark-circle-outline"}
+          loading={loading}
+          disabled={loading}
+          onPress={() => void (step === "verify" ? onVerify() : onReset())}
+        />
+        <AuthTextLink title="Back to sign in" onPress={() => router.replace("/(auth)/login")} />
+      </View>
     </AuthScreen>
   );
 }

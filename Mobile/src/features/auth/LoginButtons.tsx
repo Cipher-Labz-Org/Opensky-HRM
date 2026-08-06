@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Text, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LOGIN_THEME } from "@/theme/loginTheme";
 
@@ -14,6 +14,7 @@ interface LoginPrimaryButtonProps {
   variant?: "sky" | "green";
 }
 
+/** Re-export compatible API — implementation lives with stretch-safe TouchableOpacity. */
 export function LoginPrimaryButton({
   title,
   loading,
@@ -22,39 +23,46 @@ export function LoginPrimaryButton({
   icon,
   variant = "sky",
 }: LoginPrimaryButtonProps) {
-  const backgroundColor = variant === "green" ? LOGIN_THEME.green : LOGIN_THEME.skyBlue;
+  const backgroundColor = variant === "green" ? "#76B82A" : "#28A9E0";
+  const borderColor = variant === "green" ? "#5A8F1F" : "#1E8AB8";
   const isLoading = Boolean(loading);
-  const isInactive = Boolean(disabled) && !isLoading;
+  const isDisabled = Boolean(disabled) || isLoading;
 
   return (
-    <Pressable
+    <TouchableOpacity
+      activeOpacity={0.85}
       onPress={onPress}
-      disabled={isLoading}
+      disabled={isDisabled}
       accessibilityRole="button"
-      accessibilityState={{ disabled: isLoading }}
-      style={({ pressed }) => ({
-        minHeight: 52,
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: isDisabled }}
+      style={{
+        alignSelf: "stretch",
+        minHeight: 54,
         borderRadius: 12,
-        backgroundColor: isInactive ? "#7EC4E8" : backgroundColor,
-        opacity: pressed && !isLoading ? 0.92 : 1,
-        shadowColor: backgroundColor,
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: isInactive ? 0.15 : 0.35,
-        shadowRadius: 10,
-        elevation: isInactive ? 2 : 4,
-      })}
+        backgroundColor,
+        borderWidth: 2,
+        borderColor,
+        opacity: isDisabled ? 0.65 : 1,
+        justifyContent: "center",
+        alignItems: "center",
+        flexDirection: "row",
+        paddingHorizontal: 16,
+        ...Platform.select({
+          android: { elevation: 0 },
+          default: {},
+        }),
+      }}
     >
-      <View className="min-h-[52px] flex-row items-center justify-center px-4">
-        {isLoading ? (
-          <ActivityIndicator color="#ffffff" />
-        ) : (
-          <>
-            {icon ? <Ionicons name={icon} size={18} color="#ffffff" style={{ marginRight: 8 }} /> : null}
-            <Text style={{ fontSize: 16, fontWeight: "700", color: "#ffffff" }}>{title}</Text>
-          </>
-        )}
-      </View>
-    </Pressable>
+      {isLoading ? (
+        <ActivityIndicator color="#FFFFFF" />
+      ) : (
+        <>
+          {icon ? <Ionicons name={icon} size={20} color="#FFFFFF" style={{ marginRight: 8 }} /> : null}
+          <Text style={{ fontSize: 17, fontWeight: "800", color: "#FFFFFF" }}>{title}</Text>
+        </>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -66,21 +74,26 @@ interface LoginSecondaryButtonProps {
 
 export function LoginSecondaryButton({ title, onPress, disabled }: LoginSecondaryButtonProps) {
   return (
-    <Pressable
+    <TouchableOpacity
+      activeOpacity={0.8}
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => ({
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      style={{
+        alignSelf: "stretch",
         minHeight: 48,
         borderRadius: 12,
         backgroundColor: LOGIN_THEME.fieldBg,
         borderWidth: 1,
         borderColor: LOGIN_THEME.border,
-        opacity: pressed || disabled ? 0.7 : 1,
-      })}
+        opacity: disabled ? 0.7 : 1,
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: 16,
+      }}
     >
-      <View className="min-h-[48px] items-center justify-center px-4">
-        <Text style={{ fontSize: 15, fontWeight: "600", color: LOGIN_THEME.navy }}>{title}</Text>
-      </View>
-    </Pressable>
+      <Text style={{ fontSize: 15, fontWeight: "600", color: LOGIN_THEME.navy }}>{title}</Text>
+    </TouchableOpacity>
   );
 }

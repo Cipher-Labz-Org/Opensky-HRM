@@ -5,7 +5,8 @@ import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
-import { FormSelect, TablePagination, FormErrorAlert, UsernameInput, EmailInput, type FormSelectOption } from "@/components/ui";
+import { FormSelect, TablePagination, FormErrorAlert, FlashMessageBanner, UsernameInput, EmailInput, type FormSelectOption, type FlashMessage } from "@/components/ui";
+import { SUCCESS_BANNER_DISMISS_MS } from "@/lib/use-auto-dismiss";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { UserAdvancedPermissionsPanel } from "@/components/user-management/UserAdvancedPermissionsPanel";
 import { useAuth } from "@/contexts/auth-context";
@@ -92,6 +93,7 @@ export default function UserManagementPage() {
   const [activeSection, setActiveSection] = useState<"users" | "roles">("users");
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [userSummary, setUserSummary] = useState({ totalUsers: 0, activeUsers: 0, linkedToEmployee: 0 });
   const PAGE_SIZE = 10;
 
   async function loadData() {
@@ -104,8 +106,9 @@ export default function UserManagementPage() {
       if (filterStatus === "active") params.set("isActive", "true");
       if (filterStatus === "disabled") params.set("isActive", "false");
 
-      const [u, r, loc, bu, gr, jt] = await Promise.all([
+      const [u, summary, r, loc, bu, gr, jt] = await Promise.all([
         apiFetch<{ items: UserItem[]; totalCount: number }>(`/api/user?${params}`),
+        apiFetch<{ totalUsers: number; activeUsers: number; linkedToEmployee: number }>("/api/user/summary"),
         apiFetch<RoleItem[]>("/api/auth/roles"),
         apiFetch<OrgLocation[]>("/api/organization/locations").catch(() => [] as OrgLocation[]),
         apiFetch<OrgLocation[]>("/api/organization/business-units").catch(() => [] as OrgLocation[]),
@@ -114,6 +117,11 @@ export default function UserManagementPage() {
       ]);
       setUsers(u.items ?? []);
       setTotalCount(u.totalCount ?? 0);
+      setUserSummary({
+        totalUsers: summary.totalUsers ?? 0,
+        activeUsers: summary.activeUsers ?? 0,
+        linkedToEmployee: summary.linkedToEmployee ?? 0,
+      });
       setRoles(r);
       setLocations(loc);
       setBusinessUnits(bu);
@@ -126,6 +134,11 @@ export default function UserManagementPage() {
   }
 
   useEffect(() => { void loadData(); }, [page, searchFilter.applied, filterRole, filterStatus]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    if (page > maxPage) setPage(maxPage);
+  }, [totalCount, page]);
 
   function openCreate() {
     setEditUser(null);
@@ -283,17 +296,14 @@ export default function UserManagementPage() {
     [roles]
   );
 
-  const activeUserCount = useMemo(() => users.filter((u) => u.isActive).length, [users]);
-  const linkedEmployeeCount = useMemo(() => users.filter((u) => u.employeeId).length, [users]);
-
   const kpiStats = useMemo(
     () => [
-      { label: "Total users", value: users.length,},
-      { label: "Active", value: activeUserCount, },
-      { label: "Roles defined", value: roles.length, },
-      { label: "Linked to employee", value: linkedEmployeeCount, },
+      { label: "Total users", value: userSummary.totalUsers },
+      { label: "Active", value: userSummary.activeUsers },
+      { label: "Roles defined", value: roles.length },
+      { label: "Linked to employee", value: userSummary.linkedToEmployee },
     ],
-    [users.length, activeUserCount, roles.length, linkedEmployeeCount]
+    [userSummary.totalUsers, userSummary.activeUsers, userSummary.linkedToEmployee, roles.length]
   );
 
   const inputClass =
@@ -338,7 +348,7 @@ export default function UserManagementPage() {
         </div>
 
         {activeSection === "roles" && isAdmin ? (
-          <RolesPermissionsSection roles={roles} onSaved={loadData} />
+          <RolesPermissionsSection roles={roles} onSaved={() => void loadData()} />
         ) : loading ? (
           <div className={`flex items-center justify-center py-20 ${panelClass}`}>
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
@@ -355,7 +365,7 @@ export default function UserManagementPage() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-800">User accounts</h2>
-                <p className="text-xs text-slate-500">{users.length} user{users.length !== 1 ? "s" : ""} registered</p>
+                <p className="text-xs text-slate-500">{userSummary.totalUsers} user{userSummary.totalUsers !== 1 ? "s" : ""} registered</p>
               </div>
               {isAdmin && (
                 <Button type="button" onClick={openCreate}>
@@ -652,6 +662,7 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   const [permissions, setPermissions] = useState<Record<string, Record<string, { enabled: boolean; scope: string }>>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState<FlashMessage | null>(null);
 
   useEffect(() => {
     apiFetch<{ module: string; label: string }[]>("/api/auth/roles/available-modules")
@@ -660,6 +671,11 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   }, []);
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
+
+  useEffect(() => {
+    setSuccessMsg(null);
+    setError("");
+  }, [selectedRoleId]);
 
   useEffect(() => {
     if (!selectedRole) {
@@ -703,6 +719,7 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
   async function handleSave() {
     if (!selectedRoleId) return;
     setError("");
+    setSuccessMsg(null);
     setSaving(true);
     const perms: { module: string; action: string; scope: string }[] = [];
     for (const [mod, acts] of Object.entries(permissions)) {
@@ -715,11 +732,16 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
         method: "PUT",
         body: JSON.stringify({ permissions: perms }),
       });
-      await onSaved();
+      setSuccessMsg({
+        type: "ok",
+        text: `Permissions saved successfully for ${selectedRole?.name ?? "role"}.`,
+      });
+      onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save permissions");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   return (
@@ -761,6 +783,12 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
             <p className="text-sm text-slate-400 py-8">Select a role to configure its permissions.</p>
           ) : (
             <>
+              <FlashMessageBanner
+                msg={successMsg}
+                onClear={() => setSuccessMsg(null)}
+                dismissMs={SUCCESS_BANNER_DISMISS_MS}
+                className="mb-4"
+              />
               <FormErrorAlert
                 message={error}
                 onDismiss={() => setError("")}
@@ -809,7 +837,7 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
                 </table>
               </div>
               <div className="mt-6 flex justify-end">
-                <Button type="button" onClick={handleSave} disabled={saving}>
+                <Button type="button" onClick={() => void handleSave()} disabled={saving}>
                   {saving ? "Saving…" : "Save permissions"}
                 </Button>
               </div>

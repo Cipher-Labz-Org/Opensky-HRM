@@ -20,13 +20,22 @@ export async function getSecureItem(key: string): Promise<string | null> {
 }
 
 export async function setSecureItem(key: string, value: string): Promise<void> {
-  if (!canUseSecureStore()) {
+  try {
+    if (!canUseSecureStore()) {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(key, value);
+      }
+      return;
+    }
+    await SecureStore.setItemAsync(key, value);
+  } catch {
+    // Fallback if SecureStore is unavailable on some Android devices.
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(key, value);
+      return;
     }
-    return;
+    throw new Error("Could not save your session on this device. Please try again.");
   }
-  await SecureStore.setItemAsync(key, value);
 }
 
 export async function deleteSecureItem(key: string): Promise<void> {

@@ -28,6 +28,7 @@ import {
 } from "@/lib/company-branding";
 import { normalizeCompanyLogoUpload, pdfUrlToPngFile } from "@/lib/render-pdf-logo";
 import { MobileConnectionQr } from "@/components/settings/MobileConnectionQr";
+import { BusinessUnitAttendanceQrModal } from "@/components/settings/BusinessUnitAttendanceQrModal";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
@@ -49,6 +50,7 @@ export default function SettingsPage() {
   const { isAdmin } = useAuth();
   const searchParams = useSearchParams();
   const [editBU, setEditBU] = useState(false);
+  const [buQrItem, setBuQrItem] = useState<{ id: string; name: string; code: string } | null>(null);
   const [editGrades, setEditGrades] = useState(false);
   const [editJobs, setEditJobs] = useState(false);
   const [editDocs, setEditDocs] = useState(false);
@@ -668,89 +670,64 @@ export default function SettingsPage() {
 
         <FlashMessageBanner msg={logoFlash} onClear={() => setLogoFlash(null)} className="mt-4" />
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
-          <div className="flex flex-col gap-4">
-            <div className="overflow-hidden rounded-2xl bg-gradient-to-b from-[#5ba4e5] to-[#3a86ca] px-6 py-8 text-center shadow-inner">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-white/80">Sign-in preview</p>
-              <p className="mb-4 text-[11px] text-white/70">Drag to move · scroll to zoom</p>
-              <div
-                className="mx-auto h-[104px] w-[104px] cursor-grab touch-none overflow-hidden rounded-full bg-white shadow-[0_12px_32px_rgba(15,76,120,0.25)] ring-2 ring-white/70 active:cursor-grabbing"
-                onPointerDown={(e) => {
-                  if (!companyLogoUrl) return;
-                  logoDragRef.current = {
-                    startX: e.clientX,
-                    startY: e.clientY,
-                    startOffsetX: logoLoginOffsetX,
-                    startOffsetY: logoLoginOffsetY,
-                  };
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                  if (!logoDragRef.current) return;
-                  const dx = e.clientX - logoDragRef.current.startX;
-                  const dy = e.clientY - logoDragRef.current.startY;
-                  setLogoLoginOffsetX(clampLogoOffset(logoDragRef.current.startOffsetX + dx));
-                  setLogoLoginOffsetY(clampLogoOffset(logoDragRef.current.startOffsetY + dy));
-                }}
-                onPointerUp={() => {
-                  logoDragRef.current = null;
-                }}
-                onPointerCancel={() => {
-                  logoDragRef.current = null;
-                }}
-                onWheel={(e) => {
-                  if (!companyLogoUrl) return;
-                  e.preventDefault();
-                  setLogoLoginScale((s) => clampLogoScale(s + (e.deltaY > 0 ? -5 : 5)));
-                }}
-              >
-                {companyLogoUrl ? (
-                  <CompanyLogoDisplay
-                    src={resolveCompanyLogoSrc(companyLogoUrl)}
-                    alt="Login logo preview"
-                    fit="circle"
-                    scale={logoLoginScale}
-                    offsetX={logoLoginOffsetX}
-                    offsetY={logoLoginOffsetY}
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center rounded-full bg-slate-100 text-xs text-slate-400">
-                    No logo
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white/80 px-6 py-8 shadow-inner">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Document preview</p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(240px,300px)_1fr] lg:items-start">
+          <div className="overflow-hidden rounded-2xl bg-gradient-to-b from-[#5ba4e5] to-[#3a86ca] px-6 py-8 text-center shadow-inner">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-white/80">Sign-in preview</p>
+            <p className="mb-4 text-[11px] text-white/70">Drag to move · scroll to zoom</p>
+            <div
+              className="mx-auto h-[104px] w-[104px] cursor-grab touch-none overflow-hidden rounded-full bg-white shadow-[0_12px_32px_rgba(15,76,120,0.25)] ring-2 ring-white/70 active:cursor-grabbing"
+              onPointerDown={(e) => {
+                if (!companyLogoUrl) return;
+                logoDragRef.current = {
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  startOffsetX: logoLoginOffsetX,
+                  startOffsetY: logoLoginOffsetY,
+                };
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                if (!logoDragRef.current) return;
+                const dx = e.clientX - logoDragRef.current.startX;
+                const dy = e.clientY - logoDragRef.current.startY;
+                setLogoLoginOffsetX(clampLogoOffset(logoDragRef.current.startOffsetX + dx));
+                setLogoLoginOffsetY(clampLogoOffset(logoDragRef.current.startOffsetY + dy));
+              }}
+              onPointerUp={() => {
+                logoDragRef.current = null;
+              }}
+              onPointerCancel={() => {
+                logoDragRef.current = null;
+              }}
+              onWheel={(e) => {
+                if (!companyLogoUrl) return;
+                e.preventDefault();
+                setLogoLoginScale((s) => clampLogoScale(s + (e.deltaY > 0 ? -5 : 5)));
+              }}
+            >
               {companyLogoUrl ? (
-                <div className="flex h-28 w-full max-w-full items-center justify-center overflow-hidden">
-                  <CompanyLogoDisplay
-                    src={resolveCompanyLogoSrc(companyLogoUrl)}
-                    alt="Company logo preview"
-                    className="max-h-28 max-w-full object-contain"
-                    pdfClassName="h-36 w-full min-w-[10rem] border-0 bg-white"
-                  />
-                </div>
+                <CompanyLogoDisplay
+                  src={resolveCompanyLogoSrc(companyLogoUrl)}
+                  alt="Login logo preview"
+                  fit="circle"
+                  scale={logoLoginScale}
+                  offsetX={logoLoginOffsetX}
+                  offsetY={logoLoginOffsetY}
+                />
               ) : (
-                <div className="flex flex-col items-center gap-3 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/10 to-rose-500/10 text-slate-400">
-                    <svg className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth={1.25} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-                    </svg>
-                  </div>
-                  <p className="text-sm font-medium text-slate-600">No logo yet</p>
+                <div className="flex h-full w-full items-center justify-center rounded-full bg-slate-100 text-xs text-slate-400">
+                  No logo
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4">
             {companyLogoUrl ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h4 className="text-sm font-semibold text-slate-900">Edit sign-in display</h4>
                 <p className="mt-1 text-xs text-[var(--text-muted)]">
-                  Wide logos are auto-centered in a square for the circle. Drag the preview, scroll to zoom, then save.
+                  Drag the preview, use the sliders, then save.
                 </p>
 
                 <div className="mt-5 space-y-5">
@@ -853,7 +830,7 @@ export default function SettingsPage() {
               </div>
             ) : null}
 
-            <div className="flex flex-col gap-2 sm:max-w-xs">
+            <div className="flex flex-col gap-3">
               <input
                 ref={logoInputRef}
                 type="file"
@@ -863,23 +840,25 @@ export default function SettingsPage() {
                   if (e.target.files?.[0]) handleLogoUpload(e.target.files[0]);
                 }}
               />
-              <button
-                type="button"
-                onClick={() => logoInputRef.current?.click()}
-                disabled={logoUploading}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-[#2B7DE9] hover:text-[#2B7DE9] disabled:opacity-60"
-              >
-                {logoUploading ? "Uploading…" : companyLogoUrl ? (isPdfLogoUrl(companyLogoUrl) ? "Replace PDF logo" : "Replace logo") : "Upload logo"}
-              </button>
-              {companyLogoUrl ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
                 <button
                   type="button"
-                  onClick={handleLogoRemove}
-                  className="w-full rounded-xl border border-red-100 bg-red-50/80 px-4 py-3 text-sm font-semibold text-red-600 transition hover:border-red-200 hover:bg-red-50"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={logoUploading}
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-[#2B7DE9] hover:text-[#2B7DE9] disabled:opacity-60"
                 >
-                  Remove logo
+                  {logoUploading ? "Uploading…" : companyLogoUrl ? (isPdfLogoUrl(companyLogoUrl) ? "Replace PDF logo" : "Replace logo") : "Upload logo"}
                 </button>
-              ) : null}
+                {companyLogoUrl ? (
+                  <button
+                    type="button"
+                    onClick={handleLogoRemove}
+                    className="flex-1 rounded-xl border border-red-100 bg-red-50/80 px-4 py-3 text-sm font-semibold text-red-600 transition hover:border-red-200 hover:bg-red-50"
+                  >
+                    Remove logo
+                  </button>
+                ) : null}
+              </div>
               <p className="text-xs text-[var(--text-muted)]">
                 PDF uploads are converted to PNG automatically so the sign-in circle displays correctly.
               </p>
@@ -1164,6 +1143,16 @@ export default function SettingsPage() {
           { key: "code", label: "Code", placeholder: "BU-HO" },
           { key: "description", label: "Description", type: "textarea", required: false, placeholder: "Optional description" },
         ]}
+        onShowAttendanceQr={(item) =>
+          setBuQrItem({ id: item.id, name: item.name, code: item.code })
+        }
+      />
+      <BusinessUnitAttendanceQrModal
+        open={!!buQrItem}
+        onClose={() => setBuQrItem(null)}
+        businessUnitId={buQrItem?.id ?? null}
+        businessUnitName={buQrItem?.name}
+        businessUnitCode={buQrItem?.code}
       />
 
       <MasterDataEditorModal

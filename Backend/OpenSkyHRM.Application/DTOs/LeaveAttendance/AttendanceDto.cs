@@ -76,6 +76,10 @@ public class PunchRequestDto
     public decimal? Longitude { get; set; }
     /// <summary>Optional source label (e.g. PeopleProfile, Mobile). Defaults to Mobile when omitted.</summary>
     public string? Source { get; set; }
+    /// <summary>Business unit identified by a scanned location QR (mobile punch).</summary>
+    public Guid? BusinessUnitId { get; set; }
+    /// <summary>Raw scanned QR payload; validated when provided.</summary>
+    public string? QrPayload { get; set; }
 }
 
 public class OvertimeNopayResultDto

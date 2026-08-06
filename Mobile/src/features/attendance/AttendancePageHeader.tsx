@@ -1,4 +1,4 @@
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/theme/colors";
 import type { AttendanceSummary } from "@/types/attendance";
@@ -75,14 +75,14 @@ export function AttendanceSummaryCard({ summary }: { summary: AttendanceSummary 
   ];
 
   return (
+    // No elevation — Android elevation can hide nested interactive controls.
     <View
-      className="overflow-hidden rounded-3xl border border-border bg-surface"
       style={{
-        shadowColor: colors.primaryDark,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-        elevation: 4,
+        overflow: "hidden",
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
       }}
     >
       <View
@@ -143,6 +143,48 @@ export function AttendanceSectionTitle({ title }: { title: string }) {
       <Text className="text-sm font-bold uppercase tracking-wide" style={{ color: colors.navy }}>
         {title}
       </Text>
+    </View>
+  );
+}
+
+interface AttendanceQrHeaderProps {
+  title: string;
+  subtitle?: string;
+  onBack: () => void;
+}
+
+export function AttendanceQrHeader({ title, subtitle, onBack }: AttendanceQrHeaderProps) {
+  return (
+    <View className="px-4 pb-2 pt-2">
+      <Pressable
+        onPress={onBack}
+        className="mb-3 flex-row items-center gap-1 self-start rounded-full border px-3 py-1.5"
+        style={({ pressed }) => ({
+          opacity: pressed ? 0.85 : 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+        })}
+      >
+        <Ionicons name="chevron-back" size={18} color={colors.navyMid} />
+        <Text className="text-sm font-semibold" style={{ color: colors.navyMid }}>
+          Back
+        </Text>
+      </Pressable>
+
+      <View className="flex-row items-center gap-2">
+        <View className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.accent }} />
+        <Text className="text-xs font-semibold uppercase tracking-widest text-muted">
+          Scan QR
+        </Text>
+      </View>
+      <Text className="mt-1.5 text-2xl font-bold" style={{ color: colors.navy }}>
+        {title}
+      </Text>
+      {subtitle ? (
+        <Text className="mt-1 text-sm text-muted" numberOfLines={2}>
+          {subtitle}
+        </Text>
+      ) : null}
     </View>
   );
 }

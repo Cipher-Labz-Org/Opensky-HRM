@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<ILeaveService, LeaveService>();
         services.AddScoped<ILeaveEntitlementService, LeaveEntitlementService>();
         services.AddScoped<IAttendanceService, AttendanceService>();
+        services.AddScoped<IAttendanceQrTokenService, AttendanceQrTokenService>();
         services.AddScoped<IShiftService, ShiftService>();
         services.AddScoped<IRosterService, RosterService>();
         services.AddScoped<IBiometricService, BiometricService>();

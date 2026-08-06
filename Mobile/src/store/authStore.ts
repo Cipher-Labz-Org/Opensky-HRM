@@ -65,6 +65,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isAuthenticating: true });
     try {
       const response = await authApi.login({ username, password });
+      if (!response?.token || !response?.user) {
+        throw new Error("Sign-in response was incomplete. Please try again.");
+      }
       await get().setSession(response);
       return response;
     } finally {

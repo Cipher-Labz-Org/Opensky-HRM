@@ -28,6 +28,7 @@ export { AddressRegionFields } from "./AddressRegionFields";
 export { TablePagination } from "./TablePagination";
 export { PasswordVisibilityToggle } from "./PasswordVisibilityToggle";
 export { FlashMessageBanner, type FlashMessage } from "./FlashMessageBanner";
+export { ToastPopup } from "./ToastPopup";
 export { FormErrorAlert } from "./FormErrorAlert";
 export { InlinePageAlert } from "./InlinePageAlert";
 export { FieldValidationHint } from "./FieldValidationHint";
