@@ -148,54 +148,115 @@ public class SystemSettingsController : ControllerBase
     }
 
     [HttpPost("company-logo")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 6 * 1024 * 1024)]
     public async Task<IActionResult> UploadCompanyLogo(IFormFile file)
     {
-        if (file is null || file.Length == 0)
-            return BadRequest(new { error = "No file uploaded." });
-
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (string.IsNullOrEmpty(ext))
-            ext = file.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ? ".pdf" : ".png";
-
-        var contentType = (file.ContentType ?? "").Trim().ToLowerInvariant();
-        var allowedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml", "application/pdf",
-        };
-        var allowedByExtension = ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" or ".svg" or ".pdf";
-
-        if (!allowedTypes.Contains(contentType) && !allowedByExtension)
-            return BadRequest(new { error = "Only JPEG, PNG, WebP, GIF, SVG images and PDF files are allowed." });
-
-        if (ext == ".pdf" && contentType is "" or "application/octet-stream")
-            contentType = "application/pdf";
-
-        if (file.Length > 5 * 1024 * 1024)
-            return BadRequest(new { error = "File size must be less than 5 MB." });
-
-        var companyFolder = FileStoragePathHelper.SanitizeSegment(_fileStorage.ResolvedCompanyFolder);
-        var fileName = $"company_logo_{companyFolder}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
-        var logoUrl = _files.BuildLogicalPath("branding", fileName);
-
         try
         {
+            if (file is null || file.Length == 0)
+                return BadRequest(new { message = "No file uploaded.", error = "No file uploaded." });
+
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (string.IsNullOrEmpty(ext))
+                ext = file.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ? ".pdf" : ".png";
+
+            var contentType = (file.ContentType ?? "").Trim().ToLowerInvariant();
+            var allowedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml", "application/pdf",
+            };
+            var allowedByExtension = ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" or ".svg" or ".pdf";
+
+            if (!allowedTypes.Contains(contentType) && !allowedByExtension)
+                return BadRequest(new { message = "Only JPEG, PNG, WebP, GIF, SVG images and PDF files are allowed.", error = "Invalid file type." });
+
+            if (ext == ".pdf" && contentType is "" or "application/octet-stream")
+                contentType = "application/pdf";
+
+            if (file.Length > 5 * 1024 * 1024)
+                return BadRequest(new { message = "File size must be less than 5 MB.", error = "File too large." });
+
+            if (_fileStorage.UseS3 && string.IsNullOrWhiteSpace(_fileStorage.CompanyFolder))
+                return StatusCode(500, new
+                {
+                    message = "FileStorage:CompanyFolder is not set on this server. Add a unique folder per company (e.g. stagecafe) in appsettings.Production.json and restart the API.",
+                    error = "CompanyFolder missing.",
+                });
+
+            if (_fileStorage.UseS3)
+            {
+                var hasConfigCreds =
+                    !string.IsNullOrWhiteSpace(_fileStorage.AccessKeyId)
+                    && !string.IsNullOrWhiteSpace(_fileStorage.SecretAccessKey);
+                var hasEnvCreds =
+                    !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID"))
+                    || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AWS_ACCESS_KEY"));
+                if (!hasConfigCreds && !hasEnvCreds)
+                {
+                    return StatusCode(500, new
+                    {
+                        message = "AWS credentials are missing. Add FileStorage:AccessKeyId and SecretAccessKey to appsettings.Production.json (or appsettings.S3.json), then restart IIS.",
+                        error = "AWS credentials missing.",
+                    });
+                }
+            }
+
+            var companyFolder = FileStoragePathHelper.SanitizeSegment(_fileStorage.ResolvedCompanyFolder);
+            var fileName = $"company_logo_{companyFolder}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
+            var logoUrl = _files.BuildLogicalPath("branding", fileName);
+
             await using (var stream = file.OpenReadStream())
             {
                 await _files.SaveAsync(logoUrl, stream, contentType);
             }
+
+            await _service.SetAsync("CompanyLogoUrl", logoUrl);
+
+            return Ok(new { logoUrl });
         }
         catch (Exception ex)
         {
             return StatusCode(500, new
             {
-                error = "Could not save logo to storage. Check FileStorage settings (S3 bucket, CompanyFolder, AWS credentials) on this server.",
+                message = "Could not upload company logo. Check FileStorage settings (S3 bucket, CompanyFolder, AWS credentials) on this server.",
+                error = "Logo upload failed.",
                 detail = ex.Message,
             });
         }
+    }
 
-        await _service.SetAsync("CompanyLogoUrl", logoUrl);
+    [HttpGet("file-storage-status")]
+    public IActionResult GetFileStorageStatus()
+    {
+        var hasConfigCreds =
+            !string.IsNullOrWhiteSpace(_fileStorage.AccessKeyId)
+            && !string.IsNullOrWhiteSpace(_fileStorage.SecretAccessKey);
+        var hasEnvCreds =
+            !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID"))
+            || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AWS_ACCESS_KEY"));
+        var credentialsSource = hasConfigCreds
+            ? "FileStorage:AccessKeyId in appsettings"
+            : hasEnvCreds
+                ? "AWS_ACCESS_KEY_ID environment variable"
+                : "default (no explicit credentials — often fails on IIS)";
 
-        return Ok(new { logoUrl });
+        return Ok(new
+        {
+            provider = _fileStorage.Provider,
+            bucket = _fileStorage.BucketName,
+            keyPrefix = _fileStorage.KeyPrefix,
+            rootFolder = _fileStorage.RootFolder,
+            companyFolder = _fileStorage.CompanyFolder,
+            resolvedCompanyFolder = _fileStorage.ResolvedCompanyFolder,
+            region = _fileStorage.Region,
+            usesRemoteStorage = _files.UsesRemoteStorage,
+            credentialsConfigured = hasConfigCreds || hasEnvCreds,
+            credentialsSource,
+            s3KeyExample = _fileStorage.UseS3
+                ? $"s3://{_fileStorage.BucketName}/{FileStoragePathHelper.SanitizeSegment(_fileStorage.KeyPrefix)}/{FileStoragePathHelper.SanitizeSegment(_fileStorage.RootFolder)}/{FileStoragePathHelper.SanitizeSegment(_fileStorage.ResolvedCompanyFolder)}/Branding/"
+                : null,
+        });
     }
 
     [HttpDelete("company-logo")]

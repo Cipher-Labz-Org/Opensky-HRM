@@ -27,6 +27,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Optional per-machine overrides (e.g. local MailHog SMTP). File is gitignored — copy from appsettings.Local.example.json.
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+// Optional shared S3 credentials for IIS (copy appsettings.S3.example.json → appsettings.S3.json on each site).
+builder.Configuration.AddJsonFile("appsettings.S3.json", optional: true, reloadOnChange: true);
 
 static bool IsSafePgIdentifier(string? name)
 {
@@ -94,7 +96,17 @@ builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddApplication();
 
-builder.Services.Configure<FileStorageOptions>(builder.Configuration.GetSection(FileStorageOptions.SectionName));
+builder.Services.AddOptions<FileStorageOptions>()
+    .Bind(builder.Configuration.GetSection(FileStorageOptions.SectionName))
+    .PostConfigure(options =>
+    {
+        if (string.IsNullOrWhiteSpace(options.AccessKeyId))
+            options.AccessKeyId = Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID")
+                ?? Environment.GetEnvironmentVariable("AWS_ACCESS_KEY");
+        if (string.IsNullOrWhiteSpace(options.SecretAccessKey))
+            options.SecretAccessKey = Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY")
+                ?? Environment.GetEnvironmentVariable("AWS_SECRET_KEY");
+    });
 var fileStorageProvider = builder.Configuration[$"{FileStorageOptions.SectionName}:Provider"] ?? "Local";
 if (string.Equals(fileStorageProvider, "S3", StringComparison.OrdinalIgnoreCase))
     builder.Services.AddSingleton<IFileStorageService, S3FileStorageService>();
@@ -437,6 +449,26 @@ if (fileStorageSettings.UseS3 && FileStoragePathHelper.ShouldAllowLegacyFallback
     app.Logger.LogWarning(
         "FileStorage:CompanyFolder is missing or 'default' while Provider=S3. " +
         "Set a unique CompanyFolder per tenant (e.g. mbkh, gamma) so uploads do not collide in the shared bucket.");
+}
+if (fileStorageSettings.UseS3 && string.IsNullOrWhiteSpace(fileStorageSettings.CompanyFolder))
+{
+    app.Logger.LogCritical(
+        "FileStorage:CompanyFolder is REQUIRED when Provider=S3. Logo and file uploads will fail until you set a unique folder per company in appsettings.Production.json.");
+}
+else if (fileStorageSettings.UseS3)
+{
+    try
+    {
+        using var storageScope = app.Services.CreateScope();
+        _ = storageScope.ServiceProvider.GetRequiredService<IFileStorageService>();
+        app.Logger.LogInformation("S3 file storage service initialized for company folder '{CompanyFolder}'.",
+            fileStorageSettings.CompanyFolder);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogCritical(ex,
+            "S3 file storage failed to initialize. Check FileStorage settings and AWS credentials before uploading files.");
+    }
 }
 app.MapGet("/uploads/{**path}", async (string path, IFileStorageService storage, CancellationToken cancellationToken) =>
 {

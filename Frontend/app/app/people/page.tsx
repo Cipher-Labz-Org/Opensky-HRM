@@ -720,7 +720,7 @@ export default function PeoplePage() {
               }}
             >
               {emp.profileImageUrl ? (
-                <img src={`${API_BASE_URL}${emp.profileImageUrl}`} alt={emp.fullName} className="h-7 w-7 rounded-full object-cover ring-1 ring-slate-200" />
+                <img src={resolveAssetUrl(emp.profileImageUrl) ?? ""} alt={emp.fullName} className="h-7 w-7 rounded-full object-cover ring-1 ring-slate-200" />
               ) : (
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-blue-50 ring-1 ring-slate-200 text-[9px] font-semibold text-slate-500">
                   {initials}

@@ -234,6 +234,7 @@ export function resolveHttpErrorMessage(text: string, ctx: HttpErrorContext): st
   try {
     const parsed = JSON.parse(trimmed) as {
       message?: string;
+      error?: string;
       title?: string;
       detail?: string;
       errors?: Record<string, string[] | string>;
@@ -241,7 +242,18 @@ export function resolveHttpErrorMessage(text: string, ctx: HttpErrorContext): st
     const friendly = formatApiErrorBody(parsed);
     if (friendly) return friendly;
     if (typeof parsed.message === "string" && parsed.message.trim()) {
-      return humanizeGenericMessage(parsed.message.trim());
+      const msg = humanizeGenericMessage(parsed.message.trim());
+      if (typeof parsed.detail === "string" && parsed.detail.trim() && status >= 500) {
+        return `${msg} (${parsed.detail.trim()})`;
+      }
+      return msg;
+    }
+    if (typeof parsed.error === "string" && parsed.error.trim()) {
+      const err = humanizeGenericMessage(parsed.error.trim());
+      if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+        return `${err} (${parsed.detail.trim()})`;
+      }
+      return err;
     }
     if (typeof parsed.detail === "string" && parsed.detail.trim()) {
       return humanizeGenericMessage(parsed.detail.trim());
@@ -264,6 +276,7 @@ export function resolveHttpErrorMessage(text: string, ctx: HttpErrorContext): st
 /** Turn ASP.NET ProblemDetails / validation payloads into a readable message. */
 export function formatApiErrorBody(parsed: {
   message?: string;
+  error?: string;
   title?: string;
   detail?: string;
   errors?: Record<string, string[] | string>;
