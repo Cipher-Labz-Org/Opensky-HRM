@@ -260,9 +260,9 @@ public class EmployeeService : IEmployeeService
 
         if (employee is null) return null;
 
-        if (await ClearPlaceholderWorkEmailAsync(employee))
-            await _db.SaveChangesAsync();
-
+        // Display-only: MapToDto uses ToDisplayEmail — do not persist null here.
+        // Clearing placeholder on read fails on DBs where Email is still NOT NULL,
+        // and would surface a false error after a successful create.
         var dto = MapToDto(employee);
         var supMap = await GetAssignedSupervisorNamesMapAsync(new[] { employee.Id });
         var directSupIds = await GetEmployeesWithDirectSupervisorAsync(new[] { employee.Id });
