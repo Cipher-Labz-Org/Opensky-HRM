@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Application.Options;
+using OpenSkyHRM.Api.Services.Storage;
 using QRCoder;
 
 namespace OpenSkyHRM.Api.Controllers;
@@ -12,11 +15,16 @@ public class MobileController : ControllerBase
 {
     private readonly ISystemSettingService _systemSettings;
     private readonly IConfiguration _config;
+    private readonly FileStorageOptions _fileStorage;
 
-    public MobileController(ISystemSettingService systemSettings, IConfiguration config)
+    public MobileController(
+        ISystemSettingService systemSettings,
+        IConfiguration config,
+        IOptions<FileStorageOptions> fileStorage)
     {
         _systemSettings = systemSettings;
         _config = config;
+        _fileStorage = fileStorage.Value;
     }
 
     /// <summary>Public connection metadata for the mobile app (no secrets).</summary>
@@ -33,7 +41,7 @@ public class MobileController : ControllerBase
             apiBaseUrl,
             companyName = string.IsNullOrEmpty(companyName) ? "OpenSky HRM" : companyName,
             companyLogoUrl = string.IsNullOrEmpty(logo) ? null : logo,
-            companyId = "default"
+            companyId = FileStoragePathHelper.SanitizeSegment(_fileStorage.ResolvedCompanyFolder),
         });
     }
 
@@ -66,7 +74,7 @@ public class MobileController : ControllerBase
             apiBaseUrl,
             string.IsNullOrEmpty(companyName) ? "OpenSky HRM" : companyName,
             string.IsNullOrEmpty(logo) ? null : logo,
-            "default");
+            FileStoragePathHelper.SanitizeSegment(_fileStorage.ResolvedCompanyFolder));
     }
 
     private string ResolvePublicApiBaseUrl() =>

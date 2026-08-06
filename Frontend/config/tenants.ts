@@ -47,6 +47,14 @@ const TENANT_META: Record<string, Omit<TenantConfig, "apiUrl">> = {
     companyId: "cipherlabz",
     companyName: "Cipherlabz",
   },
+  "nexawave.openskyhrm.com": {
+    companyId: "nexawave",
+    companyName: "NexaWave",
+  },
+  "besttrend.openskyhrm.com": {
+    companyId: "besttrend",
+    companyName: "Best Trend",
+  },
 };
 
 function buildTenants(): Record<string, TenantConfig> {
@@ -73,4 +81,23 @@ export function getTenantByHostname(hostname: string): TenantConfig | null {
 
 export function isKnownTenant(hostname: string): boolean {
   return normalizeHostname(hostname) in TENANTS;
+}
+
+/**
+ * IIS backend base URL for a company hostname.
+ * 1. Explicit entry in tenant-backends.json (+ TENANT_META)
+ * 2. Convention: {slug}.openskyhrm.com → https://{slug}backend.openskyhrm.com
+ */
+export function getBackendUrlForHostname(hostname: string): string | null {
+  const normalized = normalizeHostname(hostname);
+  const tenant = TENANTS[normalized];
+  if (tenant) return tenant.apiUrl.replace(/\/$/, "");
+
+  const match = /^([a-z0-9-]+)\.openskyhrm\.com$/i.exec(normalized);
+  if (!match) return null;
+
+  const slug = match[1].toLowerCase();
+  if (slug === "www" || slug === "app" || slug === "api") return null;
+
+  return `https://${slug}backend.openskyhrm.com`;
 }

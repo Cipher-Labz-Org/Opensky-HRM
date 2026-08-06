@@ -24,7 +24,7 @@ import {
   formatDateCountdownToExpire,
   formatAvailableDateDayCount,
 } from "@/lib/immigration-dates";
-import { API_BASE_URL, getApiBaseUrl } from "@/config/constants";
+import { getApiBaseUrl, resolveAssetUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
 import { usePeopleScopedLookups } from "@/lib/people-scope-filters";
@@ -1410,9 +1410,26 @@ export default function EmployeeDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    let e: EmployeeDetail;
     try {
-      const [e, deps, bus, locs, grs, jts, sts, empTypes, supCands, subCands, settings, atts] = await Promise.all([
-        apiFetch<EmployeeDetail>(`/api/employees/${id}`),
+      e = await apiFetch<EmployeeDetail>(`/api/employees/${id}`);
+    } catch {
+      setMsg({ type: "err", text: "Employee not found." });
+      setLoading(false);
+      return;
+    }
+
+    setEmp(e);
+    setPdFirstName(e.firstName);
+    setPdMiddleName(e.middleName ?? "");
+    setPdLastName(e.lastName);
+    setPdNationality(e.nationality ?? "");
+    setEpfNumber(e.epfNumber ?? "");
+    setEtfNumber(e.etfNumber ?? "");
+    setLoading(false);
+
+    try {
+      const [deps, bus, locs, grs, jts, sts, empTypes, supCands, subCands, settings, atts] = await Promise.all([
         apiFetch<Lookup[]>("/api/organization/departments"),
         apiFetch<Lookup[]>("/api/organization/business-units"),
         apiFetch<Lookup[]>("/api/organization/locations"),
@@ -1424,17 +1441,11 @@ export default function EmployeeDetailPage() {
           .then((r) => (r.items ?? []).map((m) => ({ id: m.id, name: m.fullName })))
           .catch(() => [] as Lookup[]),
         apiFetch<{ items: { id: string; fullName: string }[] }>("/api/employees?pageSize=200&excludeTerminated=true")
-          .then((r) => r.items.filter((m) => m.id !== id).map((m) => ({ id: m.id, name: m.fullName }))),
+          .then((r) => (r.items ?? []).filter((m) => m.id !== id).map((m) => ({ id: m.id, name: m.fullName })))
+          .catch(() => [] as Lookup[]),
         apiFetch<Record<string, string>>("/api/system-settings").catch((): Record<string, string> => ({})),
         apiFetch<Attachment[]>(`/api/employees/${id}/attachments`).catch(() => [] as Attachment[]),
       ]);
-      setEmp(e);
-      setPdFirstName(e.firstName);
-      setPdMiddleName(e.middleName ?? "");
-      setPdLastName(e.lastName);
-      setPdNationality(e.nationality ?? "");
-      setEpfNumber(e.epfNumber ?? "");
-      setEtfNumber(e.etfNumber ?? "");
       setDepartments(deps);
       setBusinessUnits(bus);
       setLocations(locs);
@@ -1509,8 +1520,7 @@ export default function EmployeeDetailPage() {
           setVisibleWidgets(normalizeVisibleWidgetIds(saved));
         } catch { /* defaults */ }
       }
-    } catch { setMsg({ type: "err", text: "Employee not found." }); }
-    finally { setLoading(false); }
+    } catch { /* supplementary lookups failed — profile shell already visible */ }
   }, [id, syncReportingDraft]);
 
   const loadLifecycleTimeline = useCallback(async () => {
@@ -1673,7 +1683,7 @@ export default function EmployeeDetailPage() {
       fd.append("attachmentTypeName", type.name);
       if (attachDesc.trim()) fd.append("description", attachDesc.trim());
       if (attachExpiry.trim()) fd.append("expiryDate", attachExpiry.trim());
-      const res = await fetch(`${API_BASE_URL}/api/employees/${id}/attachments`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/employees/${id}/attachments`, {
         method: "POST",
         body: fd,
         headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}` },
@@ -2770,7 +2780,7 @@ export default function EmployeeDetailPage() {
     const fd = new FormData();
     fd.append("file", immDocFile);
     if (immDocDesc.trim()) fd.append("description", immDocDesc.trim());
-    const res = await fetch(`${API_BASE_URL}/api/employees/${id}/immigration-documents`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/employees/${id}/immigration-documents`, {
       method: "POST",
       body: fd,
       headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}` },
@@ -3120,7 +3130,7 @@ export default function EmployeeDetailPage() {
   }
 
   function openPhotoModal() {
-    const currentUrl = emp?.profileImageUrl ? `${API_BASE_URL}${emp.profileImageUrl}` : null;
+    const currentUrl = resolveAssetUrl(emp?.profileImageUrl);
     setPhotoPreview(currentUrl);
     setPhotoFile(null);
     setShowPhotoModal(true);
@@ -3863,7 +3873,7 @@ export default function EmployeeDetailPage() {
                   <div className="flex w-[132px] shrink-0 flex-col items-center text-center sm:w-[148px]">
                     <button type="button" onClick={openPhotoModal} className="relative group cursor-pointer">
                       {emp.profileImageUrl ? (
-                        <img src={`${API_BASE_URL}${emp.profileImageUrl}`} alt={emp.fullName} className="h-[104px] w-[104px] rounded-full border-4 border-slate-100 object-cover sm:h-[112px] sm:w-[112px]" />
+                        <img src={resolveAssetUrl(emp.profileImageUrl) ?? ""} alt={emp.fullName} className="h-[104px] w-[104px] rounded-full border-4 border-slate-100 object-cover sm:h-[112px] sm:w-[112px]" />
                       ) : (
                         <div className="grid h-[104px] w-[104px] place-items-center rounded-full border-4 border-slate-100 bg-gradient-to-br from-blue-100 to-indigo-100 text-3xl font-extrabold text-blue-800 sm:h-[112px] sm:w-[112px] sm:text-4xl">{initials}</div>
                       )}
@@ -4528,7 +4538,7 @@ export default function EmployeeDetailPage() {
                               >
                                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                               </button>
-                              <a href={`${API_BASE_URL}/api/employees/${id}/attachments/${att.id}/download`} target="_blank" rel="noreferrer" title="Download" className="text-slate-500 transition hover:text-blue-600">
+                              <a href={`${getApiBaseUrl()}/api/employees/${id}/attachments/${att.id}/download`} target="_blank" rel="noreferrer" title="Download" className="text-slate-500 transition hover:text-blue-600">
                                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                               </a>
                               <button

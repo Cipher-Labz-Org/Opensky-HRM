@@ -4,7 +4,7 @@ import * as React from "react";
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { API_BASE_URL } from "@/config/constants";
+import { API_BASE_URL, resolveAssetUrl } from "@/config/constants";
 import { AUTH_VISIT_ID_KEY, useAuth } from "@/contexts/auth-context";
 import { isVisibleCompanyNotice } from "@/lib/notification-visibility";
 
@@ -985,7 +985,7 @@ function BirthdaysCompanyNoticesWidgetInner() {
                     >
                       {p.profileImageUrl ? (
                         <img
-                          src={`${API_BASE_URL}${p.profileImageUrl}`}
+                          src={resolveAssetUrl(p.profileImageUrl) ?? ""}
                           alt=""
                           className="h-11 w-11 shrink-0 rounded-full object-cover ring-2 ring-violet-100"
                         />

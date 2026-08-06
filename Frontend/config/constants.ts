@@ -3,7 +3,7 @@
  * Used for branding, support, and default behavior.
  */
 
-import { getTenantByHostname } from "./tenants";
+import { getBackendUrlForHostname } from "./tenants";
 
 export const APP_NAME = "OpenSky HRM";
 export const SUPPORT_EMAIL = "support@openskyhrm.com";
@@ -54,33 +54,66 @@ function isProductionAppHost(hostname: string): boolean {
  */
 export function getApiBaseUrl(): string {
   if (typeof window !== "undefined") {
-    const tenant = getTenantByHostname(window.location.hostname);
-    if (tenant) return tenant.apiUrl.replace(/\/$/, "");
+    const backend = getBackendUrlForHostname(window.location.hostname);
+    if (backend) return backend;
     if (isProductionAppHost(window.location.hostname)) return "";
   }
   return API_BASE_URL;
 }
 
-/** Registered tenant hostname in the browser (mbkh.openskyhrm.com, gamma.openskyhrm.com, …). */
+/** Registered or convention-mapped tenant hostname (e.g. gamma.openskyhrm.com, demo.openskyhrm.com). */
 export function isTenantBrowserHost(): boolean {
   if (typeof window === "undefined") return false;
-  return getTenantByHostname(window.location.hostname) != null;
+  return getBackendUrlForHostname(window.location.hostname) != null;
 }
 
 /** IIS backend URL for the current tenant (for error messages). */
 export function tenantBackendUrl(): string | null {
   if (typeof window === "undefined") return null;
-  const tenant = getTenantByHostname(window.location.hostname);
-  return tenant ? tenant.apiUrl.replace(/\/$/, "") : null;
+  return getBackendUrlForHostname(window.location.hostname);
 }
 
 /**
- * Auth endpoints on tenant hosts use same-origin `/api/auth/*` so Vercel proxies to IIS.
- * Avoids browser CORS blocks when the backend returns 500 without CORS headers.
+ * Resolve `/uploads/...` (or absolute URL) to the correct backend origin per tenant.
+ * Tenant hosts must load files from their IIS API — not Vercel's single API_URL rewrite.
+ */
+export function resolveAssetUrl(path: string | null | undefined, cacheBuster?: number | string): string | null {
+  const raw = path?.trim() ?? "";
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const normalized = raw.startsWith("/") ? raw : `/${raw}`;
+  let url: string;
+
+  if (typeof window !== "undefined") {
+    const backend = getBackendUrlForHostname(window.location.hostname);
+    if (backend) {
+      url = `${backend}${normalized}`;
+    } else if (isProductionAppHost(window.location.hostname)) {
+      url = normalized;
+    } else {
+      const base = getApiBaseUrl().replace(/\/$/, "");
+      url = base ? `${base}${normalized}` : normalized;
+    }
+  } else {
+    url = `${getAssetBaseUrl()}${normalized}`;
+  }
+
+  if (cacheBuster !== undefined && cacheBuster !== "") {
+    const sep = url.includes("?") ? "&" : "?";
+    url = `${url}${sep}v=${encodeURIComponent(String(cacheBuster))}`;
+  }
+
+  return url;
+}
+
+/**
+ * Auth endpoints (login, branding, forgot-password) for browser `fetch`.
+ * Tenant hosts call their IIS backend directly (see getApiBaseUrl) — Vercel cannot
+ * reliably proxy to customer backends. Non-tenant Vercel deploys use same-origin `/api/*`.
  */
 export function resolveAuthApiPath(path: string): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  if (isTenantBrowserHost()) return normalized;
   const base = getApiBaseUrl().replace(/\/$/, "");
   return base ? `${base}${normalized}` : normalized;
 }
@@ -88,8 +121,8 @@ export function resolveAuthApiPath(path: string): string {
 /** Backend origin for static assets (profile images, company logo). <img src> does not need CORS. */
 export function getAssetBaseUrl(): string {
   if (typeof window !== "undefined") {
-    const tenant = getTenantByHostname(window.location.hostname);
-    if (tenant) return tenant.apiUrl.replace(/\/$/, "");
+    const backend = getBackendUrlForHostname(window.location.hostname);
+    if (backend) return backend;
   }
   return (rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl : defaultLocalApi).replace(/\/$/, "");
 }

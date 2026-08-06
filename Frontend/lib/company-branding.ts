@@ -1,4 +1,4 @@
-import { APP_NAME, getAssetBaseUrl, resolveAuthApiPath } from "@/config/constants";
+import { APP_NAME, getAssetBaseUrl, resolveAuthApiPath, resolveAssetUrl } from "@/config/constants";
 
 export type CompanyLogoFitMode = "contain" | "cover";
 
@@ -70,15 +70,9 @@ export function normalizeLogoDisplaySettings(
   };
 }
 
-/** Builds a logo URL. Prefer same-origin `/uploads/...` so PDF→PNG conversion works. */
+/** Builds a logo URL from the tenant's own backend (multi-company safe). */
 export function resolveCompanyLogoSrc(companyLogoUrl?: string | null): string | null {
-  const rawLogo = companyLogoUrl?.trim() ?? "";
-  if (!rawLogo) return null;
-  if (/^https?:\/\//i.test(rawLogo)) return rawLogo;
-  const path = rawLogo.startsWith("/") ? rawLogo : `/${rawLogo}`;
-  // Browser: use relative path (Next.js rewrites /uploads → API) — avoids CORS.
-  if (typeof window !== "undefined") return path;
-  return `${getAssetBaseUrl()}${path}`;
+  return resolveAssetUrl(companyLogoUrl);
 }
 
 export function isPdfLogoUrl(companyLogoUrl?: string | null): boolean {

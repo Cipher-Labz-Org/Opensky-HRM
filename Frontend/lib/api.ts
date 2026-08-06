@@ -1,7 +1,7 @@
-import { API_BASE_URL, getApiBaseUrl, getAssetBaseUrl } from "@/config/constants";
+import { API_BASE_URL, getApiBaseUrl, getAssetBaseUrl, resolveAssetUrl } from "@/config/constants";
 import { resolveHttpErrorMessage } from "@/lib/api-errors";
 
-export { getAssetBaseUrl };
+export { getAssetBaseUrl, resolveAssetUrl };
 
 function apiReachabilityHint(): string {
   const base = getApiBaseUrl();

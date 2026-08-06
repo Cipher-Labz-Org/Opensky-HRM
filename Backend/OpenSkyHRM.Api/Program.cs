@@ -432,6 +432,12 @@ app.Logger.LogInformation(
     "Company storage folders ready under wwwroot/uploads/{Root}/{Company}/",
     FileStoragePathHelper.SanitizeSegment(fileStorageSettings.RootFolder),
     FileStoragePathHelper.SanitizeSegment(fileStorageSettings.ResolvedCompanyFolder));
+if (fileStorageSettings.UseS3 && FileStoragePathHelper.ShouldAllowLegacyFallback(fileStorageSettings))
+{
+    app.Logger.LogWarning(
+        "FileStorage:CompanyFolder is missing or 'default' while Provider=S3. " +
+        "Set a unique CompanyFolder per tenant (e.g. mbkh, gamma) so uploads do not collide in the shared bucket.");
+}
 app.MapGet("/uploads/{**path}", async (string path, IFileStorageService storage, CancellationToken cancellationToken) =>
 {
     var logicalPath = "/" + path.Replace('\\', '/').TrimStart('/');

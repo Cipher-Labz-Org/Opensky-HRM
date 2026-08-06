@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 import { filterLookupsByAllowedIds } from "@/lib/people-scope-filters";
 import { apiFetch } from "@/lib/api";
-import { API_BASE_URL } from "@/config/constants";
+import { resolveAssetUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { formatDate } from "@/lib/date-utils";
 import {
@@ -208,7 +208,7 @@ function PeopleEmployeeAvatar({
   if (emp.profileImageUrl) {
     return (
       <img
-        src={`${API_BASE_URL}${emp.profileImageUrl}`}
+        src={resolveAssetUrl(emp.profileImageUrl) ?? ""}
         alt={emp.fullName}
         className={`rounded-full object-cover ring-1 ring-slate-200 ${className}`}
       />
@@ -1017,41 +1017,41 @@ export default function PeoplePage() {
       {/* Search & Filters Bar */}
       <div className="mb-5 flex items-center gap-3">
         <div className="min-w-0 flex-1">
-        <PeopleHubSearchBar
-          quickSearch={quickSearch}
-          onQuickSearchChange={(value) => {
-            setQuickSearch(sanitizeSearchInput(value));
-            setShowSuggestions(true);
-          }}
-          onQuickSearchSubmit={handleQuickSearch}
-          groupBy={groupBy}
-          onGroupByChange={handleGroupByChange}
-          statusFilter={statusFilter}
-          onStatusFilterChange={(value) => {
-            setStatusFilter(value);
-            resetEmployeeListPaging();
-          }}
-          filterSections={filterSections}
-          filterPills={filterPills}
-          onFilterChange={applyFieldFilter}
-          onRemoveFilter={removeAppliedFilter}
-          activeFilterValues={activeFilterValues}
-          onClearAll={handleReset}
-          employeeFavorites={employeeFavorites}
-          onOpenEmployeeFavorite={openEmployeeFavorite}
-          onDeleteEmployeeFavorite={handleDeleteEmployeeFavorite}
-          onFavoritesDiscoverQueryChange={handleFavoritesDiscoverQueryChange}
-          favoritesDiscoverResults={favoritesDiscoverResults}
-          favoritesDiscoverLoading={favoritesDiscoverLoading}
-          isEmployeeFavorite={(employeeId) => employeeFavoriteIds.has(employeeId)}
-          onToggleEmployeeFavorite={toggleEmployeeFavorite}
-          showSuggestions={showSuggestions}
-          onFocusSearch={() => {
-            if (quickSearch.trim().length >= 1) setShowSuggestions(true);
-          }}
-          onDismissSuggestions={() => setShowSuggestions(false)}
-          suggestionsSlot={searchSuggestionsPanel}
-        />
+          <PeopleHubSearchBar
+            quickSearch={quickSearch}
+            onQuickSearchChange={(value) => {
+              setQuickSearch(sanitizeSearchInput(value));
+              setShowSuggestions(true);
+            }}
+            onQuickSearchSubmit={handleQuickSearch}
+            groupBy={groupBy}
+            onGroupByChange={handleGroupByChange}
+            statusFilter={statusFilter}
+            onStatusFilterChange={(value) => {
+              setStatusFilter(value);
+              resetEmployeeListPaging();
+            }}
+            filterSections={filterSections}
+            filterPills={filterPills}
+            onFilterChange={applyFieldFilter}
+            onRemoveFilter={removeAppliedFilter}
+            activeFilterValues={activeFilterValues}
+            onClearAll={handleReset}
+            employeeFavorites={employeeFavorites}
+            onOpenEmployeeFavorite={openEmployeeFavorite}
+            onDeleteEmployeeFavorite={handleDeleteEmployeeFavorite}
+            onFavoritesDiscoverQueryChange={handleFavoritesDiscoverQueryChange}
+            favoritesDiscoverResults={favoritesDiscoverResults}
+            favoritesDiscoverLoading={favoritesDiscoverLoading}
+            isEmployeeFavorite={(employeeId) => employeeFavoriteIds.has(employeeId)}
+            onToggleEmployeeFavorite={toggleEmployeeFavorite}
+            showSuggestions={showSuggestions}
+            onFocusSearch={() => {
+              if (quickSearch.trim().length >= 1) setShowSuggestions(true);
+            }}
+            onDismissSuggestions={() => setShowSuggestions(false)}
+            suggestionsSlot={searchSuggestionsPanel}
+          />
         </div>
         <div className="flex shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
           {PEOPLE_VIEW_OPTIONS.map((opt) => (

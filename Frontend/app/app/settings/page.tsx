@@ -27,7 +27,6 @@ import {
   resolveCompanyLogoSrc,
 } from "@/lib/company-branding";
 import { normalizeCompanyLogoUpload, pdfUrlToPngFile } from "@/lib/render-pdf-logo";
-import { API_BASE_URL } from "@/config/constants";
 import { MobileConnectionQr } from "@/components/settings/MobileConnectionQr";
 import { BusinessUnitAttendanceQrModal } from "@/components/settings/BusinessUnitAttendanceQrModal";
 import Link from "next/link";
@@ -235,17 +234,10 @@ export default function SettingsPage() {
   async function uploadLogoFile(file: File, successMessage: string) {
     const formData = new FormData();
     formData.append("file", file);
-    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-    const res = await fetch(`${API_BASE_URL}/api/system-settings/company-logo`, {
+    const data = await apiFetch<{ logoUrl: string }>("/api/system-settings/company-logo", {
       method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: "Upload failed" }));
-      throw new Error(err.error || "Upload failed");
-    }
-    const data = await res.json();
     setCompanyLogoUrl(data.logoUrl);
     setLogoLoginScale(100);
     setLogoLoginOffsetX(0);

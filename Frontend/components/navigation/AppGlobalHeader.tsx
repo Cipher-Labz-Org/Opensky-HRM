@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as Popover from "@radix-ui/react-popover";
 import { ROUTES } from "@/config/routes";
-import { API_BASE_URL } from "@/config/constants";
+import { resolveAssetUrl } from "@/config/constants";
 import { contextualHelpGuideHref } from "@/lib/help-topics";
 import { HeaderCalendarPopover } from "@/components/navigation/HeaderCalendarPopover";
 import { apiFetch } from "@/lib/api";
@@ -486,7 +486,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
             >
               {user.profileImageUrl ? (
                 <img
-                  src={`${API_BASE_URL}${user.profileImageUrl}`}
+                  src={resolveAssetUrl(user.profileImageUrl) ?? ""}
                   alt=""
                   className="h-8 w-8 shrink-0 rounded-full object-cover"
                   style={{ boxShadow: `0 0 0 1px ${T.border}` }}
