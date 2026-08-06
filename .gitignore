@@ -33,5 +33,6 @@ Backend/_publish-test/
 
 # Local SMTP / secrets (copy from appsettings.Local.example.json)
 Backend/OpenSkyHRM.Api/appsettings.Local.json
+Backend/OpenSkyHRM.Api/appsettings.S3.json
 
 .vercel

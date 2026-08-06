@@ -102,6 +102,7 @@ public class LeaveController : ControllerBase
 
     /// <summary>Creates a leave request with an optional medical certificate PDF (required for sick leave longer than 2 days).</summary>
     [HttpPost("requests/with-document")]
+    [RequestSizeLimit(15 * 1024 * 1024)]
     [RequestFormLimits(MultipartBodyLengthLimit = 15_000_000)]
     public async Task<IActionResult> CreateRequestWithDocument(
         [FromForm] Guid employeeId,
@@ -113,50 +114,58 @@ public class LeaveController : ControllerBase
         [FromForm] string? coveragePerson,
         IFormFile? medicalCertificate)
     {
-        var scope = LeaveAccessHelper.ResolveScope(User, "Create");
-        if (scope == "Own")
-        {
-            var currentId = LeaveAccessHelper.GetCurrentEmployeeId(User);
-            if (!currentId.HasValue || employeeId != currentId.Value)
-                return Forbid();
-        }
-
-        string? medicalUrl = null;
-        if (medicalCertificate is { Length: > 0 })
-        {
-            var ext = Path.GetExtension(medicalCertificate.FileName).ToLowerInvariant();
-            var isPdf = string.Equals(ext, ".pdf", StringComparison.Ordinal)
-                || string.Equals(medicalCertificate.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
-            if (!isPdf)
-                return BadRequest(new { message = "Medical certificate must be a PDF file." });
-
-            var token = Guid.NewGuid();
-            medicalUrl = _files.BuildLogicalPath($"leave-certificates/{token}", "medical-certificate.pdf");
-            await using (var stream = medicalCertificate.OpenReadStream())
-            {
-                await _files.SaveAsync(medicalUrl, stream, "application/pdf");
-            }
-        }
-
-        var dto = new CreateLeaveRequestDto
-        {
-            EmployeeId = employeeId,
-            LeaveTypeId = leaveTypeId,
-            StartDate = startDate,
-            EndDate = endDate,
-            TotalDays = totalDays,
-            Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
-            CoveragePerson = string.IsNullOrWhiteSpace(coveragePerson) ? null : coveragePerson.Trim(),
-        };
-
         try
         {
+            var scope = LeaveAccessHelper.ResolveScope(User, "Create");
+            if (scope == "Own")
+            {
+                var currentId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+                if (!currentId.HasValue || employeeId != currentId.Value)
+                    return Forbid();
+            }
+
+            string? medicalUrl = null;
+            if (medicalCertificate is { Length: > 0 })
+            {
+                var ext = Path.GetExtension(medicalCertificate.FileName).ToLowerInvariant();
+                var isPdf = string.Equals(ext, ".pdf", StringComparison.Ordinal)
+                    || string.Equals(medicalCertificate.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
+                if (!isPdf)
+                    return BadRequest(new { message = "Medical certificate must be a PDF file." });
+
+                var token = Guid.NewGuid();
+                medicalUrl = _files.BuildLogicalPath($"leave-certificates/{token}", "medical-certificate.pdf");
+                await using (var stream = medicalCertificate.OpenReadStream())
+                {
+                    await _files.SaveAsync(medicalUrl, stream, "application/pdf");
+                }
+            }
+
+            var dto = new CreateLeaveRequestDto
+            {
+                EmployeeId = employeeId,
+                LeaveTypeId = leaveTypeId,
+                StartDate = startDate,
+                EndDate = endDate,
+                TotalDays = totalDays,
+                Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
+                CoveragePerson = string.IsNullOrWhiteSpace(coveragePerson) ? null : coveragePerson.Trim(),
+            };
+
             var created = await _leaveService.CreateLeaveRequestAsync(dto, medicalUrl);
             return Ok(created);
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new
+            {
+                message = "Could not save leave request or medical certificate. Set FileStorage:Provider to Local in appsettings.Production.json (no AWS keys needed), then restart IIS.",
+                detail = ex.Message,
+            });
         }
     }
 
