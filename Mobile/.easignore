@@ -7,6 +7,10 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Local APK artifacts (keep upload small)
+builds/
+*.apk
+
 # Native
 .kotlin/
 *.orig.*

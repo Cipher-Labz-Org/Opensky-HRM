@@ -64,7 +64,7 @@ public class LeaveController : ControllerBase
 
         if (scope == "Own")
         {
-            var currentId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+            var currentId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
             if (!currentId.HasValue) return Forbid();
             effectiveEmployeeId = currentId;
         }
@@ -72,9 +72,13 @@ public class LeaveController : ControllerBase
         {
             allowedIds = await LeaveAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read", excludeSelfForApprovalList: excludeSelf);
             if (excludeSelf)
-                excludeEmployeeId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+                excludeEmployeeId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
             if (allowedIds is { Count: 0 }) return Ok(new PagedResult<LeaveRequestDto> { Items = new List<LeaveRequestDto>(), TotalCount = 0, Page = page, PageSize = pageSize });
         }
+
+        if (effectiveEmployeeId.HasValue
+            && !await LeaveAccessHelper.CanAccessEmployeeLeaveAsync(User, _db, effectiveEmployeeId.Value, "Read"))
+            return Forbid();
 
         return Ok(await _leaveService.GetLeaveRequestsAsync(page, pageSize, status, effectiveEmployeeId, fromDate, toDate, allowedIds, excludeEmployeeId));
     }
@@ -85,7 +89,7 @@ public class LeaveController : ControllerBase
         var scope = LeaveAccessHelper.ResolveScope(User, "Create");
         if (scope == "Own")
         {
-            var currentId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+            var currentId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
             if (!currentId.HasValue || dto.EmployeeId != currentId.Value)
                 return Forbid();
         }
@@ -119,7 +123,7 @@ public class LeaveController : ControllerBase
             var scope = LeaveAccessHelper.ResolveScope(User, "Create");
             if (scope == "Own")
             {
-                var currentId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+                var currentId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
                 if (!currentId.HasValue || employeeId != currentId.Value)
                     return Forbid();
             }
@@ -172,7 +176,7 @@ public class LeaveController : ControllerBase
     [HttpPost("requests/{id:guid}/approve")]
     public async Task<IActionResult> Approve(Guid id, [FromBody] ApproveRejectLeaveDto dto)
     {
-        var approverId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+        var approverId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
         if (!approverId.HasValue)
             return BadRequest(new { message = "Your account must be linked to an employee to approve leave. Link your user to an employee in People." });
         var request = await _db.Set<Domain.Entities.LeaveRequest>().FindAsync(id);
@@ -192,7 +196,7 @@ public class LeaveController : ControllerBase
     [HttpPost("requests/{id:guid}/reject")]
     public async Task<IActionResult> Reject(Guid id, [FromBody] ApproveRejectLeaveDto dto)
     {
-        var approverId = LeaveAccessHelper.GetCurrentEmployeeId(User);
+        var approverId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
         if (!approverId.HasValue)
             return BadRequest(new { message = "Your account must be linked to an employee to reject leave. Link your user to an employee in People." });
         var request = await _db.Set<Domain.Entities.LeaveRequest>().FindAsync(id);
@@ -328,7 +332,9 @@ public class LeaveController : ControllerBase
     [HttpGet("balances/{employeeId:guid}")]
     public async Task<IActionResult> GetBalances(Guid employeeId, [FromQuery] int year, [FromQuery] int? asOfMonth = null)
     {
-        if (!await LeaveAccessHelper.CanAccessEmployeeLeaveAsync(User, _db, employeeId, "Read"))
+        var ownId = await PeopleAccessHelper.ResolveOwnEmployeeIdAsync(User, _db);
+        if (ownId != employeeId
+            && !await LeaveAccessHelper.CanAccessEmployeeLeaveAsync(User, _db, employeeId, "Read"))
             return Forbid();
         var asOfDate = ResolveAsOfDate(year, asOfMonth);
         if (asOfMonth.HasValue && asOfDate is null)

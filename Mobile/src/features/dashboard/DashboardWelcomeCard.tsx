@@ -83,7 +83,7 @@ export function DashboardWelcomeCard({
         end={{ x: 1, y: 1 }}
         style={{ paddingHorizontal: 18, paddingTop: 18, paddingBottom: 22 }}
       >
-        <View className="flex-row items-center gap-3.5">
+        <View className="flex-row items-start gap-3.5">
           <View
             className="overflow-hidden rounded-full"
             style={{
@@ -103,26 +103,26 @@ export function DashboardWelcomeCard({
             )}
           </View>
           <View className="min-w-0 flex-1">
-            <Text className="text-xl font-bold text-white" numberOfLines={1}>
+            <Text className="text-lg font-bold leading-6 text-white" numberOfLines={2}>
               {displayName}
             </Text>
             <Text className="mt-0.5 text-sm text-white/90" numberOfLines={1}>
               {companyName}
             </Text>
-            {subtitle ? (
+            {subtitle && subtitle !== "—" ? (
               <Text className="mt-0.5 text-xs text-white/75" numberOfLines={1}>
                 {subtitle}
               </Text>
             ) : null}
+            {employeeCode ? (
+              <View
+                className="mt-1.5 self-start rounded-full px-2.5 py-1"
+                style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+              >
+                <Text className="text-[11px] font-bold text-white">#{employeeCode}</Text>
+              </View>
+            ) : null}
           </View>
-          {employeeCode ? (
-            <View
-              className="rounded-full px-2.5 py-1"
-              style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
-            >
-              <Text className="text-[11px] font-bold text-white">#{employeeCode}</Text>
-            </View>
-          ) : null}
         </View>
       </LinearGradient>
 

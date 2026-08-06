@@ -78,7 +78,7 @@ public class EmployeePhotoController : ControllerBase
         if (await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
             return true;
 
-        var linkedEmployeeId = User.FindFirst("employeeId")?.Value;
-        return Guid.TryParse(linkedEmployeeId, out var ownId) && ownId == employeeId;
+        var ownId = await PeopleAccessHelper.ResolveOwnEmployeeIdAsync(User, _db);
+        return ownId == employeeId;
     }
 }

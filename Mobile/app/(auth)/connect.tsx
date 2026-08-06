@@ -101,7 +101,9 @@ export default function ConnectScreen() {
             );
           }
           throw new Error(
-            `${baseMessage}\n\nCheck the backend URL and make sure the phone has internet (mobile data or Wi‑Fi).`
+            Platform.OS === "web"
+              ? `${baseMessage}\n\nCheck the backend URL and make sure the API is running (e.g. http://127.0.0.1:5000).`
+              : `${baseMessage}\n\nCheck the backend URL and make sure the phone has internet (mobile data or Wi‑Fi).`
           );
         }
 

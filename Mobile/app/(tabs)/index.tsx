@@ -18,6 +18,7 @@ import {
   QuickActionTile,
   formatLeaveActivityMeta,
 } from "@/features/dashboard";
+import { resolveJobTitle } from "@/features/profile";
 import { getEmployee } from "@/api/endpoints/employees";
 import {
   getLeaveBalances,
@@ -58,8 +59,8 @@ export default function HomeScreen() {
   });
 
   const leaveRequestsQuery = useQuery({
-    queryKey: ["leave", "requests", "recent"],
-    queryFn: () => getMyLeaveRequests({ pageSize: 5 }),
+    queryKey: ["leave", "requests", "recent", employeeId],
+    queryFn: () => getMyLeaveRequests(employeeId!, { pageSize: 5 }),
     enabled: !!employeeId && showLeave,
   });
 
@@ -105,8 +106,7 @@ export default function HomeScreen() {
     apiBaseUrl ?? "",
     profile?.profileImageUrl ?? user?.profileImageUrl
   );
-  const jobSubtitle =
-    profile?.jobTitleName ?? profile?.positionTitle ?? profile?.departmentName ?? null;
+  const jobSubtitle = profile ? resolveJobTitle(profile) : null;
 
   const totalRemaining =
     leaveBalancesQuery.data?.reduce((sum, item) => sum + item.remaining, 0) ?? 0;

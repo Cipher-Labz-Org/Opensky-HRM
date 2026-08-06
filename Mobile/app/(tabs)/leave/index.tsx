@@ -24,8 +24,8 @@ export default function LeaveScreen() {
   });
 
   const requestsQuery = useQuery({
-    queryKey: ["leave", "requests"],
-    queryFn: () => getMyLeaveRequests({ pageSize: 50 }),
+    queryKey: ["leave", "requests", employeeId],
+    queryFn: () => getMyLeaveRequests(employeeId!, { pageSize: 50 }),
     enabled: !!employeeId,
   });
 

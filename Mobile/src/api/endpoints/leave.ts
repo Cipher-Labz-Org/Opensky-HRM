@@ -19,17 +19,20 @@ export async function getLeaveTypes(): Promise<LeaveType[]> {
   return apiFetch<LeaveType[]>("/api/leave/types");
 }
 
-export async function getMyLeaveRequests(params?: {
+export async function getMyLeaveRequests(
+  employeeId: string,
+  params?: {
   page?: number;
   pageSize?: number;
   status?: string;
 }): Promise<PagedResult<LeaveRequest>> {
   const search = new URLSearchParams();
+  search.set("employeeId", employeeId);
   if (params?.page) search.set("page", String(params.page));
   if (params?.pageSize) search.set("pageSize", String(params.pageSize));
   if (params?.status) search.set("status", params.status);
   const qs = search.toString();
-  return apiFetch<PagedResult<LeaveRequest>>(`/api/leave/requests${qs ? `?${qs}` : ""}`);
+  return apiFetch<PagedResult<LeaveRequest>>(`/api/leave/requests?${qs}`);
 }
 
 export async function getTeamPendingLeaveRequests(

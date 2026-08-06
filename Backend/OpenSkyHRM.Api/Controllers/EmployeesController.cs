@@ -78,7 +78,12 @@ public class EmployeesController : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id)
     {
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        // Own profile is always readable for linked accounts (mobile ESS / all roles).
+        var ownId = await PeopleAccessHelper.ResolveOwnEmployeeIdAsync(User, _db);
+        IReadOnlyList<Guid>? allowedIds = null;
+        if (ownId != id)
+            allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+
         var employee = await _employeeService.GetByIdAsync(id, allowedIds);
         return employee is null ? NotFound() : Ok(employee);
     }
@@ -164,9 +169,13 @@ public class EmployeesController : ControllerBase
         if (!await PeopleAccessHelper.MayAssignEmployeeLocationAsync(User, _db, dto.LocationId))
             return Forbid();
 
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
-        if (allowedIds != null && (allowedIds.Count == 0 || !allowedIds.Contains(id)))
-            return Forbid();
+        var ownId = await PeopleAccessHelper.ResolveOwnEmployeeIdAsync(User, _db);
+        if (ownId != id)
+        {
+            var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
+            if (allowedIds != null && (allowedIds.Count == 0 || !allowedIds.Contains(id)))
+                return Forbid();
+        }
         var licenseErr = LicenseDateValidationProblem(dto.LicenseIssueDate, dto.LicenseExpiryDate);
         if (licenseErr != null) return licenseErr;
         try

@@ -109,9 +109,12 @@ public class AttendanceController : ControllerBase
     [HttpPost("punch")]
     public async Task<IActionResult> Punch([FromBody] PunchRequestDto dto)
     {
-        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null) return Unauthorized();
-        var user = await _db.Set<User>().FirstOrDefaultAsync(u => u.Id.ToString() == userId);
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+        if (userId == null || !Guid.TryParse(userId, out var accountId))
+            return Unauthorized();
+
+        var user = await _db.Set<User>().AsNoTracking().FirstOrDefaultAsync(u => u.Id == accountId);
 
         Guid? linkedEmployeeId = user?.EmployeeId;
         if (linkedEmployeeId == null && Guid.TryParse(User.FindFirst("employeeId")?.Value, out var fromClaim))
@@ -125,17 +128,12 @@ public class AttendanceController : ControllerBase
         else
             return BadRequest("User is not linked to an employee.");
 
+        // Any authenticated user linked to an employee may punch themselves (QR / mobile ESS).
+        // Punching another employee still requires People:Update on that record.
         var isSelfPunch = linkedEmployeeId == targetEmployeeId;
-        if (isSelfPunch)
-        {
-            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, targetEmployeeId, "Read"))
-                return Forbid();
-        }
-        else
-        {
-            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, targetEmployeeId, "Update"))
-                return Forbid();
-        }
+        if (!isSelfPunch
+            && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, targetEmployeeId, "Update"))
+            return Forbid();
 
         var qrError = await ResolveBusinessUnitFromQrAsync(dto);
         if (qrError != null)
