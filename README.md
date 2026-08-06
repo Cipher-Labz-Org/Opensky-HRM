@@ -91,7 +91,7 @@ PostgreSQL (app data + hangfire schema)
 - **PostgreSQL** 14+ (local or remote)
 - **Git**
 
-Optional:
+Optional 
 
 - Docker (API container or local MailHog/Mailpit for email testing)
 - SendGrid API key (production email)
