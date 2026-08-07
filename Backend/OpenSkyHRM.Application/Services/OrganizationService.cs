@@ -156,11 +156,29 @@ public class OrganizationService : IOrganizationService
         var bu = await _db.BusinessUnits.FindAsync(id);
         if (bu is null) return false;
         bu.IsDeleted = true;
+
+        var linkedPlaces = await _db.AttendancePlaces
+            .Where(p => p.BusinessUnitId == id && !p.IsDeleted)
+            .ToListAsync();
+        foreach (var place in linkedPlaces)
+            place.IsDeleted = true;
+
         await _db.SaveChangesAsync();
         return true;
     }
 
     // --- Locations ---
+
+    private static LocationDto ToLocationDto(Location l) => new()
+    {
+        Id = l.Id,
+        Name = l.Name,
+        Code = l.Code,
+        Address = l.Address,
+        City = l.City,
+        Country = l.Country,
+        IsActive = l.IsActive,
+    };
 
     public async Task<List<LocationDto>> GetLocationsAsync()
     {
@@ -169,7 +187,7 @@ public class OrganizationService : IOrganizationService
             .Select(l => new LocationDto
             {
                 Id = l.Id, Name = l.Name, Code = l.Code,
-                Address = l.Address, City = l.City, Country = l.Country, IsActive = l.IsActive
+                Address = l.Address, City = l.City, Country = l.Country, IsActive = l.IsActive,
             })
             .ToListAsync();
     }
@@ -187,11 +205,7 @@ public class OrganizationService : IOrganizationService
         };
         _db.Locations.Add(entity);
         await _db.SaveChangesAsync();
-        return new LocationDto
-        {
-            Id = entity.Id, Name = entity.Name, Code = entity.Code,
-            Address = entity.Address, City = entity.City, Country = entity.Country, IsActive = entity.IsActive
-        };
+        return ToLocationDto(entity);
     }
 
     public async Task<LocationDto?> UpdateLocationAsync(Guid id, CreateLocationDto dto)
@@ -205,11 +219,7 @@ public class OrganizationService : IOrganizationService
         entity.Country = dto.Country;
         entity.IsActive = dto.IsActive;
         await _db.SaveChangesAsync();
-        return new LocationDto
-        {
-            Id = entity.Id, Name = entity.Name, Code = entity.Code,
-            Address = entity.Address, City = entity.City, Country = entity.Country, IsActive = entity.IsActive
-        };
+        return ToLocationDto(entity);
     }
 
     public async Task<bool> DeleteLocationAsync(Guid id)
@@ -220,6 +230,13 @@ public class OrganizationService : IOrganizationService
         if (inUse)
             throw new InvalidOperationException("Cannot delete location: it is assigned to one or more employees.");
         entity.IsDeleted = true;
+
+        var linkedPlaces = await _db.AttendancePlaces
+            .Where(p => p.LocationId == id && !p.IsDeleted)
+            .ToListAsync();
+        foreach (var place in linkedPlaces)
+            place.IsDeleted = true;
+
         await _db.SaveChangesAsync();
         return true;
     }

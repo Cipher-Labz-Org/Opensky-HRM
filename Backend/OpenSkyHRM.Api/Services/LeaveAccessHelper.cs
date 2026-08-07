@@ -20,7 +20,23 @@ public static class LeaveAccessHelper
     {
         var leaveRbacIds = await ResolveLeaveRbacScopeIdsAsync(user, db, action, excludeSelfForApprovalList);
         var dimensionIds = await PeopleAccessHelper.GetDimensionFilteredEmployeeIdsAsync(user, db);
-        return PeopleAccessHelper.IntersectEmployeeScopes(leaveRbacIds, dimensionIds);
+        var allowed = PeopleAccessHelper.IntersectEmployeeScopes(leaveRbacIds, dimensionIds);
+
+        // ESS: linked accounts can always access their own leave (balances, apply, mobile home).
+        if (string.Equals(action, "Read", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(action, "Create", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(action, "Update", StringComparison.OrdinalIgnoreCase))
+        {
+            var ownId = await GetCurrentEmployeeIdAsync(user, db);
+            if (ownId.HasValue && allowed != null && !allowed.Contains(ownId.Value))
+            {
+                var withOwn = allowed.ToList();
+                withOwn.Add(ownId.Value);
+                return withOwn;
+            }
+        }
+
+        return allowed;
     }
 
     /// <summary>
@@ -39,7 +55,7 @@ public static class LeaveAccessHelper
         if (scope == "All")
             return null;
 
-        var currentId = GetCurrentEmployeeId(user);
+        var currentId = await GetCurrentEmployeeIdAsync(user, db);
         if (!currentId.HasValue)
             return Array.Empty<Guid>();
 
@@ -128,8 +144,18 @@ public static class LeaveAccessHelper
         return id;
     }
 
+    /// <summary>Linked employee (JWT claim, then DB <see cref="Domain.Entities.User.EmployeeId"/>).</summary>
+    public static Task<Guid?> GetCurrentEmployeeIdAsync(ClaimsPrincipal user, AppDbContext db)
+        => PeopleAccessHelper.ResolveOwnEmployeeIdAsync(user, db);
+
     public static async Task<bool> CanAccessEmployeeLeaveAsync(ClaimsPrincipal user, AppDbContext db, Guid employeeId, string action = "Read")
     {
+        var ownId = await GetCurrentEmployeeIdAsync(user, db);
+        if (ownId == employeeId
+            && (string.Equals(action, "Read", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(action, "Create", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
         var allowedIds = await GetAllowedEmployeeIdsAsync(user, db, action);
         if (allowedIds == null)
             return true;

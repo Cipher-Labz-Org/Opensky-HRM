@@ -11,4 +11,5 @@ public class BusinessUnit : AuditableEntity
 
     public ICollection<Department> Departments { get; set; } = new List<Department>();
     public ICollection<Employee> Employees { get; set; } = new List<Employee>();
+    public ICollection<AttendancePlace> AttendancePlaces { get; set; } = new List<AttendancePlace>();
 }

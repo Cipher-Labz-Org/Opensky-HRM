@@ -107,13 +107,29 @@ public class OrganizationController : ControllerBase
 
     [HttpPost("locations")]
     public async Task<IActionResult> CreateLocation([FromBody] CreateLocationDto dto)
-        => Ok(await _orgService.CreateLocationAsync(dto));
+    {
+        try
+        {
+            return Ok(await _orgService.CreateLocationAsync(dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 
     [HttpPut("locations/{id:guid}")]
     public async Task<IActionResult> UpdateLocation(Guid id, [FromBody] CreateLocationDto dto)
     {
-        var updated = await _orgService.UpdateLocationAsync(id, dto);
-        return updated is null ? NotFound() : Ok(updated);
+        try
+        {
+            var updated = await _orgService.UpdateLocationAsync(id, dto);
+            return updated is null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("locations/{id:guid}")]

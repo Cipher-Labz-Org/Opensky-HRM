@@ -7,6 +7,10 @@ import type {
   ValidateAttendanceQrResult,
 } from "@/types/attendance";
 
+export async function getAttendanceCheckInMode(): Promise<{ mode: string }> {
+  return apiFetch<{ mode: string }>("/api/Attendance/check-in-mode");
+}
+
 export async function punchAttendance(body: PunchRequest): Promise<AttendanceRecord> {
   return apiFetch<AttendanceRecord>("/api/Attendance/punch", {
     method: "POST",
@@ -23,6 +27,8 @@ export async function getAttendanceRecords(params: {
   to: string;
   page?: number;
   pageSize?: number;
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
 }): Promise<PagedAttendanceResult> {
   const search = new URLSearchParams({
     employeeId: params.employeeId,
@@ -31,6 +37,8 @@ export async function getAttendanceRecords(params: {
     page: String(params.page ?? 1),
     pageSize: String(params.pageSize ?? 50),
   });
+  if (params.sortBy) search.set("sortBy", params.sortBy);
+  if (params.sortDir) search.set("sortDir", params.sortDir);
   return apiFetch<PagedAttendanceResult>(`/api/Attendance?${search.toString()}`);
 }
 

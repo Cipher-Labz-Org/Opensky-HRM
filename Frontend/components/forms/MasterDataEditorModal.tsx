@@ -22,8 +22,12 @@ interface FieldDef {
   type?: "text" | "number" | "textarea" | "checkbox";
   required?: boolean;
   placeholder?: string;
+  /** Helper text shown under the label (e.g. geofence guidance). */
+  hint?: string;
   /** When adding a row and `defaults` is undefined, used as initial checkbox checked / fallback. */
   defaultForAdd?: boolean;
+  /** Initial value for text/number fields when adding a row. */
+  defaultValue?: string | number;
 }
 
 interface Props {
@@ -155,30 +159,38 @@ export function MasterDataEditorModal({
           {fields.map((f) => (
             <div key={f.key} className={f.type === "textarea" || f.type === "checkbox" ? "sm:col-span-2" : ""}>
               {f.type === "checkbox" ? (
-                <label className="flex cursor-pointer items-center gap-2.5 pt-1">
-                  <input
-                    type="checkbox"
-                    name={f.key}
-                    defaultChecked={
-                      defaults?.[f.key] !== undefined
-                        ? Boolean(defaults[f.key])
-                        : Boolean(f.defaultForAdd)
-                    }
-                    className="h-4 w-4 rounded border border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/20"
-                  />
-                  <span className="text-sm font-medium text-[var(--text)]">
-                    {f.label}{f.required !== false ? " *" : ""}
-                  </span>
-                </label>
+                <div className="pt-1">
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      name={f.key}
+                      defaultChecked={
+                        defaults?.[f.key] !== undefined
+                          ? Boolean(defaults[f.key])
+                          : Boolean(f.defaultForAdd)
+                      }
+                      className="h-4 w-4 rounded border border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]/20"
+                    />
+                    <span className="text-sm font-medium text-[var(--text)]">
+                      {f.label}{f.required !== false ? " *" : ""}
+                    </span>
+                  </label>
+                  {f.hint ? (
+                    <p className="mt-1 pl-6 text-xs text-[var(--text-muted)]">{f.hint}</p>
+                  ) : null}
+                </div>
               ) : (
                 <>
                   <label className={labelClass}>{f.label}{f.required !== false ? " *" : ""}</label>
+                  {f.hint ? (
+                    <p className="mb-1 text-xs text-[var(--text-muted)]">{f.hint}</p>
+                  ) : null}
                   {f.type === "textarea" ? (
                     <textarea
                       name={f.key}
                       rows={2}
                       className={inputClass}
-                      defaultValue={String(defaults?.[f.key] ?? "")}
+                      defaultValue={String(defaults?.[f.key] ?? f.defaultValue ?? "")}
                       placeholder={f.placeholder}
                     />
                   ) : (
@@ -186,8 +198,15 @@ export function MasterDataEditorModal({
                       name={f.key}
                       type={f.type ?? "text"}
                       required={f.required !== false}
+                      step={f.type === "number" ? "any" : undefined}
                       className={inputClass}
-                      defaultValue={defaults?.[f.key] !== undefined ? String(defaults[f.key]) : ""}
+                      defaultValue={
+                        defaults?.[f.key] !== undefined
+                          ? String(defaults[f.key])
+                          : f.defaultValue !== undefined
+                            ? String(f.defaultValue)
+                            : ""
+                      }
                       placeholder={f.placeholder}
                     />
                   )}

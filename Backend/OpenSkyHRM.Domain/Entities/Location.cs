@@ -14,4 +14,5 @@ public class Location : AuditableEntity
     public ICollection<Employee> Employees { get; set; } = new List<Employee>();
     public ICollection<Position> Positions { get; set; } = new List<Position>();
     public ICollection<UserAssignedLocation> UserAssignments { get; set; } = new List<UserAssignedLocation>();
+    public ICollection<AttendancePlace> AttendancePlaces { get; set; } = new List<AttendancePlace>();
 }

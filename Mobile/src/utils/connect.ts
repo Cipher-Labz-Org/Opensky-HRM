@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import type { MobileConnectionInfo } from "@/types/auth";
 import { APP_SCHEME } from "@/config/constants";
 
@@ -213,6 +214,16 @@ export function isPrivateLanApiBaseUrl(input: string | null | undefined): boolea
   return false;
 }
 
+function isExpoWebOnLoopback(): boolean {
+  if (Platform.OS !== "web" || typeof window === "undefined") return false;
+  try {
+    const pageHost = window.location.hostname.toLowerCase();
+    return pageHost === "localhost" || pageHost === "127.0.0.1" || pageHost === "::1";
+  } catch {
+    return false;
+  }
+}
+
 /** Candidate bases to try when connecting (HTTPS first for production hosts). */
 export function buildConnectionCandidates(raw: string): string[] {
   const primary = normalizeApiBaseUrl(raw);
@@ -233,6 +244,13 @@ export function buildConnectionCandidates(raw: string): string[] {
       } else {
         candidates.push(httpUrl);
       }
+
+      // Expo web on the same PC: also try loopback when a LAN IP was provided.
+      // Do NOT rewrite the stored URL — phones must keep the LAN address.
+      if (isExpoWebOnLoopback() && isPrivateLanApiBaseUrl(httpUrl) && !isLoopbackApiBaseUrl(httpUrl)) {
+        const port = parsed.port || "5000";
+        candidates.push(`http://localhost:${port}`, `http://127.0.0.1:${port}`);
+      }
     }
   } catch {
     // keep primary only
@@ -241,23 +259,21 @@ export function buildConnectionCandidates(raw: string): string[] {
 }
 
 /**
- * When Expo web runs on localhost, prefer loopback HTTP for local/LAN API URLs.
- * Avoids stale NIC IPs from QR/PublicApiBaseUrl and HTTPS-without-cert failures.
+ * Expo web only: normalize loopback aliases (127.0.0.1 → localhost).
+ *
+ * IMPORTANT: Never run this rewrite on native. React Native defines `window`, and
+ * some runtimes report hostname as "localhost", which previously rewrote LAN QR
+ * URLs (e.g. http://192.168.x.x:5000) to http://localhost:5000 and broke APKs.
  */
 export function resolveRuntimeApiBaseUrl(apiBaseUrl: string): string {
   const normalized = normalizeApiBaseUrl(apiBaseUrl);
-  if (typeof window === "undefined") return normalized;
+  if (Platform.OS !== "web") return normalized;
+  if (!isExpoWebOnLoopback()) return normalized;
+  if (isOpenSkyProductionHost(normalized)) return normalized;
+  // Keep private LAN IPs as-is (matches QR / phone). Only remap loopback aliases.
+  if (!isLoopbackApiBaseUrl(normalized)) return normalized;
 
   try {
-    const pageHost = window.location.hostname.toLowerCase();
-    const pageIsLoopback =
-      pageHost === "localhost" || pageHost === "127.0.0.1" || pageHost === "::1";
-    if (!pageIsLoopback) return normalized;
-    if (isOpenSkyProductionHost(normalized)) return normalized;
-    if (!isLoopbackApiBaseUrl(normalized) && !isPrivateLanApiBaseUrl(normalized)) {
-      return normalized;
-    }
-
     const parsed = new URL(normalized);
     const port = parsed.port;
     const protocol = parsed.protocol === "https:" && port === "5001" ? "https:" : "http:";

@@ -3,7 +3,7 @@
     "name": "OpenSky HRM",
     "slug": "opensky-hrm",
     "scheme": "openskyhrm",
-    "version": "1.0.5",
+    "version": "1.0.10",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -16,7 +16,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.openskyhrm.mobile",
       "infoPlist": {
-        "NSCameraUsageDescription": "OpenSky HRM uses the camera to scan business unit QR codes for attendance punch in/out.",
+        "NSCameraUsageDescription": "OpenSky HRM uses the camera to scan business unit or location QR codes for attendance punch in/out.",
         "NSLocationWhenInUseUsageDescription": "OpenSky HRM may capture your location when you punch attendance.",
         "NSPhotoLibraryUsageDescription": "OpenSky HRM needs photo library access so you can update your profile picture.",
         "NSAppTransportSecurity": {

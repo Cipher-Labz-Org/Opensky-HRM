@@ -199,6 +199,25 @@ public static class PeopleAccessHelper
     }
 
     /// <summary>
+    /// Linked employee for the signed-in account (JWT claim, then DB <see cref="User.EmployeeId"/>).
+    /// </summary>
+    public static async Task<Guid?> ResolveOwnEmployeeIdAsync(ClaimsPrincipal user, AppDbContext db)
+    {
+        if (Guid.TryParse(user.FindFirstValue("employeeId"), out var fromClaim) && fromClaim != Guid.Empty)
+            return fromClaim;
+
+        var userId = GetCurrentUserAccountId(user);
+        if (!userId.HasValue)
+            return null;
+
+        return await db.Set<User>()
+            .AsNoTracking()
+            .Where(u => u.Id == userId.Value)
+            .Select(u => u.EmployeeId)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>
     /// Resolves RBAC People scope (Own / Team / All). Returns null for unrestricted RBAC scope (All / ADMIN).
     /// </summary>
     private static async Task<IReadOnlyList<Guid>?> ResolveRbacScopeIdsAsync(
@@ -217,19 +236,21 @@ public static class PeopleAccessHelper
 
         if (scope == "Own")
         {
-            if (!Guid.TryParse(user.FindFirstValue("employeeId"), out var ownId))
+            var ownId = await ResolveOwnEmployeeIdAsync(user, db);
+            if (!ownId.HasValue)
                 return Array.Empty<Guid>();
-            return new[] { ownId };
+            return new[] { ownId.Value };
         }
 
         if (scope == "Team")
         {
-            if (!Guid.TryParse(user.FindFirstValue("employeeId"), out var tid))
+            var tid = await ResolveOwnEmployeeIdAsync(user, db);
+            if (!tid.HasValue)
                 return Array.Empty<Guid>();
 
             var teamIds = await db.Employees
                 .AsNoTracking()
-                .Where(e => e.Id == tid || e.ManagerId == tid)
+                .Where(e => e.Id == tid.Value || e.ManagerId == tid.Value)
                 .Select(e => e.Id)
                 .ToListAsync();
             return teamIds;
@@ -252,8 +273,23 @@ public static class PeopleAccessHelper
             db, assignedLocs, assignedBus, assignedGrades, assignedJobTitles);
 
         var scopeIds = await ResolveRbacScopeIdsAsync(user, db, action);
+        var allowed = IntersectEmployeeScopes(scopeIds, dimensionIds);
 
-        return IntersectEmployeeScopes(scopeIds, dimensionIds);
+        // ESS: every linked account can always read/update their own employee profile
+        // (mobile profile + attendance), even without People RBAC or when dimension filters exclude them.
+        if (string.Equals(action, "Read", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(action, "Update", StringComparison.OrdinalIgnoreCase))
+        {
+            var ownId = await ResolveOwnEmployeeIdAsync(user, db);
+            if (ownId.HasValue && allowed != null && !allowed.Contains(ownId.Value))
+            {
+                var withOwn = allowed.ToList();
+                withOwn.Add(ownId.Value);
+                return withOwn;
+            }
+        }
+
+        return allowed;
     }
 
     public static string ResolvePeopleScope(IEnumerable<string> permissions, string action)

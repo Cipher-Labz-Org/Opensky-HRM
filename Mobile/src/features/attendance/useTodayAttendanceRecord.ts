@@ -12,11 +12,17 @@ export function useTodayAttendanceRecord(employeeId: string | null | undefined) 
         employeeId: employeeId!,
         from: today,
         to: today,
-        pageSize: 10,
+        pageSize: 50,
+        sortBy: "punchIn",
+        sortDir: "desc",
       });
       return findTodayRecord(result.items) ?? null;
     },
     enabled: !!employeeId,
-    refetchInterval: 60_000,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+    retry: 2,
   });
 }

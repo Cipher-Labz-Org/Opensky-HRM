@@ -28,7 +28,7 @@ import {
 } from "@/lib/company-branding";
 import { normalizeCompanyLogoUpload, pdfUrlToPngFile } from "@/lib/render-pdf-logo";
 import { MobileConnectionQr } from "@/components/settings/MobileConnectionQr";
-import { BusinessUnitAttendanceQrModal } from "@/components/settings/BusinessUnitAttendanceQrModal";
+import { AttendancePlacesModal } from "@/components/settings/AttendancePlacesModal";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
@@ -44,13 +44,13 @@ interface CountSummary {
   skills: number;
   skillTemplates: number;
   attachmentTypes: number;
+  attendancePlaces: number;
 }
 
 export default function SettingsPage() {
   const { isAdmin } = useAuth();
   const searchParams = useSearchParams();
   const [editBU, setEditBU] = useState(false);
-  const [buQrItem, setBuQrItem] = useState<{ id: string; name: string; code: string } | null>(null);
   const [editGrades, setEditGrades] = useState(false);
   const [editJobs, setEditJobs] = useState(false);
   const [editDocs, setEditDocs] = useState(false);
@@ -60,7 +60,11 @@ export default function SettingsPage() {
   const [editSkills, setEditSkills] = useState(false);
   const [editSkillTemplates, setEditSkillTemplates] = useState(false);
   const [editAttachmentTypes, setEditAttachmentTypes] = useState(false);
-  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0, empStatuses: 0, skills: 0, skillTemplates: 0, attachmentTypes: 0 });
+  const [editAttendancePlaces, setEditAttendancePlaces] = useState(false);
+  const [attendanceCheckInMode, setAttendanceCheckInMode] = useState("BusinessUnitQr");
+  const [attendanceModeSaving, setAttendanceModeSaving] = useState(false);
+  const [attendanceModeMsg, setAttendanceModeMsg] = useState("");
+  const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0, empStatuses: 0, skills: 0, skillTemplates: 0, attachmentTypes: 0, attendancePlaces: 0 });
 
   const [codeAutoGen, setCodeAutoGen] = useState(true);
   const [codeLength, setCodeLength] = useState("6");
@@ -131,10 +135,11 @@ export default function SettingsPage() {
       apiFetch<{ id: string }[]>("/api/employees/skills-catalog").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/recruitment/skill-templates").then((r) => r.length).catch(() => 0),
       apiFetch<{ id: string }[]>("/api/employees/profile-attachment-types").then((r) => r.length).catch(() => 0),
-    ]).then(([businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, skillTemplates, attachmentTypes]) =>
-      setCounts({ businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, skillTemplates, attachmentTypes })
+      apiFetch<{ id: string }[]>("/api/attendance/places").then((r) => r.length).catch(() => 0),
+    ]).then(([businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, skillTemplates, attachmentTypes, attendancePlaces]) =>
+      setCounts({ businessUnits, grades, jobTitles, locations, statuses, empStatuses, skills, skillTemplates, attachmentTypes, attendancePlaces })
     );
-  }, [editBU, editGrades, editJobs, editLocations, editStatuses, editEmpStatuses, editSkills, editSkillTemplates, editAttachmentTypes]);
+  }, [editBU, editGrades, editJobs, editLocations, editStatuses, editEmpStatuses, editSkills, editSkillTemplates, editAttachmentTypes, editAttendancePlaces]);
 
   async function persistLogoDisplaySettings(display: {
     scale: number;
@@ -193,6 +198,7 @@ export default function SettingsPage() {
     setCompanyWebsite(getSystemSetting(settings, "CompanyWebsite") ?? "");
     setCompanyRegNo(getSystemSetting(settings, "CompanyRegNo") ?? "");
     setDefaultCurrency((getSystemSetting(settings, "DefaultCurrency") ?? DEFAULT_CURRENCY).toUpperCase());
+    setAttendanceCheckInMode(getSystemSetting(settings, "AttendanceCheckInMode") ?? "BusinessUnitQr");
   }
 
   useEffect(() => {
@@ -499,6 +505,22 @@ export default function SettingsPage() {
       const res = await apiFetch<{ levels: number }>("/api/leave/approval-config", { method: "PUT", body: JSON.stringify({ levels }) });
       setApprovalLevels(res.levels);
     } catch { /* ignore */ } finally { setApprovalConfigSaving(false); }
+  }
+
+  async function saveAttendanceCheckInMode() {
+    setAttendanceModeSaving(true);
+    setAttendanceModeMsg("");
+    try {
+      await apiFetch("/api/system-settings/AttendanceCheckInMode", {
+        method: "PUT",
+        body: JSON.stringify({ value: attendanceCheckInMode }),
+      });
+      setAttendanceModeMsg("Saved successfully.");
+    } catch (err) {
+      setAttendanceModeMsg(err instanceof Error ? err.message : "Failed to save attendance check-in mode.");
+    } finally {
+      setAttendanceModeSaving(false);
+    }
   }
 
   const totalMasterRecords = useMemo(
@@ -1143,16 +1165,10 @@ export default function SettingsPage() {
           { key: "code", label: "Code", placeholder: "BU-HO" },
           { key: "description", label: "Description", type: "textarea", required: false, placeholder: "Optional description" },
         ]}
-        onShowAttendanceQr={(item) =>
-          setBuQrItem({ id: item.id, name: item.name, code: item.code })
-        }
       />
-      <BusinessUnitAttendanceQrModal
-        open={!!buQrItem}
-        onClose={() => setBuQrItem(null)}
-        businessUnitId={buQrItem?.id ?? null}
-        businessUnitName={buQrItem?.name}
-        businessUnitCode={buQrItem?.code}
+      <AttendancePlacesModal
+        open={editAttendancePlaces}
+        onClose={() => setEditAttendancePlaces(false)}
       />
 
       <MasterDataEditorModal
@@ -1415,6 +1431,64 @@ export default function SettingsPage() {
       </div>
 
       {/* Master Data Blocks */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="section-title">
+            <h3>Attendance Check-in</h3>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Check-in mode</label>
+              <select
+                value={attendanceCheckInMode}
+                onChange={(e) => setAttendanceCheckInMode(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              >
+                <option value="Open">Open — GPS and QR optional (not recommended)</option>
+                <option value="LocationGeofence">Location geofence — employee home location</option>
+                <option value="BusinessUnitQr">QR required — business unit or location QR</option>
+                <option value="BusinessUnitGeofence">Business unit geofence</option>
+                <option value="Hybrid">Hybrid — QR + geofence</option>
+              </select>
+              <p className="mt-1.5 text-xs text-[var(--text-muted)]">
+                Use &quot;QR required&quot; so mobile users must scan a business unit or location QR to punch.
+                Configure attendance places with coordinates before enabling geofence modes.
+              </p>
+            </div>
+            <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">
+              <div>
+                <strong className="text-sm font-semibold text-[var(--text)]">Attendance places</strong>
+                <div className="text-xs text-[var(--text-muted)]">
+                  {counts.attendancePlaces} place{counts.attendancePlaces !== 1 ? "s" : ""} with geo coordinates
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditAttendancePlaces(true)}
+                className="text-sm font-medium text-[var(--primary)] hover:underline"
+              >
+                Edit
+              </button>
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              {attendanceModeMsg ? (
+                <span className={`text-xs font-medium ${attendanceModeMsg.includes("success") ? "text-green-600" : "text-red-500"}`}>
+                  {attendanceModeMsg}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void saveAttendanceCheckInMode()}
+                disabled={attendanceModeSaving}
+                className="rounded-lg bg-[var(--primary)] px-5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+              >
+                {attendanceModeSaving ? "Saving..." : "Save Check-in Mode"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">

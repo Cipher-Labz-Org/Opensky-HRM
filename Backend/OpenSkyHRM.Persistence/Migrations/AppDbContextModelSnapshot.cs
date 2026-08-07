@@ -627,6 +627,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("AttendancePlaceId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp without time zone");
 
@@ -675,9 +678,87 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AttendancePlaceId");
+
                     b.HasIndex("EmployeeId");
 
                     b.ToTable("AttendanceRecords");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendancePlace", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BusinessUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("GeofenceEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("GeofenceRadiusMeters")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(20);
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal?>("Latitude")
+                        .HasColumnType("numeric");
+
+                    b.Property<Guid?>("LocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("Longitude")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessUnitId")
+                        .IsUnique()
+                        .HasFilter("\"BusinessUnitId\" IS NOT NULL AND NOT \"IsDeleted\"");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasFilter("NOT \"IsDeleted\"");
+
+                    b.HasIndex("LocationId")
+                        .IsUnique()
+                        .HasFilter("\"LocationId\" IS NOT NULL AND NOT \"IsDeleted\"");
+
+                    b.ToTable("AttendancePlaces", (string)null);
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AuditLog", b =>
@@ -5552,6 +5633,12 @@ namespace OpenSkyHRM.Persistence.Migrations
                             Key = "DefaultCurrency",
                             Description = "Default ISO 4217 currency for salary ranges and recruitment offers",
                             Value = "LKR"
+                        },
+                        new
+                        {
+                            Key = "AttendanceCheckInMode",
+                            Description = "Attendance check-in policy: Open, LocationGeofence, BusinessUnitQr, BusinessUnitGeofence, Hybrid",
+                            Value = "BusinessUnitQr"
                         });
                 });
 
@@ -6127,13 +6214,37 @@ namespace OpenSkyHRM.Persistence.Migrations
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendanceRecord", b =>
                 {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.AttendancePlace", "AttendancePlace")
+                        .WithMany("AttendanceRecords")
+                        .HasForeignKey("AttendancePlaceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "Employee")
                         .WithMany()
                         .HasForeignKey("EmployeeId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("AttendancePlace");
+
                     b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendancePlace", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.BusinessUnit", "BusinessUnit")
+                        .WithMany("AttendancePlaces")
+                        .HasForeignKey("BusinessUnitId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("OpenSkyHRM.Domain.Entities.Location", "Location")
+                        .WithMany("AttendancePlaces")
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("BusinessUnit");
+
+                    b.Navigation("Location");
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.BankAccount", b =>
@@ -7246,8 +7357,15 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Navigation("Items");
                 });
 
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendancePlace", b =>
+                {
+                    b.Navigation("AttendanceRecords");
+                });
+
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.BusinessUnit", b =>
                 {
+                    b.Navigation("AttendancePlaces");
+
                     b.Navigation("Departments");
 
                     b.Navigation("Employees");
@@ -7358,6 +7476,8 @@ namespace OpenSkyHRM.Persistence.Migrations
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.Location", b =>
                 {
+                    b.Navigation("AttendancePlaces");
+
                     b.Navigation("Employees");
 
                     b.Navigation("Positions");

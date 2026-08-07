@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { LoadingState } from "@/components/ui";
+import { EmptyState, LoadingState } from "@/components/ui";
 
 import {
 
@@ -230,7 +230,59 @@ export default function ProfileScreen() {
 
       >
 
-        {profileQuery.isLoading || !profile ? (
+        {!employeeId ? (
+
+          <>
+
+            <ProfileTopSection title="My profile" subtitle="Personal and work information" />
+
+            <View className="px-4 pt-6">
+
+              <EmptyState
+
+                title="No employee profile"
+
+                description="Your account is not linked to an employee record. Contact HR to link your login."
+
+                icon="person-outline"
+
+              />
+
+            </View>
+
+          </>
+
+        ) : profileQuery.isError ? (
+
+          <>
+
+            <ProfileTopSection title="My profile" subtitle="Personal and work information" />
+
+            <View className="px-4 pt-6">
+
+              <EmptyState
+
+                title="Could not load profile"
+
+                description={
+
+                  profileQuery.error instanceof Error
+
+                    ? profileQuery.error.message
+
+                    : "Unable to load your profile. Pull to refresh or try again later."
+
+                }
+
+                icon="alert-circle-outline"
+
+              />
+
+            </View>
+
+          </>
+
+        ) : profileQuery.isLoading || !profile ? (
 
           <>
 

@@ -47,11 +47,38 @@ export function formatAttendanceMeta(record: AttendanceRecord): string {
   return parts.join(" · ");
 }
 
-export function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
+/** Local calendar date (YYYY-MM-DD) — avoid UTC shift from toISOString(). */
+export function todayIsoDate(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
+function recordTimeMs(value: string | null | undefined): number {
+  if (!value) return 0;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/**
+ * Pick the attendance record that drives punch UI:
+ * 1) Open session (punched in, not out) — required so "Punch out" shows after a prior cycle
+ * 2) Otherwise the latest completed / started session for today
+ */
 export function findTodayRecord(records: AttendanceRecord[]): AttendanceRecord | undefined {
   const today = todayIsoDate();
-  return records.find((record) => record.date.slice(0, 10) === today);
+  const todays = records.filter((record) => record.date.slice(0, 10) === today);
+  if (!todays.length) return undefined;
+
+  const open = todays
+    .filter((r) => r.punchIn && !r.punchOut)
+    .sort((a, b) => recordTimeMs(b.punchIn) - recordTimeMs(a.punchIn))[0];
+  if (open) return open;
+
+  return [...todays].sort((a, b) => recordTimeMs(b.punchIn) - recordTimeMs(a.punchIn))[0];
+}
+
+export function isOpenAttendanceSession(record?: AttendanceRecord | null): boolean {
+  return Boolean(record?.punchIn && !record?.punchOut);
 }

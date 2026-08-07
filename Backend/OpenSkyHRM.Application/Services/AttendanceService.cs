@@ -11,10 +11,12 @@ namespace OpenSkyHRM.Application.Services;
 public class AttendanceService : IAttendanceService
 {
     private readonly AppDbContext _db;
+    private readonly ISystemSettingService _settings;
 
-    public AttendanceService(AppDbContext db)
+    public AttendanceService(AppDbContext db, ISystemSettingService settings)
     {
         _db = db;
+        _settings = settings;
     }
 
     public async Task<PagedResult<AttendanceRecordDto>> GetAttendanceAsync(
@@ -227,7 +229,11 @@ public class AttendanceService : IAttendanceService
             "date" => asc
                 ? items.OrderBy(x => x.Date).ThenBy(x => x.EmployeeName, StringComparer.OrdinalIgnoreCase)
                 : items.OrderByDescending(x => x.Date).ThenBy(x => x.EmployeeName, StringComparer.OrdinalIgnoreCase),
-            _ => items.OrderByDescending(x => x.Date).ThenBy(x => x.EmployeeName, StringComparer.OrdinalIgnoreCase),
+            // Prefer open sessions, then latest punch-in (supports multiple in/out cycles per day).
+            _ => items
+                .OrderByDescending(x => x.Date)
+                .ThenByDescending(x => x.PunchIn != null && x.PunchOut == null)
+                .ThenByDescending(x => x.PunchIn),
         };
 
         return ordered.ToList();
@@ -461,6 +467,8 @@ public class AttendanceService : IAttendanceService
 
     public async Task<AttendanceRecordDto> PunchAsync(Guid employeeId, PunchRequestDto dto)
     {
+        var punchPolicy = await AttendancePunchPolicyEvaluator.EvaluateAsync(_db, _settings, employeeId, dto);
+
         var now = DateTime.Now;
         var today = now.Date;
         var onLeaveToday = await HasApprovedLeaveOnDateAsync(employeeId, today);
@@ -481,7 +489,8 @@ public class AttendanceService : IAttendanceService
                 existing.WorkedHours = Math.Round((decimal)(now - (existing.PunchIn ?? now)).TotalHours, 2);
                 if (dto.Latitude.HasValue) existing.Latitude = dto.Latitude;
                 if (dto.Longitude.HasValue) existing.Longitude = dto.Longitude;
-                await ApplyBusinessUnitPunchMetaAsync(existing, dto, source);
+                if (punchPolicy.ResolvedPlace != null) existing.AttendancePlaceId = punchPolicy.ResolvedPlace.Id;
+                await ApplyAttendancePunchMetaAsync(existing, dto, source);
                 await _db.SaveChangesAsync();
                 var rosters = await _db.Set<RosterAssignment>()
                     .Include(ra => ra.RosterTemplate).ThenInclude(rt => rt.DefaultShiftPattern)
@@ -507,8 +516,9 @@ public class AttendanceService : IAttendanceService
             Source = source,
             Latitude = dto.Latitude,
             Longitude = dto.Longitude,
+            AttendancePlaceId = punchPolicy.ResolvedPlace?.Id,
         };
-        await ApplyBusinessUnitPunchMetaAsync(newRecord, dto, source);
+        await ApplyAttendancePunchMetaAsync(newRecord, dto, source);
         _db.Set<AttendanceRecord>().Add(newRecord);
         await _db.SaveChangesAsync();
 
@@ -521,28 +531,45 @@ public class AttendanceService : IAttendanceService
         return MapToDto(full, allRosters, onLeaveToday);
     }
 
-    private async Task ApplyBusinessUnitPunchMetaAsync(AttendanceRecord record, PunchRequestDto dto, string source)
+    private async Task ApplyAttendancePunchMetaAsync(AttendanceRecord record, PunchRequestDto dto, string source)
     {
-        if (!dto.BusinessUnitId.HasValue || dto.BusinessUnitId == Guid.Empty)
+        var hasBu = dto.BusinessUnitId.HasValue && dto.BusinessUnitId != Guid.Empty;
+        var hasLocation = dto.LocationId.HasValue && dto.LocationId != Guid.Empty;
+        if (!hasBu && !hasLocation)
             return;
-
-        var bu = await _db.Set<BusinessUnit>().AsNoTracking()
-            .FirstOrDefaultAsync(b => b.Id == dto.BusinessUnitId.Value && !b.IsDeleted);
 
         var label = string.IsNullOrWhiteSpace(dto.Source) || source.Equals("Mobile", StringComparison.OrdinalIgnoreCase)
             ? "Mobile QR"
             : source;
         record.Source = label;
 
-        var remark = bu is null
-            ? $"BU:{dto.BusinessUnitId:D}"
-            : $"BU:{bu.Code} ({bu.Name})";
+        if (hasBu)
+        {
+            var bu = await _db.Set<BusinessUnit>().AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Id == dto.BusinessUnitId!.Value && !b.IsDeleted);
+            AppendRemark(record, bu is null
+                ? $"BU:{dto.BusinessUnitId:D}"
+                : $"BU:{bu.Code} ({bu.Name})");
+        }
 
-        if (!string.IsNullOrWhiteSpace(record.Remarks) && record.Remarks.Contains(remark, StringComparison.OrdinalIgnoreCase))
-            return;
-        record.Remarks = string.IsNullOrWhiteSpace(record.Remarks)
-            ? remark
-            : $"{record.Remarks} | {remark}";
+        if (hasLocation)
+        {
+            var location = await _db.Set<Location>().AsNoTracking()
+                .FirstOrDefaultAsync(l => l.Id == dto.LocationId!.Value && !l.IsDeleted);
+            AppendRemark(record, location is null
+                ? $"LOC:{dto.LocationId:D}"
+                : $"LOC:{location.Code} ({location.Name})");
+        }
+    }
+
+    private static void AppendRemark(AttendanceRecord record, string remark)
+    {
+        if (string.IsNullOrWhiteSpace(record.Remarks) || !record.Remarks.Contains(remark, StringComparison.OrdinalIgnoreCase))
+        {
+            record.Remarks = string.IsNullOrWhiteSpace(record.Remarks)
+                ? remark
+                : $"{record.Remarks} | {remark}";
+        }
     }
 
     public async Task<List<OvertimeNopayResultDto>> CalculateOvertimeNopayAsync(

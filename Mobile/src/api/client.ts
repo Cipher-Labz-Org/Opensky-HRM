@@ -81,8 +81,13 @@ export async function apiFetch<T>(endpoint: string, options?: ApiFetchOptions): 
       error instanceof Error
         ? [error.name, error.message].filter(Boolean).join(": ")
         : String(error);
+    const canceled =
+      detail.toLowerCase().includes("canceled") || detail.toLowerCase().includes("cancelled");
+    const hint = canceled
+      ? " Check that the phone uses the same Wi‑Fi as the PC (not mobile data), disable guest-network isolation, and allow TCP 5000 in Windows Firewall."
+      : "";
     throw new Error(
-      `Cannot reach the server at ${requestUrl}. ${detail || "Network request failed."}`
+      `Cannot reach the server at ${requestUrl}. ${detail || "Network request failed."}${hint}`
     );
   } finally {
     clearTimeout(timeoutId);
