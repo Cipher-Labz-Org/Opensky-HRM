@@ -16,4 +16,7 @@ public class AttendanceRecord : AuditableEntity
 
     public Guid EmployeeId { get; set; }
     public Employee Employee { get; set; } = null!;
+
+    public Guid? AttendancePlaceId { get; set; }
+    public AttendancePlace? AttendancePlace { get; set; }
 }

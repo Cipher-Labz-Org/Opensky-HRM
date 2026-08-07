@@ -8,6 +8,7 @@ using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Application.Options;
 using OpenSkyHRM.Api.Services.Storage;
 using OpenSkyHRM.Api.Filters;
+using OpenSkyHRM.Domain;
 
 namespace OpenSkyHRM.Api.Controllers;
 
@@ -136,6 +137,15 @@ public class SystemSettingsController : ControllerBase
     [HttpPut("{key}")]
     public async Task<IActionResult> Set(string key, [FromBody] UpdateSettingDto dto)
     {
+        if (string.Equals(key, AttendanceCheckInModes.SettingKey, StringComparison.OrdinalIgnoreCase)
+            && !AttendanceCheckInModes.IsValid(dto.Value))
+        {
+            return BadRequest(new
+            {
+                message = "Invalid attendance check-in mode. Use Open, LocationGeofence, BusinessUnitQr, BusinessUnitGeofence, or Hybrid.",
+            });
+        }
+
         await _service.SetAsync(key, dto.Value);
         return Ok(new { key, value = dto.Value });
     }

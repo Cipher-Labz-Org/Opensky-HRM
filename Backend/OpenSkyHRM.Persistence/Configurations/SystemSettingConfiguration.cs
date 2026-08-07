@@ -39,6 +39,12 @@ public class SystemSettingConfiguration : IEntityTypeConfiguration<SystemSetting
                 Key = "DefaultCurrency",
                 Value = "LKR",
                 Description = "Default ISO 4217 currency for salary ranges and recruitment offers"
+            },
+            new SystemSetting
+            {
+                Key = "AttendanceCheckInMode",
+                Value = "BusinessUnitQr",
+                Description = "Attendance check-in policy: Open, LocationGeofence, BusinessUnitQr, BusinessUnitGeofence, Hybrid"
             }
         );
     }

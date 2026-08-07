@@ -45,12 +45,19 @@ export function monthYearLabel(month: number, year: number): string {
   return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
+function localIsoDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function startOfMonthIso(date = new Date()): string {
-  return new Date(date.getFullYear(), date.getMonth(), 1).toISOString().slice(0, 10);
+  return localIsoDate(new Date(date.getFullYear(), date.getMonth(), 1));
 }
 
 export function endOfMonthIso(date = new Date()): string {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().slice(0, 10);
+  return localIsoDate(new Date(date.getFullYear(), date.getMonth() + 1, 0));
 }
 
 export function daysBetweenInclusive(start: string, end: string): number {

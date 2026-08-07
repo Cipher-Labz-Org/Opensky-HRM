@@ -7,8 +7,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { EmptyState } from "@/components/ui";
 import {
   AttendanceQrHeader,
-  parseBusinessUnitAttendanceQr,
+  parseAttendanceQr,
   useAttendancePunch,
+  useCheckInMode,
   useTodayAttendanceRecord,
 } from "@/features/attendance";
 import { useAuthStore } from "@/store/authStore";
@@ -20,6 +21,8 @@ export default function AttendanceQrScanScreen() {
   const employeeId = getEmployeeId(user);
   const todayRecordQuery = useTodayAttendanceRecord(employeeId);
   const { punch, punching } = useAttendancePunch();
+  const checkInModeQuery = useCheckInMode();
+  const checkInMode = checkInModeQuery.data ?? "BusinessUnitQr";
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
 
@@ -34,11 +37,11 @@ export default function AttendanceQrScanScreen() {
       if (scanned || punching) return;
       setScanned(true);
 
-      const parsed = parseBusinessUnitAttendanceQr(data);
+      const parsed = parseAttendanceQr(data);
       if (!parsed) {
         Alert.alert(
           "Invalid QR",
-          "This is not a business unit attendance QR. Scan the code from Settings → Business Units."
+          "This is not a valid attendance QR. Scan a code from Settings → Attendance Places (business unit or location)."
         );
         setScanned(false);
         return;
@@ -47,26 +50,39 @@ export default function AttendanceQrScanScreen() {
       try {
         const qrPayload = data.trim().startsWith("{")
           ? data.trim()
-          : JSON.stringify({
-              type: parsed.type,
-              v: parsed.v,
-              purpose: parsed.purpose ?? "attendance-bu",
-              businessUnitId: parsed.businessUnitId,
-              code: parsed.code,
-              sig: parsed.sig,
-            });
+          : JSON.stringify(
+              parsed.kind === "location"
+                ? {
+                    type: parsed.type,
+                    v: parsed.v,
+                    purpose: parsed.purpose ?? "attendance-location",
+                    locationId: parsed.locationId,
+                    code: parsed.code,
+                    sig: parsed.sig,
+                  }
+                : {
+                    type: parsed.type,
+                    v: parsed.v,
+                    purpose: parsed.purpose ?? "attendance-bu",
+                    businessUnitId: parsed.businessUnitId,
+                    code: parsed.code,
+                    sig: parsed.sig,
+                  }
+            );
 
         await punch({
           type: punchType,
-          businessUnitId: parsed.businessUnitId,
+          businessUnitId: parsed.kind === "businessUnit" ? parsed.businessUnitId : undefined,
+          locationId: parsed.kind === "location" ? parsed.locationId : undefined,
           qrPayload,
+          checkInMode,
         });
         router.back();
       } catch {
         setScanned(false);
       }
     },
-    [punch, punchType, punching, scanned]
+    [checkInMode, punch, punchType, punching, scanned]
   );
 
   if (!employeeId) {
@@ -74,7 +90,7 @@ export default function AttendanceQrScanScreen() {
       <SafeAreaView className="flex-1 bg-background" edges={["top", "left", "right"]}>
         <AttendanceQrHeader
           title="Scan attendance QR"
-          subtitle="Scan the business unit QR to punch"
+          subtitle="Scan a business unit or location attendance QR to punch"
           onBack={() => router.back()}
         />
         <View className="px-4 pt-6">
@@ -123,7 +139,7 @@ export default function AttendanceQrScanScreen() {
         />
         <View className="mx-4 mt-6 rounded-2xl border border-border bg-surface p-5">
           <Text className="text-sm text-muted">
-            Allow camera access so you can scan the business unit attendance QR.
+            Allow camera access so you can scan an attendance QR (business unit or location).
           </Text>
           <Pressable
             onPress={() => void requestPermission()}
@@ -169,8 +185,8 @@ export default function AttendanceQrScanScreen() {
       <View className="mx-4 mt-4 flex-row items-start gap-2 rounded-2xl border border-border bg-surface px-4 py-3">
         <Ionicons name="information-circle-outline" size={18} color={colors.navyMid} />
         <Text className="flex-1 text-xs leading-5 text-muted">
-          Point your camera at the QR code printed or displayed for your business unit. Photos of
-          old employee QR codes are not used for punch.
+          Point your camera at the QR code for your business unit or location (Settings →
+          Attendance Places). Old employee QR codes are not used for punch.
         </Text>
       </View>
 

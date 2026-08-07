@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
-using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
@@ -17,15 +18,18 @@ namespace OpenSkyHRM.Api.Controllers;
 public class AttendanceController : ControllerBase
 {
     private readonly IAttendanceService _attendanceService;
+    private readonly IAttendancePlaceService _attendancePlaceService;
     private readonly IAttendanceQrTokenService _attendanceQrTokenService;
     private readonly AppDbContext _db;
 
     public AttendanceController(
         IAttendanceService attendanceService,
+        IAttendancePlaceService attendancePlaceService,
         IAttendanceQrTokenService attendanceQrTokenService,
         AppDbContext db)
     {
         _attendanceService = attendanceService;
+        _attendancePlaceService = attendancePlaceService;
         _attendanceQrTokenService = attendanceQrTokenService;
         _db = db;
     }
@@ -106,6 +110,15 @@ public class AttendanceController : ControllerBase
         return ok ? NoContent() : NotFound();
     }
 
+    /// <summary>Returns the company attendance check-in policy for mobile/web punch flows.</summary>
+    [HttpGet("check-in-mode")]
+    public async Task<IActionResult> GetCheckInMode([FromServices] ISystemSettingService settings)
+    {
+        var mode = AttendanceCheckInModes.Normalize(
+            await settings.GetAsync(AttendanceCheckInModes.SettingKey));
+        return Ok(new { mode });
+    }
+
     [HttpPost("punch")]
     public async Task<IActionResult> Punch([FromBody] PunchRequestDto dto)
     {
@@ -135,7 +148,7 @@ public class AttendanceController : ControllerBase
             && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, targetEmployeeId, "Update"))
             return Forbid();
 
-        var qrError = await ResolveBusinessUnitFromQrAsync(dto);
+        var qrError = await ResolveAttendanceFromQrAsync(dto);
         if (qrError != null)
             return BadRequest(new { message = qrError });
 
@@ -171,7 +184,27 @@ public class AttendanceController : ControllerBase
     }
 
     /// <summary>
-    /// Validates a business-unit attendance QR payload without punching.
+    /// Returns a stable attendance QR payload for a location (printable site code).
+    /// </summary>
+    [HttpGet("location-qr/{locationId:guid}")]
+    public async Task<IActionResult> GetLocationQr(Guid locationId)
+    {
+        var location = await _db.Set<Location>().AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == locationId && !l.IsDeleted);
+        if (location is null)
+            return NotFound(new { message = "Location not found." });
+        if (!location.IsActive)
+            return BadRequest(new { message = "Location is inactive." });
+
+        var assigned = await PeopleAccessHelper.GetAssignedLocationIdsAsync(User, _db);
+        if (assigned != null && !assigned.Contains(locationId))
+            return Forbid();
+
+        return Ok(_attendanceQrTokenService.IssueLocationQr(location.Id, location.Name, location.Code));
+    }
+
+    /// <summary>
+    /// Validates a business-unit or location attendance QR payload without punching.
     /// </summary>
     [HttpPost("qr-validate")]
     public async Task<IActionResult> ValidateQr([FromBody] ValidateBusinessUnitAttendanceQrRequestDto dto)
@@ -181,52 +214,148 @@ public class AttendanceController : ControllerBase
             return BadRequest(new { message = "Token or payload is required." });
 
         var result = _attendanceQrTokenService.Validate(raw);
-        if (!result.Valid || !result.BusinessUnitId.HasValue)
+        if (!result.Valid)
             return BadRequest(new { message = result.Message, valid = false });
 
-        var bu = await _db.Set<BusinessUnit>().AsNoTracking()
-            .FirstOrDefaultAsync(b => b.Id == result.BusinessUnitId.Value && !b.IsDeleted);
-        if (bu is null || !bu.IsActive)
-            return BadRequest(new { message = "Business unit is not available.", valid = false });
+        if (result.BusinessUnitId.HasValue)
+        {
+            var bu = await _db.Set<BusinessUnit>().AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Id == result.BusinessUnitId.Value && !b.IsDeleted);
+            if (bu is null || !bu.IsActive)
+                return BadRequest(new { message = "Business unit is not available.", valid = false });
 
-        result.BusinessUnitName = bu.Name;
-        result.BusinessUnitCode = bu.Code;
+            result.BusinessUnitName = bu.Name;
+            result.BusinessUnitCode = bu.Code;
+        }
+        else if (result.LocationId.HasValue)
+        {
+            var location = await _db.Set<Location>().AsNoTracking()
+                .FirstOrDefaultAsync(l => l.Id == result.LocationId.Value && !l.IsDeleted);
+            if (location is null || !location.IsActive)
+                return BadRequest(new { message = "Location is not available.", valid = false });
+
+            result.LocationName = location.Name;
+            result.LocationCode = location.Code;
+        }
+
         return Ok(result);
     }
 
     /// <summary>
-    /// When a QR payload is present, validate it and set BusinessUnitId. When BusinessUnitId is
-    /// sent alone, ensure the unit exists.
+    /// When a QR payload is present, validate it and set BusinessUnitId or LocationId.
     /// </summary>
-    private async Task<string?> ResolveBusinessUnitFromQrAsync(PunchRequestDto dto)
+    private async Task<string?> ResolveAttendanceFromQrAsync(PunchRequestDto dto)
     {
         if (!string.IsNullOrWhiteSpace(dto.QrPayload))
         {
             var result = _attendanceQrTokenService.Validate(dto.QrPayload);
-            if (!result.Valid || !result.BusinessUnitId.HasValue)
-                return result.Message ?? "Invalid business unit QR code.";
+            if (!result.Valid)
+                return result.Message ?? "Invalid attendance QR code.";
 
-            if (dto.BusinessUnitId.HasValue
-                && dto.BusinessUnitId.Value != Guid.Empty
-                && dto.BusinessUnitId.Value != result.BusinessUnitId.Value)
+            if (result.BusinessUnitId.HasValue)
             {
-                return "QR code does not match the selected business unit.";
-            }
+                if (dto.BusinessUnitId.HasValue
+                    && dto.BusinessUnitId.Value != Guid.Empty
+                    && dto.BusinessUnitId.Value != result.BusinessUnitId.Value)
+                {
+                    return "QR code does not match the selected business unit.";
+                }
 
-            dto.BusinessUnitId = result.BusinessUnitId;
+                dto.BusinessUnitId = result.BusinessUnitId;
+            }
+            else if (result.LocationId.HasValue)
+            {
+                if (dto.LocationId.HasValue
+                    && dto.LocationId.Value != Guid.Empty
+                    && dto.LocationId.Value != result.LocationId.Value)
+                {
+                    return "QR code does not match the selected location.";
+                }
+
+                dto.LocationId = result.LocationId;
+            }
+            else
+            {
+                return "Invalid attendance QR code.";
+            }
         }
 
-        if (!dto.BusinessUnitId.HasValue || dto.BusinessUnitId == Guid.Empty)
-            return null;
+        if (dto.BusinessUnitId.HasValue && dto.BusinessUnitId != Guid.Empty)
+        {
+            var bu = await _db.Set<BusinessUnit>().AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Id == dto.BusinessUnitId.Value && !b.IsDeleted);
+            if (bu is null)
+                return "Business unit not found.";
+            if (!bu.IsActive)
+                return "Business unit is inactive.";
+        }
 
-        var bu = await _db.Set<BusinessUnit>().AsNoTracking()
-            .FirstOrDefaultAsync(b => b.Id == dto.BusinessUnitId.Value && !b.IsDeleted);
-        if (bu is null)
-            return "Business unit not found.";
-        if (!bu.IsActive)
-            return "Business unit is inactive.";
+        if (dto.LocationId.HasValue && dto.LocationId != Guid.Empty)
+        {
+            var location = await _db.Set<Location>().AsNoTracking()
+                .FirstOrDefaultAsync(l => l.Id == dto.LocationId.Value && !l.IsDeleted);
+            if (location is null)
+                return "Location not found.";
+            if (!location.IsActive)
+                return "Location is inactive.";
+        }
 
         return null;
+    }
+
+    [HttpGet("places")]
+    public async Task<IActionResult> GetPlaces()
+    {
+        return Ok(await _attendancePlaceService.GetAllAsync());
+    }
+
+    [HttpGet("places/{id:guid}")]
+    public async Task<IActionResult> GetPlace(Guid id)
+    {
+        var place = await _attendancePlaceService.GetByIdAsync(id);
+        return place is null ? NotFound() : Ok(place);
+    }
+
+    [HttpPost("places")]
+    public async Task<IActionResult> CreatePlace([FromBody] CreateAttendancePlaceDto dto)
+    {
+        try
+        {
+            return Ok(await _attendancePlaceService.CreateAsync(dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = MapPlaceSaveError(ex) });
+        }
+    }
+
+    [HttpPut("places/{id:guid}")]
+    public async Task<IActionResult> UpdatePlace(Guid id, [FromBody] UpdateAttendancePlaceDto dto)
+    {
+        try
+        {
+            var place = await _attendancePlaceService.UpdateAsync(id, dto);
+            return place is null ? NotFound() : Ok(place);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = MapPlaceSaveError(ex) });
+        }
+    }
+
+    [HttpDelete("places/{id:guid}")]
+    public async Task<IActionResult> DeletePlace(Guid id)
+    {
+        var ok = await _attendancePlaceService.DeleteAsync(id);
+        return ok ? NoContent() : NotFound();
     }
 
     [HttpGet("overtime-nopay")]
@@ -275,5 +404,27 @@ public class AttendanceController : ControllerBase
         var result = await _attendanceService.SetOvertimeNopayPeriodApprovalAsync(
             from, to, employeeId, approverId.Value, false, dto?.Remarks, allowedIds);
         return result == null ? NotFound() : Ok(result);
+    }
+
+    private static string MapPlaceSaveError(DbUpdateException ex)
+    {
+        var message = ex.InnerException?.Message ?? ex.Message;
+        if (message.Contains("IX_AttendancePlaces_Code", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+        {
+            return "An attendance place with this code already exists. Delete the old attendance place first, or use a unique code.";
+        }
+
+        if (message.Contains("IX_AttendancePlaces_LocationId", StringComparison.OrdinalIgnoreCase))
+        {
+            return "An attendance place already exists for this location.";
+        }
+
+        if (message.Contains("IX_AttendancePlaces_BusinessUnitId", StringComparison.OrdinalIgnoreCase))
+        {
+            return "An attendance place already exists for this business unit.";
+        }
+
+        return "Could not save the attendance place. Please check the values and try again.";
     }
 }

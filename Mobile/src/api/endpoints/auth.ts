@@ -58,6 +58,7 @@ export async function getMobileConnectionInfo(baseUrl?: string): Promise<MobileC
   return apiFetch<MobileConnectionInfo>("/api/mobile/connection-info", {
     skipAuth: true,
     baseUrl,
+    timeoutMs: 60_000,
   });
 }
 

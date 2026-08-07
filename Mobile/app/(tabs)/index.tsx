@@ -56,6 +56,9 @@ export default function HomeScreen() {
     queryKey: ["leave", "balances", employeeId],
     queryFn: () => getLeaveBalances(employeeId!),
     enabled: !!employeeId && showLeave,
+    staleTime: 30_000,
+    refetchOnMount: "always",
+    retry: 2,
   });
 
   const leaveRequestsQuery = useQuery({
@@ -65,7 +68,7 @@ export default function HomeScreen() {
   });
 
   const attendanceSummaryQuery = useQuery({
-    queryKey: ["attendance", "summary", employeeId],
+    queryKey: ["attendance", "summary", employeeId, startOfMonthIso(), endOfMonthIso()],
     queryFn: () =>
       getAttendanceSummary({
         employeeId: employeeId!,
@@ -73,11 +76,17 @@ export default function HomeScreen() {
         to: endOfMonthIso(),
       }),
     enabled: !!employeeId && showAttendance,
+    staleTime: 30_000,
+    refetchOnMount: "always",
+    retry: 2,
   });
 
   const unreadQuery = useQuery({
     queryKey: ["notifications", "unread-count"],
     queryFn: getUnreadCount,
+    staleTime: 15_000,
+    refetchOnMount: "always",
+    retry: 2,
   });
 
   const pendingApprovalsQuery = useQuery({
@@ -122,8 +131,9 @@ export default function HomeScreen() {
       ? [
           {
             label: "Leave left",
-            value: totalRemaining.toFixed(0),
+            value: leaveBalancesQuery.isError ? "—" : totalRemaining.toFixed(0),
             icon: "calendar-outline" as const,
+            loading: leaveBalancesQuery.isLoading && !leaveBalancesQuery.data,
             onPress: () => router.push("/(tabs)/leave"),
           },
         ]
@@ -132,16 +142,20 @@ export default function HomeScreen() {
       ? [
           {
             label: "Present",
-            value: attendanceSummaryQuery.data?.totalPresent ?? "—",
+            value: attendanceSummaryQuery.isError
+              ? "—"
+              : (attendanceSummaryQuery.data?.totalPresent ?? 0),
             icon: "time-outline" as const,
+            loading: attendanceSummaryQuery.isLoading && !attendanceSummaryQuery.data,
             onPress: () => router.push("/(tabs)/attendance"),
           },
         ]
       : []),
     {
       label: "Alerts",
-      value: unreadCount,
+      value: unreadQuery.isError ? "—" : unreadCount,
       icon: "notifications-outline" as const,
+      loading: unreadQuery.isLoading && unreadQuery.data == null,
       onPress: () => router.push("/(tabs)/notifications"),
     },
   ];

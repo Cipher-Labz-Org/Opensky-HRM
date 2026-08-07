@@ -80,6 +80,8 @@ public class PunchRequestDto
     public Guid? BusinessUnitId { get; set; }
     /// <summary>Raw scanned QR payload; validated when provided.</summary>
     public string? QrPayload { get; set; }
+    /// <summary>Location identified by a scanned location QR (mobile punch).</summary>
+    public Guid? LocationId { get; set; }
 }
 
 public class OvertimeNopayResultDto

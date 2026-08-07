@@ -12,7 +12,9 @@ import {
   attendanceStatusToBadgeTone,
   attendanceStatusToIcon,
   attendanceStatusToIconBg,
+  checkInModeHint,
   formatAttendanceMeta,
+  useCheckInMode,
   useTodayAttendanceRecord,
 } from "@/features/attendance";
 import { getAttendanceRecords, getAttendanceSummary } from "@/api/endpoints/attendance";
@@ -29,6 +31,7 @@ export default function AttendanceScreen() {
   const monthLabel = monthYearLabel(now.getMonth() + 1, now.getFullYear());
 
   const todayRecordQuery = useTodayAttendanceRecord(employeeId);
+  const checkInModeQuery = useCheckInMode();
 
   const recordsQuery = useQuery({
     queryKey: ["attendance", "records", employeeId, from, to],
@@ -84,7 +87,7 @@ export default function AttendanceScreen() {
       >
         <AttendanceTopSection
           title="Attendance"
-          subtitle="Scan the business unit QR to punch in or out"
+          subtitle={checkInModeQuery.data ? checkInModeHint(checkInModeQuery.data) : "Loading check-in policy…"}
           monthLabel={monthLabel}
         >
           <PunchActionCard
@@ -130,7 +133,7 @@ export default function AttendanceScreen() {
             >
               <EmptyState
                 title="No attendance records"
-                description="Scan a business unit QR above to start tracking your attendance."
+                description="Scan an attendance QR from Settings → Attendance Places to start tracking your attendance."
               />
             </View>
           )}

@@ -33,6 +33,7 @@ export interface PunchRequest {
   longitude?: number | null;
   source?: string;
   businessUnitId?: string | null;
+  locationId?: string | null;
   qrPayload?: string | null;
 }
 
@@ -55,6 +56,9 @@ export interface ValidateAttendanceQrResult {
   valid: boolean;
   message?: string | null;
   businessUnitId?: string | null;
+  locationId?: string | null;
   businessUnitName?: string | null;
   businessUnitCode?: string | null;
+  locationName?: string | null;
+  locationCode?: string | null;
 }

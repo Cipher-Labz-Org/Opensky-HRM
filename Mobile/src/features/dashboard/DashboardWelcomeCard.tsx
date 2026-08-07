@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Image, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { LOGIN_THEME } from "@/theme/loginTheme";
 import { colors } from "@/theme/colors";
@@ -14,6 +14,7 @@ interface WelcomeStat {
   value: string | number;
   icon: IoniconName;
   tone?: "teal" | "green" | "navy";
+  loading?: boolean;
   onPress?: () => void;
 }
 
@@ -32,18 +33,48 @@ const toneStyles = {
   navy: { bg: colors.primarySoft, icon: colors.brandNavy, value: colors.brandNavy },
 } as const;
 
-function WelcomeStatPill({ label, value, icon, tone = "teal", onPress }: WelcomeStat) {
+function WelcomeStatPill({ label, value, icon, tone = "teal", loading, onPress }: WelcomeStat) {
   const style = toneStyles[tone];
   const content = (
-    <View className="min-w-0 flex-1 rounded-2xl px-2 py-3.5" style={{ backgroundColor: style.bg }}>
-      <View className="items-center">
+    <View
+      style={{
+        minWidth: 0,
+        flex: 1,
+        borderRadius: 16,
+        paddingHorizontal: 8,
+        paddingVertical: 14,
+        backgroundColor: style.bg,
+        minHeight: 96,
+        justifyContent: "center",
+      }}
+    >
+      <View style={{ alignItems: "center" }}>
         <Ionicons name={icon} size={20} color={style.icon} />
-        <Text className="mt-2 text-2xl font-bold leading-none" style={{ color: style.value }}>
-          {value}
-        </Text>
+        {loading ? (
+          <ActivityIndicator style={{ marginTop: 10 }} color={style.value} />
+        ) : (
+          <Text
+            style={{
+              marginTop: 8,
+              fontSize: 24,
+              fontWeight: "700",
+              lineHeight: 28,
+              color: style.value,
+            }}
+          >
+            {String(value)}
+          </Text>
+        )}
         <Text
-          className="mt-1.5 text-center text-[10px] font-semibold uppercase tracking-wide"
-          style={{ color: LOGIN_THEME.muted }}
+          style={{
+            marginTop: 6,
+            textAlign: "center",
+            fontSize: 10,
+            fontWeight: "600",
+            letterSpacing: 0.4,
+            textTransform: "uppercase",
+            color: LOGIN_THEME.muted,
+          }}
           numberOfLines={2}
         >
           {label}
@@ -127,7 +158,7 @@ export function DashboardWelcomeCard({
       </LinearGradient>
 
       {stats.length ? (
-        <View className="flex-row gap-2.5 p-4">
+        <View style={{ flexDirection: "row", gap: 10, padding: 16 }}>
           {stats.map((stat, index) => (
             <WelcomeStatPill
               key={stat.label}

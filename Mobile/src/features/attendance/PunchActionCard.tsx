@@ -14,8 +14,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/theme/colors";
 import type { AttendanceRecord } from "@/types/attendance";
 import { formatTime } from "@/utils/format";
-import { parseBusinessUnitAttendanceQr } from "./attendanceQr";
+import { parseAttendanceQr } from "./attendanceQr";
 import { useAttendancePunch } from "./useAttendancePunch";
+import { useCheckInMode } from "./useCheckInMode";
+import {
+  checkInModeHint,
+  modeAllowsDirectPunch,
+  modeRequiresQr,
+} from "./attendanceCheckInMode";
 
 interface PunchActionCardProps {
   todayRecord?: AttendanceRecord | null;
@@ -99,7 +105,7 @@ function TodayStatus({ record }: { record?: AttendanceRecord | null }) {
       >
         <Ionicons name="checkmark-circle" size={14} color={colors.navyMid} />
         <Text style={{ fontSize: 12, fontWeight: "600", color: colors.navyMid }}>
-          Done · {formatTime(record.punchIn)} – {formatTime(record.punchOut)}
+          Last session · {formatTime(record.punchIn)} – {formatTime(record.punchOut)}
         </Text>
       </View>
     );
@@ -187,6 +193,11 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
   const { punch, punching } = useAttendancePunch();
+  const checkInModeQuery = useCheckInMode();
+  // Prefer QR until policy loads — never flash a direct Punch button for QR companies.
+  const checkInMode = checkInModeQuery.data ?? "BusinessUnitQr";
+  const useQrFlow = modeRequiresQr(checkInMode);
+  const useDirectFlow = modeAllowsDirectPunch(checkInMode) && checkInModeQuery.isSuccess;
 
   const isOpenSession = Boolean(todayRecord?.punchIn && !todayRecord?.punchOut);
   const nextAction = isOpenSession ? "Punch out" : "Punch in";
@@ -257,11 +268,11 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
     async (raw: string) => {
       if (punching) return;
 
-      const parsed = parseBusinessUnitAttendanceQr(raw);
+      const parsed = parseAttendanceQr(raw);
       if (!parsed) {
         Alert.alert(
           "Invalid QR",
-          "This is not a business unit attendance QR. Use Settings → Business Units → QR."
+          "This is not a valid attendance QR. Scan a code from Settings → Attendance Places (business unit or location)."
         );
         setScanned(false);
         return;
@@ -270,19 +281,32 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
       try {
         const qrPayload = raw.trim().startsWith("{")
           ? raw.trim()
-          : JSON.stringify({
-              type: parsed.type,
-              v: parsed.v,
-              purpose: parsed.purpose ?? "attendance-bu",
-              businessUnitId: parsed.businessUnitId,
-              code: parsed.code,
-              sig: parsed.sig,
-            });
+          : JSON.stringify(
+              parsed.kind === "location"
+                ? {
+                    type: parsed.type,
+                    v: parsed.v,
+                    purpose: parsed.purpose ?? "attendance-location",
+                    locationId: parsed.locationId,
+                    code: parsed.code,
+                    sig: parsed.sig,
+                  }
+                : {
+                    type: parsed.type,
+                    v: parsed.v,
+                    purpose: parsed.purpose ?? "attendance-bu",
+                    businessUnitId: parsed.businessUnitId,
+                    code: parsed.code,
+                    sig: parsed.sig,
+                  }
+            );
 
         await punch({
           type: punchType,
-          businessUnitId: parsed.businessUnitId,
+          businessUnitId: parsed.kind === "businessUnit" ? parsed.businessUnitId : undefined,
+          locationId: parsed.kind === "location" ? parsed.locationId : undefined,
           qrPayload,
+          checkInMode,
         });
         setManualPayload("");
         setScanning(false);
@@ -295,8 +319,18 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
         setScanned(false);
       }
     },
-    [onPunched, punch, punchType, punching]
+    [checkInMode, onPunched, punch, punchType, punching]
   );
+
+  const directPunch = useCallback(async () => {
+    if (punching) return;
+    try {
+      await punch({ kind: "direct", type: punchType, checkInMode });
+      onPunched?.();
+    } catch {
+      // Error alert is shown by useAttendancePunch
+    }
+  }, [checkInMode, onPunched, punch, punchType, punching]);
 
   const onBarcodeScanned = useCallback(
     ({ data }: { data: string }) => {
@@ -334,7 +368,7 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
             backgroundColor: colors.primaryLight,
           }}
         >
-          <Ionicons name="qr-code-outline" size={18} color={colors.accent} />
+          <Ionicons name={useQrFlow ? "qr-code-outline" : "time-outline"} size={18} color={colors.accent} />
           <Text
             style={{
               fontSize: 12,
@@ -344,7 +378,7 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
               color: colors.navy,
             }}
           >
-            Scan to punch
+            {useQrFlow ? "Scan to punch" : "Punch attendance"}
           </Text>
         </View>
 
@@ -360,20 +394,22 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
           </View>
           <Text style={{ marginTop: 8, fontSize: 12, fontWeight: "600", color: colors.navyMid }}>
             Next: {nextAction}
+            {isOpenSession ? " (scan QR to clock out)" : " (scan QR — multiple sessions allowed)"}
+          </Text>
+          <Text style={{ marginTop: 6, textAlign: "center", fontSize: 11, color: colors.muted, paddingHorizontal: 8 }}>
+            {checkInModeHint(checkInMode)}
           </Text>
         </View>
       </View>
 
-      {!scanning ? (
+      {useDirectFlow && !scanning ? (
         <>
-          {/* OUTSIDE the card so Android never paints this action invisible */}
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={() => void startScan()}
-            disabled={busy}
+            onPress={() => void directPunch()}
+            disabled={busy || checkInModeQuery.isLoading}
             accessibilityRole="button"
-            accessibilityLabel="Scan the QR"
-            accessibilityState={{ disabled: busy }}
+            accessibilityLabel={nextAction}
             style={{
               marginTop: 16,
               alignSelf: "stretch",
@@ -382,6 +418,60 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
               backgroundColor: "#76B82A",
               borderWidth: 2,
               borderColor: "#5A8F1F",
+              opacity: busy || checkInModeQuery.isLoading ? 0.65 : 1,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              paddingHorizontal: 16,
+              paddingVertical: 16,
+              ...Platform.select({
+                android: { elevation: 0 },
+                default: {},
+              }),
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: "rgba(255,255,255,0.25)",
+                borderRadius: 999,
+                padding: 8,
+                marginRight: 12,
+              }}
+            >
+              {punching ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Ionicons name="finger-print-outline" size={24} color="#ffffff" />
+              )}
+            </View>
+            <View style={{ flexShrink: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: "800", color: "#ffffff" }}>{nextAction}</Text>
+              <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.9)", marginTop: 2 }}>
+                {checkInModeQuery.isLoading ? "Loading check-in policy…" : checkInMode.replace(/([A-Z])/g, " $1").trim()}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </>
+      ) : null}
+
+      {useQrFlow && !scanning ? (
+        <>
+          {/* OUTSIDE the card so Android never paints this action invisible */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => void startScan()}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={isOpenSession ? "Scan QR to punch out" : "Scan QR to punch in"}
+            accessibilityState={{ disabled: busy }}
+            style={{
+              marginTop: 16,
+              alignSelf: "stretch",
+              minHeight: 88,
+              borderRadius: 16,
+              backgroundColor: isOpenSession ? colors.navy : "#76B82A",
+              borderWidth: 2,
+              borderColor: isOpenSession ? colors.navyMid : "#5A8F1F",
               opacity: busy ? 0.65 : 1,
               flexDirection: "row",
               alignItems: "center",
@@ -405,13 +495,19 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
               {requesting ? (
                 <ActivityIndicator color="#ffffff" />
               ) : (
-                <Ionicons name="scan-outline" size={24} color="#ffffff" />
+                <Ionicons
+                  name={isOpenSession ? "log-out-outline" : "scan-outline"}
+                  size={24}
+                  color="#ffffff"
+                />
               )}
             </View>
             <View style={{ flexShrink: 1 }}>
-              <Text style={{ fontSize: 17, fontWeight: "800", color: "#ffffff" }}>Scan the QR</Text>
+              <Text style={{ fontSize: 17, fontWeight: "800", color: "#ffffff" }}>
+                {isOpenSession ? "Scan to punch out" : "Scan to punch in"}
+              </Text>
               <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.9)", marginTop: 2 }}>
-                Then point at the business unit code
+                Business unit or location QR
               </Text>
             </View>
           </TouchableOpacity>
@@ -427,11 +523,13 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
           >
             <Ionicons name="business-outline" size={13} color={colors.muted} />
             <Text style={{ fontSize: 11, color: colors.muted }}>
-              Use the business unit QR from Settings → Business Units
+              Use the QR from Settings → Attendance Places
             </Text>
           </View>
         </>
-      ) : (
+      ) : null}
+
+      {useQrFlow && scanning ? (
         <View
           style={{
             marginTop: 16,
@@ -553,7 +651,7 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
             >
               <Ionicons name="scan-outline" size={13} color={colors.muted} />
               <Text style={{ fontSize: 11, color: colors.muted }}>
-                Point at the QR shown for your business unit
+                Point at the QR from Settings → Attendance Places
               </Text>
             </View>
           )}
@@ -652,7 +750,7 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
             </View>
           ) : null}
         </View>
-      )}
+      ) : null}
     </View>
   );
 }

@@ -8,24 +8,23 @@ const path = require("path");
 
 const NETWORK_SECURITY_CONFIG = `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-  <!-- Local Kestrel / LAN IP backends use HTTP during development. -->
+  <!-- Allow HTTP to LAN/dev backends (192.168.x.x, 10.x, localhost). -->
   <base-config cleartextTrafficPermitted="true">
     <trust-anchors>
       <certificates src="system" />
     </trust-anchors>
   </base-config>
-  <domain-config cleartextTrafficPermitted="true">
-    <domain includeSubdomains="true">localhost</domain>
-    <domain includeSubdomains="true">127.0.0.1</domain>
-    <domain includeSubdomains="true">10.0.2.2</domain>
-  </domain-config>
+  <debug-overrides cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system" />
+      <certificates src="user" />
+    </trust-anchors>
+  </debug-overrides>
 </network-security-config>
 `;
 
 /**
  * Ensures Android allows HTTP (cleartext) to LAN/dev backends.
- * usesCleartextTraffic alone is not enough on some OEM/API levels when a
- * networkSecurityConfig is present or defaults restrict cleartext.
  */
 function withCleartextTraffic(config) {
   config = withDangerousMod(config, [

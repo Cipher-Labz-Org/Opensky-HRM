@@ -97,7 +97,7 @@ export default function ConnectScreen() {
             "Cannot reach the server. Check your connection and backend URL.";
           if (isPrivateLanApiBaseUrl(parsed.apiBaseUrl) && Platform.OS !== "web") {
             throw new Error(
-              `${baseMessage}\n\nYour phone cannot reach this PC address. Connect the phone to the same Wi‑Fi as the PC, allow inbound TCP 5000 in Windows Firewall (run Backend/Scripts/allow-mobile-api-firewall.ps1 as Admin), and keep the API running on http://0.0.0.0:5000.`
+              `${baseMessage}\n\nYour phone cannot reach this PC.\n\n1. Connect phone to the SAME Wi‑Fi as the PC (turn OFF mobile data).\n2. On PC run PowerShell as Administrator:\n   Backend/Scripts/allow-mobile-api-firewall.ps1\n3. Keep API running: dotnet run (http://0.0.0.0:5000)\n4. In the app enter: http://192.168.1.9:5000\n\nIf it still fails, your Wi‑Fi may block phone-to-PC (guest network). Try another network or USB hotspot from the PC.`
             );
           }
           throw new Error(
