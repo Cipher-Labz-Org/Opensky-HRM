@@ -384,7 +384,9 @@ if (dbAvailable)
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureCatalogLeaveTypesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchShopOfficeLeaveRulesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.PatchCasualLeaveMonthlyEveryYearAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureShopOfficeAnnualAndCasualLeaveRulesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureShopOfficeSickLeaveRuleAsync(db);
+        await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.DeduplicateLeaveEntitlementRulesAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsureMercantileHolidaysAsync(db);
         await OpenSkyHRM.Persistence.Seeders.LeaveSeeder.EnsurePoyaHolidaysAsync(db);
         foreach (var year in new[] { 2024, 2025, 2026, 2027 })

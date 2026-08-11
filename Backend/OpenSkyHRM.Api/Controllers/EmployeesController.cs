@@ -187,6 +187,10 @@ public class EmployeesController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = EmployeeSaveExceptionMapper.Map(ex) });
+        }
     }
 
     [HttpPost("{id:guid}/terminate")]

@@ -261,18 +261,58 @@ public static class LeaveSeeder
 
     /// <summary>Ensures Sick Leave has a Shop &amp; Office display rule (for DBs created before this rule existed).</summary>
     public static async Task EnsureShopOfficeSickLeaveRuleAsync(AppDbContext context)
+        => await EnsureShopOfficeRuleForLeaveTypeAsync(context, "LT-SIC", "ShopOfficeSick");
+
+    /// <summary>
+    /// Ensures Annual and Casual leave have Shop &amp; Office Act entitlement rules
+    /// (for DBs where only Sick was backfilled, or rules were never seeded).
+    /// </summary>
+    public static async Task EnsureShopOfficeAnnualAndCasualLeaveRulesAsync(AppDbContext context)
     {
-        var sick = await context.LeaveTypes.FirstOrDefaultAsync(lt => lt.Code == "LT-SIC" && !lt.IsDeleted);
-        if (sick == null) return;
+        await EnsureShopOfficeRuleForLeaveTypeAsync(context, "LT-ANN", "ShopOfficeAnnual");
+        await EnsureShopOfficeRuleForLeaveTypeAsync(context, "LT-CAS", "ShopOfficeCasual");
+    }
+
+    /// <summary>
+    /// Soft-deletes extra entitlement rules per leave type (keeps the oldest active row).
+    /// Cleans duplicates from concurrent creates / Strict Mode double posts.
+    /// </summary>
+    public static async Task DeduplicateLeaveEntitlementRulesAsync(AppDbContext context)
+    {
+        var rules = await context.LeaveEntitlementRules
+            .Where(r => !r.IsDeleted)
+            .OrderBy(r => r.CreatedAt)
+            .ThenBy(r => r.Id)
+            .ToListAsync();
+
+        var changed = false;
+        foreach (var group in rules.GroupBy(r => r.LeaveTypeId))
+        {
+            foreach (var dup in group.Skip(1))
+            {
+                dup.IsDeleted = true;
+                dup.IsActive = false;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            await context.SaveChangesAsync();
+    }
+
+    static async Task EnsureShopOfficeRuleForLeaveTypeAsync(AppDbContext context, string leaveTypeCode, string ruleType)
+    {
+        var leaveType = await context.LeaveTypes.FirstOrDefaultAsync(lt => lt.Code == leaveTypeCode && !lt.IsDeleted);
+        if (leaveType == null) return;
 
         var existing = await context.LeaveEntitlementRules
-            .FirstOrDefaultAsync(r => r.LeaveTypeId == sick.Id && !r.IsDeleted);
+            .FirstOrDefaultAsync(r => r.LeaveTypeId == leaveType.Id && !r.IsDeleted);
         if (existing == null)
         {
             context.LeaveEntitlementRules.Add(new LeaveEntitlementRule
             {
-                LeaveTypeId = sick.Id,
-                RuleType = "ShopOfficeSick",
+                LeaveTypeId = leaveType.Id,
+                RuleType = ruleType,
                 RuleConfig = "{}",
                 IsActive = true,
             });
@@ -282,7 +322,7 @@ public static class LeaveSeeder
 
         if (existing.RuleType == "ServiceYearBased")
         {
-            existing.RuleType = "ShopOfficeSick";
+            existing.RuleType = ruleType;
             existing.RuleConfig = "{}";
             await context.SaveChangesAsync();
         }

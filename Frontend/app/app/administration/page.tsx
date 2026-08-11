@@ -41,6 +41,7 @@ interface LeaveBalanceRowResult {
   leaveType: string;
   status: string;
   errors: string[];
+  notes?: string[] | null;
 }
 
 interface LeaveBalanceUploadResult {
@@ -537,7 +538,7 @@ function LeaveBalanceUploadSection() {
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-800">Leave balance bulk import</h2>
-              <p className="text-xs text-slate-500">Entitled, used, and carried forward by year</p>
+              <p className="text-xs text-slate-500">Entitled, used, carried forward, and optional leave dates by year</p>
             </div>
           </div>
           <Button
@@ -561,8 +562,9 @@ function LeaveBalanceUploadSection() {
             <ol className="list-inside list-decimal space-y-1 text-xs text-slate-600">
               <li>Click <strong>Download template</strong> to get the Excel file with pre-formatted columns.</li>
               <li>Fill the <strong>LeaveBalances</strong> sheet: <strong>Employee Code, Leave Type, Year, Entitled</strong> (required). Used and Carried Forward default to 0.</li>
+              <li>Optional leave dates: add <strong>Start Date</strong> and <strong>End Date</strong> (and optional <strong>Reason</strong>) so each employee gets an approved leave record for those dates (calendar / attendance). Use one row per leave period; repeat Employee Code + Leave Type + Year if needed.</li>
               <li>Use exact employee codes and leave type names as they appear in the system.</li>
-              <li>If a balance already exists for the same employee + leave type + year, it will be <strong>updated</strong>.</li>
+              <li>If a balance already exists for the same employee + leave type + year, it will be <strong>updated</strong>. Matching leave dates are updated; overlapping dates are skipped.</li>
               <li>Upload the completed file below.</li>
             </ol>
           </div>
@@ -639,7 +641,9 @@ function LeaveBalanceUploadSection() {
                           {r.status === "Updated" && <span className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800 ring-1 ring-sky-100">Updated</span>}
                           {r.status === "Skipped" && <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-100">Skipped</span>}
                         </td>
-                        <td className="px-4 py-2 text-xs text-rose-700">{r.errors.join("; ")}</td>
+                        <td className={`px-4 py-2 text-xs ${r.status === "Skipped" ? "text-rose-700" : "text-slate-600"}`}>
+                          {[...(r.errors ?? []), ...(r.notes ?? [])].join("; ")}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

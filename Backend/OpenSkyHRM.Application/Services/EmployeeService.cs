@@ -418,7 +418,8 @@ public class EmployeeService : IEmployeeService
         var employee = await _db.Employees.FindAsync(id);
         if (employee is null) return null;
 
-        await ClearPlaceholderWorkEmailAsync(employee);
+        // Do not clear placeholder emails here. Job/Personal tabs send displayWorkEmail("") for
+        // placeholders; persisting null fails on databases where Employees.Email is still NOT NULL.
 
         if (!InputValidators.ValuesEqual(dto.FirstName, employee.FirstName))
             InputValidators.ValidatePersonName(dto.FirstName, "First name");
@@ -521,10 +522,21 @@ public class EmployeeService : IEmployeeService
         employee.FirstName = dto.FirstName;
         employee.MiddleName = dto.MiddleName;
         employee.LastName = dto.LastName;
-        employee.Email = EmployeeEmailHelper.NormalizeForSave(dto.Email);
+        var normalizedEmail = EmployeeEmailHelper.NormalizeForSave(dto.Email);
+        if (normalizedEmail != null)
+            employee.Email = normalizedEmail;
+        else if (EmployeeEmailHelper.IsPlaceholder(employee.Email))
+        {
+            // Job/Personal tabs send blank for hidden placeholders — keep the stored value.
+        }
+        else if (!string.IsNullOrWhiteSpace(employee.Email))
+        {
+            // Explicit clear of a real work email. Placeholder keeps NOT NULL DBs happy.
+            employee.Email = EmployeeEmailHelper.ResolveForCreate(employee.EmployeeCode, null);
+        }
         employee.Phone = dto.Phone;
-        employee.DateOfBirth = dto.DateOfBirth;
-        employee.Gender = Enum.Parse<Gender>(dto.Gender, true);
+        employee.DateOfBirth = ToWallDate(dto.DateOfBirth);
+        employee.Gender = ParseGender(dto.Gender);
         employee.MaritalStatus = dto.MaritalStatus;
         employee.Nationality = dto.Nationality;
         employee.Religion = dto.Religion;
@@ -536,8 +548,8 @@ public class EmployeeService : IEmployeeService
         employee.EtfNumber = dto.EtfNumber;
         employee.DriversLicenseNumber = dto.DriversLicenseNumber;
         employee.DriversLicenseType = dto.DriversLicenseType;
-        employee.LicenseIssueDate = dto.LicenseIssueDate;
-        employee.LicenseExpiryDate = dto.LicenseExpiryDate;
+        employee.LicenseIssueDate = dto.LicenseIssueDate.HasValue ? ToWallDate(dto.LicenseIssueDate.Value) : null;
+        employee.LicenseExpiryDate = dto.LicenseExpiryDate.HasValue ? ToWallDate(dto.LicenseExpiryDate.Value) : null;
         employee.DriversLicenseIssuingCountry = dto.DriversLicenseIssuingCountry;
         employee.AddressStreet1 = dto.AddressStreet1;
         employee.AddressStreet2 = dto.AddressStreet2;
@@ -561,12 +573,12 @@ public class EmployeeService : IEmployeeService
         employee.PermanentDistrict = dto.PermanentDistrict;
         employee.PermanentPollingDivision = dto.PermanentPollingDivision;
         employee.PermanentDistanceToOffice = dto.PermanentDistanceToOffice;
-        if (dto.JoinDate.HasValue) employee.JoinDate = dto.JoinDate.Value;
-        employee.ProbationEndDate = dto.ProbationEndDate;
-        employee.DateOfPermanency = dto.DateOfPermanency;
+        if (dto.JoinDate.HasValue) employee.JoinDate = ToWallDate(dto.JoinDate.Value);
+        employee.ProbationEndDate = dto.ProbationEndDate.HasValue ? ToWallDate(dto.ProbationEndDate.Value) : null;
+        employee.DateOfPermanency = dto.DateOfPermanency.HasValue ? ToWallDate(dto.DateOfPermanency.Value) : null;
         employee.Status = dto.Status;
         employee.EmploymentType = dto.EmploymentType;
-        employee.TerminationDate = dto.TerminationDate;
+        employee.TerminationDate = dto.TerminationDate.HasValue ? ToWallDate(dto.TerminationDate.Value) : null;
         employee.TerminationReason = dto.TerminationReason;
         employee.TerminationNote = dto.TerminationNote;
         employee.DepartmentId = dto.DepartmentId;
@@ -580,18 +592,32 @@ public class EmployeeService : IEmployeeService
 
         await _db.SaveChangesAsync();
 
-        await _lifecycleService.RecordEmployeeUpdateAsync(lifecycleBefore, employee);
+        try
+        {
+            await _lifecycleService.RecordEmployeeUpdateAsync(lifecycleBefore, employee);
+        }
+        catch
+        {
+            // Timeline history must not roll back a successful job/org update.
+        }
 
-        var joinChanged = dto.JoinDate.HasValue && employee.JoinDate != snapJoin;
+        var joinChanged = dto.JoinDate.HasValue && employee.JoinDate.Date != snapJoin.Date;
         var employmentChanged = !string.Equals(employee.EmploymentType, snapEmploymentType, StringComparison.Ordinal);
-        var probationEndChanged = employee.ProbationEndDate != snapProbationEnd;
-        var permanencyChanged = employee.DateOfPermanency != snapPermanency;
+        var probationEndChanged = employee.ProbationEndDate?.Date != snapProbationEnd?.Date;
+        var permanencyChanged = employee.DateOfPermanency?.Date != snapPermanency?.Date;
 
         if (joinChanged || employmentChanged || probationEndChanged || permanencyChanged)
         {
-            var years = new SortedSet<int> { DateTime.UtcNow.Year, DateTime.UtcNow.Year - 1 };
-            foreach (var y in years)
-                await _entitlementService.CalculateAndApplyAsync(id, y);
+            try
+            {
+                var years = new SortedSet<int> { DateTime.UtcNow.Year, DateTime.UtcNow.Year - 1 };
+                foreach (var y in years)
+                    await _entitlementService.CalculateAndApplyAsync(id, y);
+            }
+            catch
+            {
+                // Leave balances can be recalculated from Leave admin; do not fail the employee update.
+            }
         }
 
         return (await GetByIdAsync(id))!;
@@ -731,15 +757,6 @@ public class EmployeeService : IEmployeeService
             Page = page,
             PageSize = pageSize,
         };
-    }
-
-    private static Task<bool> ClearPlaceholderWorkEmailAsync(Employee employee)
-    {
-        if (!EmployeeEmailHelper.IsPlaceholder(employee.Email))
-            return Task.FromResult(false);
-
-        employee.Email = null;
-        return Task.FromResult(true);
     }
 
     private static EmployeeDto MapToDto(Employee e) => new()

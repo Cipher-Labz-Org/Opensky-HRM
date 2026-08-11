@@ -90,6 +90,7 @@ interface EmployeeDetail {
   dateOfPermanency: string | null;
   terminationDate: string | null;
   terminationReason: string | null;
+  terminationNote?: string | null;
   status: string;
   employmentType: string;
   departmentId: string;
@@ -505,7 +506,74 @@ function buildEmployeePutPayload(
     isTopOfHierarchy: emp.isTopOfHierarchy,
     terminationDate: emp.terminationDate,
     terminationReason: emp.terminationReason,
+    terminationNote: emp.terminationNote ?? null,
   });
+}
+
+/** Merge form fields onto a full employee PUT payload so tab saves never wipe unrelated data. */
+function buildEmployeePutPayloadFromForm(emp: EmployeeDetail, fd: FormData) {
+  const payload = buildEmployeePutPayload(emp);
+
+  const setIfPresent = (key: keyof typeof payload, formName?: string) => {
+    const name = formName ?? String(key);
+    if (!fd.has(name)) return;
+    const raw = fd.get(name);
+    (payload as Record<string, unknown>)[key] = typeof raw === "string" ? raw.trim() || null : raw;
+  };
+
+  const setRequiredIfPresent = (key: keyof typeof payload, formName?: string) => {
+    const name = formName ?? String(key);
+    if (!fd.has(name)) return;
+    const raw = fd.get(name);
+    if (typeof raw === "string" && raw.trim()) {
+      (payload as Record<string, unknown>)[key] = raw.trim();
+    }
+  };
+
+  setRequiredIfPresent("firstName");
+  setRequiredIfPresent("lastName");
+  setRequiredIfPresent("dateOfBirth");
+  setRequiredIfPresent("gender");
+  setRequiredIfPresent("status");
+  setRequiredIfPresent("departmentId");
+  setRequiredIfPresent("employmentType");
+  setRequiredIfPresent("joinDate");
+
+  const optionalTextKeys: (keyof typeof payload)[] = [
+    "middleName", "phone", "addressStreet1", "addressStreet2", "city", "country", "stateProvince",
+    "zipPostalCode", "district", "pollingDivision", "distanceToOffice", "modeOfTransport",
+    "homeTelephone", "workTelephone", "otherEmail", "permanentStreet1", "permanentStreet2",
+    "permanentCity", "permanentCountry", "permanentStateProvince", "permanentZipPostalCode",
+    "permanentDistrict", "permanentPollingDivision", "permanentDistanceToOffice",
+    "maritalStatus", "nationality", "religion", "ethnicity", "otherId", "nationalId", "tinNumber",
+    "driversLicenseNumber", "driversLicenseType", "licenseIssueDate", "licenseExpiryDate",
+    "driversLicenseIssuingCountry", "probationEndDate", "dateOfPermanency",
+    "terminationDate", "terminationReason", "terminationNote",
+  ];
+  for (const key of optionalTextKeys) setIfPresent(key);
+
+  if (fd.has("epfNumber")) {
+    payload.epfNumber = ((fd.get("epfNumber") as string) ?? "").trim() || null;
+  }
+  if (fd.has("etfNumber")) {
+    payload.etfNumber = ((fd.get("etfNumber") as string) ?? "").trim() || null;
+  }
+
+  for (const key of ["businessUnitId", "positionId", "locationId", "gradeId", "jobTitleId", "managerId"] as const) {
+    if (!fd.has(key)) continue;
+    const v = ((fd.get(key) as string) ?? "").trim();
+    payload[key] = v || null;
+  }
+
+  if (fd.has("isTopOfHierarchy")) {
+    payload.isTopOfHierarchy = fd.get("isTopOfHierarchy") === "true";
+  }
+
+  if (fd.has("email")) {
+    payload.email = displayWorkEmail((fd.get("email") as string) ?? "");
+  }
+
+  return payload;
 }
 
 const genderOptions = ["Male", "Female", "Other"];
@@ -972,6 +1040,36 @@ export default function EmployeeDetailPage() {
   const visibleBusinessUnits = useMemo(() => filterBusinessUnits(businessUnits), [filterBusinessUnits, businessUnits]);
   const visibleGrades = useMemo(() => filterGrades(grades), [filterGrades, grades]);
   const visibleLocations = useMemo(() => filterLocations(locations), [filterLocations, locations]);
+
+  /** Keep the employee's current org values selectable even if out of the user's assignment scope. */
+  const ensureCurrentLookup = useCallback(
+    (items: Lookup[], id: string | null | undefined, name: string | null | undefined): Lookup[] => {
+      if (!id) return items;
+      if (items.some((i) => i.id === id)) return items;
+      return [{ id, name: name?.trim() || "Current value" }, ...items];
+    },
+    [],
+  );
+  const jobTitleOptions = useMemo(
+    () => ensureCurrentLookup(visibleJobTitles, emp?.jobTitleId, emp?.jobTitleName),
+    [ensureCurrentLookup, visibleJobTitles, emp?.jobTitleId, emp?.jobTitleName],
+  );
+  const businessUnitOptions = useMemo(
+    () => ensureCurrentLookup(visibleBusinessUnits, emp?.businessUnitId, emp?.businessUnitName),
+    [ensureCurrentLookup, visibleBusinessUnits, emp?.businessUnitId, emp?.businessUnitName],
+  );
+  const gradeOptions = useMemo(
+    () => ensureCurrentLookup(visibleGrades, emp?.gradeId, emp?.gradeName),
+    [ensureCurrentLookup, visibleGrades, emp?.gradeId, emp?.gradeName],
+  );
+  const locationOptions = useMemo(
+    () => ensureCurrentLookup(visibleLocations, emp?.locationId, emp?.locationName),
+    [ensureCurrentLookup, visibleLocations, emp?.locationId, emp?.locationName],
+  );
+  const departmentOptions = useMemo(
+    () => ensureCurrentLookup(departments, emp?.departmentId, emp?.departmentName),
+    [ensureCurrentLookup, departments, emp?.departmentId, emp?.departmentName],
+  );
   const [employeeStatuses, setEmployeeStatuses] = useState<StatusLookup[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   /** Job tab dates — controlled so the pickers stay editable when parent re-renders (defaultValue-only pickers could appear stuck). */
@@ -3219,68 +3317,7 @@ export default function EmployeeDetailPage() {
     if (!emp) return;
     setSaving(true); setMsg(null);
     const fd = new FormData(e.currentTarget);
-    const payload = {
-      firstName: fd.get("firstName") || emp.firstName,
-      middleName: fd.get("middleName") || null,
-      lastName: fd.get("lastName") || emp.lastName,
-      email: fd.get("email"),
-      phone: fd.get("phone") || null,
-      addressStreet1: fd.get("addressStreet1") || null,
-      addressStreet2: fd.get("addressStreet2") || null,
-      city: fd.get("city") || null,
-      country: fd.get("country") || null,
-      stateProvince: fd.get("stateProvince") || null,
-      zipPostalCode: fd.get("zipPostalCode") || null,
-      district: fd.get("district") || null,
-      pollingDivision: fd.get("pollingDivision") || null,
-      distanceToOffice: fd.get("distanceToOffice") || null,
-      modeOfTransport: fd.get("modeOfTransport") || null,
-      homeTelephone: fd.get("homeTelephone") || null,
-      workTelephone: fd.get("workTelephone") || null,
-      otherEmail: fd.get("otherEmail") || null,
-      permanentStreet1: fd.get("permanentStreet1") || null,
-      permanentStreet2: fd.get("permanentStreet2") || null,
-      permanentCity: fd.get("permanentCity") || null,
-      permanentCountry: fd.get("permanentCountry") || null,
-      permanentStateProvince: fd.get("permanentStateProvince") || null,
-      permanentZipPostalCode: fd.get("permanentZipPostalCode") || null,
-      permanentDistrict: fd.get("permanentDistrict") || null,
-      permanentPollingDivision: fd.get("permanentPollingDivision") || null,
-      permanentDistanceToOffice: fd.get("permanentDistanceToOffice") || null,
-      dateOfBirth: fd.get("dateOfBirth") || emp.dateOfBirth,
-      gender: fd.get("gender") || emp.gender,
-      maritalStatus: fd.get("maritalStatus") || null,
-      nationality: fd.get("nationality") || null,
-      religion: fd.get("religion") || null,
-      ethnicity: fd.get("ethnicity") || null,
-      otherId: fd.get("otherId") || null,
-      nationalId: fd.get("nationalId") || null,
-      tinNumber: fd.get("tinNumber") || null,
-      epfNumber: fd.has("epfNumber")
-        ? ((fd.get("epfNumber") as string)?.trim() || null)
-        : (emp.epfNumber ?? null),
-      etfNumber: fd.has("etfNumber")
-        ? ((fd.get("etfNumber") as string)?.trim() || null)
-        : (emp.etfNumber ?? null),
-      driversLicenseNumber: fd.get("driversLicenseNumber") || null,
-      driversLicenseType: (fd.get("driversLicenseType") as string)?.trim() || null,
-      licenseIssueDate: (fd.get("licenseIssueDate") as string)?.trim() || null,
-      licenseExpiryDate: (fd.get("licenseExpiryDate") as string)?.trim() || null,
-      driversLicenseIssuingCountry: fd.get("driversLicenseIssuingCountry") || null,
-      joinDate: fd.get("joinDate") || emp.joinDate,
-      probationEndDate: fd.get("probationEndDate") || null,
-      dateOfPermanency: fd.get("dateOfPermanency") || null,
-      status: fd.get("status") || emp.status,
-      employmentType: fd.get("employmentType") || emp.employmentType,
-      departmentId: fd.get("departmentId") || emp.departmentId,
-      businessUnitId: fd.get("businessUnitId") || null,
-      positionId: fd.get("positionId") || null,
-      locationId: fd.get("locationId") || null,
-      gradeId: fd.get("gradeId") || null,
-      jobTitleId: fd.get("jobTitleId") || null,
-      managerId: fd.get("managerId") || null,
-      isTopOfHierarchy: fd.get("isTopOfHierarchy") === "true",
-    };
+    const payload = buildEmployeePutPayloadFromForm(emp, fd);
 
     const workEmail = displayWorkEmail((payload.email as string) ?? "");
     const personalEmail = ((payload.otherEmail as string) ?? "").trim();
@@ -4265,6 +4302,14 @@ export default function EmployeeDetailPage() {
               <input type="hidden" name="gradeId" value={emp.gradeId ?? ""} />
               <input type="hidden" name="jobTitleId" value={emp.jobTitleId ?? ""} />
               <input type="hidden" name="managerId" value={emp.managerId ?? ""} />
+              <input type="hidden" name="positionId" value={emp.positionId ?? ""} />
+              <input type="hidden" name="joinDate" value={fmtDate(emp.joinDate)} />
+              <input type="hidden" name="employmentType" value={emp.employmentType} />
+              <input type="hidden" name="probationEndDate" value={emp.probationEndDate ? fmtDate(emp.probationEndDate) : ""} />
+              <input type="hidden" name="dateOfPermanency" value={emp.dateOfPermanency ? fmtDate(emp.dateOfPermanency) : ""} />
+              <input type="hidden" name="terminationDate" value={emp.terminationDate ? fmtDate(emp.terminationDate) : ""} />
+              <input type="hidden" name="terminationReason" value={emp.terminationReason ?? ""} />
+              <input type="hidden" name="terminationNote" value={emp.terminationNote ?? ""} />
               <input type="hidden" name="isTopOfHierarchy" value={String(emp.isTopOfHierarchy)} />
               <div className="mt-8 flex items-center justify-end gap-3 border-t border-slate-100/90 pt-6">
                 <button type="submit" disabled={saving} className="inline-flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:from-indigo-500 hover:to-blue-500 hover:shadow-lg disabled:opacity-50">
@@ -4671,12 +4716,12 @@ export default function EmployeeDetailPage() {
                 <div><label className={labelClass}>Joined Date *</label><DatePickerField name="joinDate" required className={inputClass} value={jobFormJoinDate} onChange={setJobFormJoinDate} /></div>
                 <div><label className={labelClass}>Probation End Date</label><DatePickerField name="probationEndDate" className={inputClass} value={jobFormProbationEnd} onChange={setJobFormProbationEnd} /></div>
                 <div><label className={labelClass}>Date of Permanency</label><DatePickerField name="dateOfPermanency" className={inputClass} value={jobFormPermanency} onChange={setJobFormPermanency} /></div>
-                <div><label className={labelClass}>Job Title</label><FormSelect name="jobTitleId" defaultValue={emp.jobTitleId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleJobTitles.map((j) => ({ value: j.id, label: j.name }))]} /></div>
-                <div><label className={labelClass}>Department *</label><FormSelect name="departmentId" required defaultValue={emp.departmentId} options={departments.map((d) => ({ value: d.id, label: d.name }))} /></div>
-                <div><label className={labelClass}>Employment Type *</label><FormSelect name="employmentType" required defaultValue={emp.employmentType} options={jobEmploymentTypeSelectOptions} /></div>
-                <div><label className={labelClass}>Business Unit</label><FormSelect name="businessUnitId" defaultValue={emp.businessUnitId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleBusinessUnits.map((b) => ({ value: b.id, label: b.name }))]} /></div>
-                <div><label className={labelClass}>Grade</label><FormSelect name="gradeId" defaultValue={emp.gradeId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleGrades.map((g) => ({ value: g.id, label: g.name }))]} /></div>
-                <div><label className={labelClass}>Location</label><FormSelect name="locationId" defaultValue={emp.locationId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...visibleLocations.map((l) => ({ value: l.id, label: l.name }))]} /></div>
+                <div><label className={labelClass}>Job Title</label><FormSelect name="jobTitleId" defaultValue={emp.jobTitleId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...jobTitleOptions.map((j) => ({ value: j.id, label: j.name }))]} /></div>
+                <div><label className={labelClass}>Department *</label><FormSelect name="departmentId" required clearable={false} defaultValue={emp.departmentId} options={departmentOptions.map((d) => ({ value: d.id, label: d.name }))} /></div>
+                <div><label className={labelClass}>Employment Type *</label><FormSelect name="employmentType" required clearable={false} defaultValue={emp.employmentType} options={jobEmploymentTypeSelectOptions} /></div>
+                <div><label className={labelClass}>Business Unit</label><FormSelect name="businessUnitId" defaultValue={emp.businessUnitId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...businessUnitOptions.map((b) => ({ value: b.id, label: b.name }))]} /></div>
+                <div><label className={labelClass}>Grade</label><FormSelect name="gradeId" defaultValue={emp.gradeId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...gradeOptions.map((g) => ({ value: g.id, label: g.name }))]} /></div>
+                <div><label className={labelClass}>Location</label><FormSelect name="locationId" defaultValue={emp.locationId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...locationOptions.map((l) => ({ value: l.id, label: l.name }))]} /></div>
               </div>
               {/* Hidden fields */}
               <input type="hidden" name="firstName" value={emp.firstName} />
@@ -4722,6 +4767,12 @@ export default function EmployeeDetailPage() {
               <input type="hidden" name="licenseIssueDate" value={emp.licenseIssueDate ? fmtDate(emp.licenseIssueDate) : ""} />
               <input type="hidden" name="licenseExpiryDate" value={emp.licenseExpiryDate ? fmtDate(emp.licenseExpiryDate) : ""} />
               <input type="hidden" name="driversLicenseIssuingCountry" value={emp.driversLicenseIssuingCountry ?? ""} />
+              <input type="hidden" name="status" value={emp.status} />
+              <input type="hidden" name="managerId" value={emp.managerId ?? ""} />
+              <input type="hidden" name="positionId" value={emp.positionId ?? ""} />
+              <input type="hidden" name="terminationDate" value={emp.terminationDate ? fmtDate(emp.terminationDate) : ""} />
+              <input type="hidden" name="terminationReason" value={emp.terminationReason ?? ""} />
+              <input type="hidden" name="terminationNote" value={emp.terminationNote ?? ""} />
               <input type="hidden" name="isTopOfHierarchy" value={String(emp.isTopOfHierarchy)} />
               <div className="mt-6 flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
                 <button type="button" onClick={() => setPageTab("profile")} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">Cancel</button>
@@ -4961,6 +5012,14 @@ export default function EmployeeDetailPage() {
           <input type="hidden" name="gradeId" value={emp.gradeId ?? ""} />
           <input type="hidden" name="jobTitleId" value={emp.jobTitleId ?? ""} />
           <input type="hidden" name="managerId" value={emp.managerId ?? ""} />
+          <input type="hidden" name="positionId" value={emp.positionId ?? ""} />
+          <input type="hidden" name="joinDate" value={fmtDate(emp.joinDate)} />
+          <input type="hidden" name="employmentType" value={emp.employmentType} />
+          <input type="hidden" name="probationEndDate" value={emp.probationEndDate ? fmtDate(emp.probationEndDate) : ""} />
+          <input type="hidden" name="dateOfPermanency" value={emp.dateOfPermanency ? fmtDate(emp.dateOfPermanency) : ""} />
+          <input type="hidden" name="terminationDate" value={emp.terminationDate ? fmtDate(emp.terminationDate) : ""} />
+          <input type="hidden" name="terminationReason" value={emp.terminationReason ?? ""} />
+          <input type="hidden" name="terminationNote" value={emp.terminationNote ?? ""} />
           <input type="hidden" name="isTopOfHierarchy" value={String(emp.isTopOfHierarchy)} />
           <div className="flex items-center justify-end gap-2">
             <button type="submit" disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50">
