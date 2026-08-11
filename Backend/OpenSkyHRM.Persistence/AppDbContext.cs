@@ -210,7 +210,8 @@ public class AppDbContext : DbContext
         foreach (var entry in ChangeTracker.Entries()
                      .Where(e => e.State is EntityState.Added or EntityState.Modified))
         {
-            if (entry.Entity is AuditLog)
+            // Audit + lifecycle use timestamp without time zone / business-local wall dates.
+            if (entry.Entity is AuditLog or EmployeeLifecycleEvent)
                 continue;
 
             foreach (var prop in entry.Properties)

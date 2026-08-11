@@ -120,6 +120,7 @@ public class LeaveEntitlementService : ILeaveEntitlementService
     {
         return await _db.LeaveEntitlementRules
             .Include(r => r.LeaveType)
+            .Where(r => !r.IsDeleted)
             .OrderBy(r => r.LeaveType.Name)
             .Select(r => new EntitlementRuleDto(
                 r.Id, r.LeaveTypeId, r.LeaveType.Name,
@@ -129,6 +130,24 @@ public class LeaveEntitlementService : ILeaveEntitlementService
 
     public async Task<EntitlementRuleDto> CreateRuleAsync(Guid leaveTypeId, string ruleType, string ruleConfig)
     {
+        var existing = await _db.LeaveEntitlementRules
+            .Include(r => r.LeaveType)
+            .FirstOrDefaultAsync(r => r.LeaveTypeId == leaveTypeId && !r.IsDeleted);
+        if (existing is not null)
+        {
+            if (existing.RuleType != ruleType || existing.RuleConfig != ruleConfig)
+            {
+                existing.RuleType = ruleType;
+                existing.RuleConfig = ruleConfig;
+                existing.IsActive = true;
+                await _db.SaveChangesAsync();
+            }
+
+            return new EntitlementRuleDto(
+                existing.Id, existing.LeaveTypeId, existing.LeaveType.Name,
+                existing.RuleType, existing.RuleConfig, existing.IsActive);
+        }
+
         var rule = new LeaveEntitlementRule
         {
             LeaveTypeId = leaveTypeId,
@@ -504,10 +523,10 @@ public class LeaveEntitlementService : ILeaveEntitlementService
         return config?.DefaultDays ?? 0;
     }
 
-    /// <summary>Display rules may add <c>narrative</c> JSON; entitlement days default to 14 or <c>sickEntitlementDays</c> in config.</summary>
+    /// <summary>Display rules may add <c>narrative</c> JSON; entitlement days default to 0 or <c>sickEntitlementDays</c> in config.</summary>
     private static decimal CalculateShopOfficeSickEntitlement(string ruleConfigJson)
     {
-        if (string.IsNullOrWhiteSpace(ruleConfigJson)) return 14m;
+        if (string.IsNullOrWhiteSpace(ruleConfigJson)) return 0m;
         try
         {
             using var doc = JsonDocument.Parse(ruleConfigJson);
@@ -520,7 +539,7 @@ public class LeaveEntitlementService : ILeaveEntitlementService
         {
             /* treat as default */
         }
-        return 14m;
+        return 0m;
     }
 
     /// <summary>
@@ -529,14 +548,28 @@ public class LeaveEntitlementService : ILeaveEntitlementService
     /// </summary>
     private static bool IsRuleApplicable(string ruleConfigJson, Gender employeeGender)
     {
-        var doc = JsonSerializer.Deserialize<JsonElement>(ruleConfigJson, JsonOpts);
-        if (doc.TryGetProperty("applicableGender", out var genderProp))
+        if (string.IsNullOrWhiteSpace(ruleConfigJson))
+            return true;
+
+        try
         {
-            var required = genderProp.GetString();
-            if (!string.IsNullOrEmpty(required) &&
-                !string.Equals(required, employeeGender.ToString(), StringComparison.OrdinalIgnoreCase))
-                return false;
+            var doc = JsonSerializer.Deserialize<JsonElement>(ruleConfigJson, JsonOpts);
+            if (doc.ValueKind != JsonValueKind.Object)
+                return true;
+
+            if (doc.TryGetProperty("applicableGender", out var genderProp))
+            {
+                var required = genderProp.GetString();
+                if (!string.IsNullOrEmpty(required) &&
+                    !string.Equals(required, employeeGender.ToString(), StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
         }
+        catch (JsonException)
+        {
+            // Malformed rule config should not block entitlement recalculation / employee updates.
+        }
+
         return true;
     }
 

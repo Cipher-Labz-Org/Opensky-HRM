@@ -1051,7 +1051,7 @@ public partial class BulkUploadController : ControllerBase
         using var wb = new XLWorkbook();
 
         var ws = wb.Worksheets.Add("LeaveBalances");
-        var cols = new[] { "Employee Code", "Leave Type", "Year", "Entitled", "Used", "Carried Forward" };
+        var cols = new[] { "Employee Code", "Leave Type", "Year", "Entitled", "Used", "Carried Forward", "Start Date", "End Date", "Reason" };
         for (int i = 0; i < cols.Length; i++)
         {
             ws.Cell(1, i + 1).Value = cols[i];
@@ -1082,6 +1082,10 @@ public partial class BulkUploadController : ControllerBase
             .Select(e => new { e.Id, e.EmployeeCode, e.FirstName, e.LastName }).ToListAsync();
         var leaveTypes = await _db.LeaveTypes.Where(lt => !lt.IsDeleted && lt.IsActive).ToListAsync();
         var existingBalances = await _db.LeaveBalances.ToListAsync();
+        var existingLeaveRequests = await _db.LeaveRequests
+            .Where(r => !r.IsDeleted &&
+                (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2 || r.Status == ApprovalStatus.Approved))
+            .ToListAsync();
 
         var results = new List<LeaveBalanceRowResult>();
         int created = 0, updated = 0, skipped = 0;
@@ -1095,7 +1099,7 @@ public partial class BulkUploadController : ControllerBase
                 var headers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 for (int c = 1; c <= (s.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
                 {
-                    var h = s.Cell(1, c).GetString().Trim();
+                    var h = NormalizeImportHeaderKey(GetCellTrimmedDisplayText(s.Cell(1, c)));
                     if (!string.IsNullOrEmpty(h)) headers.Add(h);
                 }
                 return headers.Contains("Employee Code") && headers.Contains("Leave Type") && headers.Contains("Year");
@@ -1106,26 +1110,58 @@ public partial class BulkUploadController : ControllerBase
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int c = 1; c <= (ws.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
         {
-            var header = ws.Cell(1, c).GetString().Trim();
-            if (!string.IsNullOrEmpty(header))
-                headerMap[header] = c;
+            var key = NormalizeImportHeaderKey(GetCellTrimmedDisplayText(ws.Cell(1, c)));
+            if (!string.IsNullOrEmpty(key))
+                headerMap[key] = c;
         }
 
         string? Cell(IXLRow row, string colName)
         {
-            if (!headerMap.TryGetValue(colName, out int c)) return null;
-            var val = row.Cell(c).GetString().Trim();
-            return string.IsNullOrEmpty(val) ? null : val;
+            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
+            return GetCellTrimmedDisplayText(row.Cell(c));
         }
 
         decimal? DecCell(IXLRow row, string colName)
         {
-            if (!headerMap.TryGetValue(colName, out int c)) return null;
+            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
             var cell = row.Cell(c);
             if (cell.DataType == XLDataType.Number) return (decimal)cell.GetDouble();
-            var s = cell.GetString().Trim();
-            if (decimal.TryParse(s, out var d)) return d;
+            var s = GetCellTrimmedDisplayText(cell);
+            if (s != null && decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out var d)) return d;
+            if (s != null && decimal.TryParse(s, NumberStyles.Number, CultureInfo.CurrentCulture, out d)) return d;
             return null;
+        }
+
+        DateTime? DateCell(IXLRow row, string colName)
+        {
+            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
+            var cell = row.Cell(c);
+            if (cell.DataType == XLDataType.DateTime) return cell.GetDateTime().Date;
+            if (cell.DataType == XLDataType.Number && cell.TryGetValue<double>(out var oaDate))
+            {
+                try
+                {
+                    if (oaDate >= 1 && oaDate < 2958466)
+                        return DateTime.FromOADate(oaDate).Date;
+                }
+                catch (ArgumentException)
+                {
+                    /* fall through to text parse */
+                }
+            }
+
+            var s = GetCellTrimmedDisplayText(cell);
+            if (string.IsNullOrEmpty(s)) return null;
+            if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt)) return dt.Date;
+            if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return dt.Date;
+            return null;
+        }
+
+        bool HasDateColumnValue(IXLRow row, string colName)
+        {
+            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return false;
+            var cell = row.Cell(c);
+            return cell.DataType != XLDataType.Blank && !string.IsNullOrWhiteSpace(GetCellTrimmedDisplayText(cell));
         }
 
         var lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
@@ -1133,6 +1169,7 @@ public partial class BulkUploadController : ControllerBase
         {
             var row = ws.Row(r);
             var errors = new List<string>();
+            var notes = new List<string>();
 
             var empCode = Cell(row, "Employee Code");
             var leaveTypeName = Cell(row, "Leave Type");
@@ -1140,11 +1177,25 @@ public partial class BulkUploadController : ControllerBase
             var entitled = DecCell(row, "Entitled");
             var used = DecCell(row, "Used");
             var carried = DecCell(row, "Carried Forward");
+            var reason = Cell(row, "Reason");
+
+            var startRaw = HasDateColumnValue(row, "Start Date");
+            var endRaw = HasDateColumnValue(row, "End Date");
+            var startDate = DateCell(row, "Start Date");
+            var endDate = DateCell(row, "End Date");
 
             if (string.IsNullOrEmpty(empCode)) errors.Add("Employee Code is required");
             if (string.IsNullOrEmpty(leaveTypeName)) errors.Add("Leave Type is required");
             if (string.IsNullOrEmpty(yearStr) || !int.TryParse(yearStr, out var year)) { errors.Add("Valid Year is required"); year = 0; }
             if (entitled is null) errors.Add("Entitled is required");
+
+            if (startRaw || endRaw)
+            {
+                if (startDate is null) errors.Add("Start Date is invalid or missing");
+                if (endDate is null) errors.Add("End Date is invalid or missing");
+                if (startDate is not null && endDate is not null && endDate < startDate)
+                    errors.Add("End Date cannot be before Start Date");
+            }
 
             var emp = employees.FirstOrDefault(e => e.EmployeeCode.Equals(empCode, StringComparison.OrdinalIgnoreCase));
             if (emp is null && !string.IsNullOrEmpty(empCode)) errors.Add($"Employee '{empCode}' not found");
@@ -1155,13 +1206,14 @@ public partial class BulkUploadController : ControllerBase
             if (errors.Count > 0)
             {
                 skipped++;
-                results.Add(new LeaveBalanceRowResult(r, empCode ?? "", leaveTypeName ?? "", "Skipped", errors));
+                results.Add(new LeaveBalanceRowResult(r, empCode ?? "", leaveTypeName ?? "", "Skipped", errors, notes));
                 continue;
             }
 
             var existing = existingBalances.FirstOrDefault(b =>
                 b.EmployeeId == emp!.Id && b.LeaveTypeId == lt!.Id && b.Year == year);
 
+            string status;
             if (existing != null)
             {
                 existing.Entitled = entitled!.Value;
@@ -1169,7 +1221,7 @@ public partial class BulkUploadController : ControllerBase
                 existing.CarriedForward = carried ?? 0;
                 existing.BroughtForwardDays = Math.Max(existing.BroughtForwardDays, carried ?? 0);
                 updated++;
-                results.Add(new LeaveBalanceRowResult(r, empCode!, leaveTypeName!, "Updated", new List<string>()));
+                status = "Updated";
             }
             else
             {
@@ -1187,8 +1239,64 @@ public partial class BulkUploadController : ControllerBase
                 _db.LeaveBalances.Add(balance);
                 existingBalances.Add(balance);
                 created++;
-                results.Add(new LeaveBalanceRowResult(r, empCode!, leaveTypeName!, "Created", new List<string>()));
+                status = "Created";
             }
+
+            if (startDate is not null && endDate is not null)
+            {
+                var start = DateTime.SpecifyKind(startDate.Value.Date, DateTimeKind.Utc);
+                var end = DateTime.SpecifyKind(endDate.Value.Date, DateTimeKind.Utc);
+                var totalDays = (decimal)((end.Date - start.Date).TotalDays + 1);
+
+                var exactMatch = existingLeaveRequests.FirstOrDefault(lr =>
+                    lr.EmployeeId == emp!.Id &&
+                    lr.LeaveTypeId == lt!.Id &&
+                    lr.StartDate.Date == start.Date &&
+                    lr.EndDate.Date == end.Date);
+
+                if (exactMatch != null)
+                {
+                    exactMatch.TotalDays = totalDays;
+                    if (!string.IsNullOrWhiteSpace(reason))
+                        exactMatch.Reason = reason.Trim();
+                    if (exactMatch.Status != ApprovalStatus.Approved)
+                    {
+                        exactMatch.Status = ApprovalStatus.Approved;
+                        exactMatch.ApprovedAt ??= DateTime.UtcNow;
+                    }
+                    notes.Add($"Leave dates updated ({start:yyyy-MM-dd} to {end:yyyy-MM-dd})");
+                }
+                else
+                {
+                    var overlaps = existingLeaveRequests.Any(lr =>
+                        lr.EmployeeId == emp!.Id &&
+                        lr.StartDate.Date <= end.Date &&
+                        lr.EndDate.Date >= start.Date);
+                    if (overlaps)
+                    {
+                        notes.Add($"Leave dates skipped — overlaps existing leave ({start:yyyy-MM-dd} to {end:yyyy-MM-dd})");
+                    }
+                    else
+                    {
+                        var leaveRequest = new LeaveRequest
+                        {
+                            EmployeeId = emp!.Id,
+                            LeaveTypeId = lt!.Id,
+                            StartDate = start,
+                            EndDate = end,
+                            TotalDays = totalDays,
+                            Reason = string.IsNullOrWhiteSpace(reason) ? "Imported with leave balance" : reason.Trim(),
+                            Status = ApprovalStatus.Approved,
+                            ApprovedAt = DateTime.UtcNow,
+                        };
+                        _db.LeaveRequests.Add(leaveRequest);
+                        existingLeaveRequests.Add(leaveRequest);
+                        notes.Add($"Leave dates added ({start:yyyy-MM-dd} to {end:yyyy-MM-dd}, {totalDays:0.#} day(s))");
+                    }
+                }
+            }
+
+            results.Add(new LeaveBalanceRowResult(r, empCode!, leaveTypeName!, status, errors, notes));
         }
 
         await _db.SaveChangesAsync();
@@ -1198,6 +1306,6 @@ public partial class BulkUploadController : ControllerBase
 
     public record RowResult(int Row, string FirstName, string LastName, bool Success, List<string> Errors, List<string>? Notes = null);
     public record UploadResult(int Created, int Skipped, int TotalRows, int LoginsCreated, List<RowResult> Results);
-    public record LeaveBalanceRowResult(int Row, string EmployeeCode, string LeaveType, string Status, List<string> Errors);
+    public record LeaveBalanceRowResult(int Row, string EmployeeCode, string LeaveType, string Status, List<string> Errors, List<string>? Notes = null);
     public record LeaveBalanceUploadResult(int Created, int Updated, int Skipped, int TotalRows, List<LeaveBalanceRowResult> Results);
 }

@@ -356,11 +356,11 @@ const PAGE_TABS: { key: PageTab; label: string }[] = [
   { key: "applyLeave", label: "Apply Leave" },
   { key: "requests", label: "Leave Requests" },
   { key: "balances", label: "Leave Balances" },
-  { key: "carryForward", label: "Carry Forward" },
-  { key: "assignLeaveType", label: "Assign Leave Type" },
-  { key: "leaveTypes", label: "Leave Types" },
+  { key: "assignLeaveType", label: "Leave Assignment" },
+  { key: "leaveTypes", label: "Leave Master" },
   { key: "policies", label: "Policies" },
   { key: "holidays", label: "Holidays" },
+  { key: "carryForward", label: "Carry Forward" },
   { key: "calendar", label: "Team Calendar" },
 ];
 
@@ -1575,7 +1575,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
 
           {!loadingBal && catalogLeaveTypes.length === 0 && (
             <p className="px-4 py-10 text-center text-sm text-slate-500 sm:px-5">
-              No active leave types in the catalog. Add types under <span className="font-medium">Leave Types</span>.
+              No active leave types in the catalog. Add types under <span className="font-medium">Leave Master</span>.
             </p>
           )}
 
@@ -2514,7 +2514,7 @@ function AssignLeaveTypeTab() {
     <div className="w-full min-w-0 max-w-full space-y-5">
       <DashboardPageHeader
         eyebrow="Leave workspace"
-        title="Assign leave type"
+        title="Leave Assignment"
         subtitle="Create a leave balance for one employee and leave type — for a calendar year or a custom date range."
       />
 
@@ -2701,7 +2701,7 @@ function AssignLeaveTypeTab() {
               Clear form
             </Button>
             <Button type="submit" disabled={saving} className="min-w-[10rem]">
-              {saving ? "Saving…" : "Assign leave type"}
+              {saving ? "Saving…" : "Save leave assignment"}
             </Button>
           </div>
         </form>
@@ -3142,7 +3142,7 @@ function LeaveTypesTab() {
       </div>
       <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-200/50">
         <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/20 px-5 py-4 sm:px-6">
-          <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Leave Types</h2>
+          <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">Leave Master</h2>
           <p className="mt-1 text-xs text-slate-500 sm:text-sm">Catalog of leave categories, default entitlements, and status.</p>
         </div>
         <div className="max-h-[min(70vh,48rem)] overflow-x-auto overflow-y-auto">
@@ -3333,13 +3333,13 @@ function parseSickNarrativeFromRuleConfig(ruleConfig: string): { intro: string; 
     return {
       intro,
       points,
-      sickEntitlementDays: typeof se === "number" && se >= 0 && se <= 366 ? se : 14,
+      sickEntitlementDays: typeof se === "number" && se >= 0 && se <= 366 ? se : 0,
     };
   } catch {
     return {
       intro: DEFAULT_SICK_NARRATIVE.intro,
       points: [...DEFAULT_SICK_NARRATIVE.points],
-      sickEntitlementDays: 14,
+      sickEntitlementDays: 0,
     };
   }
 }
@@ -3363,6 +3363,51 @@ function parseSickEntitlementDaysInput(raw: string): number | null {
   const n = parseInt(trimmed, 10);
   if (n < 0 || n > 366) return null;
   return n;
+}
+
+function ShopOfficeAnnualNarrativeView() {
+  return (
+    <div className="ml-11 space-y-1.5 text-xs text-slate-600">
+      <p>
+        <strong className="text-slate-800">Sri Lanka Shop &amp; Office Act</strong> — calendar year; annual leave uses employment type and confirmation dates.
+      </p>
+      <ul className="list-disc space-y-0.5 pl-4">
+        <li>
+          <span className="font-medium text-slate-700">1.</span> Joining calendar year: no annual leave. While on probation (employment type or before permanent date): no annual leave.
+        </li>
+        <li>
+          <span className="font-medium text-slate-700">2.</span> Permanent for annual leave from Date of permanency, or the day after Probation end date, or from join if employment type is not probation (e.g. Full-Time Permanent).
+        </li>
+        <li>
+          <span className="font-medium text-slate-700">3.</span> First eligible calendar year after join (and from permanent year): pro-rated by original join quarter — Jan–Mar 14d, Apr–Jun 10d, Jul–Sep 7d, Oct–Dec 4d
+        </li>
+        <li>
+          <span className="font-medium text-slate-700">4.</span> Following calendar years: 14 days per year
+        </li>
+        <li>
+          <span className="font-medium text-slate-700">5.</span> Usage: minimum 7 consecutive calendar days per application
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+function ShopOfficeCasualNarrativeView() {
+  return (
+    <div className="ml-11 space-y-1.5 text-xs text-slate-600">
+      <p>
+        <strong className="text-slate-800">Sri Lanka Shop &amp; Office Act</strong> — casual leave (max 7 days).
+      </p>
+      <ul className="list-disc space-y-0.5 pl-4">
+        <li>
+          <span className="font-medium text-slate-700">1.</span> Joining year: 0.5 day per completed calendar month from join (partial join month excluded), capped at 7
+        </li>
+        <li>
+          <span className="font-medium text-slate-700">2.</span> From the next calendar year: 7 days per year
+        </li>
+      </ul>
+    </div>
+  );
 }
 
 function ShopOfficeSickNarrativeView({ intro, points }: { intro: string; points: string[] }) {
@@ -3449,7 +3494,7 @@ function SickNarrativeAdminBlock({
         await apiFetch<{ ruleConfig: string }>(`/api/leave/entitlement-rules/${rule.id}`, { method: "PUT", body: JSON.stringify({ ruleConfig: config }) });
       } else {
         if (!sickLeaveTypeId) {
-          setErr("Sick leave type (code LT-SIC) not found. Add it under Leave Types first.");
+          setErr("Sick leave type (code LT-SIC) not found. Add it under Leave Master first.");
           return;
         }
         await apiFetch("/api/leave/entitlement-rules", {
@@ -3697,11 +3742,18 @@ const ENTITLEMENT_RULE_SORT_ORDER: Record<string, number> = {
 };
 
 function sortEntitlementRulesForDisplay(rules: EntitlementRule[]) {
-  return [...rules].sort((a, b) => {
+  // One card per leave type (keeps first after sort) so accidental duplicate DB rows do not double-render.
+  const sorted = [...rules].sort((a, b) => {
     const oa = ENTITLEMENT_RULE_SORT_ORDER[a.ruleType] ?? 50;
     const ob = ENTITLEMENT_RULE_SORT_ORDER[b.ruleType] ?? 50;
     if (oa !== ob) return oa - ob;
     return a.leaveTypeName.localeCompare(b.leaveTypeName);
+  });
+  const seen = new Set<string>();
+  return sorted.filter((r) => {
+    if (seen.has(r.leaveTypeId)) return false;
+    seen.add(r.leaveTypeId);
+    return true;
   });
 }
 
@@ -3756,6 +3808,8 @@ function PoliciesTab() {
   const [carrySettings, setCarrySettings] = useState<CarryForwardAvailability | null>(null);
 
   const sortedRules = useMemo(() => sortEntitlementRulesForDisplay(rules), [rules]);
+  const hasShopOfficeAnnualRule = useMemo(() => rules.some((r) => r.ruleType === "ShopOfficeAnnual"), [rules]);
+  const hasShopOfficeCasualRule = useMemo(() => rules.some((r) => r.ruleType === "ShopOfficeCasual"), [rules]);
   const hasShopOfficeSickRule = useMemo(() => rules.some((r) => r.ruleType === "ShopOfficeSick"), [rules]);
   const sickCatalogLeaveTypeId = useMemo(
     () => leaveTypes.find((lt) => lt.code === "LT-SIC")?.id ?? null,
@@ -3977,45 +4031,8 @@ function PoliciesTab() {
                   inactive={!rule.isActive}
                 />
 
-                  {rule.ruleType === "ShopOfficeAnnual" && (
-                    <div className="ml-11 space-y-1.5 text-xs text-slate-600">
-                      <p>
-                        <strong className="text-slate-800">Sri Lanka Shop &amp; Office Act</strong> — calendar year; annual leave uses employment type and confirmation dates.
-                      </p>
-                      <ul className="list-disc pl-4 space-y-0.5">
-                        <li>
-                          <span className="font-medium text-slate-700">1.</span> Joining calendar year: no annual leave. While on probation (employment type or before permanent date): no annual leave.
-                        </li>
-                        <li>
-                          <span className="font-medium text-slate-700">2.</span> Permanent for annual leave from Date of permanency, or the day after Probation end date, or from join if employment type is not probation (e.g. Full-Time Permanent).
-                        </li>
-                        <li>
-                          <span className="font-medium text-slate-700">3.</span> First eligible calendar year after join (and from permanent year): pro-rated by original join quarter — Jan–Mar 14d, Apr–Jun 10d, Jul–Sep 7d, Oct–Dec 4d
-                        </li>
-                        <li>
-                          <span className="font-medium text-slate-700">4.</span> Following calendar years: 14 days per year
-                        </li>
-                        <li>
-                          <span className="font-medium text-slate-700">5.</span> Usage: minimum 7 consecutive calendar days per application
-                        </li>
-                      </ul>
-                    </div>
-                  )}
-                  {rule.ruleType === "ShopOfficeCasual" && (
-                    <div className="ml-11 space-y-1.5 text-xs text-slate-600">
-                      <p>
-                        <strong className="text-slate-800">Sri Lanka Shop &amp; Office Act</strong> — casual leave (max 7 days).
-                      </p>
-                      <ul className="list-disc pl-4 space-y-0.5">
-                        <li>
-                          <span className="font-medium text-slate-700">1.</span> Joining year: 0.5 day per completed calendar month from join (partial join month excluded), capped at 7
-                        </li>
-                        <li>
-                          <span className="font-medium text-slate-700">2.</span> From the next calendar year: 7 days per year
-                        </li>
-                      </ul>
-                    </div>
-                  )}
+                  {rule.ruleType === "ShopOfficeAnnual" && <ShopOfficeAnnualNarrativeView />}
+                  {rule.ruleType === "ShopOfficeCasual" && <ShopOfficeCasualNarrativeView />}
 
                   {/* ServiceYearBased display */}
                   {config && rule.ruleType === "ServiceYearBased" && (
@@ -4080,6 +4097,26 @@ function PoliciesTab() {
               <p className="text-sm text-slate-500">No entitlement rules are linked to leave types in the database yet. After seeding or admin setup, Annual, Casual, and Sick leave rules can appear here.</p>
           </div>
             )}
+
+        {!hasShopOfficeAnnualRule && (
+          <div className="px-6 py-4">
+            <EntitlementRuleRowHeader title="Annual Leave" ruleType="ShopOfficeAnnual (reference)" />
+            <p className="mb-2 ml-11 text-[11px] text-slate-400">
+              Shown when no ShopOfficeAnnual rule is linked yet. It is created automatically when you have Leave Create access, or on API startup seeding.
+            </p>
+            <ShopOfficeAnnualNarrativeView />
+          </div>
+        )}
+
+        {!hasShopOfficeCasualRule && (
+          <div className="px-6 py-4">
+            <EntitlementRuleRowHeader title="Casual Leave" ruleType="ShopOfficeCasual (reference)" />
+            <p className="mb-2 ml-11 text-[11px] text-slate-400">
+              Shown when no ShopOfficeCasual rule is linked yet. It is created automatically when you have Leave Create access, or on API startup seeding.
+            </p>
+            <ShopOfficeCasualNarrativeView />
+          </div>
+        )}
 
         {!hasShopOfficeSickRule && (
           <div className="px-6 py-4">
@@ -4576,14 +4613,31 @@ const TEAM_LEAVE_TYPE_STYLES: Record<string, { chip: string; dot: string; label:
   "No-Pay Leave": { chip: "bg-slate-200 text-slate-700", dot: "bg-slate-500", label: "No-Pay Leave" },
 };
 
-function teamLeaveTypeStyle(leaveTypeName: string) {
-  return (
-    TEAM_LEAVE_TYPE_STYLES[leaveTypeName] ?? {
-      chip: "bg-slate-200 text-slate-700",
-      dot: "bg-slate-400",
-      label: leaveTypeName,
-    }
-  );
+const TEAM_CALENDAR_MAX_AVATARS = 6;
+
+/** Distinct solid colors for calendar employee initials (stable per name). */
+const TEAM_CALENDAR_AVATAR_COLORS = [
+  "bg-blue-500 text-white",
+  "bg-emerald-500 text-white",
+  "bg-violet-500 text-white",
+  "bg-amber-500 text-white",
+  "bg-rose-500 text-white",
+  "bg-cyan-500 text-white",
+  "bg-fuchsia-500 text-white",
+  "bg-indigo-500 text-white",
+  "bg-orange-500 text-white",
+  "bg-teal-500 text-white",
+  "bg-pink-500 text-white",
+  "bg-sky-500 text-white",
+];
+
+function teamCalendarAvatarColor(employeeName: string): string {
+  const key = employeeName.trim().toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return TEAM_CALENDAR_AVATAR_COLORS[hash % TEAM_CALENDAR_AVATAR_COLORS.length] ?? TEAM_CALENDAR_AVATAR_COLORS[0];
 }
 
 function calendarDayFromIso(date: string): number {
@@ -4853,20 +4907,26 @@ function CalendarTab() {
                           })}
                         </div>
                       ) : null}
-                      {calDay?.entries.slice(0, 2).map((entry, ei) => {
-                        const style = teamLeaveTypeStyle(entry.leaveTypeName);
-                        return (
-                          <span
-                            key={`${entry.employeeName}-${ei}`}
-                            className={`mb-0.5 block truncate rounded-md px-1 py-0.5 text-[10px] font-semibold leading-tight ${style.chip}`}
-                            title={`${entry.employeeName} — ${entry.leaveTypeName}`}
-                          >
-                            {entry.employeeName.split(" ")[0]}
-                          </span>
-                        );
-                      })}
-                      {entryCount > 2 ? (
-                        <span className="block px-1 text-[9px] font-medium text-slate-500">+{entryCount - 2} more</span>
+                      {entryCount > 0 ? (
+                        <div className="mt-0.5 flex flex-wrap items-center gap-0.5">
+                          {calDay?.entries.slice(0, TEAM_CALENDAR_MAX_AVATARS).map((entry, ei) => (
+                              <span
+                                key={`${entry.employeeName}-${ei}`}
+                                className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold leading-none ${teamCalendarAvatarColor(entry.employeeName)}`}
+                                title={`${entry.employeeName} — ${entry.leaveTypeName}`}
+                              >
+                                {employeeInitials(entry.employeeName)}
+                              </span>
+                          ))}
+                          {entryCount > TEAM_CALENDAR_MAX_AVATARS ? (
+                            <span
+                              className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-slate-200 px-1 text-[9px] font-bold text-slate-600"
+                              title={`${entryCount - TEAM_CALENDAR_MAX_AVATARS} more on leave`}
+                            >
+                              +{entryCount - TEAM_CALENDAR_MAX_AVATARS}
+                            </span>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                   );
