@@ -101,6 +101,7 @@ interface EmployeeDetail {
   religion: string | null;
   ethnicity: string | null;
   otherId: string | null;
+  fingerprintId: string | null;
   nationalId: string | null;
   tinNumber: string | null;
   epfNumber: string | null;
@@ -1170,6 +1171,7 @@ export default function EmployeeProfilePage() {
             <Field label="Religion">{dash(emp.religion)}</Field>
             <Field label="Ethnicity">{dash(emp.ethnicity)}</Field>
             <Field label="Other ID">{dash(emp.otherId)}</Field>
+            <Field label="Fingerprint ID">{dash(emp.fingerprintId)}</Field>
             <Field label="National / ID no.">{dash(emp.nationalId)}</Field>
             <Field label="TIN">{dash(emp.tinNumber)}</Field>
           </div>

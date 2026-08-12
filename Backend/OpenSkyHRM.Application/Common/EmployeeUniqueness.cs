@@ -41,6 +41,31 @@ public static class EmployeeUniqueness
         }
     }
 
+    /// <summary>Normalize blank fingerprint IDs to null; reject duplicates (case-insensitive).</summary>
+    public static string? NormalizeFingerprintId(string? fingerprintId)
+    {
+        var value = fingerprintId?.Trim();
+        return string.IsNullOrEmpty(value) ? null : value;
+    }
+
+    public static async Task ValidateFingerprintIdAsync(AppDbContext db, Guid? employeeId, string? fingerprintId)
+    {
+        var normalized = NormalizeFingerprintId(fingerprintId);
+        if (normalized == null) return;
+
+        var taken = await db.Employees.IgnoreQueryFilters()
+            .AnyAsync(e =>
+                e.FingerprintId != null
+                && e.FingerprintId.ToLower() == normalized.ToLower()
+                && (!employeeId.HasValue || e.Id != employeeId.Value));
+
+        if (taken)
+        {
+            throw new InvalidOperationException(
+                $"Fingerprint ID '{normalized}' is already assigned to another employee.");
+        }
+    }
+
     /// <summary>Rewrites email on soft-delete so the unique index can accept a new hire with the same address.</summary>
     public static string? ArchiveEmail(Guid employeeId, string? currentEmail)
     {

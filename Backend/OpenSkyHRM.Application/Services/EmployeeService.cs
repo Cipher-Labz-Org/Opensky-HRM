@@ -325,6 +325,8 @@ public class EmployeeService : IEmployeeService
         var resolvedEmail = EmployeeEmailHelper.ResolveForCreate(code, dto.Email);
 
         await EmployeeUniqueness.ValidateForCreateAsync(_db, code, resolvedEmail);
+        var fingerprintId = EmployeeUniqueness.NormalizeFingerprintId(dto.FingerprintId);
+        await EmployeeUniqueness.ValidateFingerprintIdAsync(_db, null, fingerprintId);
 
         var employee = new Employee
         {
@@ -341,6 +343,7 @@ public class EmployeeService : IEmployeeService
             Religion = dto.Religion,
             Ethnicity = dto.Ethnicity,
             OtherId = dto.OtherId,
+            FingerprintId = fingerprintId,
             NationalId = dto.NationalId,
             TinNumber = dto.TinNumber,
             EpfNumber = dto.EpfNumber,
@@ -388,6 +391,9 @@ public class EmployeeService : IEmployeeService
 
         _db.Employees.Add(employee);
         await _db.SaveChangesAsync();
+
+        if (fingerprintId != null)
+            await ResetBiometricPunchesForFingerprintIdAsync(fingerprintId);
 
         try
         {
@@ -518,6 +524,9 @@ public class EmployeeService : IEmployeeService
         var lifecycleBefore = CopyLifecycleSnapshot(employee);
 
         await EmployeeUniqueness.ValidateEmailForUpdateAsync(_db, id, dto.Email);
+        var fingerprintId = EmployeeUniqueness.NormalizeFingerprintId(dto.FingerprintId);
+        await EmployeeUniqueness.ValidateFingerprintIdAsync(_db, id, fingerprintId);
+        var fingerprintChanged = !string.Equals(employee.FingerprintId, fingerprintId, StringComparison.OrdinalIgnoreCase);
 
         employee.FirstName = dto.FirstName;
         employee.MiddleName = dto.MiddleName;
@@ -542,6 +551,7 @@ public class EmployeeService : IEmployeeService
         employee.Religion = dto.Religion;
         employee.Ethnicity = dto.Ethnicity;
         employee.OtherId = dto.OtherId;
+        employee.FingerprintId = fingerprintId;
         employee.NationalId = dto.NationalId;
         employee.TinNumber = dto.TinNumber;
         employee.EpfNumber = dto.EpfNumber;
@@ -591,6 +601,9 @@ public class EmployeeService : IEmployeeService
         employee.IsTopOfHierarchy = dto.IsTopOfHierarchy;
 
         await _db.SaveChangesAsync();
+
+        if (fingerprintChanged && fingerprintId != null)
+            await ResetBiometricPunchesForFingerprintIdAsync(fingerprintId);
 
         try
         {
@@ -798,6 +811,7 @@ public class EmployeeService : IEmployeeService
         Religion = e.Religion,
         Ethnicity = e.Ethnicity,
         OtherId = e.OtherId,
+        FingerprintId = e.FingerprintId,
         NationalId = e.NationalId,
         TinNumber = e.TinNumber,
         EpfNumber = e.EpfNumber,
@@ -875,5 +889,45 @@ public class EmployeeService : IEmployeeService
         if (value == default)
             return value;
         return DateTime.SpecifyKind(value.Date, DateTimeKind.Unspecified);
+    }
+
+    /// <summary>
+    /// When a Fingerprint ID is set/changed, re-queue punches for that device PIN so the ADMS processor can map them.
+    /// </summary>
+    private async Task ResetBiometricPunchesForFingerprintIdAsync(string fingerprintId)
+    {
+        var aliases = BiometricEmployeeResolver.GetAliases(fingerprintId);
+        if (aliases.Count == 0) return;
+
+        var aliasSet = new HashSet<string>(aliases, StringComparer.OrdinalIgnoreCase);
+
+        // Match exact DeviceUserId and leading-zero variants (same rules as biometric resolve).
+        var candidates = await _db.BiometricPunchEvents
+            .Where(p => !p.IsDeleted && p.ProcessedToAttendance)
+            .Select(p => new { p.Id, p.DeviceUserId })
+            .ToListAsync();
+
+        var idsToReset = candidates
+            .Where(p =>
+            {
+                var key = p.DeviceUserId?.Trim() ?? string.Empty;
+                if (string.IsNullOrEmpty(key)) return false;
+                if (aliasSet.Contains(key)) return true;
+                var trimmed = key.TrimStart('0');
+                return !string.IsNullOrEmpty(trimmed) && aliasSet.Contains(trimmed);
+            })
+            .Select(p => p.Id)
+            .ToList();
+
+        if (idsToReset.Count == 0) return;
+
+        var punches = await _db.BiometricPunchEvents
+            .Where(p => idsToReset.Contains(p.Id))
+            .ToListAsync();
+
+        foreach (var punch in punches)
+            punch.ProcessedToAttendance = false;
+
+        await _db.SaveChangesAsync();
     }
 }
