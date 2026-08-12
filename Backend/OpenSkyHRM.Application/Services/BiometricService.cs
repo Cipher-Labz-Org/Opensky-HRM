@@ -199,18 +199,26 @@ public class BiometricService : IBiometricService
         if (pending.Count == 0)
             return new AdmsProcessResultDto();
 
-        // Prioritize punches that map to an employee so unmapped backlog cannot block attendance creation.
-        var mappable = pending
-            .Where(p => BiometricEmployeeResolver.TryResolve(lookup, p.DeviceUserId, out _))
-            .Take(500)
-            .ToList();
-        var batch = mappable.Count > 0 ? mappable : pending.Take(50).ToList();
-
         var processed = 0;
         var skipped = 0;
         var failed = 0;
 
-        var dayKeys = batch
+        // Permanently skip unmapped device user IDs so they never block mapped employees.
+        foreach (var punch in pending)
+        {
+            if (BiometricEmployeeResolver.TryResolve(lookup, punch.DeviceUserId, out _))
+                continue;
+
+            punch.ProcessedToAttendance = true;
+            skipped++;
+        }
+
+        var mappable = pending
+            .Where(p => BiometricEmployeeResolver.TryResolve(lookup, p.DeviceUserId, out _))
+            .Take(500)
+            .ToList();
+
+        var dayKeys = mappable
             .Select(p => new { p.DeviceUserId, Day = p.PunchAtUtc.Date })
             .Distinct()
             .ToList();
@@ -218,16 +226,13 @@ public class BiometricService : IBiometricService
         foreach (var key in dayKeys)
         {
             if (!BiometricEmployeeResolver.TryResolve(lookup, key.DeviceUserId, out var employee))
-            {
-                skipped += batch.Count(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day);
                 continue;
-            }
 
             try
             {
                 await RebuildAttendanceForEmployeeDayAsync(employee, key.Day, cancellationToken);
 
-                var dayPunches = batch.Where(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day).ToList();
+                var dayPunches = mappable.Where(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day).ToList();
                 foreach (var punch in dayPunches)
                 {
                     punch.ProcessedToAttendance = true;
@@ -236,11 +241,11 @@ public class BiometricService : IBiometricService
             }
             catch
             {
-                failed += batch.Count(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day);
+                failed += mappable.Count(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day);
             }
         }
 
-        if (processed > 0)
+        if (processed > 0 || skipped > 0 || failed > 0)
             await _db.SaveChangesAsync(cancellationToken);
 
         return new AdmsProcessResultDto
@@ -260,7 +265,7 @@ public class BiometricService : IBiometricService
             total.Processed += batch.Processed;
             total.SkippedUnmapped += batch.SkippedUnmapped;
             total.Failed += batch.Failed;
-            if (batch.Processed == 0 && batch.Failed == 0)
+            if (batch.Processed == 0 && batch.Failed == 0 && batch.SkippedUnmapped == 0)
                 break;
         }
 
@@ -367,10 +372,10 @@ public class BiometricService : IBiometricService
             status.BreakPoint = "parse";
             status.Summary = "Webhook payloads arrived but parsing failed. Check device serial numbers (SN) and recent raw event errors.";
         }
-        else if (status.UnmappedPunchCount > 0 && status.UnprocessedPunchCount > 0)
+        else if (status.UnmappedPunchCount > 0)
         {
             status.BreakPoint = "mapping";
-            status.Summary = $"{status.UnmappedPunchCount} punch(es) use device user IDs that do not match any Employee Code. Fix PINs in ADMS or employee codes in People Hub, then Reprocess.";
+            status.Summary = $"{status.UnmappedPunchCount} unmapped device user ID(s) are waiting to be skipped or matched. Mapped punches still process; fix PINs in ADMS or Employee Code, then Reprocess.";
         }
         else if (status.UnprocessedPunchCount > 0)
         {
