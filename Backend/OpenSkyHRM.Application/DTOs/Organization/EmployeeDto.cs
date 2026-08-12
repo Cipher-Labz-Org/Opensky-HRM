@@ -39,6 +39,7 @@ public class EmployeeDto
     public string? Religion { get; set; }
     public string? Ethnicity { get; set; }
     public string? OtherId { get; set; }
+    public string? FingerprintId { get; set; }
     public string? NationalId { get; set; }
     public string? TinNumber { get; set; }
     public string? EpfNumber { get; set; }
@@ -122,6 +123,7 @@ public class CreateEmployeeDto
     public string? Religion { get; set; }
     public string? Ethnicity { get; set; }
     public string? OtherId { get; set; }
+    public string? FingerprintId { get; set; }
     public string? NationalId { get; set; }
     public string? TinNumber { get; set; }
     public string? EpfNumber { get; set; }
@@ -192,6 +194,7 @@ public class UpdateEmployeeDto
     public string? Religion { get; set; }
     public string? Ethnicity { get; set; }
     public string? OtherId { get; set; }
+    public string? FingerprintId { get; set; }
     public string? NationalId { get; set; }
     public string? TinNumber { get; set; }
     public string? EpfNumber { get; set; }

@@ -40,6 +40,8 @@ public class Employee : AuditableEntity
     public string? Religion { get; set; }
     public string? Ethnicity { get; set; }
     public string? OtherId { get; set; }
+    /// <summary>Biometric device PIN / user ID when it differs from <see cref="EmployeeCode"/>.</summary>
+    public string? FingerprintId { get; set; }
     public string? NationalId { get; set; }
     public string? TinNumber { get; set; }
     public string? EpfNumber { get; set; }

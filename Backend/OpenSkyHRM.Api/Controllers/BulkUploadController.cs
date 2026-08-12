@@ -73,6 +73,15 @@ public partial class BulkUploadController : ControllerBase
                 "Leave blank to auto-generate a unique employee code (employee only — no login). When \"Create employee logins\" is enabled, enter Employee Code on rows that need a login; that code becomes the username (letters, digits, . _ - only; unique).");
         }
 
+        var fingerprintIdColIndex = Array.FindIndex(cols, static c => string.Equals(c, "Fingerprint ID", StringComparison.OrdinalIgnoreCase));
+        if (fingerprintIdColIndex >= 0)
+        {
+            var fc = ws.Cell(1, fingerprintIdColIndex + 1);
+            fc.CreateComment();
+            fc.GetComment().AddText(
+                "Optional. Device PIN / user ID from the fingerprint machine when it differs from Employee Code. Leave blank if the machine ID matches Employee Code. Must be unique when set.");
+        }
+
         ws.Columns().AdjustToContents(1, 1);
 
         AddLookupSheet(wb, "Departments", _db.Departments.Where(d => !d.IsDeleted).Select(d => new { d.Name }).ToList().Select(d => d.Name));
@@ -190,6 +199,14 @@ public partial class BulkUploadController : ControllerBase
             .ToListAsync();
         var existingEmailSet = new HashSet<string>(existingEmails.Select(e => e.Trim()), StringComparer.OrdinalIgnoreCase);
         var emailsSeenInFile = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var existingFingerprintIds = await _db.Employees.AsNoTracking().IgnoreQueryFilters()
+            .Where(e => e.FingerprintId != null && e.FingerprintId != "")
+            .Select(e => e.FingerprintId!)
+            .ToListAsync();
+        var existingFingerprintSet = new HashSet<string>(
+            existingFingerprintIds.Select(f => f.Trim()).Where(f => f.Length > 0),
+            StringComparer.OrdinalIgnoreCase);
+        var fingerprintsSeenInFile = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var managerLookup = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         foreach (var e in existingEmployees)
         {
@@ -438,6 +455,18 @@ public partial class BulkUploadController : ControllerBase
                 emailsSeenInFile.Add(resolvedEmail);
             }
 
+            var fingerprintIdRaw = Cell(row, "Fingerprint ID");
+            var fingerprintId = string.IsNullOrWhiteSpace(fingerprintIdRaw) ? null : fingerprintIdRaw.Trim();
+            if (fingerprintId != null)
+            {
+                if (fingerprintId.Length > MaxEmployeeCodeLength)
+                    errors.Add($"Fingerprint ID must be at most {MaxEmployeeCodeLength} characters (this row has {fingerprintId.Length}).");
+                else if (fingerprintsSeenInFile.Contains(fingerprintId))
+                    errors.Add($"Duplicate Fingerprint ID in this file: '{fingerprintId}' appears on more than one row.");
+                else if (existingFingerprintSet.Contains(fingerprintId))
+                    errors.Add($"Fingerprint ID '{fingerprintId}' is already assigned to another employee.");
+            }
+
             ValidateEmployeeImportFieldLengths(
                 errors,
                 empCode,
@@ -469,6 +498,12 @@ public partial class BulkUploadController : ControllerBase
                 continue;
             }
 
+            if (fingerprintId != null)
+            {
+                fingerprintsSeenInFile.Add(fingerprintId);
+                existingFingerprintSet.Add(fingerprintId);
+            }
+
             var employee = new Employee
             {
                 EmployeeCode = empCode!,
@@ -496,6 +531,7 @@ public partial class BulkUploadController : ControllerBase
                 Ethnicity = Cell(row, "Ethnicity"),
                 NationalId = Cell(row, "National ID"),
                 OtherId = Cell(row, "Other ID"),
+                FingerprintId = fingerprintId,
                 TinNumber = Cell(row, "TIN Number"),
                 EpfNumber = Cell(row, "EPF Number"),
                 EtfNumber = Cell(row, "ETF Number"),
@@ -761,6 +797,12 @@ public partial class BulkUploadController : ControllerBase
                     return ["Email is already used by another employee (including archived records)."];
                 }
 
+                if (detail.Contains("IX_Employees_FingerprintId", StringComparison.OrdinalIgnoreCase)
+                    || detail.Contains("FingerprintId", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["Fingerprint ID is already assigned to another employee."];
+                }
+
                 return ["Duplicate value conflicts with existing data."];
             }
         }
@@ -1011,6 +1053,7 @@ public partial class BulkUploadController : ControllerBase
         "Ethnicity",
         "National ID",
         "Other ID",
+        "Fingerprint ID",
         "TIN Number",
         "EPF Number",
         "ETF Number",

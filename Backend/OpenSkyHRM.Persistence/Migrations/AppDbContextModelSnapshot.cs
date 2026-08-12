@@ -17,7 +17,7 @@ namespace OpenSkyHRM.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.29")
+                .HasAnnotation("ProductVersion", "8.0.30")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -621,70 +621,6 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.ToTable("ApprovalWorkflows");
                 });
 
-            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendanceRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("AttendancePlaceId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("Date")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<Guid>("EmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<decimal?>("Latitude")
-                        .HasColumnType("numeric");
-
-                    b.Property<decimal?>("Longitude")
-                        .HasColumnType("numeric");
-
-                    b.Property<DateTime?>("PunchIn")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<DateTime?>("PunchOut")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<string>("Remarks")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Source")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<decimal?>("WorkedHours")
-                        .HasColumnType("numeric");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AttendancePlaceId");
-
-                    b.HasIndex("EmployeeId");
-
-                    b.ToTable("AttendanceRecords");
-                });
-
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendancePlace", b =>
                 {
                     b.Property<Guid>("Id")
@@ -759,6 +695,70 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasFilter("\"LocationId\" IS NOT NULL AND NOT \"IsDeleted\"");
 
                     b.ToTable("AttendancePlaces", (string)null);
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendanceRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AttendancePlaceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Latitude")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal?>("Longitude")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime?>("PunchIn")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime?>("PunchOut")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<decimal?>("WorkedHours")
+                        .HasColumnType("numeric");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AttendancePlaceId");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.ToTable("AttendanceRecords");
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AuditLog", b =>
@@ -1852,7 +1852,6 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("character varying(80)");
 
                     b.Property<string>("Email")
-                        .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
@@ -1876,6 +1875,10 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<string>("Ethnicity")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FingerprintId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("FirstName")
                         .IsRequired()
@@ -2059,6 +2062,10 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.HasIndex("EmployeeCode")
                         .IsUnique();
 
+                    b.HasIndex("FingerprintId")
+                        .IsUnique()
+                        .HasFilter("\"FingerprintId\" IS NOT NULL AND \"FingerprintId\" <> ''");
+
                     b.HasIndex("GradeId");
 
                     b.HasIndex("JobTitleId");
@@ -2233,8 +2240,7 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("EmployeeId")
-                        .IsUnique();
+                    b.HasIndex("EmployeeId");
 
                     b.ToTable("EmployeeBenefits", (string)null);
                 });
@@ -2346,6 +2352,55 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.HasIndex("EmployeeId");
 
                     b.ToTable("EmployeeCompensations", (string)null);
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeDriverLicense", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("IssueDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("IssuingCountry")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LicenseType")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("Number")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.ToTable("EmployeeDriverLicenses", (string)null);
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeLanguage", b =>
@@ -3929,6 +3984,12 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<string>("LetterHtml")
                         .HasColumnType("text");
 
+                    b.Property<string>("NegotiationMessage")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("NegotiationRequestedAt")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<DateTime>("OfferDate")
                         .HasColumnType("timestamp without time zone");
 
@@ -3947,8 +4008,14 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<string>("Remarks")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("ResponseToken")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("SalaryOffered")
                         .HasColumnType("numeric");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
@@ -5008,6 +5075,9 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<int>("Vacancies")
                         .HasColumnType("integer");
+
+                    b.Property<string>("WorkLocation")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -6212,6 +6282,23 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Navigation("Section");
                 });
 
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendancePlace", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.BusinessUnit", "BusinessUnit")
+                        .WithMany("AttendancePlaces")
+                        .HasForeignKey("BusinessUnitId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("OpenSkyHRM.Domain.Entities.Location", "Location")
+                        .WithMany("AttendancePlaces")
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("BusinessUnit");
+
+                    b.Navigation("Location");
+                });
+
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendanceRecord", b =>
                 {
                     b.HasOne("OpenSkyHRM.Domain.Entities.AttendancePlace", "AttendancePlace")
@@ -6228,23 +6315,6 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Navigation("AttendancePlace");
 
                     b.Navigation("Employee");
-                });
-
-            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.AttendancePlace", b =>
-                {
-                    b.HasOne("OpenSkyHRM.Domain.Entities.BusinessUnit", "BusinessUnit")
-                        .WithMany("AttendancePlaces")
-                        .HasForeignKey("BusinessUnitId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("OpenSkyHRM.Domain.Entities.Location", "Location")
-                        .WithMany("AttendancePlaces")
-                        .HasForeignKey("LocationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("BusinessUnit");
-
-                    b.Navigation("Location");
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.BankAccount", b =>
@@ -6456,8 +6526,8 @@ namespace OpenSkyHRM.Persistence.Migrations
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeBenefit", b =>
                 {
                     b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "Employee")
-                        .WithOne("Benefit")
-                        .HasForeignKey("OpenSkyHRM.Domain.Entities.EmployeeBenefit", "EmployeeId")
+                        .WithMany("Benefits")
+                        .HasForeignKey("EmployeeId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -6504,6 +6574,17 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Navigation("Batch");
 
                     b.Navigation("Component");
+
+                    b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeDriverLicense", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "Employee")
+                        .WithMany("DriverLicenses")
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Employee");
                 });
@@ -7407,11 +7488,13 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Navigation("BankAccounts");
 
-                    b.Navigation("Benefit");
+                    b.Navigation("Benefits");
 
                     b.Navigation("Dependents");
 
                     b.Navigation("DirectReports");
+
+                    b.Navigation("DriverLicenses");
 
                     b.Navigation("Educations");
 

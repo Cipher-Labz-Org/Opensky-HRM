@@ -76,6 +76,7 @@ interface EmployeeDetail {
   religion: string | null;
   ethnicity: string | null;
   otherId: string | null;
+  fingerprintId: string | null;
   nationalId: string | null;
   tinNumber: string | null;
   epfNumber: string | null;
@@ -482,6 +483,7 @@ function buildEmployeePutPayload(
     religion: emp.religion,
     ethnicity: emp.ethnicity,
     otherId: emp.otherId,
+    fingerprintId: emp.fingerprintId,
     nationalId: emp.nationalId,
     tinNumber: emp.tinNumber,
     epfNumber: overrides.epfNumber !== undefined ? overrides.epfNumber : emp.epfNumber,
@@ -545,7 +547,7 @@ function buildEmployeePutPayloadFromForm(emp: EmployeeDetail, fd: FormData) {
     "homeTelephone", "workTelephone", "otherEmail", "permanentStreet1", "permanentStreet2",
     "permanentCity", "permanentCountry", "permanentStateProvince", "permanentZipPostalCode",
     "permanentDistrict", "permanentPollingDivision", "permanentDistanceToOffice",
-    "maritalStatus", "nationality", "religion", "ethnicity", "otherId", "nationalId", "tinNumber",
+    "maritalStatus", "nationality", "religion", "ethnicity", "otherId", "fingerprintId", "nationalId", "tinNumber",
     "driversLicenseNumber", "driversLicenseType", "licenseIssueDate", "licenseExpiryDate",
     "driversLicenseIssuingCountry", "probationEndDate", "dateOfPermanency",
     "terminationDate", "terminationReason", "terminationNote",
@@ -3934,6 +3936,7 @@ export default function EmployeeDetailPage() {
                         <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-slate-600"><SectionIcon path="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" color="bg-blue-500" />Basic Info</h4>
                         <InfoRow label="Full Name" value={emp.fullName} />
                         <InfoRow label="Employee Id" value={emp.employeeCode} />
+                        <InfoRow label="Fingerprint ID" value={emp.fingerprintId ?? "—"} />
                         <InfoRow label="Birthday" value={fmtBirthday(emp.dateOfBirth)} />
                       </div>
                       <div className="border-t border-slate-100 pt-3">
@@ -4213,6 +4216,7 @@ export default function EmployeeDetailPage() {
             <div className="p-6 sm:p-8">
               <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
                 <div><label className={labelClass}>Employee Id</label><input className={inputDisabledClass} value={emp.employeeCode} disabled aria-readonly="true" tabIndex={-1} /></div>
+                <div><label className={labelClass}>Fingerprint ID</label><input name="fingerprintId" className={inputClass} defaultValue={emp.fingerprintId ?? ""} placeholder="Device PIN when different from employee id" maxLength={50} /></div>
                 <div><label className={labelClass}>Other Id</label><input name="otherId" className={inputClass} defaultValue={emp.otherId ?? ""} /></div>
                 <div><label className={labelClass}>NIC Number</label><NicInput name="nationalId" className={inputClass} defaultValue={emp.nationalId ?? ""} forceShowError={showIdValidationErrors} /></div>
                 <div><label className={labelClass}>TIN Number</label><TinInput name="tinNumber" className={inputClass} defaultValue={emp.tinNumber ?? ""} forceShowError={showIdValidationErrors} /></div>
@@ -4758,6 +4762,7 @@ export default function EmployeeDetailPage() {
               <input type="hidden" name="religion" value={emp.religion ?? ""} />
               <input type="hidden" name="ethnicity" value={emp.ethnicity ?? ""} />
               <input type="hidden" name="otherId" value={emp.otherId ?? ""} />
+              <input type="hidden" name="fingerprintId" value={emp.fingerprintId ?? ""} />
               <input type="hidden" name="nationalId" value={emp.nationalId ?? ""} />
               <input type="hidden" name="tinNumber" value={emp.tinNumber ?? ""} />
               <input type="hidden" name="epfNumber" value={emp.epfNumber ?? ""} />

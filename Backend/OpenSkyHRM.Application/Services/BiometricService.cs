@@ -407,7 +407,7 @@ public class BiometricService : IBiometricService
         DateTime rangeEndExclusive,
         CancellationToken cancellationToken)
     {
-        var aliases = BiometricEmployeeResolver.GetAliases(employee.EmployeeCode);
+        var aliases = BiometricEmployeeResolver.GetMatchAliases(employee);
         var rows = await _db.BiometricPunchEvents
             .Where(p => p.PunchAtUtc >= rangeStart && p.PunchAtUtc < rangeEndExclusive)
             .OrderBy(p => p.PunchAtUtc)
@@ -424,7 +424,7 @@ public class BiometricService : IBiometricService
         DateTime rangeEndInclusive,
         CancellationToken cancellationToken)
     {
-        var aliases = BiometricEmployeeResolver.GetAliases(employee.EmployeeCode);
+        var aliases = BiometricEmployeeResolver.GetMatchAliases(employee);
         var rows = await _db.BiometricPunchEvents
             .Where(p => p.PunchAtUtc >= rangeStart && p.PunchAtUtc <= rangeEndInclusive)
             .OrderBy(p => p.PunchAtUtc)

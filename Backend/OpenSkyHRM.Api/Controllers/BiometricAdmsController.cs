@@ -80,7 +80,7 @@ public class BiometricAdmsController : ControllerBase
             recommendedWebhookUrl = recommended,
             alternateFrontendWebhookUrl = frontendWebhook,
             webhookPath = "/api/biometric/adms/logs",
-            deviceUserIds = "Must match Employee Code in OpenSky HRM (numeric PINs like 123 match EMP-0000123)",
+            deviceUserIds = "Must match employee Fingerprint ID when set, otherwise Employee Code (numeric PINs like 123 match EMP-0000123)",
             deviceSerials = "ADMS must send SN query param or DeviceID in JSON (e.g. NYU7253000136)",
             productionNote = "For *.openskyhrm.com tenants, prefer https://{tenant}backend.openskyhrm.com/api/biometric/adms/logs",
             localDevSteps = new[]
