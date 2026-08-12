@@ -66,20 +66,29 @@ public class BiometricAdmsController : ControllerBase
     [HttpGet("setup")]
     public IActionResult Setup()
     {
+        var recommended = AdmsWebhookUrlHelper.RecommendWebhookUrl(Request.Host.Host, Request.Scheme);
+        string? frontendWebhook = null;
+        var host = Request.Host.Host.ToLowerInvariant();
+        if (host.EndsWith("backend.openskyhrm.com"))
+        {
+            var slug = host[..host.IndexOf("backend.", StringComparison.Ordinal)];
+            frontendWebhook = $"{Request.Scheme}://{slug}.openskyhrm.com/api/biometric/adms/logs";
+        }
+
         return Ok(new
         {
-            problem = "app.adms.lk cannot call localhost on your PC",
-            webhookUrlForAdmsCloud = "https://YOUR-PUBLIC-URL/api/biometric/adms/logs",
-            doNotUse = new[] { "http://localhost:5000/...", ".../health" },
-            steps = new[]
+            recommendedWebhookUrl = recommended,
+            alternateFrontendWebhookUrl = frontendWebhook,
+            webhookPath = "/api/biometric/adms/logs",
+            deviceUserIds = "Must match Employee Code in OpenSky HRM (numeric PINs like 123 match EMP-0000123)",
+            deviceSerials = "ADMS must send SN query param or DeviceID in JSON (e.g. NYU7253000136)",
+            productionNote = "For *.openskyhrm.com tenants, prefer https://{tenant}backend.openskyhrm.com/api/biometric/adms/logs",
+            localDevSteps = new[]
             {
                 "Run: npx localtunnel --port 5000  (or ngrok http 5000)",
-                "Copy the https URL shown",
                 "In app.adms.lk → Webhook URL paste: https://xxxx/api/biometric/adms/logs",
-                "Save, then punch on device",
-                "Check Time & Attendance → Devices (webhook count should increase)",
+                "Save, punch on device, then Time & Attendance → Devices → Reprocess 30 days",
             },
-            deviceUserIdMustMatch = "Employee Code in OpenSky HRM",
             lanDeviceUrl = "http://YOUR-PC-WIFI-IP:5000/iclock/cdata",
         });
     }
@@ -107,11 +116,19 @@ public class BiometricAdmsController : ControllerBase
     }
 
     [Authorize]
+    [HttpGet("status")]
+    public async Task<IActionResult> GetPipelineStatus(CancellationToken cancellationToken)
+    {
+        var recommended = AdmsWebhookUrlHelper.RecommendWebhookUrl(Request.Host.Host, Request.Scheme);
+        return Ok(await _biometricService.GetAdmsPipelineStatusAsync(recommended, cancellationToken));
+    }
+
+    [Authorize]
     [HttpPost("replay-failed")]
     public async Task<IActionResult> ReplayFailed(CancellationToken cancellationToken)
     {
         var replayed = await _ingest.ReplayFailedRawEventsAsync(cancellationToken);
-        var result = await _biometricService.ProcessAdmsPunchesToAttendanceAsync(cancellationToken);
+        var result = await _biometricService.ProcessAllPendingAdmsPunchesAsync(maxBatches: 100, cancellationToken);
         return Ok(new { replayedRawEvents = replayed, processResult = result });
     }
 
@@ -119,7 +136,15 @@ public class BiometricAdmsController : ControllerBase
     [HttpPost("process-pending")]
     public async Task<IActionResult> ProcessPending(CancellationToken cancellationToken)
     {
-        var result = await _biometricService.ProcessAdmsPunchesToAttendanceAsync(cancellationToken);
+        var result = await _biometricService.ProcessAllPendingAdmsPunchesAsync(maxBatches: 100, cancellationToken);
+        return Ok(result);
+    }
+
+    [Authorize]
+    [HttpPost("drain-pending")]
+    public async Task<IActionResult> DrainPending(CancellationToken cancellationToken)
+    {
+        var result = await _biometricService.ProcessAllPendingAdmsPunchesAsync(maxBatches: 200, cancellationToken);
         return Ok(result);
     }
 
@@ -140,7 +165,7 @@ public class BiometricAdmsController : ControllerBase
         await _db.BiometricPunchEvents
             .Where(x => x.PunchAtUtc >= since)
             .ExecuteUpdateAsync(s => s.SetProperty(p => p.ProcessedToAttendance, false), cancellationToken);
-        var result = await _biometricService.ProcessAdmsPunchesToAttendanceAsync(cancellationToken);
+        var result = await _biometricService.ProcessAllPendingAdmsPunchesAsync(maxBatches: 200, cancellationToken);
         return Ok(result);
     }
 

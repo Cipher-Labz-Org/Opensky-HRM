@@ -90,7 +90,7 @@ public class BiometricAdmsIngestService
                     {
                         DeviceId = device.Id,
                         RawEventId = rawEvent.Id,
-                        DeviceUserId = item.UserId,
+                        DeviceUserId = item.UserId.Trim(),
                         PunchAtUtc = item.PunchAtUtc,
                         PunchState = item.PunchState,
                         VerifyMode = item.VerifyMode,
@@ -105,7 +105,7 @@ public class BiometricAdmsIngestService
             }
 
             await _db.SaveChangesAsync(cancellationToken);
-            await _biometricService.ProcessAdmsPunchesToAttendanceAsync(cancellationToken);
+            await _biometricService.ProcessAllPendingAdmsPunchesAsync(maxBatches: 20, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -326,7 +326,7 @@ public class BiometricAdmsIngestService
                 {
                     DeviceId = device.Id,
                     RawEventId = raw.Id,
-                    DeviceUserId = item.UserId,
+                    DeviceUserId = item.UserId.Trim(),
                     PunchAtUtc = item.PunchAtUtc,
                     PunchState = item.PunchState,
                     VerifyMode = item.VerifyMode,
@@ -342,7 +342,7 @@ public class BiometricAdmsIngestService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        await _biometricService.ProcessAdmsPunchesToAttendanceAsync(cancellationToken);
+        await _biometricService.ProcessAllPendingAdmsPunchesAsync(maxBatches: 20, cancellationToken);
         return replayed;
     }
 

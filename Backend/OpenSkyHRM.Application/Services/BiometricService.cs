@@ -183,35 +183,43 @@ public class BiometricService : IBiometricService
 
     public async Task<AdmsProcessResultDto> ProcessAdmsPunchesToAttendanceAsync(CancellationToken cancellationToken = default)
     {
+        var allEmployees = await _db.Employees
+            .Include(e => e.ShiftPattern)
+            .Where(e => !e.IsDeleted)
+            .ToListAsync(cancellationToken);
+
+        var lookup = BiometricEmployeeResolver.BuildLookup(allEmployees);
+
         var pending = await _db.BiometricPunchEvents
             .Where(x => !x.ProcessedToAttendance)
             .OrderBy(x => x.PunchAtUtc)
-            .Take(500)
+            .Take(3000)
             .ToListAsync(cancellationToken);
 
         if (pending.Count == 0)
             return new AdmsProcessResultDto();
 
-        var userIds = pending.Select(p => p.DeviceUserId).Distinct().ToList();
-        var employees = await _db.Employees
-            .Include(e => e.ShiftPattern)
-            .Where(e => userIds.Contains(e.EmployeeCode))
-            .ToDictionaryAsync(e => e.EmployeeCode, e => e, cancellationToken);
+        // Prioritize punches that map to an employee so unmapped backlog cannot block attendance creation.
+        var mappable = pending
+            .Where(p => BiometricEmployeeResolver.TryResolve(lookup, p.DeviceUserId, out _))
+            .Take(500)
+            .ToList();
+        var batch = mappable.Count > 0 ? mappable : pending.Take(50).ToList();
 
         var processed = 0;
         var skipped = 0;
         var failed = 0;
 
-        var dayKeys = pending
+        var dayKeys = batch
             .Select(p => new { p.DeviceUserId, Day = p.PunchAtUtc.Date })
             .Distinct()
             .ToList();
 
         foreach (var key in dayKeys)
         {
-            if (!employees.TryGetValue(key.DeviceUserId, out var employee))
+            if (!BiometricEmployeeResolver.TryResolve(lookup, key.DeviceUserId, out var employee))
             {
-                skipped += pending.Count(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day);
+                skipped += batch.Count(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day);
                 continue;
             }
 
@@ -219,7 +227,7 @@ public class BiometricService : IBiometricService
             {
                 await RebuildAttendanceForEmployeeDayAsync(employee, key.Day, cancellationToken);
 
-                var dayPunches = pending.Where(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day).ToList();
+                var dayPunches = batch.Where(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day).ToList();
                 foreach (var punch in dayPunches)
                 {
                     punch.ProcessedToAttendance = true;
@@ -228,7 +236,7 @@ public class BiometricService : IBiometricService
             }
             catch
             {
-                failed += pending.Count(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day);
+                failed += batch.Count(p => p.DeviceUserId == key.DeviceUserId && p.PunchAtUtc.Date == key.Day);
             }
         }
 
@@ -241,6 +249,185 @@ public class BiometricService : IBiometricService
             SkippedUnmapped = skipped,
             Failed = failed,
         };
+    }
+
+    public async Task<AdmsProcessResultDto> ProcessAllPendingAdmsPunchesAsync(int maxBatches = 50, CancellationToken cancellationToken = default)
+    {
+        var total = new AdmsProcessResultDto();
+        for (var i = 0; i < Math.Max(1, maxBatches); i++)
+        {
+            var batch = await ProcessAdmsPunchesToAttendanceAsync(cancellationToken);
+            total.Processed += batch.Processed;
+            total.SkippedUnmapped += batch.SkippedUnmapped;
+            total.Failed += batch.Failed;
+            if (batch.Processed == 0 && batch.Failed == 0)
+                break;
+        }
+
+        return total;
+    }
+
+    public async Task<AdmsPipelineStatusDto> GetAdmsPipelineStatusAsync(string? recommendedWebhookUrl = null, CancellationToken cancellationToken = default)
+    {
+        var since = DateTime.UtcNow.Date.AddDays(-30);
+
+        var devices = await _db.BiometricDevices
+            .AsNoTracking()
+            .Where(d => !d.IsDeleted)
+            .Select(d => d.LastSyncAt)
+            .ToListAsync(cancellationToken);
+
+        var latestRaw = await _db.BiometricRawEvents
+            .AsNoTracking()
+            .OrderByDescending(x => x.ReceivedAtUtc)
+            .Select(x => new { x.ReceivedAtUtc, x.ParseStatus })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var rawSince = await _db.BiometricRawEvents
+            .AsNoTracking()
+            .Where(x => x.ReceivedAtUtc >= since)
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Count = g.Count(),
+                Failures = g.Count(x => x.ParseStatus != "Parsed"),
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var latestPunch = await _db.BiometricPunchEvents
+            .AsNoTracking()
+            .OrderByDescending(x => x.PunchAtUtc)
+            .Select(x => x.PunchAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var unprocessed = await _db.BiometricPunchEvents
+            .AsNoTracking()
+            .CountAsync(x => !x.ProcessedToAttendance, cancellationToken);
+
+        var punchesSince = await _db.BiometricPunchEvents
+            .AsNoTracking()
+            .CountAsync(x => x.PunchAtUtc >= since, cancellationToken);
+
+        var latestAttendance = await _db.AttendanceRecords
+            .AsNoTracking()
+            .Where(a => a.Source == "Biometric" && !a.IsDeleted)
+            .OrderByDescending(a => a.Date)
+            .Select(a => a.Date)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var attendanceSince = await _db.AttendanceRecords
+            .AsNoTracking()
+            .CountAsync(a => a.Source == "Biometric" && !a.IsDeleted && a.Date >= since, cancellationToken);
+
+        var employeeCodes = await _db.Employees
+            .AsNoTracking()
+            .Where(e => !e.IsDeleted)
+            .Select(e => e.EmployeeCode)
+            .ToListAsync(cancellationToken);
+        var lookup = BiometricEmployeeResolver.BuildLookup(
+            employeeCodes.Select(c => new Employee { EmployeeCode = c }).ToList());
+
+        var unmappedIds = await _db.BiometricPunchEvents
+            .AsNoTracking()
+            .Where(x => !x.ProcessedToAttendance)
+            .Select(x => x.DeviceUserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var sampleUnmapped = unmappedIds
+            .Where(id => !BiometricEmployeeResolver.TryResolve(lookup, id, out _))
+            .Take(8)
+            .ToList();
+        var unmappedCount = unmappedIds.Count(id => !BiometricEmployeeResolver.TryResolve(lookup, id, out _));
+
+        var status = new AdmsPipelineStatusDto
+        {
+            DeviceCount = devices.Count,
+            LatestDeviceSyncAt = devices.Where(d => d.HasValue).OrderByDescending(d => d).FirstOrDefault(),
+            LatestRawEventAt = latestRaw?.ReceivedAtUtc,
+            LatestRawParseStatus = latestRaw?.ParseStatus,
+            RawEventsSinceAug4 = rawSince?.Count ?? 0,
+            RawParseFailuresSinceAug4 = rawSince?.Failures ?? 0,
+            LatestPunchAt = latestPunch == default ? null : latestPunch,
+            UnprocessedPunchCount = unprocessed,
+            PunchesSinceAug4 = punchesSince,
+            LatestBiometricAttendanceDate = latestAttendance == default ? null : latestAttendance,
+            BiometricAttendanceSinceAug4 = attendanceSince,
+            UnmappedPunchCount = unmappedCount,
+            SampleUnmappedDeviceUserIds = sampleUnmapped,
+            RecommendedWebhookUrl = recommendedWebhookUrl,
+        };
+
+        if (status.RawEventsSinceAug4 == 0 && status.PunchesSinceAug4 == 0)
+        {
+            status.BreakPoint = "ingestion";
+            status.Summary = "No ADMS webhook data received recently. In app.adms.lk set Webhook URL to your API host + /api/biometric/adms/logs (prefer the *backend.openskyhrm.com URL for production tenants).";
+        }
+        else if (status.RawParseFailuresSinceAug4 > 0 && status.PunchesSinceAug4 == 0)
+        {
+            status.BreakPoint = "parse";
+            status.Summary = "Webhook payloads arrived but parsing failed. Check device serial numbers (SN) and recent raw event errors.";
+        }
+        else if (status.UnmappedPunchCount > 0 && status.UnprocessedPunchCount > 0)
+        {
+            status.BreakPoint = "mapping";
+            status.Summary = $"{status.UnmappedPunchCount} punch(es) use device user IDs that do not match any Employee Code. Fix PINs in ADMS or employee codes in People Hub, then Reprocess.";
+        }
+        else if (status.UnprocessedPunchCount > 0)
+        {
+            status.BreakPoint = "processing";
+            status.Summary = $"{status.UnprocessedPunchCount} punch(es) waiting to be converted to attendance. Click Process pending or Reprocess.";
+        }
+        else if (status.PunchesSinceAug4 > 0 && status.BiometricAttendanceSinceAug4 == 0)
+        {
+            status.BreakPoint = "mapping";
+            status.Summary = "Punches were processed but no biometric attendance rows exist. Device user IDs must match Employee Code.";
+        }
+        else if (status.BiometricAttendanceSinceAug4 > 0)
+        {
+            status.BreakPoint = "healthy";
+            status.Summary = "Pipeline is receiving and processing biometric attendance.";
+        }
+        else
+        {
+            status.BreakPoint = "empty";
+            status.Summary = "No biometric pipeline activity recorded yet.";
+        }
+
+        return status;
+    }
+
+    private async Task<List<BiometricPunchEvent>> LoadEmployeePunchesInRangeAsync(
+        Employee employee,
+        DateTime rangeStart,
+        DateTime rangeEndExclusive,
+        CancellationToken cancellationToken)
+    {
+        var aliases = BiometricEmployeeResolver.GetAliases(employee.EmployeeCode);
+        var rows = await _db.BiometricPunchEvents
+            .Where(p => p.PunchAtUtc >= rangeStart && p.PunchAtUtc < rangeEndExclusive)
+            .OrderBy(p => p.PunchAtUtc)
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Where(p => aliases.Any(a => string.Equals(a, p.DeviceUserId, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    private async Task<List<BiometricPunchEvent>> LoadEmployeePunchesInclusiveAsync(
+        Employee employee,
+        DateTime rangeStart,
+        DateTime rangeEndInclusive,
+        CancellationToken cancellationToken)
+    {
+        var aliases = BiometricEmployeeResolver.GetAliases(employee.EmployeeCode);
+        var rows = await _db.BiometricPunchEvents
+            .Where(p => p.PunchAtUtc >= rangeStart && p.PunchAtUtc <= rangeEndInclusive)
+            .OrderBy(p => p.PunchAtUtc)
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Where(p => aliases.Any(a => string.Equals(a, p.DeviceUserId, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
     }
 
     private async Task RebuildAttendanceForEmployeeDayAsync(
@@ -283,12 +470,8 @@ public class BiometricService : IBiometricService
         List<RosterAssignment> rosters,
         CancellationToken cancellationToken)
     {
-        var punches = await _db.BiometricPunchEvents
-            .Where(p => p.DeviceUserId == employee.EmployeeCode
-                        && p.PunchAtUtc >= window.WindowStart
-                        && p.PunchAtUtc <= window.WindowEnd)
-            .OrderBy(p => p.PunchAtUtc)
-            .ToListAsync(cancellationToken);
+        var punches = await LoadEmployeePunchesInclusiveAsync(
+            employee, window.WindowStart, window.WindowEnd, cancellationToken);
 
         var punchTimes = punches.Select(p => p.PunchAtUtc).ToList();
         var aggregation = ShiftAttendanceCalculator.AggregateOvernightSplitPunches(window, punchTimes);
@@ -342,10 +525,7 @@ public class BiometricService : IBiometricService
         var dayStart = calendarDate.Date;
         var dayEnd = dayStart.AddDays(1);
 
-        var punches = await _db.BiometricPunchEvents
-            .Where(p => p.DeviceUserId == employee.EmployeeCode && p.PunchAtUtc >= dayStart && p.PunchAtUtc < dayEnd)
-            .OrderBy(p => p.PunchAtUtc)
-            .ToListAsync(cancellationToken);
+        var punches = await LoadEmployeePunchesInRangeAsync(employee, dayStart, dayEnd, cancellationToken);
 
         var spillCutoff = previousWindow?.Session2End;
         var nextShiftStart = previousWindow != null
@@ -418,11 +598,8 @@ public class BiometricService : IBiometricService
 
         var dayStart = calendarDate.Date;
         var dayEnd = dayStart.AddDays(1);
-        var punches = await _db.BiometricPunchEvents
-            .Where(p => p.DeviceUserId == employee.EmployeeCode && p.PunchAtUtc >= dayStart && p.PunchAtUtc < dayEnd)
-            .OrderBy(p => p.PunchAtUtc)
-            .Select(p => p.PunchAtUtc)
-            .ToListAsync(cancellationToken);
+        var punchRows = await LoadEmployeePunchesInRangeAsync(employee, dayStart, dayEnd, cancellationToken);
+        var punches = punchRows.Select(p => p.PunchAtUtc).ToList();
 
         var record = await _db.AttendanceRecords
             .Where(a => a.EmployeeId == employee.Id && a.Date == dayStart && !a.IsDeleted)
