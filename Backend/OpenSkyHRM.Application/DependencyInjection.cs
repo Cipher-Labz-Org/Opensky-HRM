@@ -89,6 +89,7 @@ public static class DependencyInjection
         services.AddScoped<AttendanceReconciliationJob>();
         services.AddScoped<BiometricAdmsProcessorJob>();
         services.AddScoped<LeaveAccrualJob>();
+        services.AddScoped<LeaveEntitlementRecalculateJob>();
         services.AddScoped<PayrollBatchExportJob>();
         services.AddScoped<ReportGenerationJob>();
         services.AddScoped<AnalyticsSnapshotRefreshJob>();

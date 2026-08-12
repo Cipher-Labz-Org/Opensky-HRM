@@ -514,6 +514,10 @@ if (dbAvailable)
             job => job.ExecuteAsync(CancellationToken.None),
             "*/2 * * * *");
 
+        // Drain any punch backlog left from downtime (e.g. after Aug 4 gap).
+        BackgroundJob.Enqueue<OpenSkyHRM.Application.Jobs.BiometricAdmsProcessorJob>(
+            job => job.ExecuteAsync(CancellationToken.None));
+
         RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.AttendanceReconciliationJob>(
             "attendance-reconciliation",
             job => job.ExecuteAsync(),
@@ -521,6 +525,11 @@ if (dbAvailable)
 
         RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.LeaveAccrualJob>(
             "leave-accrual",
+            job => job.ExecuteAsync(),
+            Hangfire.Cron.Daily(1, 0));
+
+        RecurringJob.AddOrUpdate<OpenSkyHRM.Application.Jobs.LeaveEntitlementRecalculateJob>(
+            "leave-entitlement-recalculate",
             job => job.ExecuteAsync(),
             Hangfire.Cron.Daily(1, 0));
 

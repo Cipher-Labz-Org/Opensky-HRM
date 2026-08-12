@@ -16,7 +16,7 @@ public class BiometricAdmsProcessorJob
 
     public async Task ExecuteAsync(CancellationToken cancellationToken = default)
     {
-        var result = await _biometricService.ProcessAdmsPunchesToAttendanceAsync(cancellationToken);
+        var result = await _biometricService.ProcessAllPendingAdmsPunchesAsync(maxBatches: 100, cancellationToken);
         if (result.Processed > 0 || result.SkippedUnmapped > 0 || result.Failed > 0)
         {
             _logger.LogInformation(

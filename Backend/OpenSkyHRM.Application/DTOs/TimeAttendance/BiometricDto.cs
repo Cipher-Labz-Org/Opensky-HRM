@@ -56,3 +56,25 @@ public class AdmsProcessResultDto
     public int SkippedUnmapped { get; set; }
     public int Failed { get; set; }
 }
+
+public class AdmsPipelineStatusDto
+{
+    public int DeviceCount { get; set; }
+    public DateTime? LatestDeviceSyncAt { get; set; }
+    public DateTime? LatestRawEventAt { get; set; }
+    public string? LatestRawParseStatus { get; set; }
+    public int RawEventsSinceAug4 { get; set; }
+    public int RawParseFailuresSinceAug4 { get; set; }
+    public DateTime? LatestPunchAt { get; set; }
+    public int UnprocessedPunchCount { get; set; }
+    public int PunchesSinceAug4 { get; set; }
+    public DateTime? LatestBiometricAttendanceDate { get; set; }
+    public int BiometricAttendanceSinceAug4 { get; set; }
+    public int UnmappedPunchCount { get; set; }
+    public IReadOnlyList<string> SampleUnmappedDeviceUserIds { get; set; } = Array.Empty<string>();
+    /// <summary>ingestion | parse | processing | mapping | healthy | empty</summary>
+    public string BreakPoint { get; set; } = "empty";
+    public string Summary { get; set; } = string.Empty;
+    public string WebhookPath { get; set; } = "/api/biometric/adms/logs";
+    public string? RecommendedWebhookUrl { get; set; }
+}

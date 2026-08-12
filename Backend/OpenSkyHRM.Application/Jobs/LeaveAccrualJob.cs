@@ -10,7 +10,7 @@ namespace OpenSkyHRM.Application.Jobs;
 /// <summary>
 /// Runs daily at 1:00 AM. On the 1st of each month, accrues leave for employees
 /// in their first calendar year who have legacy monthly-rate rules (no monthlyAccrualEveryYear flag).
-/// Shop &amp; Office casual/annual use entitlement recalculation instead.
+/// Shop &amp; Office casual/annual use <see cref="LeaveEntitlementRecalculateJob"/> instead.
 /// </summary>
 public class LeaveAccrualJob
 {
