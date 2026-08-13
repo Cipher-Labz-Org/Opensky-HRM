@@ -52,6 +52,10 @@ public class RosterController : ControllerBase
             var result = await _rosterService.CreateTemplateAsync(dto);
             return CreatedAtAction(nameof(GetTemplate), new { id = result.Id }, result);
         }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
@@ -66,6 +70,10 @@ public class RosterController : ControllerBase
         {
             var result = await _rosterService.UpdateTemplateAsync(id, dto);
             return result is null ? NotFound() : Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {

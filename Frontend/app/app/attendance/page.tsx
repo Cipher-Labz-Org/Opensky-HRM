@@ -2466,10 +2466,11 @@ function ShiftsTab() {
   );
 }
 
-// ──────────────────────────── Roster (templates + assignments) ────────────────────────────
+// ──────────────────────────── Roster (assignments) ────────────────────────────
 
 interface RosterTemplateItem {
   id: string;
+  code: string;
   name: string;
   description: string | null;
   defaultStartTime: string;
@@ -2480,55 +2481,147 @@ interface RosterTemplateItem {
   defaultShiftPatternName: string | null;
 }
 
+function getWorkHoursFromShift(s: ShiftItem): number {
+  const toMins = (t: string) => {
+    const parts = (t || "00:00").split(":").map(Number);
+    return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
+  };
+  const startM = toMins(s.startTime);
+  const endM = toMins(s.endTime);
+  let spanMins = endM - startM;
+  if (spanMins <= 0) spanMins += 24 * 60;
+  const spanHours = spanMins / 60 - (s.breakHours ?? 0);
+  return Math.max(0, Math.round(spanHours * 100) / 100);
+}
+
+function applyShiftToTemplateTimes(
+  shift: ShiftItem,
+): { start: string; end: string; hours: number } {
+  return {
+    start: timeSpanToInput(shift.startTime),
+    end: timeSpanToInput(shift.endTime),
+    hours: getWorkHoursFromShift(shift),
+  };
+}
+
+type RosterTemplateFieldsProps = {
+  shifts: ShiftItem[];
+  shiftId: string;
+  onShiftChange: (shiftId: string) => void;
+  start: string;
+  end: string;
+  hours: number;
+  onStartChange: (value: string) => void;
+  onEndChange: (value: string) => void;
+  onHoursChange: (value: number) => void;
+  readOnly?: boolean;
+};
+
+function RosterTemplateFields({
+  shifts,
+  shiftId,
+  onShiftChange,
+  start,
+  end,
+  hours,
+  onStartChange,
+  onEndChange,
+  onHoursChange,
+  readOnly = false,
+}: RosterTemplateFieldsProps) {
+  const timesFromShift = !!shiftId && !readOnly;
+  return (
+    <>
+      <div>
+        <label className={labelClass}>Default shift pattern</label>
+        <select
+          value={shiftId}
+          onChange={(e) => onShiftChange(e.target.value)}
+          disabled={readOnly}
+          className={inputClass}
+        >
+          <option value="">None</option>
+          {shifts.map((s) => (
+            <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
+          ))}
+        </select>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className={labelClass}>{shiftId && !readOnly ? "Default start" : "Default start *"}</label>
+          <TimePickerField
+            value={start}
+            onChange={onStartChange}
+            disabled={readOnly || timesFromShift}
+            placeholder="Select time"
+          />
+          {timesFromShift && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
+        </div>
+        <div>
+          <label className={labelClass}>{shiftId && !readOnly ? "Default end" : "Default end *"}</label>
+          <TimePickerField
+            value={end}
+            onChange={onEndChange}
+            disabled={readOnly || timesFromShift}
+            placeholder="Select time"
+          />
+          {timesFromShift && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
+        </div>
+      </div>
+      <div>
+        <label className={labelClass}>Work hours per day</label>
+        <input
+          type="number"
+          min={0}
+          step={0.25}
+          value={hours}
+          onChange={(e) => onHoursChange(Number(e.target.value) || 0)}
+          readOnly={readOnly || timesFromShift}
+          className={inputClass}
+        />
+      </div>
+    </>
+  );
+}
+
 interface RosterAssignmentItem {
   id: string;
   employeeId: string;
   employeeName: string;
   employeeCode: string | null;
   rosterTemplateId: string;
+  rosterTemplateCode: string;
   rosterTemplateName: string;
   effectiveFrom: string;
   effectiveTo: string | null;
   notes: string | null;
 }
 
-type RosterSubTab = "templates" | "assignments";
-
-const ROSTER_SUB_TABS: { key: RosterSubTab; label: string }[] = [
-  { key: "templates", label: "Templates" },
-  { key: "assignments", label: "Assignments" },
-];
-
 function RosterTab() {
-  const [rosterSubTab, setRosterSubTab] = useState<RosterSubTab>("templates");
-  const [templates, setTemplates] = useState<RosterTemplateItem[]>([]);
   const [assignments, setAssignments] = useState<RosterAssignmentItem[]>([]);
   const [shifts, setShifts] = useState<ShiftItem[]>([]);
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
-  const [includeInactiveTemplates, setIncludeInactiveTemplates] = useState(false);
   const [filterEmployeeId, setFilterEmployeeId] = useState<string>("");
   const [filterDeptId, setFilterDeptId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [tplModal, setTplModal] = useState(false);
-  const [editingTpl, setEditingTpl] = useState<RosterTemplateItem | null>(null);
   const [editingAssign, setEditingAssign] = useState<RosterAssignmentItem | null>(null);
   const [editAssignModal, setEditAssignModal] = useState(false);
   const [editAssignFrom, setEditAssignFrom] = useState("");
   const [editAssignTo, setEditAssignTo] = useState("");
-  const [savingTpl, setSavingTpl] = useState(false);
   const [savingAssign, setSavingAssign] = useState(false);
-
-  // Roster template form: when a shift is selected, times are taken from the shift (read-only)
-  const [tplShiftId, setTplShiftId] = useState("");
-  const [tplStart, setTplStart] = useState("09:00");
-  const [tplEnd, setTplEnd] = useState("17:00");
-  const [tplHours, setTplHours] = useState(8);
 
   // Bulk assign state
   const [bulkModal, setBulkModal] = useState(false);
   const [bulkStep, setBulkStep] = useState<1 | 2>(1);
-  const [bulkTemplateId, setBulkTemplateId] = useState("");
+  const [bulkTplCode, setBulkTplCode] = useState("");
+  const [bulkTplName, setBulkTplName] = useState("");
+  const [bulkTplDesc, setBulkTplDesc] = useState("");
+  const [bulkTplShiftId, setBulkTplShiftId] = useState("");
+  const [bulkTplStart, setBulkTplStart] = useState("09:00");
+  const [bulkTplEnd, setBulkTplEnd] = useState("17:00");
+  const [bulkTplHours, setBulkTplHours] = useState(8);
+  const [bulkTplActive, setBulkTplActive] = useState(true);
   const [bulkFrom, setBulkFrom] = useState("");
   const [bulkTo, setBulkTo] = useState("");
   const [bulkNotes, setBulkNotes] = useState("");
@@ -2551,13 +2644,6 @@ function RosterTab() {
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   })();
 
-  const loadTemplates = useCallback(() => {
-    setError(null);
-    apiFetch<RosterTemplateItem[]>(`/api/roster/templates?includeInactive=${includeInactiveTemplates}`)
-      .then(setTemplates)
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load roster templates"));
-  }, [includeInactiveTemplates]);
-
   const loadAssignments = useCallback(() => {
     setError(null);
     const params = new URLSearchParams();
@@ -2575,7 +2661,6 @@ function RosterTab() {
       .catch(() => setEmployees([]));
   }, []);
 
-  useEffect(() => { loadTemplates(); }, [loadTemplates]);
   useEffect(() => { loadAssignments(); }, [loadAssignments]);
   useEffect(() => { loadLookups(); }, [loadLookups]);
 
@@ -2585,128 +2670,28 @@ function RosterTab() {
     if (emp && emp.departmentId !== filterDeptId) setFilterEmployeeId("");
   }, [filterDeptId, filterEmployeeId, employees]);
 
-  function openTplAdd() {
-    setEditingTpl(null);
-    setError(null);
-    setTplShiftId("");
-    setTplStart("09:00");
-    setTplEnd("17:00");
-    setTplHours(8);
-    setTplModal(true);
-  }
-  function openTplEdit(t: RosterTemplateItem) {
-    setEditingTpl(t);
-    setError(null);
-    setTplShiftId(t.defaultShiftPatternId ?? "");
-    setTplStart(timeSpanToInput(t.defaultStartTime));
-    setTplEnd(timeSpanToInput(t.defaultEndTime));
-    setTplHours(t.workHoursPerDay);
-    setTplModal(true);
-  }
-
-  function getWorkHoursFromShift(s: ShiftItem): number {
-    const toMins = (t: string) => {
-      const parts = (t || "00:00").split(":").map(Number);
-      return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
-    };
-    const startM = toMins(s.startTime);
-    const endM = toMins(s.endTime);
-    const spanHours = Math.max(0, (endM - startM) / 60) - (s.breakHours ?? 0);
-    return Math.max(0, Math.round(spanHours * 100) / 100);
-  }
-
-  function handleTplShiftChange(shiftId: string) {
-    setTplShiftId(shiftId);
+  function handleBulkTplShiftChange(shiftId: string) {
+    setBulkTplShiftId(shiftId);
     if (shiftId) {
       const s = shifts.find((x) => x.id === shiftId);
       if (s) {
-        setTplStart(timeSpanToInput(s.startTime));
-        setTplEnd(timeSpanToInput(s.endTime));
-        setTplHours(getWorkHoursFromShift(s));
+        const times = applyShiftToTemplateTimes(s);
+        setBulkTplStart(times.start);
+        setBulkTplEnd(times.end);
+        setBulkTplHours(times.hours);
       }
     }
   }
 
-  async function submitTemplate(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSavingTpl(true);
-    setError(null);
-    if (!tplShiftId && (!tplStart?.trim() || !tplEnd?.trim())) {
-      setError("Default start and end are required when no shift pattern is selected.");
-      setSavingTpl(false);
-      return;
-    }
-    const fd = new FormData(e.currentTarget);
-    const payload = {
-      name: (fd.get("name") as string) || "",
-      description: (fd.get("description") as string) || null,
-      defaultStartTime: timeInputToSpan(tplStart || "09:00"),
-      defaultEndTime: timeInputToSpan(tplEnd || "17:00"),
-      workHoursPerDay: tplHours || 8,
-      isActive: fd.get("isActive") === "on",
-      defaultShiftPatternId: tplShiftId || null,
-    };
-    try {
-      if (editingTpl) {
-        await apiFetch(`/api/roster/templates/${editingTpl.id}`, { method: "PUT", body: JSON.stringify(payload) });
-      } else {
-        await apiFetch("/api/roster/templates", { method: "POST", body: JSON.stringify(payload) });
-      }
-      setTplModal(false);
-      loadTemplates();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save template failed");
-    } finally { setSavingTpl(false); }
-  }
-
-  async function deleteTemplate(t: RosterTemplateItem) {
-    if (!(await appConfirm(`Delete roster template "${t.name}"?`, {
-      title: "Delete roster template",
-      variant: "danger",
-      confirmLabel: "Delete template",
-    }))) return;
-
-    let deleteAssignments = false;
-    try {
-      const linked = await apiFetch<RosterAssignmentItem[]>(
-        `/api/roster/assignments?rosterTemplateId=${encodeURIComponent(t.id)}`,
-      );
-      const assignmentCount = linked.length;
-      if (assignmentCount > 0) {
-        deleteAssignments = await appConfirm(
-          `This template has ${assignmentCount} roster assignment${assignmentCount === 1 ? "" : "s"}. Also delete ${assignmentCount === 1 ? "it" : "them"}?`,
-          {
-            title: "Delete assignments?",
-            variant: "danger",
-            confirmLabel: "Delete assignments",
-            cancelLabel: "Keep assignments",
-          },
-        );
-      }
-    } catch {
-      // Fall back to client-side count if lookup fails.
-      const assignmentCount = assignments.filter((a) => a.rosterTemplateId === t.id).length;
-      if (assignmentCount > 0) {
-        deleteAssignments = await appConfirm(
-          `This template has ${assignmentCount} roster assignment${assignmentCount === 1 ? "" : "s"}. Also delete ${assignmentCount === 1 ? "it" : "them"}?`,
-          {
-            title: "Delete assignments?",
-            variant: "danger",
-            confirmLabel: "Delete assignments",
-            cancelLabel: "Keep assignments",
-          },
-        );
-      }
-    }
-
-    setError(null);
-    try {
-      await apiFetch(`/api/roster/templates/${t.id}?deleteAssignments=${deleteAssignments}`, { method: "DELETE" });
-      loadTemplates();
-      loadAssignments();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
-    }
+  function resetBulkTemplateFields() {
+    setBulkTplCode("");
+    setBulkTplName("");
+    setBulkTplDesc("");
+    setBulkTplShiftId("");
+    setBulkTplStart("09:00");
+    setBulkTplEnd("17:00");
+    setBulkTplHours(8);
+    setBulkTplActive(true);
   }
 
   function openAssignEdit(a: RosterAssignmentItem) {
@@ -2753,9 +2738,9 @@ function RosterTab() {
 
   // ── Bulk assign helpers ──
 
-  function openBulkModal(prefilledTemplateId?: string) {
+  function openBulkModal() {
     setBulkStep(1);
-    setBulkTemplateId(prefilledTemplateId ?? "");
+    resetBulkTemplateFields();
     setBulkFrom(todayLocalIso());
     setBulkTo("");
     setBulkNotes("");
@@ -2766,6 +2751,7 @@ function RosterTab() {
     setError(null);
     setBulkModalError(null);
     setSuccessMsg(null);
+    loadLookups();
     setBulkModal(true);
   }
 
@@ -2837,11 +2823,40 @@ function RosterTab() {
     setError(null);
     setSuccessMsg(null);
     try {
+      if (!bulkTplCode.trim()) {
+        setBulkModalError("Roster code is required.");
+        setBulkStep(1);
+        return;
+      }
+      if (!bulkTplName.trim()) {
+        setBulkModalError("Roster name is required.");
+        setBulkStep(1);
+        return;
+      }
+      if (!bulkTplShiftId && (!bulkTplStart?.trim() || !bulkTplEnd?.trim())) {
+        setBulkModalError("Default start and end are required when no shift pattern is selected.");
+        setBulkStep(1);
+        return;
+      }
+      const created = await apiFetch<RosterTemplateItem>("/api/roster/templates", {
+        method: "POST",
+        body: JSON.stringify({
+          code: bulkTplCode.trim(),
+          name: bulkTplName.trim(),
+          description: bulkTplDesc.trim() || null,
+          defaultStartTime: timeInputToSpan(bulkTplStart || "09:00"),
+          defaultEndTime: timeInputToSpan(bulkTplEnd || "17:00"),
+          workHoursPerDay: bulkTplHours || 8,
+          isActive: bulkTplActive,
+          defaultShiftPatternId: bulkTplShiftId || null,
+        }),
+      });
+
       const result = await apiFetch<{ created: number; skipped: number; errors: string[] }>("/api/roster/assignments/bulk", {
         method: "POST",
         body: JSON.stringify({
           employeeIds: Array.from(bulkSelectedIds),
-          rosterTemplateId: bulkTemplateId,
+          rosterTemplateId: created.id,
           effectiveFrom: bulkFrom,
           effectiveTo: bulkTo || null,
           notes: bulkNotes || null,
@@ -2849,7 +2864,6 @@ function RosterTab() {
       });
       setBulkModal(false);
       loadAssignments();
-      setRosterSubTab("assignments");
       const parts: string[] = [];
       if (result.created > 0) parts.push(`${result.created} assignment(s) created`);
       if (result.skipped > 0) parts.push(`${result.skipped} skipped`);
@@ -2874,11 +2888,6 @@ function RosterTab() {
       ...departments.map(([id, name]) => ({ value: id, label: name })),
     ],
     [departments],
-  );
-
-  const rosterTemplateOpts = useMemo<FormSelectOption[]>(
-    () => templates.map((t) => ({ value: t.id, label: t.name })),
-    [templates],
   );
 
   const bulkDeptFilterOpts = useMemo<FormSelectOption[]>(
@@ -2916,8 +2925,16 @@ function RosterTab() {
 
   function goToBulkStep2() {
     setBulkModalError(null);
-    if (!bulkTemplateId) {
-      setBulkModalError("Select a roster template.");
+    if (!bulkTplCode.trim()) {
+      setBulkModalError("Roster code is required.");
+      return;
+    }
+    if (!bulkTplName.trim()) {
+      setBulkModalError("Roster name is required.");
+      return;
+    }
+    if (!bulkTplShiftId && (!bulkTplStart?.trim() || !bulkTplEnd?.trim())) {
+      setBulkModalError("Default start and end are required when no shift pattern is selected.");
       return;
     }
     if (!bulkFrom) {
@@ -2948,182 +2965,80 @@ function RosterTab() {
       <InlinePageAlert message={error} />
       <InlinePageAlert message={successMsg} variant="success" />
 
-      <div className="flex flex-col gap-2">
-        {ROSTER_SUB_TABS.map((t) => (
-          <div key={t.key} className="space-y-3">
-            <button
-              type="button"
-              onClick={() => setRosterSubTab(t.key)}
-              className={`w-full rounded-xl border px-3.5 py-2.5 text-left text-xs font-semibold transition sm:text-sm ${
-                rosterSubTab === t.key
-                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
-                  : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
-              }`}
-            >
-              {t.label}
-            </button>
-
-            {rosterSubTab === t.key && t.key === "templates" && (
-            <div className="space-y-4 pb-2">
-              <Button onClick={openTplAdd}>+ Add template</Button>
-              <label className="flex items-center gap-2 text-sm text-slate-600">
-                <input type="checkbox" checked={includeInactiveTemplates} onChange={(e) => setIncludeInactiveTemplates(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                Include inactive templates
-              </label>
-              <p className="text-xs text-slate-500">Default times, hours per day, optional link to a shift pattern.</p>
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead><tr className="bg-slate-50 text-left">
-                      <th className="px-6 py-2.5 font-semibold text-slate-600">Name</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Start</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">End</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Hours/day</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Shift</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Active</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
-                    </tr></thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {templates.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400">No roster templates yet.</td></tr>}
-                      {templates.map((tpl) => (
-                        <tr key={tpl.id} className="hover:bg-slate-50/50">
-                          <td className="px-6 py-3 font-medium text-slate-700">{tpl.name}</td>
-                          <td className="px-4 py-3 text-slate-600">{timeSpanToInput(tpl.defaultStartTime)}</td>
-                          <td className="px-4 py-3 text-slate-600">{timeSpanToInput(tpl.defaultEndTime)}</td>
-                          <td className="px-4 py-3 text-slate-600">{tpl.workHoursPerDay}</td>
-                          <td className="px-4 py-3 text-slate-600">{tpl.defaultShiftPatternName ?? "—"}</td>
-                          <td className="px-4 py-3">{tpl.isActive ? <span className="text-green-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-2">
-                              <button type="button" onClick={() => openBulkModal(tpl.id)} className="rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-100">Assign</button>
-                              <button type="button" onClick={() => openTplEdit(tpl)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
-                              <button type="button" onClick={() => deleteTemplate(tpl)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Delete</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-            )}
-
-            {rosterSubTab === t.key && t.key === "assignments" && (
-            <div className="space-y-4 pb-2">
-              <Button onClick={() => openBulkModal()}>+ Assign roster</Button>
-              <p className="text-xs text-slate-500">Date ranges must not overlap for the same employee.</p>
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                <div className="flex min-w-0 items-center gap-2">
-                  <label className="shrink-0 text-sm text-slate-600">Employee</label>
-                  <EmployeeSearchCombobox
-                    key={filterDeptId || "all-departments"}
-                    value={filterEmployeeId}
-                    departmentId={filterDeptId || undefined}
-                    placeholder="Type name or employee code…"
-                    className="w-56 sm:w-64"
-                    onPick={(emp) => setFilterEmployeeId(emp?.id ?? "")}
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="shrink-0 text-sm text-slate-600">Department</label>
-                  <FormSelect
-                    value={filterDeptId}
-                    onValueChange={setFilterDeptId}
-                    options={rosterDeptFilterOpts}
-                    placeholder="All departments"
-                    className="max-w-xs"
-                  />
-                </div>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead><tr className="bg-slate-50 text-left">
-                      <th className="px-6 py-2.5 font-semibold text-slate-600">Employee</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Department</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Template</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">From</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">To</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Notes</th>
-                      <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
-                    </tr></thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredAssignments.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400">No assignments yet.</td></tr>}
-                      {filteredAssignments.map((a) => {
-                        const emp = employees.find((e) => e.id === a.employeeId);
-                        return (
-                          <tr key={a.id} className="hover:bg-slate-50/50">
-                            <td className="px-6 py-3 font-medium text-slate-700">{a.employeeName}{a.employeeCode ? <span className="ml-1 text-xs text-slate-500">({a.employeeCode})</span> : null}</td>
-                            <td className="px-4 py-3 text-slate-600">{emp?.departmentName ?? "—"}</td>
-                            <td className="px-4 py-3 text-slate-600">{a.rosterTemplateName}</td>
-                            <td className="px-4 py-3 text-slate-600">{dateOnlyForInput(a.effectiveFrom)}</td>
-                            <td className="px-4 py-3 text-slate-600">{a.effectiveTo ? dateOnlyForInput(a.effectiveTo) : "—"}</td>
-                            <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate" title={a.notes ?? undefined}>{a.notes ?? "—"}</td>
-                            <td className="px-4 py-3">
-                              <div className="flex gap-2">
-                                <button type="button" onClick={() => openAssignEdit(a)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
-                                <button type="button" onClick={() => deleteAssignment(a)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Remove</button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-            )}
+      <div className="space-y-4">
+        <Button onClick={() => openBulkModal()}>+ Assign roster</Button>
+        <p className="text-xs text-slate-500">Date ranges must not overlap for the same employee.</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="flex min-w-0 items-center gap-2">
+            <label className="shrink-0 text-sm text-slate-600">Employee</label>
+            <EmployeeSearchCombobox
+              key={filterDeptId || "all-departments"}
+              value={filterEmployeeId}
+              departmentId={filterDeptId || undefined}
+              placeholder="Type name or employee code…"
+              className="w-56 sm:w-64"
+              onPick={(emp) => setFilterEmployeeId(emp?.id ?? "")}
+            />
           </div>
-        ))}
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-sm text-slate-600">Department</label>
+            <FormSelect
+              value={filterDeptId}
+              onValueChange={setFilterDeptId}
+              options={rosterDeptFilterOpts}
+              placeholder="All departments"
+              className="max-w-xs"
+            />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-slate-50 text-left">
+                <th className="px-6 py-2.5 font-semibold text-slate-600">Code</th>
+                <th className="px-4 py-2.5 font-semibold text-slate-600">Name</th>
+                <th className="px-4 py-2.5 font-semibold text-slate-600">Department</th>
+                <th className="px-4 py-2.5 font-semibold text-slate-600">Template</th>
+                <th className="px-4 py-2.5 font-semibold text-slate-600">From</th>
+                <th className="px-4 py-2.5 font-semibold text-slate-600">To</th>
+                <th className="px-4 py-2.5 font-semibold text-slate-600">Notes</th>
+                <th className="px-4 py-2.5 font-semibold text-slate-600">Actions</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredAssignments.length === 0 && <tr><td colSpan={8} className="px-6 py-8 text-center text-slate-400">No assignments yet.</td></tr>}
+                {filteredAssignments.map((a) => {
+                  const emp = employees.find((e) => e.id === a.employeeId);
+                  return (
+                    <tr key={a.id} className="hover:bg-slate-50/50">
+                      <td className="px-6 py-3 text-slate-600">{a.employeeCode ?? "—"}</td>
+                      <td className="px-4 py-3 font-medium text-slate-700">{a.employeeName}</td>
+                      <td className="px-4 py-3 text-slate-600">{emp?.departmentName ?? "—"}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {a.rosterTemplateCode ? (
+                          <span>
+                            <span className="text-slate-500">{a.rosterTemplateCode}</span>
+                            <span className="mx-1.5 text-slate-300">·</span>
+                            {a.rosterTemplateName}
+                          </span>
+                        ) : a.rosterTemplateName}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{dateOnlyForInput(a.effectiveFrom)}</td>
+                      <td className="px-4 py-3 text-slate-600">{a.effectiveTo ? dateOnlyForInput(a.effectiveTo) : "—"}</td>
+                      <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate" title={a.notes ?? undefined}>{a.notes ?? "—"}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => openAssignEdit(a)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
+                          <button type="button" onClick={() => deleteAssignment(a)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Remove</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
-
-      {/* ── Template add/edit modal ── */}
-      <Modal open={tplModal} onClose={() => setTplModal(false)} title={editingTpl ? "Edit roster template" : "Add roster template"}>
-        <form key={editingTpl?.id ?? "new"} onSubmit={submitTemplate} className="space-y-4">
-          <div><label className={labelClass}>Name *</label><input name="name" required defaultValue={editingTpl?.name ?? ""} className={inputClass} /></div>
-          <div><label className={labelClass}>Description</label><textarea name="description" rows={2} defaultValue={editingTpl?.description ?? ""} className={inputClass} /></div>
-          <div>
-            <label className={labelClass}>Default shift pattern</label>
-            <select value={tplShiftId} onChange={(e) => handleTplShiftChange(e.target.value)} className={inputClass}>
-              <option value="">None</option>
-              {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
-            </select>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className={labelClass}>{tplShiftId ? "Default start" : "Default start *"}</label>
-              <TimePickerField
-                value={tplStart}
-                onChange={setTplStart}
-                disabled={!!tplShiftId}
-                placeholder="Select time"
-              />
-              {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
-            </div>
-            <div>
-              <label className={labelClass}>{tplShiftId ? "Default end" : "Default end *"}</label>
-              <TimePickerField
-                value={tplEnd}
-                onChange={setTplEnd}
-                disabled={!!tplShiftId}
-                placeholder="Select time"
-              />
-              {tplShiftId && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
-            </div>
-          </div>
-          <div>
-            <label className={labelClass}>Work hours per day</label>
-            <input type="number" min={0} step={0.25} value={tplHours} onChange={(e) => setTplHours(Number(e.target.value) || 0)} readOnly={!!tplShiftId} className={inputClass} />
-          </div>
-          <label className="flex items-center gap-2 text-sm text-slate-600"><input name="isActive" type="checkbox" defaultChecked={editingTpl?.isActive ?? true} className="h-4 w-4 rounded border-slate-300" /> Active</label>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" type="button" onClick={() => setTplModal(false)}>Cancel</Button>
-            <Button type="submit" disabled={savingTpl}>{savingTpl ? "Saving..." : editingTpl ? "Update" : "Create"}</Button>
-          </div>
-        </form>
-      </Modal>
 
       {/* ── Edit single assignment modal ── */}
       <Modal open={editAssignModal} onClose={() => setEditAssignModal(false)} title="Edit assignment">
@@ -3165,28 +3080,64 @@ function RosterTab() {
       {/* ── Bulk assign modal ── */}
       <Modal open={bulkModal} onClose={() => setBulkModal(false)} title="Assign Roster to Employees">
         <div className="space-y-5">
-          {/* Step indicator */}
-          <div className="flex items-center gap-3">
-            <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${bulkStep === 1 ? "bg-blue-600 text-white" : "bg-green-100 text-green-700"}`}>1</div>
-            <div className={`text-sm font-medium ${bulkStep === 1 ? "text-blue-700" : "text-green-700"}`}>Template &amp; Dates</div>
-            <div className="h-px flex-1 bg-slate-200" />
-            <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${bulkStep === 2 ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400"}`}>2</div>
-            <div className={`text-sm font-medium ${bulkStep === 2 ? "text-blue-700" : "text-slate-400"}`}>Select Employees</div>
-          </div>
-
           {bulkStep === 1 && (
             <div className="space-y-4">
               <FormErrorAlert message={bulkModalError} onDismiss={() => setBulkModalError(null)} />
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className={labelClass}>Code *</label>
+                  <input
+                    value={bulkTplCode}
+                    onChange={(e) => setBulkTplCode(e.target.value)}
+                    required
+                    className={inputClass}
+                    placeholder="e.g. RST-NIGHT"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Name *</label>
+                  <input
+                    value={bulkTplName}
+                    onChange={(e) => setBulkTplName(e.target.value)}
+                    required
+                    className={inputClass}
+                    placeholder="e.g. Night shift roster"
+                  />
+                </div>
+              </div>
               <div>
-                <label className={labelClass}>Roster template *</label>
-                <FormSelect
-                  value={bulkTemplateId}
-                  onValueChange={setBulkTemplateId}
-                  options={rosterTemplateOpts}
-                  placeholder="Select template"
-                  required
+                <label className={labelClass}>Description</label>
+                <textarea
+                  rows={2}
+                  value={bulkTplDesc}
+                  onChange={(e) => setBulkTplDesc(e.target.value)}
+                  className={inputClass}
                 />
               </div>
+
+              <RosterTemplateFields
+                shifts={shifts}
+                shiftId={bulkTplShiftId}
+                onShiftChange={handleBulkTplShiftChange}
+                start={bulkTplStart}
+                end={bulkTplEnd}
+                hours={bulkTplHours}
+                onStartChange={setBulkTplStart}
+                onEndChange={setBulkTplEnd}
+                onHoursChange={setBulkTplHours}
+              />
+
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={bulkTplActive}
+                  onChange={(e) => setBulkTplActive(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                Active
+              </label>
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className={labelClass}>Effective from *</label>

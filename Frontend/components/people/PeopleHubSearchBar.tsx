@@ -208,6 +208,9 @@ export function PeopleHubSearchBar({
     }
   }, [menuOpen, filterPills.length]);
 
+  const isSearching = showSuggestions && Boolean(quickSearch.trim());
+  const showFilterMenu = menuOpen && !isSearching;
+
   function toggleMenu() {
     setMenuOpen((o) => !o);
   }
@@ -226,7 +229,7 @@ export function PeopleHubSearchBar({
       {/* Search input row */}
       <div
         className={`flex h-10 items-center gap-1.5 rounded-xl border bg-white pl-2.5 pr-1.5 shadow-sm transition-all ${
-          menuOpen || showSuggestions
+          showFilterMenu || isSearching
             ? "border-[#2B7DE9]/60 ring-2 ring-[#2B7DE9]/10"
             : "border-slate-200 hover:border-slate-300 focus-within:border-[#2B7DE9]/60 focus-within:ring-2 focus-within:ring-[#2B7DE9]/10"
         }`}
@@ -286,17 +289,23 @@ export function PeopleHubSearchBar({
             placeholder="Search…"
             className="min-w-[72px] flex-1 border-0 bg-transparent py-1.5 text-[13px] text-slate-700 outline-none placeholder:text-slate-400"
             value={quickSearch}
-            onChange={(e) => onQuickSearchChange(e.target.value)}
+            onChange={(e) => {
+              onQuickSearchChange(e.target.value);
+              if (e.target.value.trim()) setMenuOpen(false);
+            }}
             onFocus={() => {
-              openMenu();
+              if (!quickSearch.trim()) openMenu();
               onFocusSearch();
             }}
             onClick={(e) => {
               e.stopPropagation();
-              openMenu();
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") onQuickSearchSubmit();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                setMenuOpen(false);
+                onQuickSearchSubmit();
+              }
               if (e.key === "Escape") {
                 setMenuOpen(false);
                 onDismissSuggestions();
@@ -324,20 +333,20 @@ export function PeopleHubSearchBar({
         </button>
       </div>
 
-      {showSuggestions && suggestionsSlot}
+      {isSearching && suggestionsSlot}
 
       {/* Dropdown panel */}
-      {menuOpen && (
-        <div className="absolute left-0 top-[calc(100%+6px)] z-50 flex w-full min-w-[min(580px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl shadow-slate-200/50">
+      {showFilterMenu && (
+        <div className="absolute left-0 top-[calc(100%+6px)] z-50 flex w-[min(620px,calc(100vw-2rem))] max-h-[min(420px,calc(100vh-10rem))] items-start overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl shadow-slate-200/50">
           {/* Group By + Status */}
-          <div className="flex min-w-0 flex-1 flex-col border-r border-slate-100">
+          <div className="flex max-h-[inherit] w-[52%] shrink-0 flex-col overflow-y-auto border-r border-slate-100">
             <MenuSectionHeader
               icon={<LayersIcon className="h-4 w-4" />}
               title="Group By"
               iconClassName="text-[#2B7DE9]"
             />
 
-            <ul className="max-h-[240px] overflow-y-auto px-1.5 pb-1">
+            <ul className="px-1.5 pb-1">
               {PEOPLE_GROUP_BY_OPTIONS.map((opt) => (
                 <li key={opt.key}>
                   <MenuOption
@@ -394,7 +403,7 @@ export function PeopleHubSearchBar({
                           </svg>
                         </button>
                         {sectionOpen && (
-                          <ul className="max-h-[160px] overflow-y-auto pb-1 pl-4">
+                          <ul className="max-h-[120px] overflow-y-auto pb-1 pl-4">
                             {section.options.length === 0 ? (
                               <li className="px-3 py-2 text-[12px] text-slate-400">No options available</li>
                             ) : (
@@ -469,7 +478,7 @@ export function PeopleHubSearchBar({
           </div>
 
           {/* Favorites */}
-          <div className="flex min-w-0 flex-1 flex-col bg-slate-50/40">
+          <div className="flex max-h-[inherit] min-w-0 flex-1 flex-col overflow-y-auto bg-slate-50/40">
             <MenuSectionHeader
               icon={
                 <svg className="h-4 w-4 text-amber-500" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -506,7 +515,7 @@ export function PeopleHubSearchBar({
                 Favorite employees
               </p>
               {filteredEmployeeFavorites.length > 0 ? (
-                <ul className="max-h-[140px] overflow-y-auto">
+                <ul className="max-h-[100px] overflow-y-auto">
                   {filteredEmployeeFavorites.map((fav) => (
                     <li key={fav.id} className="group flex items-start gap-0.5">
                       <button
@@ -560,7 +569,7 @@ export function PeopleHubSearchBar({
                   </p>
                 )}
                 {favoritesDiscoverResults.length > 0 && (
-                  <ul className="max-h-[180px] overflow-y-auto">
+                  <ul className="max-h-[120px] overflow-y-auto">
                     {favoritesDiscoverResults.map((emp) => {
                       const idx = emp.fullName.toLowerCase().indexOf(favoritesQuery.toLowerCase());
                       const initials = emp.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();

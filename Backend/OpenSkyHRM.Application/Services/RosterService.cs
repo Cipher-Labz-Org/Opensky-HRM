@@ -24,10 +24,12 @@ public class RosterService : IRosterService
             query = query.Where(r => r.IsActive);
 
         return await query
-            .OrderBy(r => r.Name)
+            .OrderBy(r => r.Code)
+            .ThenBy(r => r.Name)
             .Select(r => new RosterTemplateDto
             {
                 Id = r.Id,
+                Code = r.Code,
                 Name = r.Name,
                 Description = r.Description,
                 DefaultStartTime = r.DefaultStartTime,
@@ -49,6 +51,7 @@ public class RosterService : IRosterService
         return new RosterTemplateDto
         {
             Id = r.Id,
+            Code = r.Code,
             Name = r.Name,
             Description = r.Description,
             DefaultStartTime = r.DefaultStartTime,
@@ -62,9 +65,17 @@ public class RosterService : IRosterService
 
     public async Task<RosterTemplateDto> CreateTemplateAsync(CreateRosterTemplateDto dto)
     {
+        var code = NormalizeCode(dto.Code);
+        if (string.IsNullOrEmpty(code))
+            throw new ArgumentException("Roster code is required.");
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            throw new ArgumentException("Roster name is required.");
+        await EnsureUniqueCodeAsync(code);
+
         var entity = new RosterTemplate
         {
-            Name = dto.Name,
+            Code = code,
+            Name = dto.Name.Trim(),
             Description = dto.Description,
             DefaultStartTime = dto.DefaultStartTime,
             DefaultEndTime = dto.DefaultEndTime,
@@ -81,7 +92,16 @@ public class RosterService : IRosterService
     {
         var entity = await _db.Set<RosterTemplate>().FindAsync(id);
         if (entity is null) return null;
-        entity.Name = dto.Name;
+
+        var code = NormalizeCode(dto.Code);
+        if (string.IsNullOrEmpty(code))
+            throw new ArgumentException("Roster code is required.");
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            throw new ArgumentException("Roster name is required.");
+        await EnsureUniqueCodeAsync(code, id);
+
+        entity.Code = code;
+        entity.Name = dto.Name.Trim();
         entity.Description = dto.Description;
         entity.DefaultStartTime = dto.DefaultStartTime;
         entity.DefaultEndTime = dto.DefaultEndTime;
@@ -90,6 +110,17 @@ public class RosterService : IRosterService
         entity.DefaultShiftPatternId = dto.DefaultShiftPatternId;
         await _db.SaveChangesAsync();
         return await GetTemplateByIdAsync(id);
+    }
+
+    private static string NormalizeCode(string? code) => (code ?? string.Empty).Trim();
+
+    private async Task EnsureUniqueCodeAsync(string code, Guid? excludeId = null)
+    {
+        var exists = await _db.Set<RosterTemplate>()
+            .AnyAsync(r => r.Code.ToLower() == code.ToLower()
+                && (!excludeId.HasValue || r.Id != excludeId.Value));
+        if (exists)
+            throw new InvalidOperationException($"A roster template with code \"{code}\" already exists.");
     }
 
     public async Task<bool> DeleteTemplateAsync(Guid id, bool deleteAssignments = false)
@@ -147,6 +178,10 @@ public class RosterService : IRosterService
                 EmployeeName = a.Employee.FirstName + " " + a.Employee.LastName,
                 EmployeeCode = a.Employee.EmployeeCode,
                 RosterTemplateId = a.RosterTemplateId,
+                RosterTemplateCode = _db.Set<RosterTemplate>().IgnoreQueryFilters()
+                    .Where(rt => rt.Id == a.RosterTemplateId)
+                    .Select(rt => rt.Code)
+                    .FirstOrDefault() ?? "",
                 RosterTemplateName = _db.Set<RosterTemplate>().IgnoreQueryFilters()
                     .Where(rt => rt.Id == a.RosterTemplateId)
                     .Select(rt => rt.Name)
@@ -185,6 +220,7 @@ public class RosterService : IRosterService
             EmployeeName = a.Employee.FirstName + " " + a.Employee.LastName,
             EmployeeCode = a.Employee.EmployeeCode,
             RosterTemplateId = a.RosterTemplateId,
+            RosterTemplateCode = template?.Code ?? "",
             RosterTemplateName = template?.Name ?? "Deleted template",
             EffectiveFrom = a.EffectiveFrom,
             EffectiveTo = a.EffectiveTo,
