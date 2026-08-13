@@ -687,7 +687,7 @@ export default function PeoplePage() {
   }, []);
 
   const searchSuggestionsPanel = showSuggestions && quickSearch.trim().length >= 1 ? (
-    <div className="absolute left-0 top-[calc(100%+6px)] z-50 w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl shadow-slate-200/50">
+    <div className="absolute left-0 top-[calc(100%+6px)] z-50 w-[min(620px,calc(100vw-2rem))] max-h-[min(360px,calc(100vh-10rem))] overflow-y-auto rounded-xl border border-slate-200/90 bg-white shadow-xl shadow-slate-200/50">
       <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
         {suggestionsLoading ? "Searching…" : "Employees"}
       </div>

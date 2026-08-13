@@ -10,6 +10,9 @@ public class RosterTemplateConfiguration : IEntityTypeConfiguration<RosterTempla
     {
         builder.ToTable("RosterTemplates");
         builder.HasKey(x => x.Id);
+        builder.Property(x => x.Code).HasMaxLength(50).IsRequired();
+        builder.Property(x => x.Name).HasMaxLength(200).IsRequired();
+        builder.HasIndex(x => x.Code);
         builder.HasOne(x => x.DefaultShiftPattern)
             .WithMany()
             .HasForeignKey(x => x.DefaultShiftPatternId)

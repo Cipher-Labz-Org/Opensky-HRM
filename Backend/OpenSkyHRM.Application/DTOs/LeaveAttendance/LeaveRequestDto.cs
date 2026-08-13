@@ -282,6 +282,7 @@ public class CalendarDayDto
 public class CalendarEntryDto
 {
     public string EmployeeName { get; set; } = string.Empty;
+    public string? ProfileImageUrl { get; set; }
     public string LeaveTypeName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
 }

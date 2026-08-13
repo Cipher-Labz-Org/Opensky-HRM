@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo, useId, Fragment, type FormEvent, type ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useId, Fragment, type ComponentType, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
@@ -10,7 +10,7 @@ import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormE
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
-import { API_BASE_URL } from "@/config/constants";
+import { API_BASE_URL, resolveAssetUrl } from "@/config/constants";
 import { formatDate } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import {
@@ -251,7 +251,7 @@ function holidayKindStyles(kind: HolidayKind) {
 
 interface CalendarDay {
   date: string;
-  entries: { employeeName: string; leaveTypeName: string; status: string }[];
+  entries: { employeeName: string; profileImageUrl?: string | null; leaveTypeName: string; status: string }[];
 }
 
 interface EntitlementRule {
@@ -3365,46 +3365,85 @@ function parseSickEntitlementDaysInput(raw: string): number | null {
   return n;
 }
 
-function ShopOfficeAnnualNarrativeView() {
+const DEFAULT_SHOP_OFFICE_ANNUAL_NARRATIVE = {
+  intro: "Sri Lanka Shop & Office Act — calendar year; annual leave uses employment type and confirmation dates.",
+  points: [
+    "Joining calendar year: no annual leave. While on probation (employment type or before permanent date): no annual leave.",
+    "Permanent for annual leave from Date of permanency, or the day after Probation end date, or from join if employment type is not probation (e.g. Full-Time Permanent).",
+    "First eligible calendar year after join (and from permanent year): pro-rated by original join quarter — Jan–Mar 14d, Apr–Jun 10d, Jul–Sep 7d, Oct–Dec 4d",
+    "Following calendar years: 14 days per year",
+    "Usage: minimum 7 consecutive calendar days per application",
+  ],
+} as const;
+
+const DEFAULT_SHOP_OFFICE_CASUAL_NARRATIVE = {
+  intro: "Sri Lanka Shop & Office Act — casual leave (max 7 days).",
+  points: [
+    "Joining year: 0.5 day per completed calendar month from join (partial join month excluded), capped at 7",
+    "From the next calendar year: 7 days per year",
+  ],
+} as const;
+
+function parseShopOfficeNarrativeFromRuleConfig(
+  ruleConfig: string,
+  defaults: { intro: string; points: readonly string[] },
+): { intro: string; points: string[] } {
+  try {
+    const o = JSON.parse(ruleConfig) as { narrative?: { intro?: string; points?: string[] } };
+    const points: string[] = [];
+    for (let i = 0; i < defaults.points.length; i++) {
+      if (o.narrative?.points?.[i] && String(o.narrative.points[i]).trim()) {
+        points.push(String(o.narrative.points[i]).trim());
+      } else {
+        points.push(defaults.points[i] ?? "");
+      }
+    }
+    const intro = (o.narrative?.intro && o.narrative.intro.trim()) ? o.narrative.intro.trim() : defaults.intro;
+    return { intro, points };
+  } catch {
+    return { intro: defaults.intro, points: [...defaults.points] };
+  }
+}
+
+function mergeShopOfficeNarrativeRuleConfigJson(
+  existing: string,
+  next: { intro: string; points: string[] },
+): string {
+  let base: Record<string, unknown> = {};
+  try {
+    base = (JSON.parse(existing || "{}") as Record<string, unknown>) ?? {};
+  } catch {
+    /* ignore */
+  }
+  base.narrative = { intro: next.intro, points: next.points.map((x) => x.trim()) };
+  return JSON.stringify(base);
+}
+
+function ShopOfficeAnnualNarrativeView({ intro, points }: { intro: string; points: string[] }) {
   return (
     <div className="ml-11 space-y-1.5 text-xs text-slate-600">
-      <p>
-        <strong className="text-slate-800">Sri Lanka Shop &amp; Office Act</strong> — calendar year; annual leave uses employment type and confirmation dates.
-      </p>
+      <p className="whitespace-pre-wrap text-slate-800">{intro}</p>
       <ul className="list-disc space-y-0.5 pl-4">
-        <li>
-          <span className="font-medium text-slate-700">1.</span> Joining calendar year: no annual leave. While on probation (employment type or before permanent date): no annual leave.
-        </li>
-        <li>
-          <span className="font-medium text-slate-700">2.</span> Permanent for annual leave from Date of permanency, or the day after Probation end date, or from join if employment type is not probation (e.g. Full-Time Permanent).
-        </li>
-        <li>
-          <span className="font-medium text-slate-700">3.</span> First eligible calendar year after join (and from permanent year): pro-rated by original join quarter — Jan–Mar 14d, Apr–Jun 10d, Jul–Sep 7d, Oct–Dec 4d
-        </li>
-        <li>
-          <span className="font-medium text-slate-700">4.</span> Following calendar years: 14 days per year
-        </li>
-        <li>
-          <span className="font-medium text-slate-700">5.</span> Usage: minimum 7 consecutive calendar days per application
-        </li>
+        {points.map((p, i) => (
+          <li key={i} className="whitespace-pre-wrap">
+            <span className="font-medium text-slate-700">{i + 1}.</span> {p}
+          </li>
+        ))}
       </ul>
     </div>
   );
 }
 
-function ShopOfficeCasualNarrativeView() {
+function ShopOfficeCasualNarrativeView({ intro, points }: { intro: string; points: string[] }) {
   return (
     <div className="ml-11 space-y-1.5 text-xs text-slate-600">
-      <p>
-        <strong className="text-slate-800">Sri Lanka Shop &amp; Office Act</strong> — casual leave (max 7 days).
-      </p>
+      <p className="whitespace-pre-wrap text-slate-800">{intro}</p>
       <ul className="list-disc space-y-0.5 pl-4">
-        <li>
-          <span className="font-medium text-slate-700">1.</span> Joining year: 0.5 day per completed calendar month from join (partial join month excluded), capped at 7
-        </li>
-        <li>
-          <span className="font-medium text-slate-700">2.</span> From the next calendar year: 7 days per year
-        </li>
+        {points.map((p, i) => (
+          <li key={i} className="whitespace-pre-wrap">
+            <span className="font-medium text-slate-700">{i + 1}.</span> {p}
+          </li>
+        ))}
       </ul>
     </div>
   );
@@ -3440,6 +3479,129 @@ function CarryForwardNarrativeView({ intro, points, windowDescription }: { intro
         <span className="font-semibold text-slate-700">System (Apply Leave): </span>
         {windowDescription}
       </p>
+    </div>
+  );
+}
+
+function ShopOfficeNarrativeAdminBlock({
+  mode,
+  rule,
+  leaveTypeId,
+  ruleType,
+  defaults,
+  onUpdated,
+  entitlementHeader,
+  referenceHelperText,
+  NarrativeView,
+}: {
+  mode: "rule" | "reference";
+  rule: EntitlementRule | null;
+  leaveTypeId: string | null;
+  ruleType: "ShopOfficeAnnual" | "ShopOfficeCasual";
+  defaults: { intro: string; points: readonly string[] };
+  onUpdated: () => void | Promise<void>;
+  entitlementHeader: { title: string; ruleType: string; inactive?: boolean };
+  referenceHelperText?: string;
+  NarrativeView: ComponentType<{ intro: string; points: string[] }>;
+}) {
+  const initial = useMemo(
+    () => parseShopOfficeNarrativeFromRuleConfig(rule?.ruleConfig ?? "{}", defaults),
+    [rule?.id, rule?.ruleConfig, mode, defaults],
+  );
+  const [editing, setEditing] = useState(false);
+  const [intro, setIntro] = useState(initial.intro);
+  const [points, setPoints] = useState<string[]>(() => [...initial.points]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const p = parseShopOfficeNarrativeFromRuleConfig(rule?.ruleConfig ?? "{}", defaults);
+    if (!editing) {
+      setIntro(p.intro);
+      setPoints([...p.points]);
+    }
+  }, [rule?.id, rule?.ruleConfig, mode, editing, defaults]);
+
+  async function save() {
+    setErr(null);
+    setSaving(true);
+    try {
+      const next = { intro, points };
+      const config = mergeShopOfficeNarrativeRuleConfigJson(rule?.ruleConfig ?? "{}", next);
+      if (mode === "rule" && rule) {
+        await apiFetch<{ ruleConfig: string }>(`/api/leave/entitlement-rules/${rule.id}`, { method: "PUT", body: JSON.stringify({ ruleConfig: config }) });
+      } else {
+        if (!leaveTypeId) {
+          const code = ruleType === "ShopOfficeAnnual" ? "LT-ANN" : "LT-CAS";
+          setErr(`${code === "LT-ANN" ? "Annual" : "Casual"} leave type (${code}) not found. Add it under Leave Master first.`);
+          return;
+        }
+        await apiFetch("/api/leave/entitlement-rules", {
+          method: "POST",
+          body: JSON.stringify({ leaveTypeId, ruleType, ruleConfig: config }),
+        });
+      }
+      setEditing(false);
+      try {
+        await Promise.resolve(onUpdated());
+      } catch {
+        /* Saved on server; refresh failed. */
+      }
+    } catch {
+      setErr("Save failed. Check you have access to update entitlement rules.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancelEdit() {
+    const p = parseShopOfficeNarrativeFromRuleConfig(rule?.ruleConfig ?? "{}", defaults);
+    setIntro(p.intro);
+    setPoints([...p.points]);
+    setEditing(false);
+    setErr(null);
+  }
+
+  return (
+    <div className="ml-0 space-y-2">
+      <EntitlementRuleRowHeader
+        title={entitlementHeader.title}
+        ruleType={entitlementHeader.ruleType}
+        inactive={entitlementHeader.inactive}
+        rightSlot={!editing
+          ? (
+            <Button variant="secondary" className="text-xs" type="button" onClick={() => { setErr(null); setEditing(true); }}>
+              Edit
+            </Button>
+            )
+          : null}
+      />
+      {referenceHelperText ? <p className="mb-2 text-xs text-slate-500">{referenceHelperText}</p> : null}
+      {editing ? (
+        <div className="ml-11 space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-xs text-slate-700">
+          <FormErrorAlert message={err} onDismiss={() => setErr(null)} className="text-xs text-red-600" />
+          <div>
+            <label className={labelClass}>Intro / lead line</label>
+            <textarea value={intro} onChange={(e) => setIntro(e.target.value)} className={inputClass} rows={2} />
+          </div>
+          {points.map((_, i) => (
+            <div key={i}>
+              <label className={labelClass}>Point {i + 1}</label>
+              <textarea value={points[i] ?? ""} onChange={(e) => {
+                const c = [...points];
+                c[i] = e.target.value;
+                setPoints(c);
+              }} className={inputClass} rows={2} />
+            </div>
+          ))}
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
+            <Button variant="secondary" type="button" onClick={cancelEdit} disabled={saving}>Cancel</Button>
+            <Button type="button" onClick={() => { void save(); }} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+          </div>
+        </div>
+      ) : (
+        <NarrativeView intro={intro} points={points} />
+      )}
     </div>
   );
 }
@@ -3815,6 +3977,14 @@ function PoliciesTab() {
     () => leaveTypes.find((lt) => lt.code === "LT-SIC")?.id ?? null,
     [leaveTypes],
   );
+  const annualCatalogLeaveTypeId = useMemo(
+    () => leaveTypes.find((lt) => lt.code === "LT-ANN")?.id ?? null,
+    [leaveTypes],
+  );
+  const casualCatalogLeaveTypeId = useMemo(
+    () => leaveTypes.find((lt) => lt.code === "LT-CAS")?.id ?? null,
+    [leaveTypes],
+  );
 
   const load = useCallback(() => {
     return Promise.all([
@@ -4015,6 +4185,40 @@ function PoliciesTab() {
               );
             }
 
+            if (rule.ruleType === "ShopOfficeAnnual") {
+              return (
+                <div key={rule.id} className="px-6 py-4">
+                  <ShopOfficeNarrativeAdminBlock
+                    mode="rule"
+                    rule={rule}
+                    leaveTypeId={annualCatalogLeaveTypeId}
+                    ruleType="ShopOfficeAnnual"
+                    defaults={DEFAULT_SHOP_OFFICE_ANNUAL_NARRATIVE}
+                    onUpdated={load}
+                    entitlementHeader={{ title: rule.leaveTypeName, ruleType: rule.ruleType, inactive: !rule.isActive }}
+                    NarrativeView={ShopOfficeAnnualNarrativeView}
+                  />
+                </div>
+              );
+            }
+
+            if (rule.ruleType === "ShopOfficeCasual") {
+              return (
+                <div key={rule.id} className="px-6 py-4">
+                  <ShopOfficeNarrativeAdminBlock
+                    mode="rule"
+                    rule={rule}
+                    leaveTypeId={casualCatalogLeaveTypeId}
+                    ruleType="ShopOfficeCasual"
+                    defaults={DEFAULT_SHOP_OFFICE_CASUAL_NARRATIVE}
+                    onUpdated={load}
+                    entitlementHeader={{ title: rule.leaveTypeName, ruleType: rule.ruleType, inactive: !rule.isActive }}
+                    NarrativeView={ShopOfficeCasualNarrativeView}
+                  />
+                </div>
+              );
+            }
+
               let config: EntitlementRuleConfigDisplay | null = null;
               try {
                 config = JSON.parse(rule.ruleConfig) as EntitlementRuleConfigDisplay;
@@ -4030,9 +4234,6 @@ function PoliciesTab() {
                   ruleType={rule.ruleType}
                   inactive={!rule.isActive}
                 />
-
-                  {rule.ruleType === "ShopOfficeAnnual" && <ShopOfficeAnnualNarrativeView />}
-                  {rule.ruleType === "ShopOfficeCasual" && <ShopOfficeCasualNarrativeView />}
 
                   {/* ServiceYearBased display */}
                   {config && rule.ruleType === "ServiceYearBased" && (
@@ -4100,21 +4301,33 @@ function PoliciesTab() {
 
         {!hasShopOfficeAnnualRule && (
           <div className="px-6 py-4">
-            <EntitlementRuleRowHeader title="Annual Leave" ruleType="ShopOfficeAnnual (reference)" />
-            <p className="mb-2 ml-11 text-[11px] text-slate-400">
-              Shown when no ShopOfficeAnnual rule is linked yet. It is created automatically when you have Leave Create access, or on API startup seeding.
-            </p>
-            <ShopOfficeAnnualNarrativeView />
+            <ShopOfficeNarrativeAdminBlock
+              mode="reference"
+              rule={null}
+              leaveTypeId={annualCatalogLeaveTypeId}
+              ruleType="ShopOfficeAnnual"
+              defaults={DEFAULT_SHOP_OFFICE_ANNUAL_NARRATIVE}
+              onUpdated={load}
+              entitlementHeader={{ title: "Annual Leave", ruleType: "ShopOfficeAnnual (reference)" }}
+              referenceHelperText="Shown when no ShopOfficeAnnual rule is linked yet. Save your text below to create the rule, or use seeding to add it from the server."
+              NarrativeView={ShopOfficeAnnualNarrativeView}
+            />
           </div>
         )}
 
         {!hasShopOfficeCasualRule && (
           <div className="px-6 py-4">
-            <EntitlementRuleRowHeader title="Casual Leave" ruleType="ShopOfficeCasual (reference)" />
-            <p className="mb-2 ml-11 text-[11px] text-slate-400">
-              Shown when no ShopOfficeCasual rule is linked yet. It is created automatically when you have Leave Create access, or on API startup seeding.
-            </p>
-            <ShopOfficeCasualNarrativeView />
+            <ShopOfficeNarrativeAdminBlock
+              mode="reference"
+              rule={null}
+              leaveTypeId={casualCatalogLeaveTypeId}
+              ruleType="ShopOfficeCasual"
+              defaults={DEFAULT_SHOP_OFFICE_CASUAL_NARRATIVE}
+              onUpdated={load}
+              entitlementHeader={{ title: "Casual Leave", ruleType: "ShopOfficeCasual (reference)" }}
+              referenceHelperText="Shown when no ShopOfficeCasual rule is linked yet. Save your text below to create the rule, or use seeding to add it from the server."
+              NarrativeView={ShopOfficeCasualNarrativeView}
+            />
           </div>
         )}
 
@@ -4640,6 +4853,46 @@ function teamCalendarAvatarColor(employeeName: string): string {
   return TEAM_CALENDAR_AVATAR_COLORS[hash % TEAM_CALENDAR_AVATAR_COLORS.length] ?? TEAM_CALENDAR_AVATAR_COLORS[0];
 }
 
+function TeamCalendarEmployeeAvatar({
+  employeeName,
+  profileImageUrl,
+  leaveTypeName,
+}: {
+  employeeName: string;
+  profileImageUrl?: string | null;
+  leaveTypeName: string;
+}) {
+  const photoUrl = resolveAssetUrl(profileImageUrl ?? null);
+  const initials = employeeInitials(employeeName);
+  const colorClass = teamCalendarAvatarColor(employeeName);
+  const [photoFailed, setPhotoFailed] = useState(false);
+
+  if (photoUrl && !photoFailed) {
+    return (
+      <span
+        className="inline-flex h-6 w-6 shrink-0 overflow-hidden rounded-full ring-1 ring-white"
+        title={`${employeeName} — ${leaveTypeName}`}
+      >
+        <img
+          src={photoUrl}
+          alt={employeeName}
+          className="h-full w-full object-cover"
+          onError={() => setPhotoFailed(true)}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold leading-none ${colorClass}`}
+      title={`${employeeName} — ${leaveTypeName}`}
+    >
+      {initials}
+    </span>
+  );
+}
+
 function calendarDayFromIso(date: string): number {
   return parseInt(date.split("T")[0]?.slice(8, 10) ?? "0", 10);
 }
@@ -4910,13 +5163,12 @@ function CalendarTab() {
                       {entryCount > 0 ? (
                         <div className="mt-0.5 flex flex-wrap items-center gap-0.5">
                           {calDay?.entries.slice(0, TEAM_CALENDAR_MAX_AVATARS).map((entry, ei) => (
-                              <span
+                              <TeamCalendarEmployeeAvatar
                                 key={`${entry.employeeName}-${ei}`}
-                                className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold leading-none ${teamCalendarAvatarColor(entry.employeeName)}`}
-                                title={`${entry.employeeName} — ${entry.leaveTypeName}`}
-                              >
-                                {employeeInitials(entry.employeeName)}
-                              </span>
+                                employeeName={entry.employeeName}
+                                profileImageUrl={entry.profileImageUrl}
+                                leaveTypeName={entry.leaveTypeName}
+                              />
                           ))}
                           {entryCount > TEAM_CALENDAR_MAX_AVATARS ? (
                             <span

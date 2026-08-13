@@ -3,6 +3,7 @@ namespace OpenSkyHRM.Application.DTOs.TimeAttendance;
 public class RosterTemplateDto
 {
     public Guid Id { get; set; }
+    public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public TimeSpan DefaultStartTime { get; set; }
@@ -15,6 +16,7 @@ public class RosterTemplateDto
 
 public class CreateRosterTemplateDto
 {
+    public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public TimeSpan DefaultStartTime { get; set; }
@@ -26,6 +28,7 @@ public class CreateRosterTemplateDto
 
 public class UpdateRosterTemplateDto
 {
+    public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public TimeSpan DefaultStartTime { get; set; }
@@ -42,6 +45,7 @@ public class RosterAssignmentDto
     public string EmployeeName { get; set; } = string.Empty;
     public string? EmployeeCode { get; set; }
     public Guid RosterTemplateId { get; set; }
+    public string RosterTemplateCode { get; set; } = string.Empty;
     public string RosterTemplateName { get; set; } = string.Empty;
     public DateTime EffectiveFrom { get; set; }
     public DateTime? EffectiveTo { get; set; }

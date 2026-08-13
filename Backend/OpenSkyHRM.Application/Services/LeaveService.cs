@@ -1298,6 +1298,7 @@ public class LeaveService : ILeaveService
                 days[key].Entries.Add(new CalendarEntryDto
                 {
                     EmployeeName = $"{r.Employee.FirstName} {r.Employee.LastName}",
+                    ProfileImageUrl = r.Employee.ProfileImageUrl,
                     LeaveTypeName = r.LeaveType.Name,
                     Status = r.Status.ToString(),
                 });
