@@ -146,6 +146,7 @@ builder.Services.AddControllers()
         o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         // Do not camelCase dictionary keys — report row keys and analytics group labels must match display names.
         o.JsonSerializerOptions.Converters.Add(new ApiDateTimeJsonConverter());
+        o.JsonSerializerOptions.Converters.Add(new ApiNullableDateTimeJsonConverter());
     });
 
 builder.Services.Configure<ApiBehaviorOptions>(options =>
@@ -608,5 +609,28 @@ public sealed class ApiDateTimeJsonConverter : JsonConverter<DateTime>
         }
 
         writer.WriteStringValue(value.ToString(localFmt, CultureInfo.InvariantCulture));
+    }
+}
+
+public sealed class ApiNullableDateTimeJsonConverter : JsonConverter<DateTime?>
+{
+    private static readonly ApiDateTimeJsonConverter Inner = new();
+
+    public override DateTime? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+        return Inner.Read(ref reader, typeof(DateTime), options);
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTime? value, JsonSerializerOptions options)
+    {
+        if (!value.HasValue)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+
+        Inner.Write(writer, value.Value, options);
     }
 }

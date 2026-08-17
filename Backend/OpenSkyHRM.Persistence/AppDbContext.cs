@@ -219,6 +219,13 @@ public class AppDbContext : DbContext
                 if (prop.Metadata.Name is nameof(BaseEntity.CreatedAt) or nameof(BaseEntity.UpdatedAt))
                     continue;
 
+                // Punch times and attendance dates are business-local wall clock (Asia/Colombo).
+                if (entry.Entity is AttendanceRecord
+                    && prop.Metadata.Name is nameof(AttendanceRecord.PunchIn)
+                        or nameof(AttendanceRecord.PunchOut)
+                        or nameof(AttendanceRecord.Date))
+                    continue;
+
                 if (prop.CurrentValue is DateTime dt && dt.Kind == DateTimeKind.Unspecified)
                     prop.CurrentValue = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             }
