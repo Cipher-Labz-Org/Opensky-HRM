@@ -50,26 +50,34 @@ public sealed class BusinessClock : IBusinessClock
 
     private static TimeZoneInfo ResolveTimeZone(string id)
     {
-        try
+        foreach (var candidate in TimeZoneCandidates(id))
         {
-            return TimeZoneInfo.FindSystemTimeZoneById(id);
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            // Windows may not have IANA id
-            if (string.Equals(id, "Asia/Colombo", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                try
-                {
-                    return TimeZoneInfo.FindSystemTimeZoneById("Sri Lanka Standard Time");
-                }
-                catch (TimeZoneNotFoundException)
-                {
-                    // Fall back
-                }
+                return TimeZoneInfo.FindSystemTimeZoneById(candidate);
             }
-
-            return TimeZoneInfo.Utc;
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
         }
+
+        // Never fall back to UTC — that reintroduces the 5:30 / 12:30 punch skew.
+        return TimeZoneInfo.CreateCustomTimeZone(
+            "Asia/Colombo",
+            TimeSpan.FromHours(5.5),
+            "Sri Lanka Standard Time",
+            "Sri Lanka Standard Time");
+    }
+
+    private static IEnumerable<string> TimeZoneCandidates(string id)
+    {
+        yield return id;
+        if (string.Equals(id, "Asia/Colombo", StringComparison.OrdinalIgnoreCase))
+            yield return "Sri Lanka Standard Time";
+        else if (string.Equals(id, "Sri Lanka Standard Time", StringComparison.OrdinalIgnoreCase))
+            yield return "Asia/Colombo";
     }
 }

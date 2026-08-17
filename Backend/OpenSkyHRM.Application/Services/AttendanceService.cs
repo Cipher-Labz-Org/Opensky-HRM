@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
@@ -12,11 +13,13 @@ public class AttendanceService : IAttendanceService
 {
     private readonly AppDbContext _db;
     private readonly ISystemSettingService _settings;
+    private readonly IBusinessClock _clock;
 
-    public AttendanceService(AppDbContext db, ISystemSettingService settings)
+    public AttendanceService(AppDbContext db, ISystemSettingService settings, IBusinessClock clock)
     {
         _db = db;
         _settings = settings;
+        _clock = clock;
     }
 
     public async Task<PagedResult<AttendanceRecordDto>> GetAttendanceAsync(
@@ -26,7 +29,7 @@ public class AttendanceService : IAttendanceService
         Guid? departmentId = null, Guid? locationId = null, string? status = null, string? source = null,
         string? sortBy = null, string? sortDir = null)
     {
-        var today = DateTime.Now.Date;
+        var today = _clock.Now.Date;
         var from = fromDate?.Date ?? today;
         var to = toDate?.Date ?? today;
         if (to < from) to = from;
@@ -467,10 +470,19 @@ public class AttendanceService : IAttendanceService
 
     public async Task<AttendanceRecordDto> PunchAsync(Guid employeeId, PunchRequestDto dto)
     {
+        if (!string.IsNullOrWhiteSpace(dto.QrPayload))
+        {
+            var employee = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted)
+                ?? throw new InvalidOperationException("Employee not found.");
+            AttendancePunchPolicyEvaluator.ValidateEmployeeMatchesScannedQr(employee, dto);
+        }
+
         var punchPolicy = await AttendancePunchPolicyEvaluator.EvaluateAsync(_db, _settings, employeeId, dto);
 
-        var now = DateTime.Now;
-        var today = now.Date;
+        var nowUtc = DateTime.UtcNow;
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
+        var today = _clock.ToBusinessLocal(nowUtc).Date;
         var onLeaveToday = await HasApprovedLeaveOnDateAsync(employeeId, today);
         var isOut = dto.Type.Equals("out", StringComparison.OrdinalIgnoreCase);
         var source = string.IsNullOrWhiteSpace(dto.Source) ? "Mobile" : dto.Source.Trim();
@@ -785,6 +797,8 @@ public class AttendanceService : IAttendanceService
 
     private AttendanceRecordDto MapToDto(AttendanceRecord a, List<RosterAssignment> rosterAssignments, bool isOnLeave = false)
     {
+        var punchIn = AttendancePunchTimes.ToApiWallClock(a.PunchIn, a.Source, _clock);
+        var punchOut = AttendancePunchTimes.ToApiWallClock(a.PunchOut, a.Source, _clock);
         var shift = ResolveShiftPattern(a.Employee, rosterAssignments, a.Date);
 
         bool isLate = false;
@@ -823,22 +837,22 @@ public class AttendanceService : IAttendanceService
                 case "Split":
                     expectedStart = shift.StartTime;
                     expectedEnd = shift.Session2EndTime ?? shift.EndTime;
-                    if (a.PunchIn.HasValue)
+                    if (punchIn.HasValue)
                     {
                         var s1Start = a.Date.Date + shift.StartTime;
-                        if (a.PunchIn.Value > s1Start.AddMinutes(shift.LateGraceMinutes))
+                        if (punchIn.Value > s1Start.AddMinutes(shift.LateGraceMinutes))
                         {
                             isLate = true;
-                            lateMins = (int)(a.PunchIn.Value - s1Start).TotalMinutes;
+                            lateMins = (int)(punchIn.Value - s1Start).TotalMinutes;
                         }
                     }
-                    if (a.PunchOut.HasValue && shift.Session2EndTime.HasValue)
+                    if (punchOut.HasValue && shift.Session2EndTime.HasValue)
                     {
                         var s2End = ShiftAttendanceCalculator.ResolveSession2EndDateTime(shift, a.Date);
-                        if (a.PunchOut.Value < s2End.AddMinutes(-shift.EarlyDepartureGraceMinutes))
+                        if (punchOut.Value < s2End.AddMinutes(-shift.EarlyDepartureGraceMinutes))
                         {
                             isEarlyDeparture = true;
-                            earlyDepartureMins = (int)(s2End - a.PunchOut.Value).TotalMinutes;
+                            earlyDepartureMins = (int)(s2End - punchOut.Value).TotalMinutes;
                         }
                     }
                     break;
@@ -846,24 +860,24 @@ public class AttendanceService : IAttendanceService
                 default: // Regular, Rotational
                     expectedStart = shift.StartTime;
                     expectedEnd = shift.EndTime;
-                    if (a.PunchIn.HasValue)
+                    if (punchIn.HasValue)
                     {
                         var expStart = a.Date.Date + shift.StartTime;
-                        if (a.PunchIn.Value > expStart.AddMinutes(shift.LateGraceMinutes))
+                        if (punchIn.Value > expStart.AddMinutes(shift.LateGraceMinutes))
                         {
                             isLate = true;
-                            lateMins = (int)(a.PunchIn.Value - expStart).TotalMinutes;
+                            lateMins = (int)(punchIn.Value - expStart).TotalMinutes;
                         }
                     }
-                    if (a.PunchOut.HasValue)
+                    if (punchOut.HasValue)
                     {
                         var expEnd = a.Date.Date + shift.EndTime;
                         if (shift.IsNightShift && shift.EndTime < shift.StartTime)
                             expEnd = expEnd.AddDays(1);
-                        if (a.PunchOut.Value < expEnd.AddMinutes(-shift.EarlyDepartureGraceMinutes))
+                        if (punchOut.Value < expEnd.AddMinutes(-shift.EarlyDepartureGraceMinutes))
                         {
                             isEarlyDeparture = true;
-                            earlyDepartureMins = (int)(expEnd - a.PunchOut.Value).TotalMinutes;
+                            earlyDepartureMins = (int)(expEnd - punchOut.Value).TotalMinutes;
                         }
                     }
                     break;
@@ -876,9 +890,9 @@ public class AttendanceService : IAttendanceService
             EmployeeName = a.Employee.FirstName + " " + a.Employee.LastName,
             EmployeeCode = a.Employee.EmployeeCode,
             EmployeeId = a.EmployeeId,
-            Date = a.Date,
-            PunchIn = a.PunchIn,
-            PunchOut = a.PunchOut,
+            Date = AttendancePunchTimes.AsWallClock(a.Date.Date),
+            PunchIn = punchIn,
+            PunchOut = punchOut,
             WorkedHours = a.WorkedHours,
             Status = isOnLeave ? "On Leave" : a.Status,
             Remarks = a.Remarks,
