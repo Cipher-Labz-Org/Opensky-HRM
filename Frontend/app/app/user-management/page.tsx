@@ -12,6 +12,7 @@ import { UserAdvancedPermissionsPanel } from "@/components/user-management/UserA
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/date-utils";
+import { resolveRolePermissionModules } from "@/lib/role-permission-modules";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import {
   sanitizeUsernameInput,
@@ -736,8 +737,8 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
 
   useEffect(() => {
     apiFetch<{ module: string; label: string }[]>("/api/auth/roles/available-modules")
-      .then(setModules)
-      .catch(() => setModules([]));
+      .then((list) => setModules(resolveRolePermissionModules(Array.isArray(list) ? list : [])))
+      .catch(() => setModules(resolveRolePermissionModules([])));
   }, []);
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
