@@ -201,8 +201,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const filteredNavGroups = ALL_NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
-      if (isAlwaysVisibleNavHref(item.href)) return true;
-      if (!isNavItemLicensed(item, licensedModules)) return false;
+      if (!isAlwaysVisibleNavHref(item.href) && !isNavItemLicensed(item, licensedModules)) return false;
       return isNavItemVisible(item.href, navVisibilityCtx);
     }),
   })).filter((group) => group.items.length > 0);

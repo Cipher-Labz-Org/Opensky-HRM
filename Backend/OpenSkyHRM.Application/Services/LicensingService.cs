@@ -6,6 +6,7 @@ using OpenSkyHRM.Application.DTOs.Licensing;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
+using OpenSkyHRM.Domain.Security;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Application.Services;
@@ -99,15 +100,9 @@ public class LicensingService : ILicensingService
         try
         {
             var effective = await GetEffectiveModuleCodesAsync(cancellationToken);
-            var set = effective.ToHashSet(StringComparer.Ordinal);
-            return await _db.LicensedModules
-                .AsNoTracking()
-                .Where(m => !m.IsDeleted && m.IsActive && set.Contains(m.Code))
-                .OrderBy(m => m.Category)
-                .ThenBy(m => m.SortOrder)
-                .ThenBy(m => m.DisplayName)
-                .Select(m => new AvailableModuleDto { Module = m.Code, Label = m.DisplayName })
-                .ToListAsync(cancellationToken);
+            return RolePermissionCatalog.FilterByLicenses(effective)
+                .Select(m => new AvailableModuleDto { Module = m.Code, Label = m.Label })
+                .ToList();
         }
         catch (Exception ex)
         {
