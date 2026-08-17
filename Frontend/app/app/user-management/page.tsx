@@ -786,6 +786,50 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
     }));
   }
 
+  function grantAllPermissions() {
+    setPermissions((prev) => {
+      const next: Record<string, Record<string, { enabled: boolean; scope: string }>> = {};
+      for (const mod of modules) {
+        next[mod.module] = {};
+        for (const act of ACTIONS) {
+          next[mod.module][act.key] = {
+            enabled: true,
+            scope: prev[mod.module]?.[act.key]?.scope || "All",
+          };
+        }
+      }
+      return next;
+    });
+  }
+
+  function clearAllPermissions() {
+    setPermissions((prev) => {
+      const next: Record<string, Record<string, { enabled: boolean; scope: string }>> = {};
+      for (const mod of modules) {
+        next[mod.module] = {};
+        for (const act of ACTIONS) {
+          next[mod.module][act.key] = {
+            enabled: false,
+            scope: prev[mod.module]?.[act.key]?.scope || "All",
+          };
+        }
+      }
+      return next;
+    });
+  }
+
+  function grantAllForModule(module: string) {
+    setPermissions((prev) => ({
+      ...prev,
+      [module]: Object.fromEntries(
+        ACTIONS.map((act) => [
+          act.key,
+          { enabled: true, scope: prev[module]?.[act.key]?.scope || "All" },
+        ]),
+      ),
+    }));
+  }
+
   async function handleSave() {
     if (!selectedRoleId) return;
     setError("");
@@ -820,7 +864,7 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
           <div>
             <h2 className="text-base font-semibold text-slate-800">Roles & permissions</h2>
-            <p className="mt-1 text-xs text-slate-500">Configure which menus and actions each role can access. Read = menu visibility.</p>
+              <p className="mt-1 text-xs text-slate-500">Configure which menus and actions each role can access. Read = menu visibility. Use Grant all to enable every module in this list.</p>
           </div>
           <Button type="button" onClick={() => setShowCreateRole(true)}>
             + New Security Role
@@ -864,6 +908,19 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
                 onDismiss={() => setError("")}
                 className="mb-4 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800"
               />
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-slate-700">
+                  Permissions for {selectedRole.name}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" onClick={grantAllPermissions}>
+                    Grant all
+                  </Button>
+                  <Button type="button" variant="secondary" onClick={clearAllPermissions}>
+                    Clear all
+                  </Button>
+                </div>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -877,7 +934,18 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
                   <tbody>
                     {modules.map((mod) => (
                       <tr key={mod.module} className="border-b border-slate-50">
-                        <td className="py-2.5 pr-4 font-medium text-slate-700">{mod.label}</td>
+                        <td className="py-2.5 pr-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-700">{mod.label}</span>
+                            <button
+                              type="button"
+                              onClick={() => grantAllForModule(mod.module)}
+                              className="text-[11px] font-medium text-indigo-600 hover:text-indigo-800"
+                            >
+                              All
+                            </button>
+                          </div>
+                        </td>
                         {ACTIONS.map((act) => {
                           const val = permissions[mod.module]?.[act.key] ?? { enabled: false, scope: "All" };
                           return (

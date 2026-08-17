@@ -11,7 +11,7 @@ public interface ILicensingService
 
     Task<bool> IsModuleLicensedAsync(string moduleCode, CancellationToken cancellationToken = default);
 
-    /// <summary>Modules that are both in the catalog and currently licensed (for role permission assignment).</summary>
+    /// <summary>Sidebar and related menu rows currently licensed (for role permission assignment).</summary>
     Task<List<AvailableModuleDto>> GetLicensedModulesForRoleAssignmentAsync(CancellationToken cancellationToken = default);
 
     Task<LicensingAdminDto> GetAdminStateAsync(CancellationToken cancellationToken = default);
