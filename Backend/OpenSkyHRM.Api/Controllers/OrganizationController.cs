@@ -46,15 +46,29 @@ public class OrganizationController : ControllerBase
     [HttpPost("departments")]
     public async Task<IActionResult> CreateDepartment([FromBody] CreateDepartmentDto dto)
     {
-        var created = await _orgService.CreateDepartmentAsync(dto);
-        return CreatedAtAction(nameof(GetDepartment), new { id = created.Id }, created);
+        try
+        {
+            var created = await _orgService.CreateDepartmentAsync(dto);
+            return CreatedAtAction(nameof(GetDepartment), new { id = created.Id }, created);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("departments/{id:guid}")]
     public async Task<IActionResult> UpdateDepartment(Guid id, [FromBody] UpdateDepartmentDto dto)
     {
-        var updated = await _orgService.UpdateDepartmentAsync(id, dto);
-        return updated is null ? NotFound() : Ok(updated);
+        try
+        {
+            var updated = await _orgService.UpdateDepartmentAsync(id, dto);
+            return updated is null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("departments/{id:guid}")]
