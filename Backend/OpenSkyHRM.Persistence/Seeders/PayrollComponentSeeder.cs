@@ -121,6 +121,8 @@ public static class PayrollComponentSeeder
                 Description = description,
             });
         }
+
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     private static CompensationComponent ToEntity(PayrollComponentDefinition definition) =>
