@@ -80,6 +80,26 @@ internal static class AttendancePunchPolicyEvaluator
         return new AttendancePunchPolicy { ResolvedPlace = place };
     }
 
+    /// <summary>
+    /// After the API layer resolves QR into BusinessUnitId/LocationId, ensure the punch matches the employee's assignment.
+    /// </summary>
+    public static void ValidateEmployeeMatchesScannedQr(Employee employee, PunchRequestDto dto)
+    {
+        if (dto.BusinessUnitId.HasValue && dto.BusinessUnitId != Guid.Empty
+            && employee.BusinessUnitId.HasValue && employee.BusinessUnitId != Guid.Empty
+            && employee.BusinessUnitId != dto.BusinessUnitId)
+        {
+            throw new InvalidOperationException("This QR code is not for your business unit.");
+        }
+
+        if (dto.LocationId.HasValue && dto.LocationId != Guid.Empty
+            && employee.LocationId.HasValue && employee.LocationId != Guid.Empty
+            && employee.LocationId != dto.LocationId)
+        {
+            throw new InvalidOperationException("This QR code is not for your location.");
+        }
+    }
+
     private static void RequireQrPayload(PunchRequestDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.QrPayload))
