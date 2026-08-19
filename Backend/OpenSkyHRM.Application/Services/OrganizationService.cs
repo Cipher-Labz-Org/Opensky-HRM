@@ -17,9 +17,45 @@ public class OrganizationService : IOrganizationService
 
     // --- Departments ---
 
+    private IQueryable<Department> ActiveDepartments => _db.Departments.Where(d => !d.IsDeleted);
+
+    private static string NormalizeDepartmentCode(string code) => code.Trim();
+
+    private async Task ValidateDepartmentParentAsync(Guid? parentDepartmentId, Guid? currentDepartmentId, CancellationToken ct = default)
+    {
+        if (!parentDepartmentId.HasValue) return;
+
+        if (currentDepartmentId.HasValue && parentDepartmentId.Value == currentDepartmentId.Value)
+            throw new InvalidOperationException("A department cannot be its own parent.");
+
+        var parent = await _db.Departments.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == parentDepartmentId.Value, ct);
+        if (parent is null || parent.IsDeleted)
+            throw new InvalidOperationException("Parent department was not found or is no longer active.");
+    }
+
+    private async Task ApplyDepartmentFieldsAsync(
+        Department dept,
+        string name,
+        string code,
+        string? description,
+        Guid? parentDepartmentId,
+        Guid? businessUnitId,
+        CancellationToken ct = default)
+    {
+        await ValidateDepartmentParentAsync(parentDepartmentId, dept.Id, ct);
+
+        dept.Name = name.Trim();
+        dept.Code = NormalizeDepartmentCode(code);
+        dept.Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+        dept.ParentDepartmentId = parentDepartmentId;
+        dept.BusinessUnitId = businessUnitId;
+        dept.IsDeleted = false;
+    }
+
     public async Task<List<DepartmentDto>> GetDepartmentsAsync()
     {
-        return await _db.Departments
+        return await ActiveDepartments
             .Include(d => d.ParentDepartment)
             .Include(d => d.BusinessUnit)
             .Include(d => d.Employees)
@@ -41,7 +77,7 @@ public class OrganizationService : IOrganizationService
 
     public async Task<DepartmentDto?> GetDepartmentByIdAsync(Guid id)
     {
-        var dept = await _db.Departments
+        var dept = await ActiveDepartments
             .Include(d => d.ParentDepartment)
             .Include(d => d.BusinessUnit)
             .Include(d => d.Employees)
@@ -65,15 +101,25 @@ public class OrganizationService : IOrganizationService
 
     public async Task<DepartmentDto> CreateDepartmentAsync(CreateDepartmentDto dto)
     {
-        var dept = new Department
-        {
-            Name = dto.Name,
-            Code = dto.Code,
-            Description = dto.Description,
-            ParentDepartmentId = dto.ParentDepartmentId,
-            BusinessUnitId = dto.BusinessUnitId,
-        };
+        var code = NormalizeDepartmentCode(dto.Code);
+        if (string.IsNullOrEmpty(code))
+            throw new InvalidOperationException("Department code is required.");
 
+        var existing = await _db.Departments.FirstOrDefaultAsync(d => d.Code == code);
+        if (existing is not null)
+        {
+            if (!existing.IsDeleted)
+                throw new InvalidOperationException($"A department with code '{code}' already exists.");
+
+            await ApplyDepartmentFieldsAsync(
+                existing, dto.Name, dto.Code, dto.Description, dto.ParentDepartmentId, dto.BusinessUnitId);
+            await _db.SaveChangesAsync();
+            return (await GetDepartmentByIdAsync(existing.Id))!;
+        }
+
+        var dept = new Department();
+        await ApplyDepartmentFieldsAsync(
+            dept, dto.Name, dto.Code, dto.Description, dto.ParentDepartmentId, dto.BusinessUnitId);
         _db.Departments.Add(dept);
         await _db.SaveChangesAsync();
         return (await GetDepartmentByIdAsync(dept.Id))!;
@@ -84,12 +130,19 @@ public class OrganizationService : IOrganizationService
         var dept = await _db.Departments.FindAsync(id);
         if (dept is null) return null;
 
-        dept.Name = dto.Name;
-        dept.Code = dto.Code;
-        dept.Description = dto.Description;
-        dept.ParentDepartmentId = dto.ParentDepartmentId;
-        dept.BusinessUnitId = dto.BusinessUnitId;
+        var code = NormalizeDepartmentCode(dto.Code);
+        var codeOwner = await _db.Departments.FirstOrDefaultAsync(d => d.Code == code && d.Id != id);
+        if (codeOwner is not null)
+        {
+            if (!codeOwner.IsDeleted)
+                throw new InvalidOperationException($"A department with code '{code}' already exists.");
 
+            // Free the code held by a different soft-deleted row so this department can use it.
+            codeOwner.Code = codeOwner.Id.ToString("N")[..20];
+        }
+
+        await ApplyDepartmentFieldsAsync(
+            dept, dto.Name, dto.Code, dto.Description, dto.ParentDepartmentId, dto.BusinessUnitId);
         await _db.SaveChangesAsync();
         return (await GetDepartmentByIdAsync(id))!;
     }
@@ -97,7 +150,7 @@ public class OrganizationService : IOrganizationService
     public async Task<bool> DeleteDepartmentAsync(Guid id)
     {
         var dept = await _db.Departments.FindAsync(id);
-        if (dept is null) return false;
+        if (dept is null || dept.IsDeleted) return false;
 
         dept.IsDeleted = true;
         await _db.SaveChangesAsync();
