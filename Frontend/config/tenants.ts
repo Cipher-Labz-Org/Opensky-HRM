@@ -55,6 +55,10 @@ const TENANT_META: Record<string, Omit<TenantConfig, "apiUrl">> = {
     companyId: "besttrend",
     companyName: "Best Trend",
   },
+  "epic.openskyhrm.com": {
+    companyId: "epic",
+    companyName: "Epic",
+  },
 };
 
 function buildTenants(): Record<string, TenantConfig> {
