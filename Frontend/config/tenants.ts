@@ -105,3 +105,12 @@ export function getBackendUrlForHostname(hostname: string): string | null {
 
   return `https://${slug}backend.openskyhrm.com`;
 }
+
+/**
+ * HTTP-only IIS backends cannot be called from the HTTPS frontend (mixed content).
+ * Route browser traffic through same-origin Vercel proxy handlers instead.
+ */
+export function tenantBackendRequiresBrowserProxy(hostname: string): boolean {
+  const backend = getBackendUrlForHostname(hostname);
+  return backend != null && backend.startsWith("http://");
+}

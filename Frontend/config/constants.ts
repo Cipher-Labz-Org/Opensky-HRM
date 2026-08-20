@@ -3,7 +3,7 @@
  * Used for branding, support, and default behavior.
  */
 
-import { getBackendUrlForHostname } from "./tenants";
+import { getBackendUrlForHostname, tenantBackendRequiresBrowserProxy } from "./tenants";
 
 export const APP_NAME = "OpenSky HRM";
 export const SUPPORT_EMAIL = "support@openskyhrm.com";
@@ -54,9 +54,11 @@ function isProductionAppHost(hostname: string): boolean {
  */
 export function getApiBaseUrl(): string {
   if (typeof window !== "undefined") {
-    const backend = getBackendUrlForHostname(window.location.hostname);
+    const hostname = window.location.hostname;
+    if (tenantBackendRequiresBrowserProxy(hostname)) return "";
+    const backend = getBackendUrlForHostname(hostname);
     if (backend) return backend;
-    if (isProductionAppHost(window.location.hostname)) return "";
+    if (isProductionAppHost(hostname)) return "";
   }
   return API_BASE_URL;
 }
@@ -86,14 +88,19 @@ export function resolveAssetUrl(path: string | null | undefined, cacheBuster?: n
   let url: string;
 
   if (typeof window !== "undefined") {
-    const backend = getBackendUrlForHostname(window.location.hostname);
-    if (backend) {
-      url = `${backend}${normalized}`;
-    } else if (isProductionAppHost(window.location.hostname)) {
+    const hostname = window.location.hostname;
+    if (tenantBackendRequiresBrowserProxy(hostname)) {
       url = normalized;
     } else {
-      const base = getApiBaseUrl().replace(/\/$/, "");
-      url = base ? `${base}${normalized}` : normalized;
+      const backend = getBackendUrlForHostname(hostname);
+      if (backend) {
+        url = `${backend}${normalized}`;
+      } else if (isProductionAppHost(hostname)) {
+        url = normalized;
+      } else {
+        const base = getApiBaseUrl().replace(/\/$/, "");
+        url = base ? `${base}${normalized}` : normalized;
+      }
     }
   } else {
     url = `${getAssetBaseUrl()}${normalized}`;
@@ -121,7 +128,9 @@ export function resolveAuthApiPath(path: string): string {
 /** Backend origin for static assets (profile images, company logo). <img src> does not need CORS. */
 export function getAssetBaseUrl(): string {
   if (typeof window !== "undefined") {
-    const backend = getBackendUrlForHostname(window.location.hostname);
+    const hostname = window.location.hostname;
+    if (tenantBackendRequiresBrowserProxy(hostname)) return "";
+    const backend = getBackendUrlForHostname(hostname);
     if (backend) return backend;
   }
   return (rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl : defaultLocalApi).replace(/\/$/, "");
