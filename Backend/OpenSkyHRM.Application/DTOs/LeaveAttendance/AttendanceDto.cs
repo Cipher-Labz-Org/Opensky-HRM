@@ -92,11 +92,14 @@ public class OvertimeNopayResultDto
     public decimal TotalWorkedHours { get; set; }
     public decimal ExpectedHours { get; set; }
     public decimal OvertimeHours { get; set; }
+    public decimal PreOtHours { get; set; }
+    public decimal PostOtHours { get; set; }
     public int NopayDays { get; set; }
     public decimal NopayHours { get; set; }
     public int LateDays { get; set; }
     public int PresentDays { get; set; }
     public int AbsentDays { get; set; }
+    public string? DepartmentName { get; set; }
 
     /// <summary>When set, OT for this row was approved or rejected for the requested period.</summary>
     public string? OvertimeApprovalStatus { get; set; }
@@ -104,9 +107,35 @@ public class OvertimeNopayResultDto
     public string? OvertimeApproverName { get; set; }
     public decimal? ApprovedOvertimeHoursSnapshot { get; set; }
     public bool OvertimeHoursOutdated { get; set; }
+    public string? Remarks { get; set; }
+
+    /// <summary>NoOt, PendingApproval, Approved, Rejected, SupervisorNotAssigned.</summary>
+    public string OtStatus { get; set; } = "NoOt";
+    public string OtStatusLabel { get; set; } = "No OT";
+    public bool HasSupervisor { get; set; }
+    public Guid? SupervisorId { get; set; }
+    public string? SupervisorName { get; set; }
+    public bool CanApprove { get; set; }
 }
 
 public class ApproveRejectOvertimeNopayDto
 {
     public string? Remarks { get; set; }
+}
+
+public class OvertimeNopayDayDto
+{
+    public Guid EmployeeId { get; set; }
+    public string EmployeeName { get; set; } = string.Empty;
+    public string? EmployeeCode { get; set; }
+    public string? DepartmentName { get; set; }
+    public DateTime Date { get; set; }
+    public DateTime? PunchIn { get; set; }
+    public DateTime? PunchOut { get; set; }
+    public string? ShiftName { get; set; }
+    public decimal ExpectedHours { get; set; }
+    public decimal WorkedHours { get; set; }
+    public decimal PreOtHours { get; set; }
+    public decimal PostOtHours { get; set; }
+    public decimal OvertimeHours { get; set; }
 }

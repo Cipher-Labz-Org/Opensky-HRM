@@ -79,6 +79,46 @@ public class EmployeeService : IEmployeeService
         };
     }
 
+    /// <summary>
+    /// Matches each whitespace-separated token against name parts, code, and optionally email
+    /// so queries like "Madhavan Gunasekaram" still hit employees who have a middle name.
+    /// </summary>
+    private static IQueryable<Employee> ApplyEmployeeTextSearch(IQueryable<Employee> query, string? search, bool includeEmail)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+            return query;
+
+        var tokens = search.Trim().ToLower()
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length == 0)
+            return query;
+
+        foreach (var token in tokens)
+        {
+            var t = token;
+            if (includeEmail)
+            {
+                query = query.Where(e =>
+                    e.FirstName.ToLower().Contains(t) ||
+                    e.LastName.ToLower().Contains(t) ||
+                    (e.MiddleName != null && e.MiddleName.ToLower().Contains(t)) ||
+                    e.EmployeeCode.ToLower().Contains(t) ||
+                    (e.Email != null && e.Email.ToLower().Contains(t)) ||
+                    (e.OtherEmail != null && e.OtherEmail.ToLower().Contains(t)));
+            }
+            else
+            {
+                query = query.Where(e =>
+                    e.FirstName.ToLower().Contains(t) ||
+                    e.LastName.ToLower().Contains(t) ||
+                    (e.MiddleName != null && e.MiddleName.ToLower().Contains(t)) ||
+                    e.EmployeeCode.ToLower().Contains(t));
+            }
+        }
+
+        return query;
+    }
+
     private static IOrderedQueryable<Employee> OrderByEmployeeCode(IQueryable<Employee> query, bool asc)
     {
         return asc
@@ -158,19 +198,7 @@ public class EmployeeService : IEmployeeService
             .Include(e => e.Manager)
             .AsQueryable();
 
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var term = search.Trim().ToLower();
-            query = query.Where(e =>
-                e.FirstName.ToLower().Contains(term) ||
-                e.LastName.ToLower().Contains(term) ||
-                (e.MiddleName != null && e.MiddleName.ToLower().Contains(term)) ||
-                (e.FirstName + " " + e.LastName).ToLower().Contains(term) ||
-                (e.MiddleName != null && (e.FirstName + " " + e.MiddleName + " " + e.LastName).ToLower().Contains(term)) ||
-                e.EmployeeCode.ToLower().Contains(term) ||
-                (e.Email != null && e.Email.ToLower().Contains(term)) ||
-                (e.OtherEmail != null && e.OtherEmail.ToLower().Contains(term)));
-        }
+        query = ApplyEmployeeTextSearch(query, search, includeEmail: true);
 
         if (departmentId.HasValue)
             query = query.Where(e => e.DepartmentId == departmentId.Value);
@@ -234,6 +262,56 @@ public class EmployeeService : IEmployeeService
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize
+        };
+    }
+
+    public async Task<PagedResult<EmployeeLookupDto>> GetLookupAsync(
+        int pageSize = 50, string? search = null, Guid? departmentId = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = true)
+    {
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = _db.Employees.AsNoTracking().AsQueryable();
+
+        query = ApplyEmployeeTextSearch(query, search, includeEmail: false);
+
+        if (departmentId.HasValue)
+            query = query.Where(e => e.DepartmentId == departmentId.Value);
+
+        if (excludeTerminated)
+            query = query.Where(e => e.Status != "Terminated");
+
+        if (allowedEmployeeIds != null)
+        {
+            query = allowedEmployeeIds.Count == 0
+                ? query.Where(_ => false)
+                : query.Where(e => allowedEmployeeIds.Contains(e.Id));
+        }
+
+        var items = await query
+            .OrderBy(e => e.FirstName)
+            .ThenBy(e => e.LastName)
+            .ThenBy(e => e.EmployeeCode)
+            .Take(pageSize)
+            .Select(e => new EmployeeLookupDto
+            {
+                Id = e.Id,
+                EmployeeCode = e.EmployeeCode,
+                FirstName = e.FirstName,
+                LastName = e.LastName,
+                FullName = e.MiddleName == null || e.MiddleName == ""
+                    ? e.FirstName + " " + e.LastName
+                    : e.FirstName + " " + e.MiddleName + " " + e.LastName,
+                DepartmentName = e.Department != null ? e.Department.Name : null,
+            })
+            .ToListAsync();
+
+        return new PagedResult<EmployeeLookupDto>
+        {
+            Items = items,
+            TotalCount = items.Count,
+            Page = 1,
+            PageSize = pageSize,
         };
     }
 

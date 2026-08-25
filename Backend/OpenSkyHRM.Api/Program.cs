@@ -373,7 +373,7 @@ if (dbAvailable)
         await LicensingSeeder.EnsureAsync(db);
         scope.ServiceProvider.GetRequiredService<OpenSkyHRM.Application.Interfaces.ILicensingService>().InvalidateCache();
         await OrganizationSeeder.RepairNullEmployeeEmailsAsync(db);
-        await OrganizationSeeder.EnsureSampleEmployeesIfEmptyAsync(db);
+        await OrganizationSeeder.SeedAsync(db);
         await PayrollSeeder.EnsureStatutoryFormulasAsync(db);
         if (app.Environment.IsDevelopment())
             await PayrollSeeder.EnsureDemoSalary100kAsync(db);

@@ -13,6 +13,9 @@ public class LeaveRequestDto
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public decimal TotalDays { get; set; }
+    public string DurationKind { get; set; } = "FullDay";
+    public string? HalfDayPeriod { get; set; }
+    public int? ShortLeaveHours { get; set; }
     public string? Reason { get; set; }
     public string Status { get; set; } = string.Empty;
     public string? CoveragePerson { get; set; }
@@ -45,6 +48,9 @@ public class CreateLeaveRequestDto
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public decimal TotalDays { get; set; }
+    public string? DurationKind { get; set; }
+    public string? HalfDayPeriod { get; set; }
+    public int? ShortLeaveHours { get; set; }
     public string? Reason { get; set; }
     public string? CoveragePerson { get; set; }
 }
@@ -63,6 +69,13 @@ public class LeaveTypeDto
     public int DefaultDaysPerYear { get; set; }
     public bool IsPaid { get; set; }
     public bool IsActive { get; set; }
+    public bool AllowHalfDay { get; set; }
+    public bool AllowShortLeave { get; set; }
+    public int ShortLeaveHours { get; set; }
+    public int? MinHours { get; set; }
+    public int? MaxHours { get; set; }
+    public decimal? MinDays { get; set; }
+    public decimal? MaxDays { get; set; }
 }
 
 public class CreateLeaveTypeDto
@@ -73,6 +86,13 @@ public class CreateLeaveTypeDto
     public int DefaultDaysPerYear { get; set; }
     public bool IsPaid { get; set; } = true;
     public bool IsActive { get; set; } = true;
+    public bool AllowHalfDay { get; set; }
+    public bool AllowShortLeave { get; set; }
+    public int ShortLeaveHours { get; set; } = 3;
+    public int? MinHours { get; set; }
+    public int? MaxHours { get; set; }
+    public decimal? MinDays { get; set; }
+    public decimal? MaxDays { get; set; }
 }
 
 public class UpdateLeaveTypeDto
@@ -83,6 +103,13 @@ public class UpdateLeaveTypeDto
     public int DefaultDaysPerYear { get; set; }
     public bool IsPaid { get; set; }
     public bool IsActive { get; set; }
+    public bool AllowHalfDay { get; set; }
+    public bool AllowShortLeave { get; set; }
+    public int ShortLeaveHours { get; set; } = 3;
+    public int? MinHours { get; set; }
+    public int? MaxHours { get; set; }
+    public decimal? MinDays { get; set; }
+    public decimal? MaxDays { get; set; }
 }
 
 public class LeavePolicyDto

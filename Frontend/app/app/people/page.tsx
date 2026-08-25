@@ -687,7 +687,7 @@ export default function PeoplePage() {
   }, []);
 
   const searchSuggestionsPanel = showSuggestions && quickSearch.trim().length >= 1 ? (
-    <div className="absolute left-0 top-[calc(100%+6px)] z-50 w-[min(620px,calc(100vw-2rem))] max-h-[min(360px,calc(100vh-10rem))] overflow-y-auto rounded-xl border border-slate-200/90 bg-white shadow-xl shadow-slate-200/50">
+    <div className="absolute left-0 top-[calc(100%+6px)] z-[100] w-[min(620px,calc(100vw-2rem))] max-h-[min(360px,calc(100vh-10rem))] overflow-y-auto rounded-xl border border-slate-200/90 bg-white shadow-xl shadow-slate-200/50">
       <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
         {suggestionsLoading ? "Searching…" : "Employees"}
       </div>
@@ -1014,66 +1014,6 @@ export default function PeoplePage() {
         </div>
       </div>
 
-      {/* Search & Filters Bar */}
-      <div className="mb-5 flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <PeopleHubSearchBar
-            quickSearch={quickSearch}
-            onQuickSearchChange={(value) => {
-              setQuickSearch(sanitizeSearchInput(value));
-              setShowSuggestions(true);
-            }}
-            onQuickSearchSubmit={handleQuickSearch}
-            groupBy={groupBy}
-            onGroupByChange={handleGroupByChange}
-            statusFilter={statusFilter}
-            onStatusFilterChange={(value) => {
-              setStatusFilter(value);
-              resetEmployeeListPaging();
-            }}
-            filterSections={filterSections}
-            filterPills={filterPills}
-            onFilterChange={applyFieldFilter}
-            onRemoveFilter={removeAppliedFilter}
-            activeFilterValues={activeFilterValues}
-            onClearAll={handleReset}
-            employeeFavorites={employeeFavorites}
-            onOpenEmployeeFavorite={openEmployeeFavorite}
-            onDeleteEmployeeFavorite={handleDeleteEmployeeFavorite}
-            onFavoritesDiscoverQueryChange={handleFavoritesDiscoverQueryChange}
-            favoritesDiscoverResults={favoritesDiscoverResults}
-            favoritesDiscoverLoading={favoritesDiscoverLoading}
-            isEmployeeFavorite={(employeeId) => employeeFavoriteIds.has(employeeId)}
-            onToggleEmployeeFavorite={toggleEmployeeFavorite}
-            showSuggestions={showSuggestions}
-            onFocusSearch={() => {
-              if (quickSearch.trim().length >= 1) setShowSuggestions(true);
-            }}
-            onDismissSuggestions={() => setShowSuggestions(false)}
-            suggestionsSlot={searchSuggestionsPanel}
-          />
-        </div>
-        <div className="flex shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-          {PEOPLE_VIEW_OPTIONS.map((opt) => (
-            <button
-              key={opt.mode}
-              type="button"
-              onClick={() => selectViewMode(opt.mode)}
-              title={opt.label}
-              aria-label={opt.label}
-              aria-pressed={viewMode === opt.mode}
-              className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
-                viewMode === opt.mode
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-              }`}
-            >
-              <PeopleViewIcon mode={opt.mode} />
-            </button>
-          ))}
-        </div>
-      </div>
-
       {canCreateEmployee && (
       <CreateEmployeeModal
         open={showCreate}
@@ -1088,7 +1028,72 @@ export default function PeoplePage() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="relative z-30 flex flex-wrap items-center gap-x-3 gap-y-2 overflow-visible border-b border-slate-200/80 bg-slate-50/70 px-3 py-2.5">
+          <div className="relative z-30 w-full min-w-0 max-w-lg overflow-visible">
+            <PeopleHubSearchBar
+              quickSearch={quickSearch}
+              onQuickSearchChange={(value) => {
+                setQuickSearch(sanitizeSearchInput(value));
+                setShowSuggestions(true);
+              }}
+              onQuickSearchSubmit={handleQuickSearch}
+              groupBy={groupBy}
+              onGroupByChange={handleGroupByChange}
+              statusFilter={statusFilter}
+              onStatusFilterChange={(value) => {
+                setStatusFilter(value);
+                resetEmployeeListPaging();
+              }}
+              filterSections={filterSections}
+              filterPills={filterPills}
+              onFilterChange={applyFieldFilter}
+              onRemoveFilter={removeAppliedFilter}
+              activeFilterValues={activeFilterValues}
+              onClearAll={handleReset}
+              employeeFavorites={employeeFavorites}
+              onOpenEmployeeFavorite={openEmployeeFavorite}
+              onDeleteEmployeeFavorite={handleDeleteEmployeeFavorite}
+              onFavoritesDiscoverQueryChange={handleFavoritesDiscoverQueryChange}
+              favoritesDiscoverResults={favoritesDiscoverResults}
+              favoritesDiscoverLoading={favoritesDiscoverLoading}
+              isEmployeeFavorite={(employeeId) => employeeFavoriteIds.has(employeeId)}
+              onToggleEmployeeFavorite={toggleEmployeeFavorite}
+              showSuggestions={showSuggestions}
+              onFocusSearch={() => {
+                if (quickSearch.trim().length >= 1) setShowSuggestions(true);
+              }}
+              onDismissSuggestions={() => setShowSuggestions(false)}
+              suggestionsSlot={searchSuggestionsPanel}
+            />
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-2.5">
+            <span className="hidden text-[11px] font-medium tabular-nums text-slate-500 sm:inline">
+              {loading ? "Loading…" : `${totalEmployees} ${totalEmployees === 1 ? "person" : "people"}`}
+            </span>
+            <div className="hidden h-5 w-px bg-slate-200 sm:block" aria-hidden />
+            <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+              {PEOPLE_VIEW_OPTIONS.map((opt) => (
+                <button
+                  key={opt.mode}
+                  type="button"
+                  onClick={() => selectViewMode(opt.mode)}
+                  title={opt.label}
+                  aria-label={opt.label}
+                  aria-pressed={viewMode === opt.mode}
+                  className={`flex h-8 w-8 items-center justify-center rounded-md transition ${
+                    viewMode === opt.mode
+                      ? "bg-[#2B7DE9] text-white shadow-sm"
+                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  }`}
+                >
+                  <PeopleViewIcon mode={opt.mode} />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="overflow-hidden">
         {loading ? (
           <p className="py-10 text-center text-xs text-slate-400">Loading...</p>
         ) : employees.length === 0 ? (
@@ -1211,6 +1216,7 @@ export default function PeoplePage() {
             )}
           </>
         )}
+        </div>
       </div>
     </>
   );

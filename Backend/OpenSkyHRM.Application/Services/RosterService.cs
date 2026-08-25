@@ -72,14 +72,20 @@ public class RosterService : IRosterService
             throw new ArgumentException("Roster name is required.");
         await EnsureUniqueCodeAsync(code);
 
+        var (startTime, endTime, workHours) = await ResolveTemplateTimesAsync(
+            dto.DefaultShiftPatternId,
+            dto.DefaultStartTime,
+            dto.DefaultEndTime,
+            dto.WorkHoursPerDay);
+
         var entity = new RosterTemplate
         {
             Code = code,
             Name = dto.Name.Trim(),
             Description = dto.Description,
-            DefaultStartTime = dto.DefaultStartTime,
-            DefaultEndTime = dto.DefaultEndTime,
-            WorkHoursPerDay = dto.WorkHoursPerDay,
+            DefaultStartTime = startTime,
+            DefaultEndTime = endTime,
+            WorkHoursPerDay = workHours,
             IsActive = dto.IsActive,
             DefaultShiftPatternId = dto.DefaultShiftPatternId,
         };
@@ -100,12 +106,18 @@ public class RosterService : IRosterService
             throw new ArgumentException("Roster name is required.");
         await EnsureUniqueCodeAsync(code, id);
 
+        var (startTime, endTime, workHours) = await ResolveTemplateTimesAsync(
+            dto.DefaultShiftPatternId,
+            dto.DefaultStartTime,
+            dto.DefaultEndTime,
+            dto.WorkHoursPerDay);
+
         entity.Code = code;
         entity.Name = dto.Name.Trim();
         entity.Description = dto.Description;
-        entity.DefaultStartTime = dto.DefaultStartTime;
-        entity.DefaultEndTime = dto.DefaultEndTime;
-        entity.WorkHoursPerDay = dto.WorkHoursPerDay;
+        entity.DefaultStartTime = startTime;
+        entity.DefaultEndTime = endTime;
+        entity.WorkHoursPerDay = workHours;
         entity.IsActive = dto.IsActive;
         entity.DefaultShiftPatternId = dto.DefaultShiftPatternId;
         await _db.SaveChangesAsync();
@@ -113,6 +125,51 @@ public class RosterService : IRosterService
     }
 
     private static string NormalizeCode(string? code) => (code ?? string.Empty).Trim();
+
+    private async Task<(TimeSpan Start, TimeSpan End, decimal WorkHours)> ResolveTemplateTimesAsync(
+        Guid? shiftPatternId,
+        TimeSpan defaultStart,
+        TimeSpan defaultEnd,
+        decimal workHours)
+    {
+        if (!shiftPatternId.HasValue)
+            return (defaultStart, defaultEnd, workHours);
+
+        var shift = await _db.Set<ShiftPattern>().FindAsync(shiftPatternId.Value);
+        if (shift is null)
+            return (defaultStart, defaultEnd, workHours);
+
+        if (shift.ShiftType == "Open")
+            return (TimeSpan.Zero, TimeSpan.Zero, workHours);
+
+        if (shift.ShiftType == "Flexi")
+        {
+            var start = shift.FlexiWindowStart ?? defaultStart;
+            var end = shift.FlexiWindowEnd ?? defaultEnd;
+            var hours = shift.MinimumWorkHours ?? workHours;
+            return (start, end, hours);
+        }
+
+        if (shift.ShiftType == "Split"
+            && shift.Session2StartTime.HasValue
+            && shift.Session2EndTime.HasValue)
+        {
+            var session1Hours = (decimal)(shift.EndTime - shift.StartTime).TotalHours;
+            var session2Crosses = shift.IsNightShift
+                || shift.Session2EndTime.Value <= shift.Session2StartTime.Value;
+            var session2Hours = session2Crosses
+                ? (decimal)(TimeSpan.FromHours(24) - shift.Session2StartTime.Value + shift.Session2EndTime.Value).TotalHours
+                : (decimal)(shift.Session2EndTime.Value - shift.Session2StartTime.Value).TotalHours;
+            var splitHours = Math.Max(0, session1Hours + session2Hours);
+            return (shift.StartTime, shift.Session2EndTime.Value, splitHours);
+        }
+
+        var span = shift.EndTime >= shift.StartTime
+            ? shift.EndTime - shift.StartTime
+            : TimeSpan.FromHours(24) - shift.StartTime + shift.EndTime;
+        var regularHours = (decimal)Math.Max(0, span.TotalHours);
+        return (shift.StartTime, shift.EndTime, regularHours);
+    }
 
     private async Task EnsureUniqueCodeAsync(string code, Guid? excludeId = null)
     {

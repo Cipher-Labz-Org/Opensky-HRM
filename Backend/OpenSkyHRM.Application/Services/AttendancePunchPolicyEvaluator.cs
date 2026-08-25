@@ -46,15 +46,18 @@ internal static class AttendancePunchPolicyEvaluator
                 RequireQrPayload(dto);
                 if (HasScannedLocation(dto))
                 {
+                    EnsureEmployeeMatchesLocation(dto, employee);
                     place = await TryResolveLocationPlaceAsync(db, dto.LocationId!.Value);
                     return new AttendancePunchPolicy { ResolvedPlace = place };
                 }
 
                 EnsureBusinessUnit(dto, employee);
+                EnsureEmployeeMatchesBusinessUnit(dto, employee);
                 break;
 
             case AttendanceCheckInModes.BusinessUnitGeofence:
                 EnsureBusinessUnit(dto, employee);
+                EnsureEmployeeMatchesBusinessUnit(dto, employee);
                 place = await ResolveBusinessUnitPlaceAsync(db, dto.BusinessUnitId!.Value);
                 RequireGpsInsidePlace(dto, place, "business unit");
                 break;
@@ -63,12 +66,14 @@ internal static class AttendancePunchPolicyEvaluator
                 RequireQrPayload(dto);
                 if (HasScannedLocation(dto))
                 {
+                    EnsureEmployeeMatchesLocation(dto, employee);
                     place = await ResolveLocationPlaceByLocationIdAsync(db, dto.LocationId!.Value);
                     RequireGpsInsidePlace(dto, place, "location");
                     return new AttendancePunchPolicy { ResolvedPlace = place };
                 }
 
                 EnsureBusinessUnit(dto, employee);
+                EnsureEmployeeMatchesBusinessUnit(dto, employee);
                 place = await ResolveBusinessUnitPlaceAsync(db, dto.BusinessUnitId!.Value);
                 RequireGpsInsidePlace(dto, place, "business unit");
                 break;
@@ -78,6 +83,22 @@ internal static class AttendancePunchPolicyEvaluator
         }
 
         return new AttendancePunchPolicy { ResolvedPlace = place };
+    }
+
+    /// <summary>
+    /// When a mobile/web QR punch is used, the scanned business unit or location must match the employee profile.
+    /// Applies regardless of company check-in mode (including Open).
+    /// </summary>
+    internal static void ValidateEmployeeMatchesScannedQr(Employee employee, PunchRequestDto dto)
+    {
+        if (HasScannedLocation(dto))
+        {
+            EnsureEmployeeMatchesLocation(dto, employee);
+            return;
+        }
+
+        if (dto.BusinessUnitId.HasValue && dto.BusinessUnitId != Guid.Empty)
+            EnsureEmployeeMatchesBusinessUnit(dto, employee);
     }
 
     private static void RequireQrPayload(PunchRequestDto dto)
@@ -101,6 +122,44 @@ internal static class AttendancePunchPolicyEvaluator
         }
 
         throw new InvalidOperationException("Business unit is required for this check-in mode.");
+    }
+
+    /// <summary>QR business unit must match the employee's assigned business unit.</summary>
+    private static void EnsureEmployeeMatchesBusinessUnit(PunchRequestDto dto, Employee employee)
+    {
+        if (!dto.BusinessUnitId.HasValue || dto.BusinessUnitId == Guid.Empty)
+            return;
+
+        if (!employee.BusinessUnitId.HasValue || employee.BusinessUnitId == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "Your employee profile has no business unit assigned. Contact HR before checking in.");
+        }
+
+        if (employee.BusinessUnitId.Value != dto.BusinessUnitId.Value)
+        {
+            throw new InvalidOperationException(
+                "This QR code belongs to a different business unit. Scan the QR at your assigned business unit.");
+        }
+    }
+
+    /// <summary>QR location must match the employee's assigned location.</summary>
+    private static void EnsureEmployeeMatchesLocation(PunchRequestDto dto, Employee employee)
+    {
+        if (!dto.LocationId.HasValue || dto.LocationId == Guid.Empty)
+            return;
+
+        if (!employee.LocationId.HasValue || employee.LocationId == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "Your employee profile has no location assigned. Contact HR before checking in.");
+        }
+
+        if (employee.LocationId.Value != dto.LocationId.Value)
+        {
+            throw new InvalidOperationException(
+                "This QR code belongs to a different location. Scan the QR at your assigned location.");
+        }
     }
 
     private static async Task<AttendancePlace?> TryResolveLocationPlaceAsync(AppDbContext db, Guid locationId) =>

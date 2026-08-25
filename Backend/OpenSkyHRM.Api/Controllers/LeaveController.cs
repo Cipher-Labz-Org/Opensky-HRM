@@ -114,6 +114,9 @@ public class LeaveController : ControllerBase
         [FromForm] DateTime startDate,
         [FromForm] DateTime endDate,
         [FromForm] decimal totalDays,
+        [FromForm] string? durationKind,
+        [FromForm] string? halfDayPeriod,
+        [FromForm] int? shortLeaveHours,
         [FromForm] string? reason,
         [FromForm] string? coveragePerson,
         IFormFile? medicalCertificate)
@@ -152,6 +155,9 @@ public class LeaveController : ControllerBase
                 StartDate = startDate,
                 EndDate = endDate,
                 TotalDays = totalDays,
+                DurationKind = durationKind,
+                HalfDayPeriod = halfDayPeriod,
+                ShortLeaveHours = shortLeaveHours,
                 Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
                 CoveragePerson = string.IsNullOrWhiteSpace(coveragePerson) ? null : coveragePerson.Trim(),
             };
@@ -276,7 +282,14 @@ public class LeaveController : ControllerBase
     {
         if (LeaveAccessHelper.ResolveScope(User, "Create") != "All")
             return Forbid();
-        return Ok(await _leaveService.CreateLeaveTypeAsync(dto));
+        try
+        {
+            return Ok(await _leaveService.CreateLeaveTypeAsync(dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("types/{id:guid}")]
@@ -284,8 +297,15 @@ public class LeaveController : ControllerBase
     {
         if (LeaveAccessHelper.ResolveScope(User, "Update") != "All")
             return Forbid();
-        var result = await _leaveService.UpdateLeaveTypeAsync(id, dto);
-        return result is null ? NotFound() : Ok(result);
+        try
+        {
+            var result = await _leaveService.UpdateLeaveTypeAsync(id, dto);
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("types/{id:guid}")]

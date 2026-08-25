@@ -33,6 +33,8 @@ export {
   BUSINESS_UNIT_ATTENDANCE_QR_TYPE,
   LOCATION_ATTENDANCE_QR_TYPE,
 } from "./attendanceQr";
+export { validateAttendanceQrForEmployee } from "./attendanceQrValidation";
+export type { EmployeeQrScope } from "./attendanceQrValidation";
 export type {
   AttendanceQrPayload,
   BusinessUnitAttendanceQrPayload,

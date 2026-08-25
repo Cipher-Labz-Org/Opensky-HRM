@@ -1743,7 +1743,8 @@ function ImportAttendanceLeaveModal({
         <div>Type: <strong className="text-slate-800">{formatProcessType(batch.processType)}</strong></div>
         <div>Period: <strong className="text-slate-800">{formatBatchPeriod(batch)}</strong></div>
         <p className="text-xs text-slate-500">
-          Uses approved OT hours and combined attendance absences + approved no-pay leave for this exact period.
+          Uses only Approved OT hours. Pending, rejected, and supervisor-not-assigned OT is excluded.
+          No-pay combines attendance absences with approved unpaid leave for this exact period.
         </p>
       </div>
 

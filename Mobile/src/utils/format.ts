@@ -22,11 +22,40 @@ export function formatDateTime(value: string | null | undefined): string {
   });
 }
 
+/** Business timezone for attendance punches (Sri Lanka). */
+const BUSINESS_TIME_ZONE = "Asia/Colombo";
+
+function hasExplicitOffset(value: string): boolean {
+  return /Z$/i.test(value) || /[+-]\d{2}:\d{2}$/.test(value);
+}
+
+/** Match back-office: UTC instants (…Z) → Colombo; wall times (no offset) → as stored. */
 export function formatTime(value: string | null | undefined): string {
   if (!value) return "—";
-  const date = new Date(value);
+  const trimmed = value.trim();
+  const date = new Date(trimmed);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString(undefined, {
+
+  if (hasExplicitOffset(trimmed)) {
+    return date.toLocaleTimeString("en-LK", {
+      timeZone: BUSINESS_TIME_ZONE,
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  const timePart = trimmed.includes("T") ? trimmed.split("T")[1] : trimmed;
+  const match = timePart?.match(/^(\d{2}):(\d{2})/);
+  if (match) {
+    const hour = parseInt(match[1], 10);
+    const minute = match[2];
+    const period = hour >= 12 ? "pm" : "am";
+    const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+    return `${hour12}:${minute} ${period}`;
+  }
+
+  return date.toLocaleTimeString("en-LK", {
+    timeZone: BUSINESS_TIME_ZONE,
     hour: "2-digit",
     minute: "2-digit",
   });

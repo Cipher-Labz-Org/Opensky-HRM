@@ -1,0 +1,181 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
+import { apiFetch } from "@/lib/api";
+
+interface AttendanceImportRowResult {
+  row: number;
+  employeeCode: string;
+  date: string | null;
+  status: string;
+  errors: string[];
+}
+
+interface AttendanceImportUploadResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  totalRows: number;
+  results: AttendanceImportRowResult[];
+}
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  onImported?: () => void;
+}
+
+export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<AttendanceImportUploadResult | null>(null);
+  const [error, setError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function resetState() {
+    setFile(null);
+    setResult(null);
+    setError("");
+    setDragOver(false);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function handleClose() {
+    resetState();
+    onClose();
+  }
+
+  function handleFileChange(next: File | null) {
+    setFile(next);
+    setResult(null);
+    setError("");
+  }
+
+  async function handleImport() {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    setResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const json = await apiFetch<AttendanceImportUploadResult>("/api/attendance/import", {
+        method: "POST",
+        body: formData,
+        timeoutMs: 300_000,
+      });
+      setResult(json);
+      setFile(null);
+      if (fileRef.current) fileRef.current.value = "";
+      if ((json.created ?? 0) + (json.updated ?? 0) > 0) {
+        onImported?.();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const skippedRows = result?.results.filter((r) => r.status === "Skipped") ?? [];
+
+  return (
+    <Modal open={open} onClose={handleClose} title="Import Attendance from Excel">
+      <div className="space-y-4">
+        <FormErrorAlert message={error} onDismiss={() => setError("")} />
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-600">
+          <p className="font-medium text-slate-700">Required Excel columns</p>
+          <p className="mt-2 text-xs">
+            Your sheet must include <strong>Employee Code</strong> and <strong>Date</strong> column headers.
+            Optional: Punch In, Punch Out, Status, Remarks.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Employee code must match an active employee. Existing records for the same employee and date are updated.
+          </p>
+        </div>
+
+        <div
+          className={`rounded-xl border-2 border-dashed p-6 text-center transition ${
+            dragOver ? "border-blue-400 bg-blue-50/50" : "border-slate-200 bg-white"
+          }`}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const dropped = e.dataTransfer.files?.[0];
+            if (dropped) handleFileChange(dropped);
+          }}
+        >
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
+          />
+          {file ? (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">{file.name}</p>
+              <Button variant="secondary" type="button" onClick={() => fileRef.current?.click()}>
+                Choose a different file
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-slate-600">Drag and drop your attendance Excel file here, or</p>
+              <Button variant="secondary" type="button" onClick={() => fileRef.current?.click()}>
+                Upload Excel
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {result && (
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-sm font-semibold text-slate-800">Import summary</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Created {result.created}, updated {result.updated}, skipped {result.skipped} of {result.totalRows} rows.
+            </p>
+            {skippedRows.length > 0 && (
+              <div className="mt-3 max-h-40 overflow-y-auto rounded-lg border border-slate-100">
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Row</th>
+                      <th className="px-3 py-2">Employee</th>
+                      <th className="px-3 py-2">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {skippedRows.map((r) => (
+                      <tr key={r.row} className="border-t border-slate-100">
+                        <td className="px-3 py-2">{r.row}</td>
+                        <td className="px-3 py-2">{r.employeeCode || "—"}</td>
+                        <td className="px-3 py-2 text-rose-700">{r.errors.join("; ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <Button variant="secondary" type="button" onClick={handleClose}>
+            Close
+          </Button>
+          <Button type="button" onClick={handleImport} disabled={!file || uploading}>
+            {uploading ? "Importing…" : "Import"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

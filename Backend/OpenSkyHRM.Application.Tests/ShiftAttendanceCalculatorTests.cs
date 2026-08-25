@@ -136,4 +136,211 @@ public class ShiftAttendanceCalculatorTests
 
         Assert.Equal(monday.Date.AddDays(1).AddHours(2), end);
     }
+
+    private static ShiftPattern CreateRegularShift() => new()
+    {
+        Name = "Office 9-5",
+        Code = "OFF",
+        ShiftType = "Regular",
+        StartTime = TimeSpan.FromHours(9),
+        EndTime = TimeSpan.FromHours(17),
+        AppliesOnMonday = true,
+        AppliesOnTuesday = true,
+        AppliesOnWednesday = true,
+        AppliesOnThursday = true,
+        AppliesOnFriday = true,
+    };
+
+    [Fact]
+    public void ComputePrePostOtHours_EarlyArrival_ProducesPreOt()
+    {
+        var shift = CreateRegularShift();
+        var date = new DateTime(2026, 8, 19);
+        var punchIn = date.AddHours(8);
+        var punchOut = date.AddHours(17);
+
+        var result = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, date, punchIn, punchOut);
+
+        Assert.Equal(1m, result.PreOtHours);
+        Assert.Equal(0m, result.PostOtHours);
+    }
+
+    [Fact]
+    public void ComputePrePostOtHours_LateDeparture_ProducesPostOt()
+    {
+        var shift = CreateRegularShift();
+        var date = new DateTime(2026, 8, 19);
+        var punchIn = date.AddHours(9);
+        var punchOut = date.AddHours(18);
+
+        var result = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, date, punchIn, punchOut);
+
+        Assert.Equal(0m, result.PreOtHours);
+        Assert.Equal(1m, result.PostOtHours);
+    }
+
+    [Fact]
+    public void ComputePrePostOtHours_EarlyAndLate_ProducesBoth()
+    {
+        var shift = CreateRegularShift();
+        var date = new DateTime(2026, 8, 19);
+        var punchIn = date.AddHours(8);
+        var punchOut = date.AddHours(18);
+
+        var result = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, date, punchIn, punchOut);
+
+        Assert.Equal(1m, result.PreOtHours);
+        Assert.Equal(1m, result.PostOtHours);
+    }
+
+    [Fact]
+    public void ComputePrePostOtHours_LateArrival_NoPreOt()
+    {
+        var shift = CreateRegularShift();
+        var date = new DateTime(2026, 8, 19);
+        var punchIn = date.AddHours(10);
+        var punchOut = date.AddHours(17);
+
+        var result = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, date, punchIn, punchOut);
+
+        Assert.Equal(0m, result.PreOtHours);
+        Assert.Equal(0m, result.PostOtHours);
+    }
+
+    [Fact]
+    public void ComputePrePostOtHours_MissingPunchOut_ReturnsZero()
+    {
+        var shift = CreateRegularShift();
+        var date = new DateTime(2026, 8, 19);
+
+        var result = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, date, date.AddHours(8), null);
+
+        Assert.Equal(0m, result.PreOtHours);
+        Assert.Equal(0m, result.PostOtHours);
+    }
+
+    [Fact]
+    public void ComputePrePostOtHours_FlexiShift_ReturnsZero()
+    {
+        var shift = new ShiftPattern
+        {
+            ShiftType = "Flexi",
+            FlexiWindowStart = TimeSpan.FromHours(7),
+            FlexiWindowEnd = TimeSpan.FromHours(18),
+            AppliesOnMonday = true,
+        };
+        var date = new DateTime(2026, 8, 18);
+
+        var result = ShiftAttendanceCalculator.ComputePrePostOtHours(
+            shift, date, date.AddHours(6), date.AddHours(19));
+
+        Assert.Equal(0m, result.PreOtHours);
+        Assert.Equal(0m, result.PostOtHours);
+    }
+
+    [Fact]
+    public void ComputePrePostOtHours_SplitShift_UsesSessionBoundaries()
+    {
+        var shift = CreateDoubleShift();
+        var monday = new DateTime(2026, 5, 25);
+        var punchIn = monday.AddHours(5);
+        var punchOut = monday.AddDays(1).AddHours(3);
+
+        var result = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, monday, punchIn, punchOut);
+
+        Assert.Equal(1m, result.PreOtHours);
+        Assert.Equal(1m, result.PostOtHours);
+    }
+
+    [Fact]
+    public void CountsAsPresent_SystemAbsent_IsFalse()
+    {
+        Assert.False(ShiftAttendanceCalculator.CountsAsPresent("Absent", null));
+        Assert.False(ShiftAttendanceCalculator.CountsAsPresent("On Leave", null));
+    }
+
+    [Fact]
+    public void CountsAsPresent_PresentLateHalfDay_IsTrue()
+    {
+        Assert.True(ShiftAttendanceCalculator.CountsAsPresent("Present", null));
+        Assert.True(ShiftAttendanceCalculator.CountsAsPresent("Late", new DateTime(2026, 8, 11, 9, 0, 0)));
+        Assert.True(ShiftAttendanceCalculator.CountsAsPresent("Half Day", null));
+    }
+
+    [Fact]
+    public void ResolveWorkedHours_UsesStoredValueWhenPositive()
+    {
+        var hours = ShiftAttendanceCalculator.ResolveWorkedHours(
+            8m,
+            new DateTime(2026, 8, 11, 9, 0, 0),
+            new DateTime(2026, 8, 11, 18, 0, 0));
+
+        Assert.Equal(8m, hours);
+    }
+
+    [Fact]
+    public void ResolveWorkedHours_FallsBackToPunchSpanWhenStoredMissing()
+    {
+        var hours = ShiftAttendanceCalculator.ResolveWorkedHours(
+            null,
+            new DateTime(2026, 8, 11, 9, 0, 0),
+            new DateTime(2026, 8, 11, 17, 0, 0));
+
+        Assert.Equal(8m, hours);
+    }
+
+    [Fact]
+    public void ResolveWorkedHours_AbsentWithNoPunches_IsZero()
+    {
+        Assert.Equal(0m, ShiftAttendanceCalculator.ResolveWorkedHours(null, null, null));
+    }
+
+    [Fact]
+    public void GetShiftTimesForDate_FlexiShift_UsesFlexWindowNotPerDayTimes()
+    {
+        var shift = new ShiftPattern
+        {
+            ShiftType = "Flexi",
+            StartTime = TimeSpan.FromHours(9),
+            EndTime = TimeSpan.FromHours(17),
+            FlexiWindowStart = TimeSpan.FromHours(7),
+            FlexiWindowEnd = TimeSpan.FromHours(20),
+            MinimumWorkHours = 8,
+            BreakHours = 1,
+            AppliesOnMonday = true,
+            MondayStartTime = TimeSpan.FromHours(9),
+            MondayEndTime = TimeSpan.FromHours(17),
+        };
+        var monday = new DateTime(2026, 8, 17);
+
+        var (applies, start, end, hours) = ShiftAttendanceCalculator.GetShiftTimesForDate(
+            shift,
+            monday,
+            TimeSpan.FromHours(9),
+            TimeSpan.FromHours(17),
+            7m);
+
+        Assert.True(applies);
+        Assert.Equal(TimeSpan.FromHours(7), start);
+        Assert.Equal(TimeSpan.FromHours(20), end);
+        Assert.Equal(8m, hours);
+    }
+
+    [Fact]
+    public void GetExpectedWorkedHours_FlexiShift_UsesMinimumWorkHours()
+    {
+        var shift = new ShiftPattern
+        {
+            ShiftType = "Flexi",
+            MinimumWorkHours = 8,
+            FlexiWindowStart = TimeSpan.FromHours(7),
+            FlexiWindowEnd = TimeSpan.FromHours(20),
+            AppliesOnMonday = true,
+        };
+        var monday = new DateTime(2026, 8, 17);
+
+        var hours = ShiftAttendanceCalculator.GetExpectedWorkedHours(shift, monday);
+
+        Assert.Equal(8m, hours);
+    }
 }

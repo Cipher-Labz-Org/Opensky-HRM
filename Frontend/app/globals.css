@@ -382,6 +382,7 @@ button:active:not(:disabled),
 .badge-orange { background: #ffedd5; color: #c2410c; }
 .badge-red { background: #fee2e2; color: #b91c1c; }
 .badge-yellow { background: #fef3c7; color: #b45309; }
+.badge-slate { background: #f1f5f9; color: #475569; }
 .progress-bar { height: 10px; background: #e5edf7; border-radius: 9999px; overflow: hidden; }
 .progress-bar span { display: block; height: 100%; background: #2e7bbf; border-radius: 9999px; }
 .section-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }

@@ -21,6 +21,8 @@ public static class ShiftAttendanceCalculator
         DateTime? PunchOut,
         decimal? WorkedHours);
 
+    public sealed record PrePostOtHours(decimal PreOtHours, decimal PostOtHours);
+
     public static ShiftPattern? ResolveShiftPattern(Employee emp, IReadOnlyList<RosterAssignment> rosters, DateTime date)
     {
         var roster = rosters
@@ -100,6 +102,9 @@ public static class ShiftAttendanceCalculator
             return Math.Max(0, session1Hours + session2Hours);
         }
 
+        if (shift.ShiftType == "Flexi" && shift.MinimumWorkHours.HasValue)
+            return shift.MinimumWorkHours.Value;
+
         var (applies, dayStart, dayEnd, _) = GetShiftTimesForDate(shift, date, shift.StartTime, shift.EndTime, null);
         if (!applies)
             return 0;
@@ -107,7 +112,40 @@ public static class ShiftAttendanceCalculator
         var start = dayStart ?? shift.StartTime;
         var end = dayEnd ?? shift.EndTime;
         var crosses = shift.IsNightShift && end <= start;
-        return Math.Max(0, SessionSpanHours(start, end, crosses) - shift.BreakHours);
+        // Work hours match the shift window; break is tracked on the pattern but not deducted here
+        // because attendance uses gross punch-in to punch-out time for the same window.
+        return Math.Max(0, SessionSpanHours(start, end, crosses));
+    }
+
+    /// <summary>
+    /// Pre-OT = time worked before official shift start; Post-OT = time worked after official shift end.
+    /// Uses strict shift boundaries (no grace). Flexi/Open shifts return zero.
+    /// </summary>
+    public static PrePostOtHours ComputePrePostOtHours(
+        ShiftPattern? shift, DateTime date, DateTime? punchIn, DateTime? punchOut)
+    {
+        if (shift == null || !ShiftAppliesOnDate(shift, date))
+            return new PrePostOtHours(0, 0);
+
+        if (shift.ShiftType is "Flexi" or "Open")
+            return new PrePostOtHours(0, 0);
+
+        if (!punchIn.HasValue || !punchOut.HasValue)
+            return new PrePostOtHours(0, 0);
+
+        var (shiftStart, shiftEnd) = ResolveOtShiftBoundaries(shift, date);
+        if (!shiftStart.HasValue || !shiftEnd.HasValue)
+            return new PrePostOtHours(0, 0);
+
+        decimal pre = 0;
+        if (punchIn.Value < shiftStart.Value)
+            pre = Math.Round((decimal)(shiftStart.Value - punchIn.Value).TotalHours, 2);
+
+        decimal post = 0;
+        if (punchOut.Value > shiftEnd.Value)
+            post = Math.Round((decimal)(punchOut.Value - shiftEnd.Value).TotalHours, 2);
+
+        return new PrePostOtHours(pre, post);
     }
 
     public static DateTime ResolveSession2EndDateTime(ShiftPattern shift, DateTime shiftDate)
@@ -126,6 +164,35 @@ public static class ShiftAttendanceCalculator
         }
 
         return end;
+    }
+
+    /// <summary>
+    /// Auto-generated Absent rows and approved leave are not attendance.
+    /// Present / Late / Half Day count, as does any other status with a punch-in.
+    /// </summary>
+    public static bool CountsAsPresent(string? status, DateTime? punchIn)
+    {
+        if (string.Equals(status, "Absent", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "On Leave", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (string.Equals(status, "Present", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Late", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Half Day", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return punchIn.HasValue;
+    }
+
+    public static decimal ResolveWorkedHours(decimal? storedHours, DateTime? punchIn, DateTime? punchOut)
+    {
+        if (storedHours.HasValue && storedHours.Value > 0)
+            return storedHours.Value;
+
+        if (punchIn.HasValue && punchOut.HasValue && punchOut.Value > punchIn.Value)
+            return Math.Round((decimal)(punchOut.Value - punchIn.Value).TotalHours, 2);
+
+        return storedHours ?? 0;
     }
 
     public static PunchAggregation AggregateCalendarDayPunches(
@@ -267,6 +334,29 @@ public static class ShiftAttendanceCalculator
             _ => shift.EndTime,
         };
 
+    private static (DateTime? start, DateTime? end) ResolveOtShiftBoundaries(ShiftPattern shift, DateTime date)
+    {
+        var day = date.Date;
+
+        if (shift.ShiftType == "Split"
+            && shift.Session2StartTime.HasValue
+            && shift.Session2EndTime.HasValue)
+        {
+            return (day + ResolveSession1Start(shift, date), ResolveSession2EndDateTime(shift, date));
+        }
+
+        var (applies, dayStart, dayEnd, _) = GetShiftTimesForDate(shift, date, shift.StartTime, shift.EndTime, null);
+        if (!applies || !dayStart.HasValue || !dayEnd.HasValue)
+            return (null, null);
+
+        var shiftStart = day + dayStart.Value;
+        var shiftEnd = day + dayEnd.Value;
+        if (shift.IsNightShift && dayEnd.Value <= dayStart.Value)
+            shiftEnd = shiftEnd.AddDays(1);
+
+        return (shiftStart, shiftEnd);
+    }
+
     private static decimal SessionSpanHours(TimeSpan start, TimeSpan end, bool crossesMidnight)
     {
         var span = crossesMidnight
@@ -287,6 +377,16 @@ public static class ShiftAttendanceCalculator
         {
             var hours = GetExpectedWorkedHours(shift, date);
             return (true, ResolveSession1Start(shift, date), shift.Session2EndTime, hours);
+        }
+
+        if (shift.ShiftType == "Flexi")
+        {
+            var flexStart = shift.FlexiWindowStart ?? defaultStart;
+            var flexEnd = shift.FlexiWindowEnd ?? defaultEnd;
+            var flexHours = shift.MinimumWorkHours
+                ?? defaultHours
+                ?? Math.Max(0, SessionSpanHours(flexStart, flexEnd, flexEnd <= flexStart));
+            return (true, flexStart, flexEnd, flexHours);
         }
 
         TimeSpan? dayStart = date.DayOfWeek switch
@@ -314,14 +414,14 @@ public static class ShiftAttendanceCalculator
 
         if (dayStart.HasValue && dayEnd.HasValue)
         {
-            var hours = (decimal)(dayEnd.Value - dayStart.Value).TotalHours - shift.BreakHours;
+            var hours = (decimal)(dayEnd.Value - dayStart.Value).TotalHours;
             return (true, dayStart, dayEnd, Math.Max(0, hours));
         }
 
         if (defaultHours.HasValue)
             return (true, defaultStart, defaultEnd, defaultHours.Value);
 
-        var fullHours = (decimal)(defaultEnd - defaultStart).TotalHours - shift.BreakHours;
+        var fullHours = (decimal)(defaultEnd - defaultStart).TotalHours;
         return (true, defaultStart, defaultEnd, Math.Max(0, fullHours));
     }
 }

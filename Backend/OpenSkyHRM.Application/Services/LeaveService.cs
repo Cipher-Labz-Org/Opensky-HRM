@@ -169,8 +169,28 @@ public class LeaveService : ILeaveService
         if (leaveType is null)
             throw new InvalidOperationException("Leave type not found.");
 
+        var durationKind = LeaveDurationRules.IsShortLeaveType(leaveType.Code, leaveType.AllowShortLeave)
+            ? LeaveDurationKinds.ShortLeave
+            : LeaveDurationRules.NormalizeKind(dto.DurationKind);
+        var totalDays = LeaveDurationRules.ResolveTotalDays(
+            durationKind,
+            dto.StartDate,
+            dto.EndDate,
+            leaveType.AllowHalfDay,
+            leaveType.AllowShortLeave,
+            leaveType.ShortLeaveHours,
+            dto.HalfDayPeriod,
+            dto.ShortLeaveHours,
+            out var storedHalfDayPeriod,
+            out var storedShortLeaveHours);
+
+        if (durationKind == LeaveDurationKinds.ShortLeave)
+            LeaveDurationRules.EnsureWithinMinMaxHours(storedShortLeaveHours ?? leaveType.ShortLeaveHours, leaveType.MinHours, leaveType.MaxHours);
+        else
+            LeaveDurationRules.EnsureWithinMinMax(totalDays, leaveType.MinDays, leaveType.MaxDays);
+
         var isSickLeave = string.Equals(leaveType.Code, "LT-SIC", StringComparison.OrdinalIgnoreCase);
-        var sickLeaveRequiresMedicalPdf = isSickLeave && dto.TotalDays > 2;
+        var sickLeaveRequiresMedicalPdf = isSickLeave && totalDays > 2;
         if (sickLeaveRequiresMedicalPdf && string.IsNullOrWhiteSpace(medicalCertificateUrl))
             throw new InvalidOperationException("A medical certificate (PDF) is required for sick leave longer than 2 days.");
 
@@ -182,14 +202,15 @@ public class LeaveService : ILeaveService
             var start = dto.StartDate.Date;
             var end = dto.EndDate.Date;
             var calendarSpanDays = (end - start).TotalDays + 1;
-            if (calendarSpanDays < 7 || dto.TotalDays < 7)
+            if (calendarSpanDays < 7 || totalDays < 7)
                 throw new InvalidOperationException("Annual leave must be at least 7 consecutive calendar days with at least 7 leave days (Shop & Office Act).");
         }
 
-        var skipEntireBalanceCheck = string.Equals(leaveType.Code, "LT-NPL", StringComparison.OrdinalIgnoreCase);
-        /** Sick leave may be submitted with a medical certificate even when no balance row exists; maternity requires HR assignment (balance). */
-        var sickLeaveAllowsMissingBalance =
-            string.Equals(leaveType.Code, "LT-SIC", StringComparison.OrdinalIgnoreCase);
+        var skipEntireBalanceCheck =
+            string.Equals(leaveType.Code, "LT-NPL", StringComparison.OrdinalIgnoreCase)
+            || LeaveDurationRules.IsShortLeaveType(leaveType.Code, leaveType.AllowShortLeave);
+        /** Sick leave may be submitted even when no balance row exists; maternity requires HR assignment (balance). */
+        var allowsMissingBalance = string.Equals(leaveType.Code, "LT-SIC", StringComparison.OrdinalIgnoreCase);
         var startDate = dto.StartDate.Date;
 
         if (!skipEntireBalanceCheck)
@@ -203,7 +224,7 @@ public class LeaveService : ILeaveService
                     : b.Year == startDate.Year);
             if (balance is null)
             {
-                if (!sickLeaveAllowsMissingBalance)
+                if (!allowsMissingBalance)
                     throw new InvalidOperationException($"No leave balance found for this leave type covering {startDate:d MMM yyyy}. Assign a balance for the relevant period first.");
             }
             else
@@ -237,18 +258,18 @@ public class LeaveService : ILeaveService
                     {
                         var entitledPortion = balance.Entitled - balance.Used - pendingDays;
                         effectiveRemaining = Math.Max(0, entitledPortion);
-                        if (dto.TotalDays > effectiveRemaining)
+                        if (totalDays > effectiveRemaining)
                         {
                             var wEnd = GetCarryForwardWindowEndDisplay(balance, avMonths);
                             throw new InvalidOperationException(
                                 $"Carried-forward leave is only available during the first {avMonths} month(s) of the balance period (up to {wEnd}). " +
-                                $"On this start date, days from carry forward cannot be used; entitlement-only available: {effectiveRemaining:F1} day(s), requested: {dto.TotalDays:F1}.");
+                                $"On this start date, days from carry forward cannot be used; entitlement-only available: {effectiveRemaining:F1} day(s), requested: {totalDays:F1}.");
                         }
                     }
                 }
 
-                if (dto.TotalDays > effectiveRemaining)
-                    throw new InvalidOperationException($"Insufficient leave balance. Available: {effectiveRemaining:F1} days, requested: {dto.TotalDays:F1} days.");
+                if (totalDays > effectiveRemaining)
+                    throw new InvalidOperationException($"Insufficient leave balance. Available: {effectiveRemaining:F1} days, requested: {totalDays:F1} days.");
             }
         }
 
@@ -258,7 +279,10 @@ public class LeaveService : ILeaveService
             LeaveTypeId = dto.LeaveTypeId,
             StartDate = dto.StartDate,
             EndDate = dto.EndDate,
-            TotalDays = dto.TotalDays,
+            TotalDays = totalDays,
+            DurationKind = durationKind,
+            HalfDayPeriod = storedHalfDayPeriod,
+            ShortLeaveHours = storedShortLeaveHours,
             Reason = dto.Reason,
             CoveragePerson = dto.CoveragePerson,
             MedicalCertificateUrl = string.IsNullOrWhiteSpace(medicalCertificateUrl) ? null : medicalCertificateUrl.Trim(),
@@ -456,6 +480,24 @@ public class LeaveService : ILeaveService
         return await GetResponsibleEmployeeIdAsync(r);
     }
 
+    private static LeaveTypeDto MapLeaveType(LeaveType t) => new()
+    {
+        Id = t.Id,
+        Name = t.Name,
+        Code = t.Code,
+        Description = t.Description,
+        DefaultDaysPerYear = t.DefaultDaysPerYear,
+        IsPaid = t.IsPaid,
+        IsActive = t.IsActive,
+        AllowHalfDay = t.AllowHalfDay,
+        AllowShortLeave = t.AllowShortLeave,
+        ShortLeaveHours = t.ShortLeaveHours,
+        MinHours = t.MinHours,
+        MaxHours = t.MaxHours,
+        MinDays = t.MinDays,
+        MaxDays = t.MaxDays,
+    };
+
     private static LeaveRequestDto MapToDto(LeaveRequest r) => new()
     {
         Id = r.Id,
@@ -464,6 +506,9 @@ public class LeaveService : ILeaveService
         EmployeeId = r.EmployeeId,
         LeaveTypeName = r.LeaveType.Name,
         StartDate = r.StartDate, EndDate = r.EndDate, TotalDays = r.TotalDays,
+        DurationKind = string.IsNullOrWhiteSpace(r.DurationKind) ? LeaveDurationKinds.FullDay : r.DurationKind,
+        HalfDayPeriod = r.HalfDayPeriod,
+        ShortLeaveHours = r.ShortLeaveHours,
         Reason = r.Reason, Status = r.Status.ToString(),
         CoveragePerson = r.CoveragePerson, ApproverRemarks = r.ApproverRemarks,
         CreatedAt = r.CreatedAt,
@@ -523,36 +568,108 @@ public class LeaveService : ILeaveService
 
     public async Task<List<LeaveTypeDto>> GetLeaveTypesAsync()
     {
-        return await _db.Set<LeaveType>()
-            .OrderBy(t => t.Name)
+        var items = await _db.Set<LeaveType>()
             .Select(t => new LeaveTypeDto
             {
-                Id = t.Id, Name = t.Name, Code = t.Code, Description = t.Description,
-                DefaultDaysPerYear = t.DefaultDaysPerYear, IsPaid = t.IsPaid, IsActive = t.IsActive
+                Id = t.Id,
+                Name = t.Name,
+                Code = t.Code,
+                Description = t.Description,
+                DefaultDaysPerYear = t.DefaultDaysPerYear,
+                IsPaid = t.IsPaid,
+                IsActive = t.IsActive,
+                AllowHalfDay = t.AllowHalfDay,
+                AllowShortLeave = t.AllowShortLeave,
+                ShortLeaveHours = t.ShortLeaveHours,
+                MinHours = t.MinHours,
+                MaxHours = t.MaxHours,
+                MinDays = t.MinDays,
+                MaxDays = t.MaxDays,
             })
             .ToListAsync();
+
+        return items
+            .OrderBy(t => t.Code switch
+            {
+                "LT-ANN" => 1,
+                "LT-CAS" => 2,
+                "LT-SHL" => 3,
+                "LT-SIC" => 4,
+                "LT-MAT" => 5,
+                "LT-NPL" => 6,
+                _ => 99,
+            })
+            .ThenBy(t => t.Name)
+            .ToList();
     }
 
     public async Task<LeaveTypeDto> CreateLeaveTypeAsync(CreateLeaveTypeDto dto)
     {
+        var minDays = dto.MinDays;
+        var maxDays = dto.MaxDays;
+        LeaveDurationRules.NormalizeMinMax(ref minDays, ref maxDays);
+        LeaveDurationRules.ResolveTypeDurationFlags(
+            dto.Code, dto.AllowHalfDay, dto.ShortLeaveHours,
+            out var allowHalfDay, out var allowShortLeave, out var shortLeaveHours);
+        int? minHours = null;
+        int? maxHours = null;
+        if (allowShortLeave)
+        {
+            minDays = null;
+            maxDays = null;
+            minHours = dto.MinHours;
+            maxHours = dto.MaxHours;
+            LeaveDurationRules.NormalizeMinMaxHours(ref minHours, ref maxHours);
+            shortLeaveHours = LeaveDurationRules.ClampHoursWithinBounds(shortLeaveHours, minHours, maxHours);
+        }
         var entity = new LeaveType
         {
             Name = dto.Name, Code = dto.Code, Description = dto.Description,
             DefaultDaysPerYear = dto.DefaultDaysPerYear, IsPaid = dto.IsPaid, IsActive = dto.IsActive,
+            AllowHalfDay = allowHalfDay, AllowShortLeave = allowShortLeave,
+            ShortLeaveHours = shortLeaveHours,
+            MinHours = minHours,
+            MaxHours = maxHours,
+            MinDays = minDays,
+            MaxDays = maxDays,
         };
         _db.Set<LeaveType>().Add(entity);
         await _db.SaveChangesAsync();
-        return new LeaveTypeDto { Id = entity.Id, Name = entity.Name, Code = entity.Code, Description = entity.Description, DefaultDaysPerYear = entity.DefaultDaysPerYear, IsPaid = entity.IsPaid, IsActive = entity.IsActive };
+        return MapLeaveType(entity);
     }
 
     public async Task<LeaveTypeDto?> UpdateLeaveTypeAsync(Guid id, UpdateLeaveTypeDto dto)
     {
         var entity = await _db.Set<LeaveType>().FindAsync(id);
         if (entity is null) return null;
+        var minDays = dto.MinDays;
+        var maxDays = dto.MaxDays;
+        LeaveDurationRules.NormalizeMinMax(ref minDays, ref maxDays);
         entity.Name = dto.Name; entity.Code = dto.Code; entity.Description = dto.Description;
         entity.DefaultDaysPerYear = dto.DefaultDaysPerYear; entity.IsPaid = dto.IsPaid; entity.IsActive = dto.IsActive;
+        LeaveDurationRules.ResolveTypeDurationFlags(
+            dto.Code, dto.AllowHalfDay, dto.ShortLeaveHours,
+            out var allowHalfDay, out var allowShortLeave, out var shortLeaveHours);
+        int? minHours = null;
+        int? maxHours = null;
+        if (allowShortLeave)
+        {
+            minDays = null;
+            maxDays = null;
+            minHours = dto.MinHours;
+            maxHours = dto.MaxHours;
+            LeaveDurationRules.NormalizeMinMaxHours(ref minHours, ref maxHours);
+            shortLeaveHours = LeaveDurationRules.ClampHoursWithinBounds(shortLeaveHours, minHours, maxHours);
+        }
+        entity.AllowHalfDay = allowHalfDay;
+        entity.AllowShortLeave = allowShortLeave;
+        entity.ShortLeaveHours = shortLeaveHours;
+        entity.MinHours = minHours;
+        entity.MaxHours = maxHours;
+        entity.MinDays = minDays;
+        entity.MaxDays = maxDays;
         await _db.SaveChangesAsync();
-        return new LeaveTypeDto { Id = entity.Id, Name = entity.Name, Code = entity.Code, Description = entity.Description, DefaultDaysPerYear = entity.DefaultDaysPerYear, IsPaid = entity.IsPaid, IsActive = entity.IsActive };
+        return MapLeaveType(entity);
     }
 
     public async Task<bool> DeleteLeaveTypeAsync(Guid id)

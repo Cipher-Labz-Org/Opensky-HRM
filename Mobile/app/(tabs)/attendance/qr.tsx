@@ -4,6 +4,8 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
+import { getEmployee } from "@/api/endpoints/employees";
 import { EmptyState } from "@/components/ui";
 import {
   AttendanceQrHeader,
@@ -11,6 +13,7 @@ import {
   useAttendancePunch,
   useCheckInMode,
   useTodayAttendanceRecord,
+  validateAttendanceQrForEmployee,
 } from "@/features/attendance";
 import { useAuthStore } from "@/store/authStore";
 import { getEmployeeId } from "@/utils/permissions";
@@ -19,6 +22,12 @@ import { colors } from "@/theme/colors";
 export default function AttendanceQrScanScreen() {
   const user = useAuthStore((s) => s.user);
   const employeeId = getEmployeeId(user);
+  const profileQuery = useQuery({
+    queryKey: ["profile", employeeId],
+    queryFn: () => getEmployee(employeeId!),
+    enabled: !!employeeId,
+    staleTime: 60_000,
+  });
   const todayRecordQuery = useTodayAttendanceRecord(employeeId);
   const { punch, punching } = useAttendancePunch();
   const checkInModeQuery = useCheckInMode();
@@ -45,6 +54,16 @@ export default function AttendanceQrScanScreen() {
         );
         setScanned(false);
         return;
+      }
+
+      const profile = profileQuery.data;
+      if (profile) {
+        const scopeError = validateAttendanceQrForEmployee(parsed, profile);
+        if (scopeError) {
+          Alert.alert("Cannot punch", scopeError);
+          setScanned(false);
+          return;
+        }
       }
 
       try {
@@ -78,11 +97,15 @@ export default function AttendanceQrScanScreen() {
           checkInMode,
         });
         router.back();
-      } catch {
+      } catch (error) {
+        Alert.alert(
+          "Punch failed",
+          error instanceof Error ? error.message : "Could not record punch."
+        );
         setScanned(false);
       }
     },
-    [checkInMode, punch, punchType, punching, scanned]
+    [checkInMode, profileQuery.data, punch, punchType, punching, scanned]
   );
 
   if (!employeeId) {

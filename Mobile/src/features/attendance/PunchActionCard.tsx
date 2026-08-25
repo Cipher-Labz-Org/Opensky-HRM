@@ -11,10 +11,15 @@ import {
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
+import { getEmployee } from "@/api/endpoints/employees";
+import { useAuthStore } from "@/store/authStore";
+import { getEmployeeId } from "@/utils/permissions";
 import { colors } from "@/theme/colors";
 import type { AttendanceRecord } from "@/types/attendance";
 import { formatTime } from "@/utils/format";
 import { parseAttendanceQr } from "./attendanceQr";
+import { validateAttendanceQrForEmployee } from "./attendanceQrValidation";
 import { useAttendancePunch } from "./useAttendancePunch";
 import { useCheckInMode } from "./useCheckInMode";
 import {
@@ -182,6 +187,13 @@ async function requestWebCameraAccess(): Promise<{ ok: boolean; message?: string
 }
 
 export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps) {
+  const employeeId = getEmployeeId(useAuthStore((s) => s.user));
+  const profileQuery = useQuery({
+    queryKey: ["profile", employeeId],
+    queryFn: () => getEmployee(employeeId!),
+    enabled: !!employeeId,
+    staleTime: 60_000,
+  });
   const [now, setNow] = useState(() => new Date());
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
@@ -278,6 +290,16 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
         return;
       }
 
+      const profile = profileQuery.data;
+      if (profile) {
+        const scopeError = validateAttendanceQrForEmployee(parsed, profile);
+        if (scopeError) {
+          Alert.alert("Cannot punch", scopeError);
+          setScanned(false);
+          return;
+        }
+      }
+
       try {
         const qrPayload = raw.trim().startsWith("{")
           ? raw.trim()
@@ -313,13 +335,16 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
         setShowManual(false);
         setCameraError(null);
         onPunched?.();
-      } catch {
-        // Error alert is shown by useAttendancePunch
+      } catch (error) {
+        Alert.alert(
+          "Punch failed",
+          error instanceof Error ? error.message : "Could not record punch."
+        );
       } finally {
         setScanned(false);
       }
     },
-    [checkInMode, onPunched, punch, punchType, punching]
+    [checkInMode, onPunched, profileQuery.data, punch, punchType, punching]
   );
 
   const directPunch = useCallback(async () => {
@@ -327,8 +352,11 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
     try {
       await punch({ kind: "direct", type: punchType, checkInMode });
       onPunched?.();
-    } catch {
-      // Error alert is shown by useAttendancePunch
+    } catch (error) {
+      Alert.alert(
+        "Punch failed",
+        error instanceof Error ? error.message : "Could not record punch."
+      );
     }
   }, [checkInMode, onPunched, punch, punchType, punching]);
 
