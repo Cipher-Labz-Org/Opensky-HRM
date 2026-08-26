@@ -89,7 +89,7 @@ internal static class AttendancePunchPolicyEvaluator
     /// When a mobile/web QR punch is used, the scanned business unit or location must match the employee profile.
     /// Applies regardless of company check-in mode (including Open).
     /// </summary>
-    internal static void ValidateEmployeeMatchesScannedQr(Employee employee, PunchRequestDto dto)
+    public static void ValidateEmployeeMatchesScannedQr(Employee employee, PunchRequestDto dto)
     {
         if (HasScannedLocation(dto))
         {

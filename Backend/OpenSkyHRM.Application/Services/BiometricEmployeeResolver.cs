@@ -3,7 +3,8 @@ using OpenSkyHRM.Domain.Entities;
 namespace OpenSkyHRM.Application.Services;
 
 /// <summary>
-/// Maps biometric device PINs / user IDs to HRM employees (EmployeeCode and common variants).
+/// Maps biometric device PINs / user IDs to HRM employees.
+/// Prefers <see cref="Employee.FingerprintId"/> when set; otherwise falls back to <see cref="Employee.EmployeeCode"/> aliases.
 /// </summary>
 internal static class BiometricEmployeeResolver
 {
@@ -12,7 +13,11 @@ internal static class BiometricEmployeeResolver
         var dict = new Dictionary<string, Employee>(StringComparer.OrdinalIgnoreCase);
         foreach (var employee in employees)
         {
+            // EmployeeCode first; FingerprintId aliases overwrite so Fingerprint ID wins on conflicts.
             foreach (var alias in GetAliases(employee.EmployeeCode))
+                dict[alias] = employee;
+
+            foreach (var alias in GetAliases(employee.FingerprintId))
                 dict[alias] = employee;
         }
         return dict;
@@ -33,6 +38,17 @@ internal static class BiometricEmployeeResolver
             return true;
 
         return false;
+    }
+
+    /// <summary>Aliases for EmployeeCode and FingerprintId used when loading punches for an employee.</summary>
+    public static IReadOnlyList<string> GetMatchAliases(Employee employee)
+    {
+        var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in GetAliases(employee.EmployeeCode))
+            aliases.Add(a);
+        foreach (var a in GetAliases(employee.FingerprintId))
+            aliases.Add(a);
+        return aliases.ToList();
     }
 
     public static IReadOnlyList<string> GetAliases(string? employeeCode)

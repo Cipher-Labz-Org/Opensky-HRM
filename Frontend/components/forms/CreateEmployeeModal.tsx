@@ -267,6 +267,7 @@ export function CreateEmployeeModal({
 
     const payload: Record<string, unknown> = {
       employeeCode: (fd.get("employeeCode") as string)?.trim() || "",
+      fingerprintId: ((fd.get("fingerprintId") as string) ?? "").trim() || null,
       firstName: fd.get("firstName"),
       middleName: fd.get("middleName") || null,
       lastName: fd.get("lastName"),
@@ -360,6 +361,15 @@ export function CreateEmployeeModal({
               required={!autoGenerate}
               className={inputClass}
               placeholder={autoGenerate ? nextCode || "Auto code will be suggested" : "Enter employee code"}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Fingerprint ID</label>
+            <input
+              name="fingerprintId"
+              className={inputClass}
+              placeholder="Device PIN when different from employee code"
+              maxLength={50}
             />
           </div>
           <div>

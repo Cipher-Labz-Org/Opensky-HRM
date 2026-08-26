@@ -1695,14 +1695,14 @@ function DevicesTab() {
 
         {pipeline?.sampleUnmappedDeviceUserIds?.length ? (
           <p className="mt-2 text-xs text-amber-800">
-            Unmapped device user IDs (no matching Employee Code): {pipeline.sampleUnmappedDeviceUserIds.join(", ")}
+            Unmapped device user IDs (no matching Fingerprint ID or Employee Code): {pipeline.sampleUnmappedDeviceUserIds.join(", ")}
           </p>
         ) : null}
 
         <p className="mt-4 text-xs text-slate-500">
           Set ADMS webhook URL to:{" "}
           <code className="rounded bg-white/80 px-1 py-0.5 break-all">{webhookHint ?? pipeline?.webhookPath ?? "/api/biometric/adms/logs"}</code>.
-          Your devices: NYU7253000136, NYU7253000235. Device PIN must match Employee Code (e.g. PIN 123 matches EMP-0000123).
+          Your devices: NYU7253000136, NYU7253000235. Device PIN must match employee Fingerprint ID when set, otherwise Employee Code (e.g. PIN 123 matches EMP-0000123).
         </p>
       </div>
 

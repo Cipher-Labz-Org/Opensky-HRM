@@ -4,6 +4,7 @@
  */
 
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { getBackendUrlForHostname } from "@/config/tenants";
 
 function requestHostname(req: NextRequest): string {
@@ -48,4 +49,78 @@ export async function proxyToTenantBackend(
     redirect: "manual",
     signal: AbortSignal.timeout(timeoutMs),
   });
+}
+
+const PROXY_FORWARD_REQUEST_HEADERS = [
+  "authorization",
+  "content-type",
+  "accept",
+  "accept-language",
+  "if-none-match",
+  "if-modified-since",
+] as const;
+
+function proxyRequestHeaders(req: NextRequest): Headers {
+  const headers = new Headers();
+  for (const name of PROXY_FORWARD_REQUEST_HEADERS) {
+    const value = req.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return headers;
+}
+
+const PROXY_FORWARD_RESPONSE_HEADERS = [
+  "content-type",
+  "content-disposition",
+  "cache-control",
+  "etag",
+  "last-modified",
+] as const;
+
+/** Build a Next.js response from an upstream tenant backend fetch. */
+export async function nextResponseFromUpstream(res: Response): Promise<NextResponse> {
+  const headers = new Headers();
+  for (const name of PROXY_FORWARD_RESPONSE_HEADERS) {
+    const value = res.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+
+  const body = await res.arrayBuffer();
+  return new NextResponse(body, { status: res.status, headers });
+}
+
+/** Proxy an incoming Next.js request to the tenant IIS backend. */
+export async function proxyTenantRequest(
+  req: NextRequest,
+  backendPath: string,
+  options: { timeoutMs?: number } = {},
+): Promise<NextResponse> {
+  const { timeoutMs = 45_000 } = options;
+  const method = req.method.toUpperCase();
+  const hasBody = method !== "GET" && method !== "HEAD";
+  const body = hasBody ? await req.arrayBuffer() : undefined;
+
+  let res = await proxyToTenantBackend(req, backendPath, {
+    method,
+    headers: proxyRequestHeaders(req),
+    body: body && body.byteLength > 0 ? body : undefined,
+    timeoutMs,
+  });
+
+  if (res.status >= 301 && res.status <= 308) {
+    const location = res.headers.get("location");
+    if (location && (res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308)) {
+      const retryUrl = location.startsWith("http") ? location : new URL(location, res.url).href;
+      res = await fetch(retryUrl, {
+        method,
+        headers: proxyRequestHeaders(req),
+        body: body && body.byteLength > 0 ? body : undefined,
+        cache: "no-store",
+        redirect: "manual",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    }
+  }
+
+  return nextResponseFromUpstream(res);
 }

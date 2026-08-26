@@ -55,6 +55,10 @@ const TENANT_META: Record<string, Omit<TenantConfig, "apiUrl">> = {
     companyId: "besttrend",
     companyName: "Best Trend",
   },
+  "epic.openskyhrm.com": {
+    companyId: "epic",
+    companyName: "Epic",
+  },
 };
 
 function buildTenants(): Record<string, TenantConfig> {
@@ -100,4 +104,13 @@ export function getBackendUrlForHostname(hostname: string): string | null {
   if (slug === "www" || slug === "app" || slug === "api") return null;
 
   return `https://${slug}backend.openskyhrm.com`;
+}
+
+/**
+ * HTTP-only IIS backends cannot be called from the HTTPS frontend (mixed content).
+ * Route browser traffic through same-origin Vercel proxy handlers instead.
+ */
+export function tenantBackendRequiresBrowserProxy(hostname: string): boolean {
+  const backend = getBackendUrlForHostname(hostname);
+  return backend != null && backend.startsWith("http://");
 }

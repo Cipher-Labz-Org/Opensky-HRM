@@ -9,33 +9,20 @@ export type NavVisibilityContext = {
   permissions: ReadonlyArray<{ module: string; action: string; scope?: string | null }>;
 };
 
-function readScope(
-  ctx: NavVisibilityContext,
-  module: string,
-): "Own" | "Team" | "All" | null {
-  if (ctx.isAdmin) return "All";
-  const reads = ctx.permissions.filter((p) => p.module === module && p.action === "Read");
-  if (reads.length === 0) return null;
-  if (reads.some((p) => (p.scope ?? "Own") === "All")) return "All";
-  if (reads.some((p) => (p.scope ?? "Own") === "Team")) return "Team";
-  return "Own";
-}
-
 function hasTeamOrAllScope(scope: "Own" | "Team" | "All" | null): boolean {
   return scope === "Team" || scope === "All";
 }
 
-/** Help is available to every signed-in user. */
+/** Help stays reachable without a product license; role permission still applies. */
 export function isAlwaysVisibleNavHref(href: string): boolean {
   return href === ROUTES.helpGuides || href.startsWith(`${ROUTES.helpGuides}/`);
 }
 
 /**
  * Menu visibility per route — finer than module-level Read checks.
- * Aligns sidebar with Roles & permissions (e.g. Employee sees Dashboard, People Hub, Leave, Help only).
+ * Aligns sidebar with Roles & permissions (one row per sidebar item).
  */
 export function isNavItemVisible(href: string, ctx: NavVisibilityContext): boolean {
-  if (isAlwaysVisibleNavHref(href)) return true;
   if (ctx.isAdmin) return true;
 
   switch (href) {
@@ -49,7 +36,7 @@ export function isNavItemVisible(href: string, ctx: NavVisibilityContext): boole
       return hasTeamOrAllScope(ctx.getPeopleReadScope());
 
     case ROUTES.employeeProfile:
-      return ctx.hasPermission("People", "Read");
+      return ctx.hasPermission("EmployeeBio", "Read");
 
     case ROUTES.recruitment:
       return ctx.hasPermission("Recruitment", "Read");
@@ -59,18 +46,15 @@ export function isNavItemVisible(href: string, ctx: NavVisibilityContext): boole
 
     case ROUTES.employeeActions:
       return (
-        ctx.hasPermission("People", "Update") || hasTeamOrAllScope(ctx.getPeopleReadScope())
+        ctx.hasPermission("EmployeeActions", "Read") ||
+        ctx.hasPermission("EmployeeActions", "Update")
       );
 
     case ROUTES.leave:
       return ctx.hasPermission("Leave", "Read");
 
     case ROUTES.approvals:
-      return (
-        ctx.hasRole("SUPERVISOR") ||
-        hasTeamOrAllScope(ctx.getLeaveReadScope()) ||
-        hasTeamOrAllScope(readScope(ctx, "Attendance"))
-      );
+      return ctx.hasPermission("Approvals", "Read");
 
     case ROUTES.attendance:
       return ctx.hasPermission("Attendance", "Read");
@@ -85,6 +69,8 @@ export function isNavItemVisible(href: string, ctx: NavVisibilityContext): boole
       return ctx.hasPermission("Learning", "Read");
 
     case ROUTES.reports:
+      return ctx.hasPermission("Reports", "Read");
+
     case ROUTES.analytics:
       return ctx.hasPermission("Analytics", "Read");
 
@@ -92,19 +78,29 @@ export function isNavItemVisible(href: string, ctx: NavVisibilityContext): boole
       return ctx.hasPermission("OrgStructure", "Read");
 
     case ROUTES.settings:
-    case ROUTES.emailTemplates:
-    case ROUTES.emailDeliveryLog:
       return ctx.hasPermission("Settings", "Read");
+
+    case ROUTES.emailTemplates:
+      return ctx.hasPermission("EmailTemplates", "Read");
+
+    case ROUTES.emailDeliveryLog:
+      return ctx.hasPermission("EmailDeliveryLog", "Read");
 
     case ROUTES.billing:
     case ROUTES.billingCustomerReset:
       return ctx.hasPermission("Billing", "Read");
 
     case ROUTES.administration:
-    case ROUTES.userManagement:
       return ctx.hasPermission("Administration", "Read");
 
+    case ROUTES.userManagement:
+      return ctx.hasPermission("UserManagement", "Read");
+
+    case ROUTES.helpGuides:
+      return ctx.hasPermission("Help", "Read");
+
     default:
+      if (href.startsWith(`${ROUTES.helpGuides}/`)) return ctx.hasPermission("Help", "Read");
       return false;
   }
 }

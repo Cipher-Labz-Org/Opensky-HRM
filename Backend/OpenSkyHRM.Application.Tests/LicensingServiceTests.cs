@@ -89,4 +89,51 @@ public class LicensingServiceTests
         var codes = await svc.GetEffectiveModuleCodesAsync();
         Assert.DoesNotContain("Payroll", codes);
     }
+
+    [Fact]
+    public async Task GetLicensedModulesForRoleAssignmentAsync_Includes_Sidebar_Menu_Rows()
+    {
+        var (_, svc) = await CreateSutAsync();
+        var modules = await svc.GetLicensedModulesForRoleAssignmentAsync();
+        var codes = modules.Select(m => m.Module).ToList();
+        var labels = modules.Select(m => m.Label).ToList();
+
+        Assert.Contains("EmployeeBio", codes);
+        Assert.Contains("EmployeeActions", codes);
+        Assert.Contains("Approvals", codes);
+        Assert.Contains("Reports", codes);
+        Assert.Contains("EmailTemplates", codes);
+        Assert.Contains("EmailDeliveryLog", codes);
+        Assert.Contains("UserManagement", codes);
+        Assert.Contains("Help", codes);
+        Assert.Contains("Employee bio", labels);
+        Assert.Contains("User Management", labels);
+        Assert.Contains("Data Import / Export", labels);
+        Assert.DoesNotContain(modules, m => m.Label == "Administration");
+        Assert.Equal("Dashboard", codes[0]);
+        Assert.Equal("Help", codes[^1]);
+    }
+
+    [Fact]
+    public async Task GetLicensedModulesForRoleAssignmentAsync_Hides_Rows_When_Parent_Unlicensed()
+    {
+        var (_, svc) = await CreateSutAsync();
+        await svc.UpdateEntitlementsAsync(new UpdateModuleEntitlementsDto
+        {
+            EnabledOptionalModuleCodes = new List<string>()
+        });
+        svc.InvalidateCache();
+
+        var codes = (await svc.GetLicensedModulesForRoleAssignmentAsync()).Select(m => m.Module).ToList();
+        Assert.Contains("Dashboard", codes);
+        Assert.Contains("People", codes);
+        Assert.Contains("EmployeeBio", codes);
+        Assert.Contains("Settings", codes);
+        Assert.Contains("EmailTemplates", codes);
+        Assert.Contains("Help", codes);
+        Assert.DoesNotContain("Payroll", codes);
+        Assert.DoesNotContain("Approvals", codes);
+        Assert.DoesNotContain("UserManagement", codes);
+        Assert.DoesNotContain("Reports", codes);
+    }
 }

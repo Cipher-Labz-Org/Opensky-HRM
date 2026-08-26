@@ -78,7 +78,7 @@ PostgreSQL (app data + hangfire schema)
 
 ### Deployment model
 
-- **One customer per database** — each instance has its own PostgreSQL database and backend.
+- **One customer per database** — each instance has its own PostgreSQL database and backend
 - **Shared frontend** on Vercel; tenant hostnames map to dedicated backend URLs via `Frontend/config/tenant-backends.json`.
 - **Module licensing** is enforced per instance (see `Backend/docs/licensing.md`).
 

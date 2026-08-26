@@ -12,6 +12,9 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.HasKey(e => e.Id);
         builder.HasIndex(e => e.EmployeeCode).IsUnique();
         builder.HasIndex(e => e.Email).IsUnique();
+        builder.HasIndex(e => e.FingerprintId)
+            .IsUnique()
+            .HasFilter("\"FingerprintId\" IS NOT NULL AND \"FingerprintId\" <> ''");
 
         builder.Property(e => e.EmployeeCode).HasMaxLength(50).IsRequired();
         builder.Property(e => e.FirstName).HasMaxLength(100).IsRequired();
@@ -45,6 +48,7 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(e => e.Religion).HasMaxLength(100);
         builder.Property(e => e.Ethnicity).HasMaxLength(100);
         builder.Property(e => e.OtherId).HasMaxLength(50);
+        builder.Property(e => e.FingerprintId).HasMaxLength(50);
         builder.Property(e => e.NationalId).HasMaxLength(50);
         builder.Property(e => e.TinNumber).HasMaxLength(50);
         builder.Property(e => e.EpfNumber).HasMaxLength(50);
