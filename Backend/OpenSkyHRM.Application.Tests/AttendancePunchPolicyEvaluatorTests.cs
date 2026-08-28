@@ -155,6 +155,79 @@ public class AttendancePunchPolicyEvaluatorTests
     }
 
     [Fact]
+    public async Task BusinessUnitQr_RejectsBusinessUnitMismatch()
+    {
+        var (db, employee, _, _) = await SeedAsync();
+        var otherBuId = Guid.NewGuid();
+        var dto = new PunchRequestDto
+        {
+            QrPayload = "{\"type\":\"opensky-hrm-attendance-bu\"}",
+            BusinessUnitId = otherBuId,
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AttendancePunchPolicyEvaluator.EvaluateAsync(
+                db, new FakeSettings(AttendanceCheckInModes.BusinessUnitQr), employee.Id, dto));
+
+        Assert.Contains("different business unit", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task BusinessUnitQr_RejectsLocationMismatch()
+    {
+        var (db, employee, _, _) = await SeedAsync();
+        var otherLocationId = Guid.NewGuid();
+        var dto = new PunchRequestDto
+        {
+            QrPayload = "{\"type\":\"opensky-hrm-attendance-location\"}",
+            LocationId = otherLocationId,
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AttendancePunchPolicyEvaluator.EvaluateAsync(
+                db, new FakeSettings(AttendanceCheckInModes.BusinessUnitQr), employee.Id, dto));
+
+        Assert.Contains("different location", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task BusinessUnitQr_AcceptsMatchingBusinessUnitQr()
+    {
+        var (db, employee, _, _) = await SeedAsync();
+        var dto = new PunchRequestDto
+        {
+            QrPayload = "{\"type\":\"opensky-hrm-attendance-bu\"}",
+            BusinessUnitId = employee.BusinessUnitId,
+        };
+
+        var policy = await AttendancePunchPolicyEvaluator.EvaluateAsync(
+            db, new FakeSettings(AttendanceCheckInModes.BusinessUnitQr), employee.Id, dto);
+
+        Assert.Null(policy.ResolvedPlace);
+    }
+
+    [Fact]
+    public void ValidateEmployeeMatchesScannedQr_RejectsWrongBusinessUnit()
+    {
+        var employee = new Employee
+        {
+            Id = Guid.NewGuid(),
+            BusinessUnitId = Guid.NewGuid(),
+            LocationId = Guid.NewGuid(),
+        };
+        var dto = new PunchRequestDto
+        {
+            QrPayload = "{\"type\":\"opensky-hrm-attendance-bu\"}",
+            BusinessUnitId = Guid.NewGuid(),
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            AttendancePunchPolicyEvaluator.ValidateEmployeeMatchesScannedQr(employee, dto));
+
+        Assert.Contains("different business unit", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task OpenMode_SkipsPolicyChecks()
     {
         var (db, employee, _, _) = await SeedAsync();

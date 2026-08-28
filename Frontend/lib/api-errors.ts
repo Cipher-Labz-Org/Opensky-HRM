@@ -267,6 +267,9 @@ export function resolveHttpErrorMessage(text: string, ctx: HttpErrorContext): st
 
   if (status === 404 && !trimmed) return "The requested item could not be found.";
   if (status >= 500 && !trimmed) return "A server error occurred. Please try again or contact support.";
+  if (status >= 500 && /^internal server error\.?$/i.test(trimmed)) {
+    return "The API was unavailable. Click Refresh to try again.";
+  }
   if (trimmed) return humanizeGenericMessage(trimmed.slice(0, 280));
   if (status === 401) return "Invalid username or password.";
   if (status === 403) return "You do not have permission to perform this action.";

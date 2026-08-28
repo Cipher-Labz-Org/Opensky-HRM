@@ -30,6 +30,19 @@ import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { LeaveRequestsPanel } from "@/components/workforce/LeaveRequestsPanel";
 import { ROUTES } from "@/config/routes";
 import { sanitizeSearchInput } from "@/lib/input-validation";
+import {
+  clampShortLeaveHours,
+  computeLeaveTotalDays,
+  DEFAULT_SHORT_LEAVE_HOURS,
+  formatLeaveDays,
+  formatLeaveDurationLabel,
+  isShortLeaveType,
+  LEAVE_WORKDAY_HOURS,
+  parseOptionalHours,
+  shortLeaveHourChoices,
+  type LeaveDurationKind,
+  type HalfDayPeriod,
+} from "@/lib/leave-duration";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -42,6 +55,9 @@ interface LeaveRequest {
   startDate: string;
   endDate: string;
   totalDays: number;
+  durationKind?: string | null;
+  halfDayPeriod?: string | null;
+  shortLeaveHours?: number | null;
   reason: string | null;
   status: string;
   coveragePerson: string | null;
@@ -84,6 +100,13 @@ interface LeaveTypeItem {
   defaultDaysPerYear: number;
   isPaid: boolean;
   isActive: boolean;
+  allowHalfDay?: boolean;
+  allowShortLeave?: boolean;
+  shortLeaveHours?: number;
+  minHours?: number | null;
+  maxHours?: number | null;
+  minDays?: number | null;
+  maxDays?: number | null;
 }
 
 interface PolicyItem {
@@ -1048,12 +1071,10 @@ interface EmployeeLookup { id: string; firstName: string; lastName: string; prof
 
 interface DepartmentLookup { id: string; name: string }
 
-/** Sparse fields from GET /api/employees?search= for coverage name suggestions */
-interface EmployeeSuggestHit {
-  id: string;
-  fullName: string;
-  employeeCode: string;
-  departmentName?: string | null;
+function formatCoveragePersonLabel(emp: { firstName: string; lastName: string; employeeCode?: string }) {
+  const name = `${emp.firstName} ${emp.lastName}`.trim() || "Employee";
+  const code = emp.employeeCode?.trim();
+  return code ? `${name} (${code})` : name;
 }
 
 const BALANCE_COLORS = [
@@ -1072,8 +1093,9 @@ function getApplyLeaveTypeMeta(t: LeaveTypeItem, balances: BalanceItem[]) {
   );
   const isNoPayRow = t.code?.toUpperCase() === "LT-NPL";
   const isSickRow = t.code?.toUpperCase() === "LT-SIC";
-  const rowDisabled = !isNoPayRow && !balance && !isSickRow;
-  return { balance, isNoPayRow, isSickRow, rowDisabled };
+  const isShortLeaveRow = isShortLeaveType(t);
+  const rowDisabled = !isNoPayRow && !balance && !isSickRow && !isShortLeaveRow;
+  return { balance, isNoPayRow, isSickRow, isShortLeaveRow, rowDisabled };
 }
 
 function pickDefaultLeaveTypeId(types: LeaveTypeItem[], balances: BalanceItem[]): string {
@@ -1098,27 +1120,28 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   const [balances, setBalances] = useState<BalanceItem[]>([]);
   const [loadingBal, setLoadingBal] = useState(false);
   const [selectedTypeId, setSelectedTypeId] = useState("");
+  const [durationKind, setDurationKind] = useState<LeaveDurationKind>("FullDay");
+  const [halfDayPeriod, setHalfDayPeriod] = useState<HalfDayPeriod>("Morning");
+  const [appliedShortLeaveHours, setAppliedShortLeaveHours] = useState(DEFAULT_SHORT_LEAVE_HOURS);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [reason, setReason] = useState("");
   const [coveragePerson, setCoveragePerson] = useState("");
+  const [coverageEmployeeId, setCoverageEmployeeId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [medicalFile, setMedicalFile] = useState<File | null>(null);
   const [medicalDrag, setMedicalDrag] = useState(false);
   const medicalInputId = useId();
-  const coverageInputId = useId();
-  const coverageListId = useId();
-  const coverageWrapRef = useRef<HTMLDivElement>(null);
-  const coverageDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [coverageOpen, setCoverageOpen] = useState(false);
-  const [coverageLoading, setCoverageLoading] = useState(false);
-  const [coverageHits, setCoverageHits] = useState<EmployeeSuggestHit[]>([]);
   const currentYear = new Date().getFullYear();
   const todayMinDate = useMemo(() => formatLocalDateToIso(new Date()), []);
 
   function onApplyStartDateChange(iso: string) {
     setStartDate(iso);
+    if (durationKind !== "FullDay") {
+      setEndDate(iso);
+      return;
+    }
     if (iso && endDate && endDate < iso) setEndDate("");
   }
 
@@ -1180,73 +1203,11 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   useEffect(() => {
     setMedicalFile(null);
     setMedicalDrag(false);
-  }, [selectedTypeId]);
-
-  useEffect(
-    () => () => {
-      if (coverageDebounceRef.current) clearTimeout(coverageDebounceRef.current);
-    },
-    []
-  );
-
-  useEffect(() => {
-    function onDocMouseDown(e: MouseEvent) {
-      if (!coverageWrapRef.current?.contains(e.target as Node)) setCoverageOpen(false);
-    }
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, []);
-
-  const fetchCoverageSuggestions = useCallback(
-    async (query: string) => {
-      const q = query.trim();
-      if (q.length < 2) {
-        setCoverageHits([]);
-        setCoverageOpen(false);
-        return;
-      }
-      setCoverageLoading(true);
-      try {
-        const res = await apiFetch<{ items: EmployeeSuggestHit[] }>(
-          `/api/employees?search=${encodeURIComponent(q)}&pageSize=12&excludeTerminated=true`
-        );
-        let items = res.items ?? [];
-        if (selectedEmpId) items = items.filter((h) => h.id !== selectedEmpId);
-        setCoverageHits(items);
-        setCoverageOpen(items.length > 0);
-      } catch {
-        setCoverageHits([]);
-        setCoverageOpen(false);
-      } finally {
-        setCoverageLoading(false);
-      }
-    },
-    [selectedEmpId]
-  );
-
-  function onCoverageInputChange(next: string) {
-    const sanitized = sanitizeSearchInput(next);
-    setCoveragePerson(sanitized);
-    if (coverageDebounceRef.current) clearTimeout(coverageDebounceRef.current);
-    const t = sanitized.trim();
-    if (t.length < 2) {
-      setCoverageHits([]);
-      setCoverageOpen(false);
-      return;
-    }
-    coverageDebounceRef.current = setTimeout(() => {
-      void fetchCoverageSuggestions(sanitized);
-    }, 280);
-  }
-
-  function pickCoverageHit(hit: EmployeeSuggestHit) {
-    const label = hit.employeeCode?.trim()
-      ? `${hit.fullName.trim()} (${hit.employeeCode.trim()})`
-      : hit.fullName.trim();
-    setCoveragePerson(label);
-    setCoverageHits([]);
-    setCoverageOpen(false);
-  }
+    setHalfDayPeriod("Morning");
+    const t = leaveTypes.find((x) => x.id === selectedTypeId);
+    setDurationKind(isShortLeaveType(t) ? "ShortLeave" : "FullDay");
+    setAppliedShortLeaveHours(clampShortLeaveHours(t?.shortLeaveHours ?? DEFAULT_SHORT_LEAVE_HOURS));
+  }, [selectedTypeId, leaveTypes]);
 
   useEffect(() => {
     if (isEmployeeView && currentEmployeeId) setSelectedEmpId(currentEmployeeId);
@@ -1305,15 +1266,27 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   }, [selectedEmpId, loadingBal, selectedTypeId, leaveTypesForApply, balances]);
 
   useEffect(() => {
-    setCoverageHits([]);
-    setCoverageOpen(false);
+    setCoveragePerson("");
+    setCoverageEmployeeId("");
   }, [selectedEmpId]);
 
-  const totalDays = startDate && endDate
-    ? Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1)
-    : 0;
-
   const selectedLeaveType = leaveTypes.find((t) => t.id === selectedTypeId);
+  const isShortLeaveSelected = isShortLeaveType(selectedLeaveType);
+  const allowHalfDay = Boolean(selectedLeaveType?.allowHalfDay) && !isShortLeaveSelected;
+  const typeShortLeaveHours = clampShortLeaveHours(selectedLeaveType?.shortLeaveHours ?? DEFAULT_SHORT_LEAVE_HOURS);
+  const shortLeaveHourOptions = shortLeaveHourChoices(
+    selectedLeaveType?.minHours,
+    selectedLeaveType?.maxHours,
+    typeShortLeaveHours,
+  );
+  const effectiveShortLeaveHours = isShortLeaveSelected ? appliedShortLeaveHours : typeShortLeaveHours;
+
+  const totalDays = computeLeaveTotalDays({
+    durationKind,
+    startDate,
+    endDate,
+    shortLeaveHours: effectiveShortLeaveHours,
+  });
   const selectedBalance = selectedLeaveType
     ? balances.find(
         (b) =>
@@ -1324,13 +1297,13 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   const isSickLeave = selectedLeaveType?.code?.toUpperCase() === "LT-SIC";
   /** More than 2 calendar days of sick leave requires a medical certificate PDF. */
   const sickLeaveRequiresMedicalPdf = isSickLeave && totalDays > 2;
-  /** Sick leave can be applied even when no balance row exists; all other paid types need an assigned balance. */
-  const allowApplyWithoutAssignedBalance = isNoPayLeave || isSickLeave;
+  /** Sick leave and Short Leave can be applied even when no balance row exists; all other paid types need an assigned balance. */
+  const allowApplyWithoutAssignedBalance = isNoPayLeave || isSickLeave || isShortLeaveSelected;
   const missingBalance = Boolean(
     selectedLeaveType && !allowApplyWithoutAssignedBalance && !selectedBalance
   );
   const exceedsBalance =
-    !isNoPayLeave && selectedBalance ? totalDays > selectedBalance.remaining : false;
+    !isNoPayLeave && !isShortLeaveSelected && selectedBalance ? totalDays > selectedBalance.remaining : false;
 
   const pickMedical = useCallback((file: File | null) => {
     if (!file) {
@@ -1348,12 +1321,13 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
 
   function resetApplyLeaveForm() {
     setSelectedTypeId("");
+    setDurationKind("FullDay");
+    setHalfDayPeriod("Morning");
     setStartDate("");
     setEndDate("");
     setReason("");
     setCoveragePerson("");
-    setCoverageHits([]);
-    setCoverageOpen(false);
+    setCoverageEmployeeId("");
     setMedicalFile(null);
     setMedicalDrag(false);
     setMessage(null);
@@ -1378,26 +1352,60 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     if (exceedsBalance && selectedBalance) {
       setMessage({
         type: "err",
-        text: `Insufficient leave balance. Available: ${selectedBalance.remaining} days, requested: ${totalDays} days.`,
+        text: `Insufficient leave balance. Available: ${formatLeaveDays(selectedBalance.remaining)} days, requested: ${formatLeaveDays(totalDays)} days.`,
       });
       return;
     }
-    if (!startDate || !endDate) {
+    const minHours = selectedLeaveType?.minHours != null && selectedLeaveType.minHours > 0 ? selectedLeaveType.minHours : null;
+    const maxHours = selectedLeaveType?.maxHours != null && selectedLeaveType.maxHours > 0 ? selectedLeaveType.maxHours : null;
+    if (isShortLeaveSelected) {
+      if (minHours != null && appliedShortLeaveHours < minHours) {
+        setMessage({ type: "err", text: `This leave type requires at least ${minHours} hour(s). Requested: ${appliedShortLeaveHours}.` });
+        return;
+      }
+      if (maxHours != null && appliedShortLeaveHours > maxHours) {
+        setMessage({ type: "err", text: `This leave type allows at most ${maxHours} hour(s) per request. Requested: ${appliedShortLeaveHours}.` });
+        return;
+      }
+    } else {
+      const minDays = selectedLeaveType?.minDays != null && selectedLeaveType.minDays > 0 ? selectedLeaveType.minDays : null;
+      const maxDays = selectedLeaveType?.maxDays != null && selectedLeaveType.maxDays > 0 ? selectedLeaveType.maxDays : null;
+      if (minDays != null && totalDays < minDays) {
+        setMessage({
+          type: "err",
+          text: `This leave type requires at least ${formatLeaveDays(minDays)} day(s). Requested: ${formatLeaveDays(totalDays)}.`,
+        });
+        return;
+      }
+      if (maxDays != null && totalDays > maxDays) {
+        setMessage({
+          type: "err",
+          text: `This leave type allows at most ${formatLeaveDays(maxDays)} day(s) per request. Requested: ${formatLeaveDays(totalDays)}.`,
+        });
+        return;
+      }
+    }
+    const effectiveEndDate = durationKind === "FullDay" ? endDate : startDate;
+    if (!startDate || !effectiveEndDate) {
       setMessage({ type: "err", text: "Select both From and To dates." });
       return;
     }
-    if (startDate < todayMinDate || endDate < todayMinDate) {
+    if (startDate < todayMinDate || effectiveEndDate < todayMinDate) {
       setMessage({ type: "err", text: "Leave cannot be applied for past dates. Choose today or a future date." });
       return;
     }
-    if (endDate < startDate) {
+    if (effectiveEndDate < startDate) {
       setMessage({ type: "err", text: "To date cannot be before From date." });
       return;
     }
     const typeName = selectedLeaveType?.name ?? "leave";
+    const durationLabel = formatLeaveDurationLabel(durationKind, halfDayPeriod, effectiveShortLeaveHours);
+    const confirmDetail = durationLabel
+      ? `Submit this ${formatLeaveDays(totalDays)}-day ${typeName} (${durationLabel}) on ${startDate}? It will go to your approver if required.`
+      : `Submit this ${formatLeaveDays(totalDays)}-day ${typeName} request from ${startDate} to ${endDate}? It will go to your approver if required.`;
     if (
       !(await appConfirm(
-        `Submit this ${totalDays}-day ${typeName} request from ${startDate} to ${endDate}? It will go to your approver if required.`,
+        confirmDetail,
         "Submit Leave Request"
       ))
     ) {
@@ -1411,8 +1419,11 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
         fd.set("employeeId", selectedEmpId);
         fd.set("leaveTypeId", selectedTypeId);
         fd.set("startDate", startDate);
-        fd.set("endDate", endDate);
+        fd.set("endDate", effectiveEndDate);
         fd.set("totalDays", String(totalDays));
+        fd.set("durationKind", durationKind);
+        if (durationKind === "HalfDay") fd.set("halfDayPeriod", halfDayPeriod);
+        if (durationKind === "ShortLeave") fd.set("shortLeaveHours", String(effectiveShortLeaveHours));
         if (reason.trim()) fd.set("reason", reason.trim());
         if (coveragePerson.trim()) fd.set("coveragePerson", coveragePerson.trim());
         fd.set("medicalCertificate", medicalFile, medicalFile.name);
@@ -1424,8 +1435,11 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
             employeeId: selectedEmpId,
             leaveTypeId: selectedTypeId,
             startDate,
-            endDate,
+            endDate: effectiveEndDate,
             totalDays,
+            durationKind,
+            halfDayPeriod: durationKind === "HalfDay" ? halfDayPeriod : null,
+            shortLeaveHours: durationKind === "ShortLeave" ? effectiveShortLeaveHours : null,
             reason: reason || null,
             coveragePerson: coveragePerson || null,
           }),
@@ -1438,8 +1452,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
       setEndDate("");
       setReason("");
       setCoveragePerson("");
-      setCoverageHits([]);
-      setCoverageOpen(false);
+      setCoverageEmployeeId("");
       setMedicalFile(null);
       apiFetch<BalanceItem[]>(`/api/leave/balances/${selectedEmpId}?year=${currentYear}`).then(setBalances);
     } catch (err) {
@@ -1591,7 +1604,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
               <label className={applyLabel}>Leave type</label>
               <div className="mt-2 flex flex-wrap gap-2">
                 {leaveTypesForApply.map((t) => {
-                  const { balance, isNoPayRow, isSickRow, rowDisabled } = getApplyLeaveTypeMeta(t, balances);
+                  const { balance, isNoPayRow, isSickRow, isShortLeaveRow, rowDisabled } = getApplyLeaveTypeMeta(t, balances);
                   const isSelected = t.id === selectedTypeId;
                   return (
                     <button
@@ -1611,7 +1624,17 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                           isSelected ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        {balance ? `${balance.remaining}d left` : isNoPayRow ? "Unpaid" : isSickRow ? "Sick" : "—"}
+                        {balance
+                          ? isShortLeaveType(t)
+                            ? `${formatLeaveDays(Number(balance.remaining) * LEAVE_WORKDAY_HOURS)}h left`
+                            : `${balance.remaining}d left`
+                          : isNoPayRow
+                            ? "Unpaid"
+                            : isSickRow
+                              ? "Sick"
+                              : isShortLeaveRow
+                                ? `${clampShortLeaveHours(t.shortLeaveHours ?? DEFAULT_SHORT_LEAVE_HOURS)}h`
+                                : "—"}
                       </span>
                     </button>
                   );
@@ -1649,13 +1672,26 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </div>
               )}
 
+              {isShortLeaveSelected && selectedLeaveType && !selectedBalance && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-100 bg-gradient-to-r from-slate-50 to-slate-100/80 px-3 py-2">
+                  <span className="text-xs font-semibold text-slate-800">{selectedLeaveType.name}</span>
+                  <span className="text-[11px] text-slate-600">
+                    Short leave does not require a pre-assigned day balance. Choose hours below and submit.
+                  </span>
+                </div>
+              )}
+
               {selectedBalance && !isNoPayLeave && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-100 bg-gradient-to-r from-slate-50 to-blue-50/80 px-3 py-2">
                   <span className="text-xs font-semibold text-slate-800">{selectedBalance.leaveTypeName}</span>
                   <span className="hidden h-4 w-px bg-slate-200 sm:block" />
                   <span className="text-[11px] text-slate-600">
                     <span className="text-slate-400">Avail.</span>{" "}
-                    <span className="font-bold text-blue-600">{selectedBalance.remaining}d</span>
+                    <span className="font-bold text-blue-600">
+                      {isShortLeaveSelected
+                        ? `${formatLeaveDays(Number(selectedBalance.remaining) * LEAVE_WORKDAY_HOURS)}h`
+                        : `${selectedBalance.remaining}d`}
+                    </span>
                   </span>
                   {totalDays > 0 && (
                     <>
@@ -1664,7 +1700,9 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                         <span
                           className={`font-bold ${totalDays > selectedBalance.remaining ? "text-red-600" : "text-emerald-600"}`}
                         >
-                          {totalDays}d
+                          {isShortLeaveSelected
+                            ? `${formatLeaveDays(totalDays * LEAVE_WORKDAY_HOURS)}h`
+                            : `${formatLeaveDays(totalDays)}d`}
                         </span>
                       </span>
                       <span className="text-[11px] text-slate-600">
@@ -1672,7 +1710,9 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                         <span
                           className={`font-bold ${selectedBalance.remaining - totalDays < 0 ? "text-red-600" : "text-slate-700"}`}
                         >
-                          {selectedBalance.remaining - totalDays}d
+                          {isShortLeaveSelected
+                            ? `${formatLeaveDays((selectedBalance.remaining - totalDays) * LEAVE_WORKDAY_HOURS)}h`
+                            : `${formatLeaveDays(selectedBalance.remaining - totalDays)}d`}
                         </span>
                       </span>
                     </>
@@ -1688,12 +1728,88 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
 
               {exceedsBalance && totalDays > 0 && selectedBalance && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-                  Not enough balance: {selectedBalance.remaining} available vs {totalDays} requested.
+                  Not enough balance: {formatLeaveDays(selectedBalance.remaining)} available vs {formatLeaveDays(totalDays)} requested.
                 </div>
               )}
 
-              <div className="grid gap-6 lg:grid-cols-2">
-              <div className="space-y-4">
+              <div className="space-y-5">
+              {isShortLeaveSelected && selectedLeaveType && (
+                <div>
+                  <label className={applyLabel}>Hours</label>
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {shortLeaveHourOptions.map((hours) => (
+                      <button
+                        key={hours}
+                        type="button"
+                        onClick={() => setAppliedShortLeaveHours(hours)}
+                        className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                          appliedShortLeaveHours === hours
+                            ? "border-blue-600 bg-blue-600 text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                        }`}
+                      >
+                        {hours}h
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Short Leave is on a single day
+                    {selectedLeaveType.minHours || selectedLeaveType.maxHours
+                      ? ` (${selectedLeaveType.minHours ? `min ${selectedLeaveType.minHours}h` : "no min"}${selectedLeaveType.maxHours ? `, max ${selectedLeaveType.maxHours}h` : ", no max"})`
+                      : ""}.
+                  </p>
+                </div>
+              )}
+              {(allowHalfDay) && (
+                <div>
+                  <label className={applyLabel}>Duration</label>
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {(
+                      [
+                        { value: "FullDay" as const, label: "Full day" },
+                        ...(allowHalfDay ? [{ value: "HalfDay" as const, label: "Half day" }] : []),
+                      ]
+                    ).map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setDurationKind(opt.value);
+                          if (opt.value !== "FullDay" && startDate) setEndDate(startDate);
+                        }}
+                        className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                          durationKind === opt.value
+                            ? "border-blue-600 bg-blue-600 text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {durationKind === "HalfDay" && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {([
+                        { value: "Morning" as const, label: "Morning" },
+                        { value: "Afternoon" as const, label: "Afternoon" },
+                      ]).map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setHalfDayPeriod(opt.value)}
+                          className={`rounded-lg border px-3 py-1 text-xs font-medium transition ${
+                            halfDayPeriod === opt.value
+                              ? "border-sky-600 bg-sky-50 text-sky-800"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-sky-300"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className={applyLabel}>From *</label>
@@ -1709,9 +1825,10 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                   <label className={applyLabel}>To *</label>
                   <DatePickerField
                     required
-                    value={endDate}
+                    value={durationKind === "FullDay" ? endDate : startDate}
                     min={applyEndMinDate}
                     onChange={onApplyEndDateChange}
+                    disabled={durationKind !== "FullDay"}
                     className={applyInput}
                   />
                 </div>
@@ -1719,9 +1836,6 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
               {applyDatesInvalid && (
                 <p className="text-xs text-red-600">Dates must be today or later, and To must be on or after From.</p>
               )}
-              </div>
-
-              <div className="space-y-4">
               {isSickLeave && (
                 <div>
                   <label className={`${applyLabel} text-slate-700`} htmlFor={medicalInputId}>
@@ -1777,74 +1891,39 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </div>
               )}
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className={applyLabel}>Comments</label>
-                  <textarea
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    rows={2}
-                    className={applyInput + " min-h-[2.75rem] resize-y"}
-                    placeholder="Optional"
-                  />
-                </div>
-                <div className="relative" ref={coverageWrapRef}>
-                  <label className={applyLabel} htmlFor={coverageInputId}>
-                    Coverage person <span className="font-normal text-slate-400">(optional)</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      id={coverageInputId}
-                      type="text"
-                      value={coveragePerson}
-                      onChange={(e) => onCoverageInputChange(e.target.value)}
-                      onFocus={() => {
-                        if (coverageHits.length > 0) setCoverageOpen(true);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") setCoverageOpen(false);
-                      }}
-                      autoComplete="off"
-                      aria-autocomplete="list"
-                      aria-expanded={coverageOpen}
-                      aria-controls={coverageListId}
-                      className={applyInput + " pr-[5.25rem]"}
-                      placeholder="Start typing a colleague’s name…"
-                    />
-                    {coverageLoading && (
-                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
-                        Search…
-                      </span>
-                    )}
-                  </div>
-                  {coverageOpen && coverageHits.length > 0 && (
-                    <ul
-                      id={coverageListId}
-                      role="listbox"
-                      className="absolute z-30 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
-                    >
-                      {coverageHits.map((hit) => (
-                        <li key={hit.id} role="presentation">
-                          <button
-                            type="button"
-                            role="option"
-                            className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => pickCoverageHit(hit)}
-                          >
-                            <span className="font-medium text-slate-800">{hit.fullName}</span>
-                            <span className="text-[11px] text-slate-500">
-                              {[hit.employeeCode ? hit.employeeCode : null, hit.departmentName?.trim() || null]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+              <div>
+                <label className={applyLabel}>Comments</label>
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  rows={3}
+                  className={applyInput + " min-h-[4.5rem] resize-y"}
+                  placeholder="Optional"
+                />
               </div>
+              <div>
+                <label className={applyLabel}>
+                  Coverage person <span className="font-normal text-slate-400">(optional)</span>
+                </label>
+                <EmployeeSearchCombobox
+                  key={`coverage-${selectedEmpId}`}
+                  value={coverageEmployeeId}
+                  ariaLabel="Coverage person"
+                  placeholder="Start typing a colleague’s name…"
+                  allowClear
+                  clearLabel="Clear coverage person"
+                  excludeEmployeeIds={selectedEmpId ? [selectedEmpId] : []}
+                  className="w-full max-w-xl"
+                  onPick={(emp) => {
+                    if (!emp) {
+                      setCoverageEmployeeId("");
+                      setCoveragePerson("");
+                      return;
+                    }
+                    setCoverageEmployeeId(emp.id);
+                    setCoveragePerson(formatCoveragePersonLabel(emp));
+                  }}
+                />
               </div>
               </div>
 
@@ -3093,30 +3172,62 @@ function CarryForwardTab() {
 //  PHASE 4a – Leave Types Tab
 // ═══════════════════════════════════════════════════════════════
 
+function parseOptionalDays(value: FormDataEntryValue | null): number | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
 function LeaveTypesTab() {
   const [items, setItems] = useState<LeaveTypeItem[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<LeaveTypeItem | null>(null);
   const [saving, setSaving] = useState(false);
+  const editingShortLeave = isShortLeaveType(editing);
 
   const load = useCallback(() => { apiFetch<LeaveTypeItem[]>("/api/leave/types").then(setItems); }, []);
   useEffect(() => { load(); }, [load]);
   const itemsPager = useClientPagination(items);
 
-  function openAdd() { setEditing(null); setShowModal(true); }
-  function openEdit(item: LeaveTypeItem) { setEditing(item); setShowModal(true); }
+  function openAdd() {
+    setEditing(null);
+    setShowModal(true);
+  }
+  function openEdit(item: LeaveTypeItem) {
+    setEditing(item);
+    setShowModal(true);
+  }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
     const fd = new FormData(e.currentTarget);
+    const code = fd.get("code") as string;
+    const isShort = isShortLeaveType({ code, allowShortLeave: isShortLeaveType(editing) });
+    const shortLeaveHours = clampShortLeaveHours(Number(fd.get("shortLeaveHours") || editing?.shortLeaveHours || DEFAULT_SHORT_LEAVE_HOURS));
+    const minHours = isShort ? parseOptionalHours(fd.get("minHours")) : null;
+    const maxHours = isShort ? parseOptionalHours(fd.get("maxHours")) : null;
+    if (isShort && minHours != null && maxHours != null && minHours > maxHours) {
+      setSaving(false);
+      await appAlert("Minimum hours cannot be greater than maximum hours.", "Save failed");
+      return;
+    }
     const payload = {
       name: fd.get("name") as string,
-      code: fd.get("code") as string,
-      description: fd.get("description") as string || null,
-      defaultDaysPerYear: Number(fd.get("defaultDaysPerYear")),
+      code,
+      description: isShort ? `Short leave of ${shortLeaveHours} hours on a single day` : (fd.get("description") as string || null),
+      defaultDaysPerYear: isShort ? 0 : Number(fd.get("defaultDaysPerYear")),
       isPaid: fd.get("isPaid") === "on",
       isActive: fd.get("isActive") === "on",
+      allowHalfDay: isShort ? false : fd.get("allowHalfDay") === "on",
+      allowShortLeave: isShort,
+      shortLeaveHours,
+      minHours,
+      maxHours,
+      minDays: isShort ? null : parseOptionalDays(fd.get("minDays")),
+      maxDays: isShort ? null : parseOptionalDays(fd.get("maxDays")),
     };
     try {
       if (editing) {
@@ -3126,7 +3237,9 @@ function LeaveTypesTab() {
       }
       setShowModal(false);
       load();
-    } catch { /* ignore */ } finally { setSaving(false); }
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not save leave type.", "Save failed");
+    } finally { setSaving(false); }
   }
 
   async function handleDelete(id: string) {
@@ -3165,13 +3278,31 @@ function LeaveTypesTab() {
                   className="sticky top-0 z-10 min-w-[5.5rem] border-b-2 border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-slate-100/95 px-2 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-emerald-800 backdrop-blur sm:pr-2"
                   scope="col"
                 >
-                  Days / year
+                  Entitlement
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[4.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Min
+                </th>
+                <th
+                  className="sticky top-0 z-10 min-w-[4.5rem] border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Max
                 </th>
                 <th
                   className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
                   scope="col"
                 >
                   Paid
+                </th>
+                <th
+                  className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
+                  scope="col"
+                >
+                  Half day
                 </th>
                 <th
                   className="sticky top-0 z-10 border-b border-slate-200/90 bg-slate-100/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 backdrop-blur"
@@ -3190,7 +3321,7 @@ function LeaveTypesTab() {
             <tbody>
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center">
+                  <td colSpan={9} className="px-6 py-16 text-center">
                     <p className="text-sm text-slate-500">No leave types defined yet.</p>
                     <p className="mt-1 text-xs text-slate-400">Create a type to use it in policies and balances.</p>
                   </td>
@@ -3208,10 +3339,33 @@ function LeaveTypesTab() {
                     </span>
                   </td>
                   <td className="min-w-[5.5rem] border-l-2 border-emerald-200/50 bg-gradient-to-l from-emerald-50/40 to-transparent py-2.5 pr-2 text-right sm:pl-1 sm:pr-3">
-                    <span className="text-base font-semibold tabular-nums text-emerald-800">{t.defaultDaysPerYear}</span>
+                    <span className="text-base font-semibold tabular-nums text-emerald-800">
+                      {isShortLeaveType(t) ? `${clampShortLeaveHours(t.shortLeaveHours ?? DEFAULT_SHORT_LEAVE_HOURS)}h` : t.defaultDaysPerYear}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-slate-700 sm:px-3">
+                    {isShortLeaveType(t) ? (
+                      t.minHours != null && t.minHours > 0 ? `${t.minHours}h` : <span className="text-slate-400">—</span>
+                    ) : t.minDays != null && t.minDays > 0 ? (
+                      formatLeaveDays(t.minDays)
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2.5 text-right tabular-nums text-slate-700 sm:px-3">
+                    {isShortLeaveType(t) ? (
+                      t.maxHours != null && t.maxHours > 0 ? `${t.maxHours}h` : <span className="text-slate-400">—</span>
+                    ) : t.maxDays != null && t.maxDays > 0 ? (
+                      formatLeaveDays(t.maxDays)
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
                   </td>
                   <td className="px-2 py-2.5 sm:px-3">
                     {t.isPaid ? <span className="text-sm font-medium text-emerald-700">Yes</span> : <span className="text-slate-400">No</span>}
+                  </td>
+                  <td className="px-2 py-2.5 sm:px-3">
+                    {t.allowHalfDay ? <span className="text-sm font-medium text-emerald-700">Yes</span> : <span className="text-slate-400">No</span>}
                   </td>
                   <td className="px-2 py-2.5 sm:px-3">
                     {t.isActive ? (
@@ -3250,14 +3404,65 @@ function LeaveTypesTab() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div><label className={labelClass}>Name *</label><input name="name" required defaultValue={editing?.name ?? ""} className={inputClass} /></div>
-            <div><label className={labelClass}>Code *</label><input name="code" required defaultValue={editing?.code ?? ""} className={inputClass} /></div>
+            <div><label className={labelClass}>Code *</label><input name="code" required defaultValue={editing?.code ?? ""} readOnly={editingShortLeave} className={inputClass} /></div>
           </div>
-          <div><label className={labelClass}>Description</label><textarea name="description" rows={2} defaultValue={editing?.description ?? ""} className={inputClass} /></div>
+          {!editingShortLeave && (
+            <div><label className={labelClass}>Description</label><textarea name="description" rows={2} defaultValue={editing?.description ?? ""} className={inputClass} /></div>
+          )}
+          {editingShortLeave ? (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <label className={labelClass}>Hours *</label>
+                <input
+                  name="shortLeaveHours"
+                  type="number"
+                  min={1}
+                  max={4}
+                  defaultValue={editing?.shortLeaveHours && editing.shortLeaveHours > 0 ? editing.shortLeaveHours : DEFAULT_SHORT_LEAVE_HOURS}
+                  className={inputClass}
+                />
+                <p className="mt-1 text-[11px] text-slate-400">Default hours on one request.</p>
+              </div>
+              <div>
+                <label className={labelClass}>Minimum hours</label>
+                <input name="minHours" type="number" min={1} max={4} defaultValue={editing?.minHours ?? ""} placeholder="No minimum" className={inputClass} />
+                <p className="mt-1 text-[11px] text-slate-400">Per request. Leave empty for no limit.</p>
+              </div>
+              <div>
+                <label className={labelClass}>Maximum hours</label>
+                <input name="maxHours" type="number" min={1} max={4} defaultValue={editing?.maxHours ?? ""} placeholder="No maximum" className={inputClass} />
+                <p className="mt-1 text-[11px] text-slate-400">Per request. Leave empty for no limit.</p>
+              </div>
+            </div>
+          ) : (
           <div className="grid gap-4 sm:grid-cols-3">
-            <div><label className={labelClass}>Days/Year *</label><input name="defaultDaysPerYear" type="number" required defaultValue={editing?.defaultDaysPerYear ?? 14} className={inputClass} /></div>
-            <div className="flex items-center gap-2 pt-5"><input name="isPaid" type="checkbox" defaultChecked={editing?.isPaid ?? true} className="h-4 w-4 rounded border-slate-300" /><label className="text-sm text-slate-600">Paid Leave</label></div>
-            <div className="flex items-center gap-2 pt-5"><input name="isActive" type="checkbox" defaultChecked={editing?.isActive ?? true} className="h-4 w-4 rounded border-slate-300" /><label className="text-sm text-slate-600">Active</label></div>
+            <div>
+              <label className={labelClass}>Days/Year *</label>
+              <input name="defaultDaysPerYear" type="number" required min={0} defaultValue={editing?.defaultDaysPerYear ?? 14} className={inputClass} />
+              <p className="mt-1 text-[11px] text-slate-400">Yearly entitlement (e.g. Casual = 7).</p>
+            </div>
+            <div>
+              <label className={labelClass}>Minimum days</label>
+              <input name="minDays" type="number" min={0} step="0.25" defaultValue={editing?.minDays ?? ""} placeholder="No minimum" className={inputClass} />
+              <p className="mt-1 text-[11px] text-slate-400">Per request. Leave empty for no limit.</p>
+            </div>
+            <div>
+              <label className={labelClass}>Maximum days</label>
+              <input name="maxDays" type="number" min={0} step="0.25" defaultValue={editing?.maxDays ?? ""} placeholder="No maximum" className={inputClass} />
+              <p className="mt-1 text-[11px] text-slate-400">Per request. Leave empty for no limit.</p>
+            </div>
           </div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex items-center gap-2 pt-1"><input name="isPaid" type="checkbox" defaultChecked={editing?.isPaid ?? true} className="h-4 w-4 rounded border-slate-300" /><label className="text-sm text-slate-600">Paid Leave</label></div>
+            <div className="flex items-center gap-2 pt-1"><input name="isActive" type="checkbox" defaultChecked={editing?.isActive ?? true} className="h-4 w-4 rounded border-slate-300" /><label className="text-sm text-slate-600">Active</label></div>
+          </div>
+          {!editingShortLeave && (
+            <div className="flex items-center gap-2 pt-1">
+              <input name="allowHalfDay" type="checkbox" defaultChecked={editing?.allowHalfDay ?? false} className="h-4 w-4 rounded border-slate-300" />
+              <label className="text-sm text-slate-600">Half Day</label>
+            </div>
+          )}
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={() => setShowModal(false)} type="button">Cancel</Button>
             <Button type="submit" disabled={saving}>{saving ? "Saving..." : editing ? "Update" : "Create"}</Button>

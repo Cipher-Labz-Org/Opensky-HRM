@@ -10,17 +10,12 @@ namespace OpenSkyHRM.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<string>(
-                name: "SalaryCurrency",
-                table: "Requisitions",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "WorkLocation",
-                table: "Requisitions",
-                type: "text",
-                nullable: true);
+            // SalaryCurrency may already exist from 20260703120000_AddRequisitionSalaryCurrencyAndDefaultCurrencySetting.
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "Requisitions" ADD COLUMN IF NOT EXISTS "SalaryCurrency" text NULL;
+                ALTER TABLE "Requisitions" ADD COLUMN IF NOT EXISTS "WorkLocation" text NULL;
+                """);
 
             migrationBuilder.Sql(
                 """

@@ -85,8 +85,12 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
                 otAmount = Math.Round((basic / otSettings.Divisor) * otSettings.Multiplier * approvedHours, 2);
 
             string? warning = null;
-            if (approvedHours > 0 && !otApproved)
-                warning = "OT hours exist but are not approved for this period.";
+            if ((att?.OvertimeHours ?? 0) > 0 && !otApproved)
+            {
+                warning = string.Equals(att?.OtStatus, "SupervisorNotAssigned", StringComparison.OrdinalIgnoreCase)
+                    ? "Supervisor not assigned — OT cannot be paid until a supervisor is assigned and approves."
+                    : "OT hours are pending approval and will not be included in payroll.";
+            }
             else if (otOutdated)
                 warning = "Approved OT hours are outdated — re-approve in Attendance/Approvals.";
             else if (otApproved && approvedHours > 0 && basic <= 0)

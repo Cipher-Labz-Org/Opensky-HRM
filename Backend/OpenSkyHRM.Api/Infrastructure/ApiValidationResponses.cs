@@ -102,7 +102,7 @@ public static class ApiValidationResponses
         var segments = field.Split('.', StringSplitOptions.RemoveEmptyEntries);
         field = segments.Length > 0 ? segments[^1] : field;
 
-        if (SkipFieldKeys.Contains(field)) return null;
+        if (string.IsNullOrEmpty(field) || SkipFieldKeys.Contains(field)) return null;
         return field;
     }
 
@@ -149,7 +149,8 @@ public static class ApiValidationResponses
             || lower.Contains("must be selected or entered correctly"))
             return $"{label} must be selected or entered correctly";
 
-        if (message.Contains(fieldKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(fieldKey)
+            && message.Contains(fieldKey, StringComparison.OrdinalIgnoreCase))
             return message.Replace(fieldKey, label, StringComparison.OrdinalIgnoreCase);
 
         return $"{label}: {HumanizeGeneric(message)}";

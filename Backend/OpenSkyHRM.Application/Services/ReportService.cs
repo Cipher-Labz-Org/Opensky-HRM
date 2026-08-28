@@ -10,9 +10,14 @@ namespace OpenSkyHRM.Application.Services;
 public class ReportService : IReportService
 {
     private readonly AppDbContext _db;
+    private readonly IAttendanceService _attendance;
     private IReadOnlyList<Guid>? _allowedEmployeeIds;
 
-    public ReportService(AppDbContext db) { _db = db; }
+    public ReportService(AppDbContext db, IAttendanceService attendance)
+    {
+        _db = db;
+        _attendance = attendance;
+    }
 
     public List<ReportCategoryDto> GetReportCatalog()
     {
@@ -59,7 +64,8 @@ public class ReportService : IReportService
                     new() { Key = "monthly-attendance", Name = "Monthly Attendance Summary", Description = "Monthly attendance statistics per employee" },
                     new() { Key = "late-arrivals", Name = "Late Arrivals", Description = "Employees who arrived after the scheduled start time" },
                     new() { Key = "early-departures", Name = "Early Departures", Description = "Employees who left before the scheduled end time" },
-                    new() { Key = "overtime-report", Name = "Overtime Report", Description = "Overtime hours worked by each employee" },
+                    new() { Key = "overtime-report", Name = "OT Summary", Description = "Period overtime totals per employee (Pre-OT + Post-OT)" },
+                    new() { Key = "overtime-detail", Name = "OT Detail", Description = "Each day with Pre-OT or Post-OT in the selected period" },
                     new() { Key = "absent-report", Name = "Absent / No-Punch Report", Description = "Days with no attendance record for active employees" },
                 }
             },
@@ -161,7 +167,8 @@ public class ReportService : IReportService
         Tag("attendance", "monthly-attendance", true, "yearMonth");
         Tag("attendance", "late-arrivals", true, "dateRange");
         Tag("attendance", "early-departures", true, "dateRange");
-        Tag("attendance", "overtime-report", true, "yearMonth");
+        Tag("attendance", "overtime-report", true, "dateRange");
+        Tag("attendance", "overtime-detail", true, "dateRange");
         Tag("attendance", "absent-report", true, "dateRange");
 
         Tag("payroll", "payroll-register", true, "yearMonth");
@@ -226,6 +233,7 @@ public class ReportService : IReportService
             "attendance/late-arrivals" => await LateArrivalsReport(filters),
             "attendance/early-departures" => await EarlyDeparturesReport(filters),
             "attendance/overtime-report" => await OvertimeReport(filters),
+            "attendance/overtime-detail" => await OvertimeDetailReport(filters),
             "attendance/absent-report" => await AbsentReport(filters),
 
             "payroll/payroll-register" => await PayrollRegisterReport(filters),
@@ -961,29 +969,89 @@ public class ReportService : IReportService
 
     private async Task<ReportResultDto> OvertimeReport(Dictionary<string, string>? filters)
     {
-        var year = DateTime.UtcNow.Year;
-        var month = DateTime.UtcNow.Month;
-        if (filters != null)
-        {
-            if (filters.TryGetValue("year", out var y) && int.TryParse(y, out var yv)) year = yv;
-            if (filters.TryGetValue("month", out var m) && int.TryParse(m, out var mv)) month = mv;
-        }
-        var q = _db.Set<AttendanceRecord>().Include(a => a.Employee).ThenInclude(e => e.Department)
-            .Where(a => !a.IsDeleted && a.Date.Year == year && a.Date.Month == month && a.WorkedHours > 8).AsQueryable();
+        var (from, to) = ResolveOvertimeReportPeriod(filters);
         var scopedEmployeeIds = await ResolveScopedEmployeeIdsAsync(filters);
-        if (scopedEmployeeIds != null)
-            q = q.Where(a => scopedEmployeeIds.Contains(a.EmployeeId));
-        var data = await q
-            .GroupBy(a => new { a.Employee.EmployeeCode, Name = a.Employee.FirstName + " " + a.Employee.LastName, Dept = a.Employee.Department!.Name })
-            .Select(g => new { g.Key.EmployeeCode, g.Key.Name, g.Key.Dept, OTDays = g.Count(), OTHours = g.Sum(a => (double?)(a.WorkedHours ?? 0) - 8) ?? 0 })
-            .OrderByDescending(x => x.OTHours).ToListAsync();
-        var cols = new List<string> { "Employee Code", "Employee Name", "Department", "OT Days", "OT Hours" };
-        var rows = data.Select(d => new Dictionary<string, object?>
+        var data = await _attendance.CalculateOvertimeNopayAsync(from, to, allowedEmployeeIds: scopedEmployeeIds);
+        var rows = data
+            .Where(r => r.OvertimeHours > 0 || r.PreOtHours > 0 || r.PostOtHours > 0)
+            .OrderBy(r => r.EmployeeName)
+            .Select(r => new Dictionary<string, object?>
+            {
+                ["Employee Code"] = r.EmployeeCode,
+                ["Employee Name"] = r.EmployeeName,
+                ["Department"] = r.DepartmentName,
+                ["Supervisor"] = r.SupervisorName,
+                ["Status"] = r.OtStatusLabel,
+                ["Present"] = r.PresentDays,
+                ["Absent"] = r.AbsentDays,
+                ["Late"] = r.LateDays,
+                ["Expected"] = r.ExpectedHours,
+                ["Worked"] = r.TotalWorkedHours,
+                ["Pre-OT"] = r.PreOtHours,
+                ["Post-OT"] = r.PostOtHours,
+                ["OT"] = r.OvertimeHours,
+                ["No-Pay Days"] = r.NopayDays,
+                ["No-Pay Hrs"] = r.NopayHours,
+            })
+            .ToList();
+        var cols = new List<string>
         {
-            ["Employee Code"] = d.EmployeeCode, ["Employee Name"] = d.Name, ["Department"] = d.Dept,
-            ["OT Days"] = d.OTDays, ["OT Hours"] = Math.Round(d.OTHours, 1),
+            "Employee Code", "Employee Name", "Department", "Supervisor", "Status",
+            "Present", "Absent", "Late", "Expected", "Worked", "Pre-OT", "Post-OT", "OT",
+            "No-Pay Days", "No-Pay Hrs",
+        };
+        return Build($"OT Summary - {from:yyyy-MM-dd} to {to:yyyy-MM-dd}", cols, rows);
+    }
+
+    private async Task<ReportResultDto> OvertimeDetailReport(Dictionary<string, string>? filters)
+    {
+        var (from, to) = ResolveOvertimeReportPeriod(filters);
+        var scopedEmployeeIds = await ResolveScopedEmployeeIdsAsync(filters);
+        var days = await _attendance.GetOvertimeNopayDaysAsync(from, to, allowedEmployeeIds: scopedEmployeeIds);
+        var cols = new List<string>
+        {
+            "Employee Code", "Employee Name", "Department", "Date", "Shift",
+            "In", "Out", "Expected", "Worked", "Pre-OT", "Post-OT", "OT",
+        };
+        var rows = days.Select(d => new Dictionary<string, object?>
+        {
+            ["Employee Code"] = d.EmployeeCode,
+            ["Employee Name"] = d.EmployeeName,
+            ["Department"] = d.DepartmentName,
+            ["Date"] = d.Date.ToString("yyyy-MM-dd"),
+            ["Shift"] = d.ShiftName,
+            ["In"] = d.PunchIn?.ToString("HH:mm"),
+            ["Out"] = d.PunchOut?.ToString("HH:mm"),
+            ["Expected"] = d.ExpectedHours,
+            ["Worked"] = d.WorkedHours,
+            ["Pre-OT"] = d.PreOtHours,
+            ["Post-OT"] = d.PostOtHours,
+            ["OT"] = d.OvertimeHours,
         }).ToList();
-        return Build($"Overtime Report - {new DateTime(year, month, 1):MMMM yyyy}", cols, rows);
+        return Build($"OT Detail - {from:yyyy-MM-dd} to {to:yyyy-MM-dd}", cols, rows);
+    }
+
+    private static (DateTime from, DateTime to) ResolveOvertimeReportPeriod(Dictionary<string, string>? filters)
+    {
+        var hasFromTo = filters != null
+            && (filters.ContainsKey("from") || filters.ContainsKey("to"));
+        if (!hasFromTo
+            && filters != null
+            && filters.TryGetValue("year", out var y) && int.TryParse(y, out var year)
+            && filters.TryGetValue("month", out var m) && int.TryParse(m, out var month)
+            && month is >= 1 and <= 12)
+        {
+            var start = new DateTime(year, month, 1);
+            return (start, start.AddMonths(1).AddDays(-1));
+        }
+
+        if (!hasFromTo)
+        {
+            var today = DateTime.UtcNow.Date;
+            return (new DateTime(today.Year, today.Month, 1), today);
+        }
+
+        return ResolveReportDateRange(filters, defaultDaysBack: 0);
     }
 
     private async Task<ReportResultDto> AbsentReport(Dictionary<string, string>? filters)

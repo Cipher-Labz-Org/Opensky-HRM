@@ -13,10 +13,11 @@ public static class LeaveSeeder
             var leaveTypes = new[]
             {
                 new LeaveType { Name = "Annual Leave", Code = "LT-ANN", DefaultDaysPerYear = 14, IsPaid = true, Description = "Annual vacation leave" },
-                new LeaveType { Name = "Casual Leave", Code = "LT-CAS", DefaultDaysPerYear = 7, IsPaid = true, Description = "Short-notice casual leave" },
+                new LeaveType { Name = "Casual Leave", Code = "LT-CAS", DefaultDaysPerYear = 7, IsPaid = true, Description = "Short-notice casual leave", AllowHalfDay = true },
                 new LeaveType { Name = "Sick Leave", Code = "LT-SIC", DefaultDaysPerYear = 14, IsPaid = true, Description = "Medical sick leave" },
                 new LeaveType { Name = "Maternity Leave", Code = "LT-MAT", DefaultDaysPerYear = 84, IsPaid = true, Description = "Maternity leave" },
                 new LeaveType { Name = "No-Pay Leave", Code = "LT-NPL", DefaultDaysPerYear = 0, IsPaid = false, Description = "Unpaid leave" },
+                new LeaveType { Name = "Short Leave", Code = "LT-SHL", DefaultDaysPerYear = 0, IsPaid = true, Description = "Short leave of 3 hours on a single day", AllowShortLeave = true, ShortLeaveHours = 3 },
             };
 
             context.LeaveTypes.AddRange(leaveTypes);
@@ -334,10 +335,11 @@ public static class LeaveSeeder
         var catalog = new[]
         {
             new LeaveType { Name = "Annual Leave", Code = "LT-ANN", DefaultDaysPerYear = 14, IsPaid = true, Description = "Annual vacation leave" },
-            new LeaveType { Name = "Casual Leave", Code = "LT-CAS", DefaultDaysPerYear = 7, IsPaid = true, Description = "Short-notice casual leave" },
+            new LeaveType { Name = "Casual Leave", Code = "LT-CAS", DefaultDaysPerYear = 7, IsPaid = true, Description = "Short-notice casual leave", AllowHalfDay = true },
             new LeaveType { Name = "Sick Leave", Code = "LT-SIC", DefaultDaysPerYear = 14, IsPaid = true, Description = "Medical sick leave" },
             new LeaveType { Name = "Maternity Leave", Code = "LT-MAT", DefaultDaysPerYear = 84, IsPaid = true, Description = "Maternity leave" },
             new LeaveType { Name = "No-Pay Leave", Code = "LT-NPL", DefaultDaysPerYear = 0, IsPaid = false, Description = "Unpaid leave" },
+            new LeaveType { Name = "Short Leave", Code = "LT-SHL", DefaultDaysPerYear = 0, IsPaid = true, Description = "Short leave of 3 hours on a single day", AllowShortLeave = true, ShortLeaveHours = 3 },
         };
 
         foreach (var lt in catalog)
@@ -349,6 +351,45 @@ public static class LeaveSeeder
         }
 
         await context.SaveChangesAsync();
+        await EnsureShortLeaveIsStandaloneTypeAsync(context);
+    }
+
+    /// <summary>
+    /// Short leave is a catalog leave type (LT-SHL), not a duration flag on Casual or other types.
+    /// </summary>
+    public static async Task EnsureShortLeaveIsStandaloneTypeAsync(AppDbContext context)
+    {
+        var types = await context.LeaveTypes.Where(t => !t.IsDeleted).ToListAsync();
+        var changed = false;
+        foreach (var t in types)
+        {
+            var isShortLeave = string.Equals(t.Code, "LT-SHL", StringComparison.OrdinalIgnoreCase);
+            if (isShortLeave)
+            {
+                if (!t.AllowShortLeave || t.AllowHalfDay || t.ShortLeaveHours < 1 || t.DefaultDaysPerYear != 0)
+                {
+                    t.AllowShortLeave = true;
+                    t.AllowHalfDay = false;
+                    if (t.ShortLeaveHours < 1) t.ShortLeaveHours = 3;
+                    t.DefaultDaysPerYear = 0;
+                    t.MinDays = null;
+                    t.MaxDays = null;
+                    if (string.IsNullOrWhiteSpace(t.Description))
+                        t.Description = "Short leave of 3 hours on a single day";
+                    changed = true;
+                }
+                continue;
+            }
+
+            if (t.AllowShortLeave)
+            {
+                t.AllowShortLeave = false;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            await context.SaveChangesAsync();
     }
 
     /// <summary>

@@ -14,7 +14,7 @@ public class OvertimeNopayPeriodApproval : AuditableEntity
     public DateTime PeriodFrom { get; set; }
     public DateTime PeriodTo { get; set; }
 
-    public ApprovalStatus Status { get; set; } = ApprovalStatus.Approved;
+    public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
     /// <summary>OT hours at the time of approval (rounded same as calculation).</summary>
     public decimal OvertimeHoursSnapshot { get; set; }

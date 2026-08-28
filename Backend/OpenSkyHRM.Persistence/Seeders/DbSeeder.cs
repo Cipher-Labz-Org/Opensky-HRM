@@ -15,7 +15,15 @@ public static class DbSeeder
         {
             logger.LogInformation("Starting database seeding...");
 
-            await AuthSeeder.SeedAsync(context);
+            try
+            {
+                await AuthSeeder.SeedAsync(context);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Auth seeding skipped after a conflict; continuing with organization data.");
+            }
+
             await OrganizationSeeder.SeedAsync(context);
             await LeaveSeeder.SeedAsync(context);
             await LeaveSeeder.EnsureCatalogLeaveTypesAsync(context);

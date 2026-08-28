@@ -26,7 +26,9 @@ export interface Employee {
   employmentType: string;
   departmentId: string;
   departmentName: string | null;
+  businessUnitId: string | null;
   businessUnitName: string | null;
+  locationId: string | null;
   positionTitle: string | null;
   locationName: string | null;
   gradeName: string | null;

@@ -12,6 +12,9 @@ public interface IEmployeeService
         string? employmentType = null,
         IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = false,
         string? sortBy = null, string? sortDir = null);
+    Task<PagedResult<EmployeeLookupDto>> GetLookupAsync(
+        int pageSize = 50, string? search = null, Guid? departmentId = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = true);
     Task<EmployeeDto?> GetByIdAsync(Guid id, IReadOnlyList<Guid>? allowedEmployeeIds = null);
     Task<EmployeeDto> CreateAsync(CreateEmployeeDto dto);
     Task<EmployeeDto?> UpdateAsync(Guid id, UpdateEmployeeDto dto);

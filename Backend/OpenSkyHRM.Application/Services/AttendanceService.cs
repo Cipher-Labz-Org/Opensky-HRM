@@ -587,7 +587,9 @@ public class AttendanceService : IAttendanceService
     public async Task<List<OvertimeNopayResultDto>> CalculateOvertimeNopayAsync(
         DateTime from, DateTime to, Guid? employeeId = null,
         IReadOnlyList<Guid>? allowedEmployeeIds = null,
-        IReadOnlyList<Guid>? includeEmployeeIds = null)
+        IReadOnlyList<Guid>? includeEmployeeIds = null,
+        Guid? actingEmployeeId = null,
+        bool hrCanOverride = false)
     {
         var attendanceQuery = _db.Set<AttendanceRecord>()
             .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
@@ -599,24 +601,22 @@ public class AttendanceService : IAttendanceService
             attendanceQuery = attendanceQuery.Where(a => allowedEmployeeIds.Contains(a.EmployeeId));
 
         var records = await attendanceQuery.ToListAsync();
-        var empIdsFromRecords = records.Select(r => r.EmployeeId).Distinct().ToList();
 
-        var targetEmpIds = new HashSet<Guid>(empIdsFromRecords);
-        if (includeEmployeeIds != null)
-        {
-            foreach (var id in includeEmployeeIds)
-                targetEmpIds.Add(id);
-        }
-        if (employeeId.HasValue)
-            targetEmpIds = [employeeId.Value];
-
-        if (targetEmpIds.Count == 0)
-            return [];
-
-        var employees = await _db.Employees
+        var employeesQuery = _db.Employees
             .Include(e => e.ShiftPattern)
-            .Where(e => targetEmpIds.Contains(e.Id) && e.Status != "Terminated")
-            .ToListAsync();
+            .Include(e => e.Department)
+            .Where(e => e.Status != "Terminated");
+
+        if (employeeId.HasValue)
+            employeesQuery = employeesQuery.Where(e => e.Id == employeeId.Value);
+        else if (includeEmployeeIds != null)
+            employeesQuery = employeesQuery.Where(e => includeEmployeeIds.Contains(e.Id));
+        else if (allowedEmployeeIds != null)
+            employeesQuery = employeesQuery.Where(e => allowedEmployeeIds.Contains(e.Id));
+
+        var employees = await employeesQuery.ToListAsync();
+        if (employees.Count == 0)
+            return [];
 
         var empIds = employees.Select(e => e.Id).ToList();
 
@@ -637,6 +637,8 @@ public class AttendanceService : IAttendanceService
 
             decimal totalWorked = 0;
             decimal expectedHours = 0;
+            decimal preOtTotal = 0;
+            decimal postOtTotal = 0;
             int lateDays = 0, presentDays = 0, absentDays = 0;
 
             var recordsByDate = empRecords.GroupBy(r => r.Date.Date).ToDictionary(g => g.Key, g => g.ToList());
@@ -650,30 +652,57 @@ public class AttendanceService : IAttendanceService
                 var (_, _, hoursPerDay) = GetExpectedShift(emp, empRosters, d);
                 expectedHours += hoursPerDay;
 
-                if (recordsByDate.TryGetValue(d, out var dayRecords))
+                if (recordsByDate.TryGetValue(d, out var dayRecords)
+                    && dayRecords.Any(r => ShiftAttendanceCalculator.CountsAsPresent(r.Status, r.PunchIn)))
                 {
-                    var dayWorked = dayRecords.Sum(r => r.WorkedHours ?? 0);
+                    var presentRecords = dayRecords
+                        .Where(r => ShiftAttendanceCalculator.CountsAsPresent(r.Status, r.PunchIn))
+                        .ToList();
+
+                    DateTime? earliestIn = null;
+                    DateTime? latestOut = null;
+                    decimal dayWorked = 0;
+                    foreach (var record in presentRecords)
+                    {
+                        var punchIn = AttendancePunchTimes.ToApiWallClock(record.PunchIn, record.Source, _clock);
+                        var punchOut = AttendancePunchTimes.ToApiWallClock(record.PunchOut, record.Source, _clock);
+                        dayWorked += ShiftAttendanceCalculator.ResolveWorkedHours(record.WorkedHours, punchIn, punchOut);
+                        if (punchIn.HasValue && (!earliestIn.HasValue || punchIn.Value < earliestIn.Value))
+                            earliestIn = punchIn;
+                        if (punchOut.HasValue && (!latestOut.HasValue || punchOut.Value > latestOut.Value))
+                            latestOut = punchOut;
+                    }
+
                     totalWorked += dayWorked;
                     presentDays++;
-                    if (dayRecords.Any(r => r.Status == "Late")) lateDays++;
+                    if (presentRecords.Any(r => string.Equals(r.Status, "Late", StringComparison.OrdinalIgnoreCase)))
+                        lateDays++;
+
+                    var shift = ResolveShiftPattern(emp, empRosters, d);
+                    var prePost = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, d, earliestIn, latestOut);
+                    preOtTotal += prePost.PreOtHours;
+                    postOtTotal += prePost.PostOtHours;
                 }
-                else
+                else if (hoursPerDay > 0)
                 {
                     absentDays++;
                 }
             }
 
-            var ot = Math.Max(0, totalWorked - expectedHours);
             var nopayHours = Math.Max(0, expectedHours - totalWorked);
+            var otHours = Math.Round(preOtTotal + postOtTotal, 2);
 
             results.Add(new OvertimeNopayResultDto
             {
                 EmployeeId = emp.Id,
                 EmployeeName = emp.FirstName + " " + emp.LastName,
                 EmployeeCode = emp.EmployeeCode,
+                DepartmentName = emp.Department?.Name,
                 TotalWorkedHours = Math.Round(totalWorked, 2),
                 ExpectedHours = Math.Round(expectedHours, 2),
-                OvertimeHours = Math.Round(ot, 2),
+                OvertimeHours = otHours,
+                PreOtHours = Math.Round(preOtTotal, 2),
+                PostOtHours = Math.Round(postOtTotal, 2),
                 NopayDays = absentDays,
                 NopayHours = Math.Round(nopayHours, 2),
                 LateDays = lateDays,
@@ -683,11 +712,117 @@ public class AttendanceService : IAttendanceService
         }
 
         var ordered = results.OrderBy(r => r.EmployeeName).ToList();
-        await ApplyOvertimeNopayPeriodApprovalsAsync(ordered, from.Date, to.Date);
+        await EnrichOtApprovalAndSupervisorAsync(ordered, from.Date, to.Date, actingEmployeeId, hrCanOverride);
         return ordered;
     }
 
-    private async Task ApplyOvertimeNopayPeriodApprovalsAsync(List<OvertimeNopayResultDto> results, DateTime periodFrom, DateTime periodTo)
+    public async Task<List<OvertimeNopayDayDto>> GetOvertimeNopayDaysAsync(
+        DateTime from, DateTime to, Guid? employeeId = null,
+        IReadOnlyList<Guid>? allowedEmployeeIds = null)
+    {
+        var attendanceQuery = _db.Set<AttendanceRecord>()
+            .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
+            .Where(a => a.Date >= from.Date && a.Date <= to.Date);
+
+        if (employeeId.HasValue)
+            attendanceQuery = attendanceQuery.Where(a => a.EmployeeId == employeeId.Value);
+        if (allowedEmployeeIds != null)
+            attendanceQuery = attendanceQuery.Where(a => allowedEmployeeIds.Contains(a.EmployeeId));
+
+        var records = await attendanceQuery.ToListAsync();
+
+        var employeesQuery = _db.Employees
+            .Include(e => e.ShiftPattern)
+            .Include(e => e.Department)
+            .Where(e => e.Status != "Terminated");
+
+        if (employeeId.HasValue)
+            employeesQuery = employeesQuery.Where(e => e.Id == employeeId.Value);
+        else if (allowedEmployeeIds != null)
+            employeesQuery = employeesQuery.Where(e => allowedEmployeeIds.Contains(e.Id));
+
+        var employees = await employeesQuery.ToListAsync();
+        if (employees.Count == 0)
+            return [];
+
+        var empIds = employees.Select(e => e.Id).ToList();
+        var rosterAssignments = await _db.Set<RosterAssignment>()
+            .Include(ra => ra.RosterTemplate).ThenInclude(rt => rt.DefaultShiftPattern)
+            .Where(ra => empIds.Contains(ra.EmployeeId))
+            .ToListAsync();
+
+        var onLeaveSet = await GetApprovedLeaveDatesAsync(empIds, from.Date, to.Date);
+        var recordsByEmployee = records.GroupBy(r => r.EmployeeId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var days = new List<OvertimeNopayDayDto>();
+        foreach (var emp in employees)
+        {
+            var empRosters = rosterAssignments.Where(ra => ra.EmployeeId == emp.Id).ToList();
+            recordsByEmployee.TryGetValue(emp.Id, out var empRecords);
+            empRecords ??= [];
+            var recordsByDate = empRecords.GroupBy(r => r.Date.Date).ToDictionary(g => g.Key, g => g.ToList());
+
+            for (var d = from.Date; d <= to.Date; d = d.AddDays(1))
+            {
+                if (onLeaveSet.Contains((emp.Id, d)))
+                    continue;
+
+                if (!recordsByDate.TryGetValue(d, out var dayRecords)
+                    || !dayRecords.Any(r => ShiftAttendanceCalculator.CountsAsPresent(r.Status, r.PunchIn)))
+                    continue;
+
+                var presentRecords = dayRecords
+                    .Where(r => ShiftAttendanceCalculator.CountsAsPresent(r.Status, r.PunchIn))
+                    .ToList();
+
+                DateTime? earliestIn = null;
+                DateTime? latestOut = null;
+                decimal dayWorked = 0;
+                foreach (var record in presentRecords)
+                {
+                    var punchIn = AttendancePunchTimes.ToApiWallClock(record.PunchIn, record.Source, _clock);
+                    var punchOut = AttendancePunchTimes.ToApiWallClock(record.PunchOut, record.Source, _clock);
+                    dayWorked += ShiftAttendanceCalculator.ResolveWorkedHours(record.WorkedHours, punchIn, punchOut);
+                    if (punchIn.HasValue && (!earliestIn.HasValue || punchIn.Value < earliestIn.Value))
+                        earliestIn = punchIn;
+                    if (punchOut.HasValue && (!latestOut.HasValue || punchOut.Value > latestOut.Value))
+                        latestOut = punchOut;
+                }
+
+                var shift = ResolveShiftPattern(emp, empRosters, d);
+                var prePost = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, d, earliestIn, latestOut);
+                if (prePost.PreOtHours <= 0 && prePost.PostOtHours <= 0)
+                    continue;
+
+                var (_, _, hoursPerDay) = GetExpectedShift(emp, empRosters, d);
+                days.Add(new OvertimeNopayDayDto
+                {
+                    EmployeeId = emp.Id,
+                    EmployeeName = emp.FirstName + " " + emp.LastName,
+                    EmployeeCode = emp.EmployeeCode,
+                    DepartmentName = emp.Department?.Name,
+                    Date = d,
+                    PunchIn = earliestIn,
+                    PunchOut = latestOut,
+                    ShiftName = shift?.Name,
+                    ExpectedHours = Math.Round(hoursPerDay, 2),
+                    WorkedHours = Math.Round(dayWorked, 2),
+                    PreOtHours = Math.Round(prePost.PreOtHours, 2),
+                    PostOtHours = Math.Round(prePost.PostOtHours, 2),
+                    OvertimeHours = Math.Round(prePost.PreOtHours + prePost.PostOtHours, 2),
+                });
+            }
+        }
+
+        return days
+            .OrderBy(r => r.EmployeeName)
+            .ThenBy(r => r.Date)
+            .ToList();
+    }
+
+    private async Task EnrichOtApprovalAndSupervisorAsync(
+        List<OvertimeNopayResultDto> results, DateTime periodFrom, DateTime periodTo, Guid? actingEmployeeId,
+        bool hrCanOverride = false)
     {
         if (results.Count == 0) return;
 
@@ -698,38 +833,147 @@ public class AttendanceService : IAttendanceService
             .Where(a => !a.IsDeleted && a.PeriodFrom == periodFrom && a.PeriodTo == periodTo && ids.Contains(a.EmployeeId))
             .ToListAsync();
 
+        var supervisors = await _db.Set<EmployeeSupervisor>()
+            .AsNoTracking()
+            .Include(s => s.Supervisor)
+            .Where(s => !s.IsDeleted && ids.Contains(s.EmployeeId))
+            .ToListAsync();
+
+        var supervisorByEmployee = supervisors
+            .GroupBy(s => s.EmployeeId)
+            .ToDictionary(
+                g => g.Key,
+                g => g
+                    .OrderByDescending(s => string.Equals(s.ReportingMethod, "Direct", StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(s => string.Equals(s.ReportingMethod, "Both", StringComparison.OrdinalIgnoreCase))
+                    .First());
+
+        var reportingGraph = await ReportingChain.LoadAsync(_db);
+
         foreach (var r in results)
         {
             var ap = approvals.FirstOrDefault(a => a.EmployeeId == r.EmployeeId);
-            if (ap == null) continue;
+            if (ap != null)
+            {
+                r.OvertimeApprovalStatus = ap.Status.ToString();
+                r.OvertimeApprovedAt = ap.ActionAt;
+                r.OvertimeApproverName = ap.Approver != null ? ap.Approver.FirstName + " " + ap.Approver.LastName : null;
+                r.ApprovedOvertimeHoursSnapshot = ap.OvertimeHoursSnapshot;
+                r.OvertimeHoursOutdated = ap.Status == ApprovalStatus.Approved
+                    && Math.Abs(ap.OvertimeHoursSnapshot - r.OvertimeHours) > 0.02m;
+                r.Remarks = ap.Remarks;
+            }
 
-            r.OvertimeApprovalStatus = ap.Status.ToString();
-            r.OvertimeApprovedAt = ap.ActionAt;
-            r.OvertimeApproverName = ap.Approver != null ? ap.Approver.FirstName + " " + ap.Approver.LastName : null;
-            r.ApprovedOvertimeHoursSnapshot = ap.OvertimeHoursSnapshot;
-            r.OvertimeHoursOutdated = ap.Status == ApprovalStatus.Approved
-                && Math.Abs(ap.OvertimeHoursSnapshot - r.OvertimeHours) > 0.02m;
+            if (supervisorByEmployee.TryGetValue(r.EmployeeId, out var link) && link.Supervisor != null)
+            {
+                r.HasSupervisor = true;
+                r.SupervisorId = link.SupervisorId;
+                r.SupervisorName = (link.Supervisor.FirstName + " " + link.Supervisor.LastName).Trim();
+            }
+            else if (reportingGraph.PrimarySupervisorByEmployee.TryGetValue(r.EmployeeId, out var managerId))
+            {
+                r.HasSupervisor = true;
+                r.SupervisorId = managerId;
+            }
+
+            r.OtStatus = ResolveOtStatus(r);
+            r.OtStatusLabel = OtStatusLabel(r.OtStatus, r.OvertimeHoursOutdated);
+            r.CanApprove = CanActingEmployeeApproveOt(r, actingEmployeeId, reportingGraph, hrCanOverride);
         }
+    }
+
+    internal static bool HasOtHours(OvertimeNopayResultDto row)
+        => row.OvertimeHours > 0 || row.PreOtHours > 0 || row.PostOtHours > 0;
+
+    internal static string ResolveOtStatus(OvertimeNopayResultDto row)
+    {
+        if (!HasOtHours(row))
+            return "NoOt";
+
+        var approval = row.OvertimeApprovalStatus ?? "";
+        if (string.Equals(approval, nameof(ApprovalStatus.Approved), StringComparison.OrdinalIgnoreCase))
+            return "Approved";
+        if (string.Equals(approval, nameof(ApprovalStatus.Rejected), StringComparison.OrdinalIgnoreCase))
+            return "Rejected";
+        if (!row.HasSupervisor)
+            return "SupervisorNotAssigned";
+        return "PendingApproval";
+    }
+
+    internal static string OtStatusLabel(string status, bool outdated)
+    {
+        return status switch
+        {
+            "Approved" => outdated ? "Approved (outdated)" : "Approved",
+            "Rejected" => "Rejected",
+            "SupervisorNotAssigned" => "Supervisor Not Assigned",
+            "PendingApproval" => "Pending Approval",
+            _ => "No OT",
+        };
+    }
+
+    internal static bool CanActingEmployeeApproveOt(
+        OvertimeNopayResultDto row,
+        Guid? actingEmployeeId,
+        ReportingGraph reportingGraph,
+        bool hrCanOverride = false)
+    {
+        if (!HasOtHours(row))
+            return false;
+        if (actingEmployeeId.HasValue && row.EmployeeId == actingEmployeeId.Value)
+            return false;
+
+        var status = row.OtStatus;
+        var actionable = status is "PendingApproval" or "Rejected"
+            || (status == "Approved" && row.OvertimeHoursOutdated)
+            || (hrCanOverride && status == "SupervisorNotAssigned");
+        if (!actionable)
+            return false;
+
+        if (hrCanOverride)
+            return true;
+        if (!actingEmployeeId.HasValue || !row.HasSupervisor)
+            return false;
+        return ReportingChain.IsInSupervisorChain(reportingGraph, row.EmployeeId, actingEmployeeId.Value);
     }
 
     public async Task<OvertimeNopayResultDto?> SetOvertimeNopayPeriodApprovalAsync(
         DateTime from,
         DateTime to,
         Guid employeeId,
-        Guid approverEmployeeId,
+        Guid? approverEmployeeId,
         bool approve,
         string? remarks,
-        IReadOnlyList<Guid>? allowedEmployeeIds = null)
+        IReadOnlyList<Guid>? allowedEmployeeIds = null,
+        bool hrCanOverride = false)
     {
         if (allowedEmployeeIds != null && !allowedEmployeeIds.Contains(employeeId))
             return null;
 
+        if (!approve && string.IsNullOrWhiteSpace(remarks))
+            throw new InvalidOperationException("A reason is required to reject overtime.");
+
         var periodFrom = from.Date;
         var periodTo = to.Date;
 
-        var rows = await CalculateOvertimeNopayAsync(from, to, employeeId, allowedEmployeeIds);
+        var rows = await CalculateOvertimeNopayAsync(
+            from, to, employeeId, allowedEmployeeIds, actingEmployeeId: approverEmployeeId, hrCanOverride: hrCanOverride);
         var row = rows.FirstOrDefault();
         if (row == null) return null;
+
+        if (!HasOtHours(row))
+            throw new InvalidOperationException("There is no overtime to approve for this period.");
+        if (approverEmployeeId.HasValue && employeeId == approverEmployeeId.Value)
+            throw new InvalidOperationException("You cannot approve or reject your own overtime.");
+
+        var reportingGraph = await ReportingChain.LoadAsync(_db);
+        if (!CanActingEmployeeApproveOt(row, approverEmployeeId, reportingGraph, hrCanOverride))
+        {
+            if (!row.HasSupervisor && !hrCanOverride)
+                throw new InvalidOperationException("Supervisor not assigned. Overtime cannot be approved until a supervisor is assigned.");
+            throw new InvalidOperationException(
+                "Only the employee's supervisor, a higher-level supervisor, or HR can approve or reject overtime.");
+        }
 
         var existing = await _db.Set<OvertimeNopayPeriodApproval>()
             .FirstOrDefaultAsync(a => !a.IsDeleted && a.EmployeeId == employeeId && a.PeriodFrom == periodFrom && a.PeriodTo == periodTo);
@@ -754,7 +998,8 @@ public class AttendanceService : IAttendanceService
 
         await _db.SaveChangesAsync();
 
-        var refreshed = await CalculateOvertimeNopayAsync(from, to, employeeId, allowedEmployeeIds);
+        var refreshed = await CalculateOvertimeNopayAsync(
+            from, to, employeeId, allowedEmployeeIds, actingEmployeeId: approverEmployeeId, hrCanOverride: hrCanOverride);
         return refreshed.FirstOrDefault();
     }
 
@@ -947,7 +1192,8 @@ public class AttendanceService : IAttendanceService
             return (dayStart ?? shift.StartTime, dayEnd ?? shift.EndTime, hours);
         }
 
-        return (null, null, 8);
+        var defaultHours = date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ? 0m : 8m;
+        return (null, null, defaultHours);
     }
 
     private static (bool applies, TimeSpan? start, TimeSpan? end, decimal hours) GetShiftTimesForDate(

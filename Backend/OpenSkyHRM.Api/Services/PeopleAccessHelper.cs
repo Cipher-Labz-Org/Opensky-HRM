@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
 
@@ -43,6 +44,34 @@ public static class PeopleAccessHelper
                 if (string.Equals(c.Value, "Admin", StringComparison.OrdinalIgnoreCase))
                     return true;
             }
+        }
+        if (string.Equals(roleCode, "HR_MANAGER", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var c in user.FindAll(ClaimTypes.Role).Concat(user.FindAll("role")))
+            {
+                if (string.Equals(c.Value, "HR Manager", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.Value, "HR_MANAGER", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Admin / HR Manager (or company-wide Attendance/People update) can approve OT
+    /// when the employee's supervisor has not.
+    /// </summary>
+    public static bool CanOverrideOvertimeApproval(ClaimsPrincipal user)
+    {
+        if (UserHasRole(user, "ADMIN") || UserHasRole(user, "HR_MANAGER"))
+            return true;
+
+        foreach (var c in user.FindAll("permission"))
+        {
+            if (string.Equals(c.Value, "Attendance:Update:All", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Value, "People:Update:All", StringComparison.OrdinalIgnoreCase))
+                return true;
         }
 
         return false;
@@ -248,12 +277,10 @@ public static class PeopleAccessHelper
             if (!tid.HasValue)
                 return Array.Empty<Guid>();
 
-            var teamIds = await db.Employees
-                .AsNoTracking()
-                .Where(e => e.Id == tid.Value || e.ManagerId == tid.Value)
-                .Select(e => e.Id)
-                .ToListAsync();
-            return teamIds;
+            var graph = await ReportingChain.LoadAsync(db);
+            var teamIds = ReportingChain.GetDescendantIds(graph, tid.Value);
+            teamIds.Add(tid.Value);
+            return teamIds.ToList();
         }
 
         return Array.Empty<Guid>();
