@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
@@ -18,22 +19,59 @@ public partial class AttendanceController
         ["Employee Code"] =
         [
             "Employee Code", "Emp Code", "EmployeeCode", "Employee ID", "Employee No", "Emp No",
-            "Employee Number", "Emp Number", "Code", "EmpCode",
+            "Employee Number", "Emp Number", "Code", "EmpCode", "PIN", "Enroll Number", "Enroll No",
+            "User ID", "AC-No", "AC No", "Badge", "Badge ID",
         ],
-        ["Date"] = ["Date", "Attendance Date", "Work Date", "Att Date", "Day"],
+        ["Date"] = ["Date", "Attendance Date", "Work Date", "Att Date", "Day", "Punch Date", "Workday"],
         ["Punch In"] =
         [
             "Punch In", "PunchIn", "In Time", "Time In", "Check In", "CheckIn", "In",
-            "Punch In Time", "Time In", "Start Time", "Start",
+            "Punch In Time", "Start Time", "Start", "Clock In", "ClockIn", "First In",
         ],
         ["Punch Out"] =
         [
             "Punch Out", "PunchOut", "Out Time", "Time Out", "Check Out", "CheckOut", "Out",
-            "Punch Out Time", "End Time", "End",
+            "Punch Out Time", "End Time", "End", "Clock Out", "ClockOut", "Last Out",
         ],
         ["Status"] = ["Status", "Attendance Status", "Type", "Attendance Type", "Attendance"],
         ["Remarks"] = ["Remarks", "Notes", "Comment", "Comments", "Note"],
     };
+
+    [HttpGet("import-template")]
+    public IActionResult DownloadAttendanceImportTemplate()
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Attendance");
+        string[] headers = ["Employee Code", "Date", "Punch In", "Punch Out", "Status", "Remarks"];
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(1, i + 1).Value = headers[i];
+            ws.Cell(1, i + 1).Style.Font.Bold = true;
+        }
+
+        ws.Cell(2, 1).Value = "EMP-0001";
+        ws.Cell(2, 2).Value = DateTime.Today;
+        ws.Cell(2, 2).Style.DateFormat.Format = "yyyy-mm-dd";
+        ws.Cell(2, 3).Value = "08:30";
+        ws.Cell(2, 4).Value = "17:30";
+        ws.Cell(2, 5).Value = "Present";
+        ws.Cell(2, 6).Value = "";
+
+        var refWs = wb.Worksheets.Add("Status values");
+        refWs.Cell(1, 1).Value = "Allowed Status";
+        refWs.Cell(1, 1).Style.Font.Bold = true;
+        for (var i = 0; i < AttendanceImportStatuses.Length; i++)
+            refWs.Cell(i + 2, 1).Value = AttendanceImportStatuses[i];
+        refWs.Columns().AdjustToContents();
+        ws.Columns().AdjustToContents();
+
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return File(
+            ms.ToArray(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "AttendanceImportTemplate.xlsx");
+    }
 
     [HttpPost("import")]
     [RequestSizeLimit(10_000_000)]
@@ -43,8 +81,14 @@ public partial class AttendanceController
             return BadRequest(new { message = "No file uploaded." });
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (ext != ".xlsx" && ext != ".xls")
-            return BadRequest(new { message = "Only .xlsx or .xls files are supported." });
+        if (ext is not (".xlsx" or ".xls" or ".csv"))
+            return BadRequest(new { message = "Only .xlsx or .csv files are supported. Save the workbook as Excel Workbook (.xlsx)." });
+
+        var opened = await OpenAttendanceImportWorkbookAsync(file, ext);
+        if (opened.Error is not null)
+            return opened.Error;
+
+        using var wb = opened.Workbook!;
 
         var employees = await _db.Employees.AsNoTracking()
             .Where(e => !e.IsDeleted)
@@ -62,20 +106,18 @@ public partial class AttendanceController
         var updated = 0;
         var skipped = 0;
 
-        using var stream = file.OpenReadStream();
-        using var wb = new XLWorkbook(stream);
-        var ws = FindAttendanceImportWorksheet(wb);
-        if (ws is null)
+        var layout = FindAttendanceImportLayout(wb);
+        if (layout is null)
         {
             return BadRequest(new
             {
                 message =
-                    "Could not find attendance data. Your Excel must have header columns for employee code and date " +
-                    "(e.g. Employee Code, Date, Punch In, Punch Out).",
+                    "Could not find attendance data. Download the attendance template and keep header columns for " +
+                    "Employee Code and Date (optional: Punch In, Punch Out, Status, Remarks).",
             });
         }
 
-        var headerMap = BuildImportHeaderMap(ws);
+        var (ws, headerRow, headerMap) = layout.Value;
         var empCol = ResolveImportColumn(headerMap, "Employee Code");
         var dateCol = ResolveImportColumn(headerMap, "Date");
         if (empCol is null || dateCol is null)
@@ -101,8 +143,8 @@ public partial class AttendanceController
 
         DateTime? DateCell(IXLRow row) => ParseImportDateCell(row, dateCol!.Value);
 
-        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
-        for (var r = 2; r <= lastRow; r++)
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? headerRow;
+        for (var r = headerRow + 1; r <= lastRow; r++)
         {
             var row = ws.Row(r);
             if (IsImportRowEmpty(row, headerMap))
@@ -212,19 +254,166 @@ public partial class AttendanceController
         return Ok(new AttendanceImportUploadResult(created, updated, skipped, results.Count, results));
     }
 
-    private static IXLWorksheet? FindAttendanceImportWorksheet(XLWorkbook wb)
+    private const string AttendanceImportUnreadableMessage =
+        "Could not read the Excel file. Download the attendance template, copy your data into it, and save as Excel Workbook (.xlsx).";
+
+    private static async Task<(XLWorkbook? Workbook, IActionResult? Error)> OpenAttendanceImportWorkbookAsync(
+        IFormFile file,
+        string ext)
+    {
+        var ms = new MemoryStream();
+        await file.CopyToAsync(ms);
+        ms.Position = 0;
+
+        if (LooksLikeOleCompound(ms) || ext == ".xls")
+        {
+            await ms.DisposeAsync();
+            return (null, BadRequestResult(
+                "Legacy .xls files are not supported. Open the file in Excel and Save As Excel Workbook (.xlsx)."));
+        }
+
+        try
+        {
+            if (LooksLikeZipPackage(ms))
+                return (new XLWorkbook(ms), null);
+
+            if (LooksLikeDelimitedText(ms) || ext == ".csv")
+                return (CreateWorkbookFromDelimitedText(ms), null);
+
+            await ms.DisposeAsync();
+            return (null, BadRequestResult(AttendanceImportUnreadableMessage));
+        }
+        catch (Exception)
+        {
+            await ms.DisposeAsync();
+            return (null, BadRequestResult(AttendanceImportUnreadableMessage));
+        }
+    }
+
+    private static IActionResult BadRequestResult(string message) =>
+        new BadRequestObjectResult(new { message });
+
+    private static (IXLWorksheet Worksheet, int HeaderRow, Dictionary<string, int> HeaderMap)? FindAttendanceImportLayout(
+        XLWorkbook wb)
     {
         foreach (var sheet in wb.Worksheets)
         {
-            var headerMap = BuildImportHeaderMap(sheet);
-            if (ResolveImportColumn(headerMap, "Employee Code").HasValue
-                && ResolveImportColumn(headerMap, "Date").HasValue)
+            var lastRow = Math.Min(sheet.LastRowUsed()?.RowNumber() ?? 0, 20);
+            for (var r = 1; r <= lastRow; r++)
             {
-                return sheet;
+                var headerMap = BuildImportHeaderMap(sheet, r);
+                if (ResolveImportColumn(headerMap, "Employee Code").HasValue
+                    && ResolveImportColumn(headerMap, "Date").HasValue)
+                {
+                    return (sheet, r, headerMap);
+                }
             }
         }
 
-        return wb.Worksheets.FirstOrDefault();
+        return null;
+    }
+
+    private static bool LooksLikeZipPackage(Stream stream)
+    {
+        var header = ReadMagic(stream, 2);
+        return header.Length >= 2 && header[0] == (byte)'P' && header[1] == (byte)'K';
+    }
+
+    private static bool LooksLikeOleCompound(Stream stream)
+    {
+        var header = ReadMagic(stream, 8);
+        return header.Length >= 4
+            && header[0] == 0xD0
+            && header[1] == 0xCF
+            && header[2] == 0x11
+            && header[3] == 0xE0;
+    }
+
+    private static bool LooksLikeDelimitedText(Stream stream)
+    {
+        var header = ReadMagic(stream, 512);
+        if (header.Length == 0) return false;
+        var text = Encoding.UTF8.GetString(header);
+        if (text.Contains('\0', StringComparison.Ordinal)) return false;
+        return text.Contains(',') || text.Contains('\t') || text.Contains(';');
+    }
+
+    private static byte[] ReadMagic(Stream stream, int count)
+    {
+        var buf = new byte[count];
+        var read = stream.Read(buf, 0, count);
+        stream.Position = 0;
+        if (read == count) return buf;
+        Array.Resize(ref buf, read);
+        return buf;
+    }
+
+    private static XLWorkbook CreateWorkbookFromDelimitedText(Stream stream)
+    {
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: false);
+        var raw = reader.ReadToEnd();
+        var lines = raw.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length == 0)
+            throw new InvalidOperationException("The file is empty.");
+
+        var delimiter = DetectDelimiter(lines[0]);
+        var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Attendance");
+        for (var r = 0; r < lines.Length; r++)
+        {
+            var cells = SplitDelimitedLine(lines[r], delimiter);
+            for (var c = 0; c < cells.Count; c++)
+                ws.Cell(r + 1, c + 1).Value = cells[c];
+        }
+
+        return wb;
+    }
+
+    private static char DetectDelimiter(string headerLine)
+    {
+        var comma = headerLine.Count(ch => ch == ',');
+        var tab = headerLine.Count(ch => ch == '\t');
+        var semi = headerLine.Count(ch => ch == ';');
+        if (tab >= comma && tab >= semi && tab > 0) return '\t';
+        if (semi >= comma && semi > 0) return ';';
+        return ',';
+    }
+
+    private static List<string> SplitDelimitedLine(string line, char delimiter)
+    {
+        var cells = new List<string>();
+        var current = new StringBuilder();
+        var inQuotes = false;
+        for (var i = 0; i < line.Length; i++)
+        {
+            var ch = line[i];
+            if (ch == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    current.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (ch == delimiter && !inQuotes)
+            {
+                cells.Add(current.ToString().Trim());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(ch);
+            }
+        }
+
+        cells.Add(current.ToString().Trim());
+        return cells;
     }
 
     private static int? ResolveImportColumn(Dictionary<string, int> headerMap, string logicalName)
@@ -244,6 +433,8 @@ public partial class AttendanceController
             foreach (var alias in aliases)
             {
                 var normalizedAlias = NormalizeImportHeaderKey(alias);
+                if (normalizedAlias.Length < 4)
+                    continue;
                 if (pair.Key.Contains(normalizedAlias, StringComparison.OrdinalIgnoreCase)
                     || normalizedAlias.Contains(pair.Key, StringComparison.OrdinalIgnoreCase))
                 {
@@ -255,12 +446,12 @@ public partial class AttendanceController
         return null;
     }
 
-    private static Dictionary<string, int> BuildImportHeaderMap(IXLWorksheet ws)
+    private static Dictionary<string, int> BuildImportHeaderMap(IXLWorksheet ws, int headerRow)
     {
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (var c = 1; c <= (ws.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
         {
-            var key = NormalizeImportHeaderKey(GetCellTrimmedDisplayText(ws.Cell(1, c)));
+            var key = NormalizeImportHeaderKey(GetCellTrimmedDisplayText(ws.Cell(headerRow, c)));
             if (!string.IsNullOrEmpty(key))
                 headerMap[key] = c;
         }
