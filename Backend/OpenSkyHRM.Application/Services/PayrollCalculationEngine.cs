@@ -6,6 +6,7 @@ using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Seeders;
 
 namespace OpenSkyHRM.Application.Services;
 
@@ -38,6 +39,8 @@ public class PayrollCalculationEngine
 
         if (selectedIds is null || selectedIds.Count == 0)
             throw new InvalidOperationException("No employees selected for this batch. Please delete and create a new batch with employees selected.");
+
+        await PayrollComponentSeeder.EnsureAsync(_db);
 
         // Bulk-delete previous lines then statements (bypasses change tracker to avoid concurrency issues)
         var oldStatementIds = await _db.PayStatements
@@ -85,8 +88,6 @@ public class PayrollCalculationEngine
                 var fixedCompensations = await _db.EmployeeCompensations
                     .Include(ec => ec.Component)
                     .Where(ec => ec.IsActive && ec.BatchId == null && employeeIdSet.Contains(ec.EmployeeId)
-                        && ec.EffectiveFrom.Date <= periodEnd
-                        && (ec.EffectiveTo == null || ec.EffectiveTo.Value.Date >= periodStart)
                         && (ec.Component.Category == ComponentCategory.Fixed || ec.Component.Category == ComponentCategory.Statutory))
                     .ToListAsync();
 
@@ -96,7 +97,9 @@ public class PayrollCalculationEngine
                         && ec.Component.Category == ComponentCategory.Variable)
                     .ToListAsync();
 
-                allCompensations = fixedCompensations.Concat(variableCompensations).ToList();
+                allCompensations = SelectAssignmentsForPeriod(fixedCompensations, periodStart, periodEnd)
+                    .Concat(variableCompensations)
+                    .ToList();
                 relevantComponents = components
                     .Where(c => c.Category is ComponentCategory.Fixed or ComponentCategory.Variable or ComponentCategory.Statutory)
                     .ToList();
@@ -200,6 +203,8 @@ public class PayrollCalculationEngine
             }
 
             resolvedValues[comp.Code] = amount;
+            if (IsBasicComponentCode(comp.Code))
+                resolvedValues["BASIC"] = amount;
             if (comp.Type == ComponentType.Earning && comp.IsTaxable)
                 taxableEarnings += amount;
 
@@ -225,7 +230,7 @@ public class PayrollCalculationEngine
         resolvedValues["TOTAL_EARNINGS"] = totalEarnings;
         resolvedValues["GROSS"] = totalEarnings;
         resolvedValues["TAXABLE_EARNINGS"] = taxableEarnings;
-        decimal basicPay = resolvedValues.GetValueOrDefault("BASIC", totalEarnings);
+        decimal basicPay = ResolveBasicPay(resolvedValues, empComp, totalEarnings);
         resolvedValues["BASIC"] = basicPay;
 
         if (includeStatutory)
@@ -268,15 +273,6 @@ public class PayrollCalculationEngine
                     SortOrder = comp.SortOrder,
                 });
             }
-
-            // If no statutory components are defined in master, add EPF/ETF as standalone lines
-            if (!allComponents.Any(c => c.Category == ComponentCategory.Statutory))
-            {
-                var dummyId = Guid.Empty;
-                lines.Add(new PayStatementLine { ComponentId = dummyId, ComponentName = "EPF (Employee 8%)", ComponentCode = "EPF_EE", Type = "StatutoryDeduction", Amount = epfEmployee, SortOrder = 900 });
-                lines.Add(new PayStatementLine { ComponentId = dummyId, ComponentName = "EPF (Employer 12%)", ComponentCode = "EPF_ER", Type = "StatutoryContribution", Amount = epfEmployer, IsEmployerContribution = true, SortOrder = 901 });
-                lines.Add(new PayStatementLine { ComponentId = dummyId, ComponentName = "ETF (Employer 3%)", ComponentCode = "ETF_ER", Type = "StatutoryContribution", Amount = etfEmployer, IsEmployerContribution = true, SortOrder = 902 });
-            }
         }
 
         decimal statutoryEmployeeDeductions = lines
@@ -305,6 +301,63 @@ public class PayrollCalculationEngine
             Lines = lines,
         };
     }
+
+    /// <summary>
+    /// Picks one assignment per employee/component for the batch period. When no row overlaps the
+    /// period (e.g. salary entered after the pay month), falls back to the latest active assignment.
+    /// </summary>
+    internal static List<EmployeeCompensation> SelectAssignmentsForPeriod(
+        IEnumerable<EmployeeCompensation> assignments,
+        DateTime periodStart,
+        DateTime periodEnd)
+    {
+        return assignments
+            .GroupBy(ec => new { ec.EmployeeId, ec.ComponentId })
+            .Select(g =>
+            {
+                var overlapping = g
+                    .Where(ec =>
+                        ec.EffectiveFrom.Date <= periodEnd &&
+                        (ec.EffectiveTo == null || ec.EffectiveTo.Value.Date >= periodStart))
+                    .OrderByDescending(ec => ec.EffectiveFrom)
+                    .FirstOrDefault();
+
+                return overlapping ?? g.OrderByDescending(ec => ec.EffectiveFrom).First();
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Resolves basic pay from BASIC or BASIC* component codes (e.g. BASIC1).
+    /// </summary>
+    internal static decimal ResolveBasicPay(
+        Dictionary<string, decimal> resolvedValues,
+        List<EmployeeCompensation> empComp,
+        decimal totalEarnings)
+    {
+        if (resolvedValues.TryGetValue("BASIC", out var basic) && basic > 0)
+            return basic;
+
+        var basicAlias = resolvedValues
+            .Where(kv => kv.Key.StartsWith("BASIC", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(kv.Key, "BASIC", StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Value)
+            .FirstOrDefault(v => v > 0);
+        if (basicAlias > 0)
+            return basicAlias;
+
+        var basicAssignment = empComp.FirstOrDefault(ec =>
+            ec.Component.Code.Equals("BASIC", StringComparison.OrdinalIgnoreCase)
+            || ec.Component.Code.StartsWith("BASIC", StringComparison.OrdinalIgnoreCase));
+        if (basicAssignment is { Amount: > 0 })
+            return basicAssignment.Amount;
+
+        return totalEarnings;
+    }
+
+    private static bool IsBasicComponentCode(string code) =>
+        code.Equals("BASIC", StringComparison.OrdinalIgnoreCase)
+        || code.StartsWith("BASIC", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Simple expression evaluator: supports component code references, arithmetic (+, -, *, /),

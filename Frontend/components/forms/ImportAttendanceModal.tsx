@@ -4,7 +4,8 @@ import { useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiFetchBlob } from "@/lib/api";
+import { downloadBlob } from "@/lib/template-pdf";
 
 interface AttendanceImportRowResult {
   row: number;
@@ -31,6 +32,7 @@ interface Props {
 export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [result, setResult] = useState<AttendanceImportUploadResult | null>(null);
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
@@ -53,6 +55,19 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
     setFile(next);
     setResult(null);
     setError("");
+  }
+
+  async function handleDownloadTemplate() {
+    setDownloadingTemplate(true);
+    setError("");
+    try {
+      const blob = await apiFetchBlob("/api/attendance/import-template");
+      downloadBlob(blob, "AttendanceImportTemplate.xlsx");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not download the template.");
+    } finally {
+      setDownloadingTemplate(false);
+    }
   }
 
   async function handleImport() {
@@ -89,14 +104,26 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
         <FormErrorAlert message={error} onDismiss={() => setError("")} />
 
         <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-600">
-          <p className="font-medium text-slate-700">Required Excel columns</p>
-          <p className="mt-2 text-xs">
-            Your sheet must include <strong>Employee Code</strong> and <strong>Date</strong> column headers.
-            Optional: Punch In, Punch Out, Status, Remarks.
-          </p>
-          <p className="mt-2 text-xs text-slate-500">
-            Employee code must match an active employee. Existing records for the same employee and date are updated.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-medium text-slate-700">Required Excel columns</p>
+              <p className="mt-2 text-xs">
+                Your sheet must include <strong>Employee Code</strong> and <strong>Date</strong> column headers.
+                Optional: Punch In, Punch Out, Status, Remarks.
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Save as Excel Workbook (.xlsx). Employee code must match an active employee. Existing records for the same employee and date are updated.
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => void handleDownloadTemplate()}
+              disabled={downloadingTemplate}
+            >
+              {downloadingTemplate ? "Downloading…" : "Download template"}
+            </Button>
+          </div>
         </div>
 
         <div
@@ -115,7 +142,7 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
           <input
             ref={fileRef}
             type="file"
-            accept=".xlsx,.xls"
+            accept=".xlsx,.xls,.csv"
             className="hidden"
             onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
           />
