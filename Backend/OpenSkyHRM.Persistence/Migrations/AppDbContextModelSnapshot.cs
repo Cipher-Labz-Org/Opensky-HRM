@@ -3571,11 +3571,20 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<int>("CurrentApprovalLevel")
                         .HasColumnType("integer");
 
+                    b.Property<string>("DurationKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<Guid>("EmployeeId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("EndDate")
                         .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("HalfDayPeriod")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
@@ -3606,6 +3615,9 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<string>("Reason")
                         .HasColumnType("text");
+
+                    b.Property<int?>("ShortLeaveHours")
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("timestamp without time zone");
@@ -3643,6 +3655,12 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AllowHalfDay")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AllowShortLeave")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasColumnType("text");
@@ -3668,9 +3686,24 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<bool>("IsPaid")
                         .HasColumnType("boolean");
 
+                    b.Property<decimal?>("MaxDays")
+                        .HasColumnType("numeric");
+
+                    b.Property<int?>("MaxHours")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("MinDays")
+                        .HasColumnType("numeric");
+
+                    b.Property<int?>("MinHours")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("ShortLeaveHours")
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp without time zone");
