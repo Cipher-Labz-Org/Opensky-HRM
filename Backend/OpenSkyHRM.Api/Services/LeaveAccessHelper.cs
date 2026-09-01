@@ -133,6 +133,12 @@ public static class LeaveAccessHelper
         if (leavePerms.Any(p => p.Contains($":{action}:Own", StringComparison.OrdinalIgnoreCase)))
             return "Own";
 
+        // Approvals UI treats Supervisor as team leave readers even when Leave:Read is missing from JWT.
+        if (UserHasRole(user, "SUPERVISOR")
+            && (string.Equals(action, "Read", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(action, "Update", StringComparison.OrdinalIgnoreCase)))
+            return "Team";
+
         return "None";
     }
 

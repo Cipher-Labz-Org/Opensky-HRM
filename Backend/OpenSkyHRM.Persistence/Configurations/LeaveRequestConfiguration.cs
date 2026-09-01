@@ -8,6 +8,9 @@ public class LeaveRequestConfiguration : IEntityTypeConfiguration<LeaveRequest>
 {
     public void Configure(EntityTypeBuilder<LeaveRequest> builder)
     {
+        builder.Property(x => x.DurationKind).HasMaxLength(20).IsRequired();
+        builder.Property(x => x.HalfDayPeriod).HasMaxLength(20);
+
         builder.HasOne(x => x.Level1Approver)
             .WithMany()
             .HasForeignKey(x => x.Level1ApproverId)
