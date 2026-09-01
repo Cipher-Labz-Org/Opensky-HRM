@@ -62,6 +62,9 @@ public class LeaveController : ControllerBase
         IReadOnlyList<Guid>? allowedIds = null;
         Guid? excludeEmployeeId = null;
 
+        if (scope is not ("Own" or "Team" or "All"))
+            return Ok(new PagedResult<LeaveRequestDto> { Items = new List<LeaveRequestDto>(), TotalCount = 0, Page = page, PageSize = pageSize });
+
         if (scope == "Own")
         {
             var currentId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);

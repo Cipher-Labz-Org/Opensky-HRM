@@ -318,10 +318,20 @@ if (dbAvailable)
         await db.Database.MigrateAsync();
         await BankAccountSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, app.Configuration);
+        await LeaveSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
     }
     catch (Exception ex)
     {
         Console.WriteLine($"WARNING: Database migration failed: {ex.Message}");
+        try
+        {
+            var fallbackConn = builder.Configuration.GetConnectionString("DefaultConnection");
+            await LeaveSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
+        }
+        catch (Exception repairEx)
+        {
+            Console.WriteLine($"WARNING: Leave schema repair after migration failure skipped: {repairEx.Message}");
+        }
     }
 
     // Default roles (Admin, HR Manager, Supervisor, Employee) — every tenant DB.

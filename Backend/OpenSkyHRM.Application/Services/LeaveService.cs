@@ -61,6 +61,8 @@ public class LeaveService : ILeaveService
         var recent = new List<LeaveRequestDto>();
         foreach (var r in recentEntities)
         {
+            if (r.Employee is null || r.LeaveType is null)
+                continue;
             var dto = MapToDto(r);
             await SetResponsibleFieldsAsync(dto, r);
             recent.Add(dto);
@@ -81,7 +83,11 @@ public class LeaveService : ILeaveService
 
     public async Task<PagedResult<LeaveRequestDto>> GetLeaveRequestsAsync(int page = 1, int pageSize = 20, string? status = null, Guid? employeeId = null, DateTime? fromDate = null, DateTime? toDate = null, IReadOnlyList<Guid>? allowedEmployeeIds = null, Guid? excludeEmployeeId = null)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 500);
+
         var query = _db.Set<LeaveRequest>()
+            .AsNoTracking()
             .Include(r => r.Employee)
             .Include(r => r.LeaveType)
             .Include(r => r.Approver)
@@ -105,17 +111,29 @@ public class LeaveService : ILeaveService
         if (employeeId.HasValue)
             query = query.Where(r => r.EmployeeId == employeeId.Value);
 
-        var rangeFrom = fromDate?.Date;
-        var rangeTo = toDate?.Date;
+        var rangeFrom = fromDate.HasValue
+            ? DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Unspecified)
+            : (DateTime?)null;
+        var rangeTo = toDate.HasValue
+            ? DateTime.SpecifyKind(toDate.Value.Date, DateTimeKind.Unspecified)
+            : (DateTime?)null;
         if (rangeFrom.HasValue && rangeTo.HasValue && rangeTo.Value < rangeFrom.Value)
             (rangeFrom, rangeTo) = (rangeTo, rangeFrom);
 
+        // Compare timestamps directly — DateTime.Date in LINQ is not reliably translated
+        // for PostgreSQL timestamp without time zone and can 500 the list endpoint.
         if (rangeFrom.HasValue && rangeTo.HasValue)
-            query = query.Where(r => r.StartDate.Date <= rangeTo.Value && r.EndDate.Date >= rangeFrom.Value);
+        {
+            var toExclusive = rangeTo.Value.AddDays(1);
+            query = query.Where(r => r.StartDate < toExclusive && r.EndDate >= rangeFrom.Value);
+        }
         else if (rangeFrom.HasValue)
-            query = query.Where(r => r.EndDate.Date >= rangeFrom.Value);
+            query = query.Where(r => r.EndDate >= rangeFrom.Value);
         else if (rangeTo.HasValue)
-            query = query.Where(r => r.StartDate.Date <= rangeTo.Value);
+        {
+            var toExclusive = rangeTo.Value.AddDays(1);
+            query = query.Where(r => r.StartDate < toExclusive);
+        }
 
         var total = await query.CountAsync();
 
@@ -128,6 +146,8 @@ public class LeaveService : ILeaveService
         var items = new List<LeaveRequestDto>();
         foreach (var r in entities)
         {
+            if (r.Employee is null || r.LeaveType is null)
+                continue;
             var dto = MapToDto(r);
             await SetResponsibleFieldsAsync(dto, r);
             items.Add(dto);
@@ -501,10 +521,10 @@ public class LeaveService : ILeaveService
     private static LeaveRequestDto MapToDto(LeaveRequest r) => new()
     {
         Id = r.Id,
-        EmployeeName = r.Employee.FirstName + " " + r.Employee.LastName,
-        EmployeeCode = r.Employee.EmployeeCode,
+        EmployeeName = r.Employee is null ? "(Former employee)" : r.Employee.FirstName + " " + r.Employee.LastName,
+        EmployeeCode = r.Employee?.EmployeeCode ?? string.Empty,
         EmployeeId = r.EmployeeId,
-        LeaveTypeName = r.LeaveType.Name,
+        LeaveTypeName = r.LeaveType?.Name ?? "(Deleted leave type)",
         StartDate = r.StartDate, EndDate = r.EndDate, TotalDays = r.TotalDays,
         DurationKind = string.IsNullOrWhiteSpace(r.DurationKind) ? LeaveDurationKinds.FullDay : r.DurationKind,
         HalfDayPeriod = r.HalfDayPeriod,
@@ -1406,6 +1426,8 @@ public class LeaveService : ILeaveService
         var days = new Dictionary<DateTime, CalendarDayDto>();
         foreach (var r in requests)
         {
+            if (r.Employee is null || r.LeaveType is null)
+                continue;
             for (var d = r.StartDate.Date; d <= r.EndDate.Date; d = d.AddDays(1))
             {
                 if (d.Month != month || d.Year != year) continue;
