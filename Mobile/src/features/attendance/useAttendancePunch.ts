@@ -88,12 +88,6 @@ export function useAttendancePunch() {
           : "You have punched out. You can scan again to start another session."
       );
     },
-    onError: (error) => {
-      Alert.alert(
-        "Punch failed",
-        error instanceof Error ? error.message : "Could not record punch."
-      );
-    },
     onSettled: () => setPunching(null),
   });
 

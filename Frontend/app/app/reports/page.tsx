@@ -75,7 +75,7 @@ function getDefaultQueryParamsForItem(item: ReportItem | null | undefined): Reco
   const mode = item.periodFilterMode || "none";
   const isoDate = (d: Date) => d.toISOString().slice(0, 10);
   if (mode === "dateRange") {
-    if (item.key === "daily-attendance") {
+    if (item.key === "daily-attendance" || item.key === "overtime-report" || item.key === "overtime-detail") {
       const from = new Date(today.getFullYear(), today.getMonth(), 1);
       p.from = isoDate(from);
       p.to = isoDate(today);

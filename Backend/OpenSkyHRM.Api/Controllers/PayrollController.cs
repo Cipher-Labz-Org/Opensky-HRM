@@ -286,6 +286,11 @@ public class PayrollController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (DbUpdateException ex)
+        {
+            var inner = ex.InnerException?.Message ?? ex.Message;
+            return BadRequest(new { message = $"Payroll calculation could not be saved: {inner}" });
+        }
     }
 
     [HttpGet("batches/{id:guid}/import-attendance-leave/preview")]

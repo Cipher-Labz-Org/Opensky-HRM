@@ -8,6 +8,11 @@ public class LeaveRequest : AuditableEntity
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public decimal TotalDays { get; set; }
+    /// <summary>FullDay, HalfDay, or ShortLeave.</summary>
+    public string DurationKind { get; set; } = "FullDay";
+    /// <summary>Morning or Afternoon when DurationKind is HalfDay.</summary>
+    public string? HalfDayPeriod { get; set; }
+    public int? ShortLeaveHours { get; set; }
     public string? Reason { get; set; }
     public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
     public string? CoveragePerson { get; set; }

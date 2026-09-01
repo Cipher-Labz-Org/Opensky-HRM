@@ -135,7 +135,13 @@ const ACTIVE_STATUS_OPTS: FormSelectOption[] = [
   { value: "false", label: "Inactive" },
 ];
 
+const DEFAULT_FIXED_SALARY_EFFECTIVE_FROM = "2020-01-01";
+
 const fmt = (n: number) => n.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function formatPayrollAmount(n: number): string {
+  return `LKR ${fmt(n)}`;
+}
 const roundMoney = (n: number) => Math.round(n * 100) / 100;
 
 function calcStatutoryAmount(
@@ -1027,7 +1033,7 @@ function SalaryComponentsEditor({
           componentId: def.id,
           amount: target,
           currency: "LKR",
-          effectiveFrom: new Date().toISOString(),
+          effectiveFrom: mode === "Fixed" ? DEFAULT_FIXED_SALARY_EFFECTIVE_FROM : new Date().toISOString(),
         };
         if (mode === "Variable" && batchId) payload.batchId = batchId;
         await apiFetch(`/api/payroll/compensation/${employeeId}`, {
@@ -1660,8 +1666,8 @@ function PayrollRunTab() {
                     <div className="text-xs text-slate-400">{formatBatchPeriod(b)}</div>
                   </td>
                   <td className="px-4 py-3 text-slate-600">{b.status === "Draft" ? `${b.selectedCount} selected` : b.employeeCount}</td>
-                  <td className="px-4 py-3 text-right font-mono text-slate-700">{b.totalGross ? `LKR ${fmt(b.totalGross)}` : "—"}</td>
-                  <td className="px-4 py-3 text-right font-mono text-slate-700">{b.totalNet ? `LKR ${fmt(b.totalNet)}` : "—"}</td>
+                  <td className="px-4 py-3 text-right font-mono text-slate-700">{b.status === "Draft" ? "—" : formatPayrollAmount(b.totalGross)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-slate-700">{b.status === "Draft" ? "—" : formatPayrollAmount(b.totalNet)}</td>
                   <td className="px-4 py-3"><Badge status={b.status} /></td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
@@ -1743,7 +1749,8 @@ function ImportAttendanceLeaveModal({
         <div>Type: <strong className="text-slate-800">{formatProcessType(batch.processType)}</strong></div>
         <div>Period: <strong className="text-slate-800">{formatBatchPeriod(batch)}</strong></div>
         <p className="text-xs text-slate-500">
-          Uses approved OT hours and combined attendance absences + approved no-pay leave for this exact period.
+          Uses only Approved OT hours. Pending, rejected, and supervisor-not-assigned OT is excluded.
+          No-pay combines attendance absences with approved unpaid leave for this exact period.
         </p>
       </div>
 

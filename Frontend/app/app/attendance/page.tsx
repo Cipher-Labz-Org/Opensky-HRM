@@ -8,7 +8,9 @@ import { Modal } from "@/components/ui/Modal";
 import { DatePickerField, DateTimePickerField, FormErrorAlert, FormSelect, TablePagination, TimePickerField, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
+import { ImportAttendanceModal } from "@/components/forms/ImportAttendanceModal";
 import { EmployeeSearchCombobox, type EmployeeSearchPick } from "@/components/workforce/EmployeeSearchCombobox";
+import { OtNopayPanel } from "@/components/workforce/OtNopayPanel";
 import { apiFetch } from "@/lib/api";
 import { formatBusinessTime, formatDate, formatDateTime } from "@/lib/date-utils";
 import { tenantBackendUrl } from "@/config/constants";
@@ -127,6 +129,7 @@ const ATTENDANCE_SOURCE_OPTIONS: FormSelectOption[] = [
   { value: "Web", label: "Web" },
   { value: "Mobile", label: "Mobile" },
   { value: "Manual", label: "Manual" },
+  { value: "Import", label: "Import" },
   { value: "System", label: "System" },
 ];
 
@@ -304,7 +307,9 @@ function buildShiftDayTimes(
   appliesOn?: Record<string, boolean>,
   shiftType?: string,
 ): Record<string, string> {
-  const { start: defStart, end: defEnd } = defaultTimesForShift(editing, shiftType);
+  const resolvedType = shiftType ?? editing?.shiftType;
+  const { start: defStart, end: defEnd } = defaultTimesForShift(editing, resolvedType);
+  const flexiDaysFromWindow = isFlexiShiftType(resolvedType);
   const dayTimes: Record<string, string> = {};
   for (const key of SHIFT_DAY_KEYS) {
     const startKey = `${key}StartTime` as keyof ShiftItem;
@@ -313,8 +318,13 @@ function buildShiftDayTimes(
     const applies = appliesOn?.[key] ?? (editing ? Boolean(editing[appliesKey]) : defaultAppliesOnDay(key));
     const storedStart = editing ? timeSpanToInput(String(editing[startKey] ?? "")) : "";
     const storedEnd = editing ? timeSpanToInput(String(editing[endKey] ?? "")) : "";
-    dayTimes[`${key}Start`] = storedStart || (applies ? defStart : "");
-    dayTimes[`${key}End`] = storedEnd || (applies ? defEnd : "");
+    if (flexiDaysFromWindow) {
+      dayTimes[`${key}Start`] = applies ? defStart : "";
+      dayTimes[`${key}End`] = applies ? defEnd : "";
+    } else {
+      dayTimes[`${key}Start`] = storedStart || (applies ? defStart : "");
+      dayTimes[`${key}End`] = storedEnd || (applies ? defEnd : "");
+    }
   }
   return dayTimes;
 }
@@ -512,7 +522,7 @@ export default function AttendancePage() {
       {pageTab === "roster" && <RosterTab />}
       {pageTab === "attendance" && <AttendanceListTab />}
       {pageTab === "devices" && <DevicesTab />}
-      {pageTab === "ot-nopay" && <OtNopayTab />}
+      {pageTab === "ot-nopay" && <OtNopayPanel />}
     </>
   );
 }
@@ -893,6 +903,7 @@ function AttendanceListTab() {
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
   const [saving, setSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const isSingleEmployeeView = Boolean(appliedEmployeeId);
 
   const departmentOptions = useMemo<FormSelectOption[]>(
@@ -1198,6 +1209,9 @@ function AttendanceListTab() {
               {refreshing ? " · syncing…" : " · auto 30s"}
             </span>
           )}
+          <Button variant="secondary" className="shrink-0" onClick={() => setShowImport(true)}>
+            Import Excel
+          </Button>
           <Button className="shrink-0" onClick={() => setShowCreate(true)}>+ Log Attendance</Button>
         </div>
       </div>
@@ -1283,6 +1297,11 @@ function AttendanceListTab() {
       </p>
 
       <CreateAttendanceModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />
+      <ImportAttendanceModal
+        open={showImport}
+        onClose={() => setShowImport(false)}
+        onImported={() => load()}
+      />
 
       <InlinePageAlert message={error} />
 
@@ -1825,158 +1844,6 @@ function DevicesTab() {
   );
 }
 
-// ──────────────────────────── OT / No-Pay Tab (Phase 5) ────────────────────────────
-
-interface OtNopayResult {
-  employeeId: string;
-  employeeName: string;
-  employeeCode: string | null;
-  totalWorkedHours: number;
-  expectedHours: number;
-  overtimeHours: number;
-  nopayDays: number;
-  nopayHours: number;
-  lateDays: number;
-  presentDays: number;
-  absentDays: number;
-}
-
-function OtNopayTab() {
-  const [results, setResults] = useState<OtNopayResult[]>([]);
-  const [fromDate, setFromDate] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-  });
-  const [toDate, setToDate] = useState(() => todayLocalIso());
-  const [filterEmployee, setFilterEmployee] = useState("");
-  const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    apiFetch<{ items: EmployeeLookup[] }>("/api/employees?pageSize=500")
-      .then((r) => setEmployees(r.items ?? []))
-      .catch(() => {});
-  }, []);
-
-  const calculate = useCallback(() => {
-    if (!fromDate || !toDate) return;
-    if (!isValidIsoDateRange(fromDate, toDate)) {
-      setError("From date cannot be after to date.");
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    const params = new URLSearchParams({ from: fromDate, to: toDate });
-    if (filterEmployee) params.set("employeeId", filterEmployee);
-    apiFetch<OtNopayResult[]>(`/api/attendance/overtime-nopay?${params}`)
-      .then(setResults)
-      .catch((e) => setError(e instanceof Error ? e.message : "Calculation failed"))
-      .finally(() => setLoading(false));
-  }, [fromDate, toDate, filterEmployee]);
-
-  const resultsPager = useClientPagination(results, 15);
-
-  const totals = results.reduce(
-    (acc, r) => ({
-      worked: acc.worked + r.totalWorkedHours,
-      expected: acc.expected + r.expectedHours,
-      ot: acc.ot + r.overtimeHours,
-      nopayDays: acc.nopayDays + r.nopayDays,
-      nopayHours: acc.nopayHours + r.nopayHours,
-    }),
-    { worked: 0, expected: 0, ot: 0, nopayDays: 0, nopayHours: 0 },
-  );
-
-  function onOtFromDateChange(v: string) {
-    const { from, to } = applyFromDateInRange(v, toDate);
-    setFromDate(from);
-    setToDate(to);
-  }
-
-  function onOtToDateChange(v: string) {
-    const { from, to } = applyToDateInRange(fromDate, v);
-    setFromDate(from);
-    setToDate(to);
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className={labelClass}>From *</label>
-          <DatePickerField value={fromDate} onChange={onOtFromDateChange} max={toDate || undefined} className={`${inputClass} w-40`} />
-        </div>
-        <div>
-          <label className={labelClass}>To *</label>
-          <DatePickerField value={toDate} onChange={onOtToDateChange} min={fromDate || undefined} className={`${inputClass} w-40`} />
-        </div>
-        <div>
-          <label className={labelClass}>Employee</label>
-          <select value={filterEmployee} onChange={(e) => setFilterEmployee(e.target.value)} className={`${inputClass} w-48`}>
-            <option value="">All</option>
-            {employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.fullName}</option>)}
-          </select>
-        </div>
-        <Button onClick={calculate}>Calculate</Button>
-      </div>
-
-      <InlinePageAlert message={error} />
-
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="bg-slate-50 text-left">
-              <th className="px-4 py-2.5 font-semibold text-slate-600">Employee</th>
-              <th className="px-3 py-2.5 font-semibold text-slate-600 text-right">Present</th>
-              <th className="px-3 py-2.5 font-semibold text-slate-600 text-right">Absent</th>
-              <th className="px-3 py-2.5 font-semibold text-slate-600 text-right">Late Days</th>
-              <th className="px-3 py-2.5 font-semibold text-slate-600 text-right">Expected Hrs</th>
-              <th className="px-3 py-2.5 font-semibold text-slate-600 text-right">Worked Hrs</th>
-              <th className="px-3 py-2.5 font-semibold text-slate-600 text-right">OT Hrs</th>
-              <th className="px-3 py-2.5 font-semibold text-slate-600 text-right">No-Pay Days</th>
-              <th className="px-3 py-2.5 font-semibold text-slate-600 text-right">No-Pay Hrs</th>
-            </tr></thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading && <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-400">Calculating...</td></tr>}
-              {!loading && results.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-400">No data. Select a date range and click Calculate.</td></tr>}
-              {!loading && resultsPager.pageItems.map((r) => (
-                <tr key={r.employeeId} className="hover:bg-slate-50/50">
-                  <td className="px-4 py-2.5 font-medium text-slate-700">
-                    {r.employeeName}
-                    {r.employeeCode && <span className="ml-1 text-xs text-slate-400">({r.employeeCode})</span>}
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-slate-600">{r.presentDays}</td>
-                  <td className="px-3 py-2.5 text-right text-red-600">{r.absentDays}</td>
-                  <td className="px-3 py-2.5 text-right text-amber-600">{r.lateDays}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-600">{r.expectedHours.toFixed(1)}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-700 font-medium">{r.totalWorkedHours.toFixed(1)}</td>
-                  <td className="px-3 py-2.5 text-right font-medium text-blue-600">{r.overtimeHours.toFixed(1)}</td>
-                  <td className="px-3 py-2.5 text-right text-red-600">{r.nopayDays}</td>
-                  <td className="px-3 py-2.5 text-right text-red-600">{r.nopayHours.toFixed(1)}</td>
-                </tr>
-              ))}
-            </tbody>
-            {!loading && results.length > 0 && (
-              <tfoot>
-                <tr className="bg-slate-50 font-semibold">
-                  <td className="px-4 py-2.5 text-slate-700">Totals ({results.length} employees)</td>
-                  <td className="px-3 py-2.5 text-right" colSpan={3}></td>
-                  <td className="px-3 py-2.5 text-right text-slate-700">{totals.expected.toFixed(1)}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-700">{totals.worked.toFixed(1)}</td>
-                  <td className="px-3 py-2.5 text-right text-blue-600">{totals.ot.toFixed(1)}</td>
-                  <td className="px-3 py-2.5 text-right text-red-600">{totals.nopayDays}</td>
-                  <td className="px-3 py-2.5 text-right text-red-600">{totals.nopayHours.toFixed(1)}</td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-        <TablePagination page={resultsPager.page} totalPages={resultsPager.totalPages} totalCount={resultsPager.totalCount} pageSize={resultsPager.pageSize} onPageChange={resultsPager.setPage} />
-      </div>
-    </div>
-  );
-}
 
 // ──────────────────────────── Shifts Tab ────────────────────────────
 
@@ -2238,8 +2105,8 @@ function ShiftsTab() {
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${typeBadgeClass(s.shiftType)}`}>{s.shiftType}</span>
                   </td>
                   <td className="px-4 py-3 text-slate-600 text-xs">
-                    {s.shiftType === "Flexi" ? (
-                      <span>{s.flexiWindowStart ? timeSpanToInput(s.flexiWindowStart) : "07:00"} - {s.flexiWindowEnd ? timeSpanToInput(s.flexiWindowEnd) : "20:00"} (min {s.minimumWorkHours ?? 8}h)</span>
+                    {isFlexiShift(s) ? (
+                      <span>{formatShiftPatternTimes(s)}</span>
                     ) : s.shiftType === "Open" ? (
                       <span className="text-slate-400">No fixed times</span>
                     ) : (
@@ -2481,35 +2348,151 @@ interface RosterTemplateItem {
   defaultShiftPatternName: string | null;
 }
 
+function shiftTimeToMinutes(t: string): number {
+  const parts = (t || "00:00").split(":").map(Number);
+  return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
+}
+
+function sessionSpanHours(start: string, end: string, crossesMidnight: boolean): number {
+  let spanMins = shiftTimeToMinutes(end) - shiftTimeToMinutes(start);
+  if (spanMins <= 0 || crossesMidnight) spanMins += 24 * 60;
+  return spanMins / 60;
+}
+
 function getWorkHoursFromShift(s: ShiftItem): number {
-  const toMins = (t: string) => {
-    const parts = (t || "00:00").split(":").map(Number);
-    return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
-  };
-  const startM = toMins(s.startTime);
-  const endM = toMins(s.endTime);
-  let spanMins = endM - startM;
+  if (isOpenShiftType(s.shiftType)) {
+    return s.minimumWorkHours != null && s.minimumWorkHours > 0 ? s.minimumWorkHours : 8;
+  }
+
+  if (isFlexiShift(s)) {
+    if (s.minimumWorkHours != null && s.minimumWorkHours > 0) return s.minimumWorkHours;
+    if (s.flexiWindowStart && s.flexiWindowEnd) {
+      const windowHours = sessionSpanHours(
+        timeSpanToInput(s.flexiWindowStart),
+        timeSpanToInput(s.flexiWindowEnd),
+        shiftTimeToMinutes(s.flexiWindowEnd) <= shiftTimeToMinutes(s.flexiWindowStart),
+      );
+      return Math.max(0, Math.round(windowHours * 100) / 100);
+    }
+    return 8;
+  }
+
+  if (s.shiftType === "Split" && s.session2StartTime && s.session2EndTime) {
+    const session1Hours = sessionSpanHours(s.startTime, s.endTime, false);
+    const session2CrossesMidnight =
+      s.isNightShift || shiftTimeToMinutes(s.session2EndTime) <= shiftTimeToMinutes(s.session2StartTime);
+    const session2Hours = sessionSpanHours(s.session2StartTime, s.session2EndTime, session2CrossesMidnight);
+    return Math.max(0, Math.round((session1Hours + session2Hours) * 100) / 100);
+  }
+
+  let spanMins = shiftTimeToMinutes(s.endTime) - shiftTimeToMinutes(s.startTime);
   if (spanMins <= 0) spanMins += 24 * 60;
-  const spanHours = spanMins / 60 - (s.breakHours ?? 0);
-  return Math.max(0, Math.round(spanHours * 100) / 100);
+  return Math.max(0, Math.round((spanMins / 60) * 100) / 100);
+}
+
+function isFlexiShiftType(shiftType: string | null | undefined): boolean {
+  return (shiftType ?? "").trim().toLowerCase() === "flexi";
+}
+
+function isOpenShiftType(shiftType: string | null | undefined): boolean {
+  return (shiftType ?? "").trim().toLowerCase() === "open";
+}
+
+function isFlexiShift(shift: Pick<ShiftItem, "shiftType" | "flexiWindowStart" | "flexiWindowEnd">): boolean {
+  return isFlexiShiftType(shift.shiftType)
+    || (!!shift.flexiWindowStart && !!shift.flexiWindowEnd);
+}
+
+function formatShiftPatternTimes(shift: ShiftItem): string {
+  if (isFlexiShift(shift)) {
+    const start = shift.flexiWindowStart ? timeSpanToInput(shift.flexiWindowStart) : "07:00";
+    const end = shift.flexiWindowEnd ? timeSpanToInput(shift.flexiWindowEnd) : "20:00";
+    return `${start} - ${end} (min ${shift.minimumWorkHours ?? 8}h)`;
+  }
+  if (isOpenShiftType(shift.shiftType)) return "No fixed times";
+  const start = timeSpanToInput(shift.startTime);
+  const end = timeSpanToInput(shift.endTime);
+  if (isSplitShiftType(shift.shiftType) && shift.session2StartTime && shift.session2EndTime) {
+    return `${start} - ${end} + ${timeSpanToInput(shift.session2StartTime)} - ${timeSpanToInput(shift.session2EndTime)}`;
+  }
+  return `${start} - ${end}`;
+}
+
+function isSplitShiftType(shiftType: string | null | undefined): boolean {
+  return (shiftType ?? "").trim().toLowerCase() === "split";
+}
+
+function findShiftById(shifts: ShiftItem[], shiftId: string): ShiftItem | undefined {
+  if (!shiftId) return undefined;
+  const normalized = shiftId.toLowerCase();
+  return shifts.find((s) => s.id.toLowerCase() === normalized);
 }
 
 function applyShiftToTemplateTimes(
   shift: ShiftItem,
-): { start: string; end: string; hours: number } {
+): {
+  start: string;
+  end: string;
+  session2Start: string;
+  session2End: string;
+  shiftType: string;
+  hours: number;
+} {
+  if (isOpenShiftType(shift.shiftType)) {
+    return {
+      start: "",
+      end: "",
+      session2Start: "",
+      session2End: "",
+      shiftType: shift.shiftType,
+      hours: getWorkHoursFromShift(shift),
+    };
+  }
+
+  if (isFlexiShift(shift)) {
+    return {
+      start: shift.flexiWindowStart ? timeSpanToInput(shift.flexiWindowStart) : "07:00",
+      end: shift.flexiWindowEnd ? timeSpanToInput(shift.flexiWindowEnd) : "20:00",
+      session2Start: "",
+      session2End: "",
+      shiftType: shift.shiftType,
+      hours: getWorkHoursFromShift(shift),
+    };
+  }
+
   return {
     start: timeSpanToInput(shift.startTime),
     end: timeSpanToInput(shift.endTime),
+    session2Start: shift.session2StartTime ? timeSpanToInput(shift.session2StartTime) : "",
+    session2End: shift.session2EndTime ? timeSpanToInput(shift.session2EndTime) : "",
+    shiftType: shift.shiftType,
     hours: getWorkHoursFromShift(shift),
   };
+}
+
+function resolveRosterTemplateTimes(
+  shifts: ShiftItem[],
+  shiftId: string,
+  fallback: { start: string; end: string; hours: number },
+): { start: string; end: string; hours: number } {
+  const shift = shiftId ? findShiftById(shifts, shiftId) : undefined;
+  if (!shift) return fallback;
+  if (isOpenShiftType(shift.shiftType)) {
+    return { start: "00:00", end: "00:00", hours: fallback.hours || 8 };
+  }
+  const times = applyShiftToTemplateTimes(shift);
+  return { start: times.start, end: times.end, hours: times.hours };
 }
 
 type RosterTemplateFieldsProps = {
   shifts: ShiftItem[];
   shiftId: string;
+  shiftType?: string;
   onShiftChange: (shiftId: string) => void;
   start: string;
   end: string;
+  session2Start?: string;
+  session2End?: string;
   hours: number;
   onStartChange: (value: string) => void;
   onEndChange: (value: string) => void;
@@ -2520,9 +2503,12 @@ type RosterTemplateFieldsProps = {
 function RosterTemplateFields({
   shifts,
   shiftId,
+  shiftType = "",
   onShiftChange,
   start,
   end,
+  session2Start = "",
+  session2End = "",
   hours,
   onStartChange,
   onEndChange,
@@ -2530,6 +2516,44 @@ function RosterTemplateFields({
   readOnly = false,
 }: RosterTemplateFieldsProps) {
   const timesFromShift = !!shiftId && !readOnly;
+  const selectedShift = shiftId ? findShiftById(shifts, shiftId) : undefined;
+  const derivedTimes = selectedShift && timesFromShift ? applyShiftToTemplateTimes(selectedShift) : null;
+  const displayStart = derivedTimes?.start ?? start;
+  const displayEnd = derivedTimes?.end ?? end;
+  const resolvedShiftType = shiftType || selectedShift?.shiftType || "";
+  const showOpen = isOpenShiftType(resolvedShiftType);
+  const displayHours = showOpen ? hours : (derivedTimes?.hours ?? hours);
+  const resolvedSession2Start =
+    derivedTimes?.session2Start
+    || session2Start
+    || (selectedShift?.session2StartTime ? timeSpanToInput(selectedShift.session2StartTime) : "");
+  const resolvedSession2End =
+    derivedTimes?.session2End
+    || session2End
+    || (selectedShift?.session2EndTime ? timeSpanToInput(selectedShift.session2EndTime) : "");
+  const showSession2 =
+    !showOpen && (
+      isSplitShiftType(resolvedShiftType) ||
+      (!!resolvedSession2Start && !!resolvedSession2End)
+    );
+  const showFlexi = isFlexiShiftType(resolvedShiftType)
+    || (selectedShift ? isFlexiShift(selectedShift) : false);
+  const shiftTimesSummary = selectedShift && timesFromShift ? formatShiftPatternTimes(selectedShift) : "";
+  const startLabel = showSession2
+    ? "Session 1 start"
+    : showFlexi
+      ? "Flex window start"
+      : shiftId && !readOnly
+        ? "Default start"
+        : "Default start *";
+  const endLabel = showSession2
+    ? "Session 1 end"
+    : showFlexi
+      ? "Flex window end"
+      : shiftId && !readOnly
+        ? "Default end"
+        : "Default end *";
+
   return (
     <>
       <div>
@@ -2545,40 +2569,83 @@ function RosterTemplateFields({
             <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
           ))}
         </select>
+        {shiftTimesSummary && (
+          <p className="mt-1 text-xs font-medium text-slate-600">{shiftTimesSummary}</p>
+        )}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>{shiftId && !readOnly ? "Default start" : "Default start *"}</label>
-          <TimePickerField
-            value={start}
-            onChange={onStartChange}
-            disabled={readOnly || timesFromShift}
-            placeholder="Select time"
-          />
-          {timesFromShift && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
+      {!showOpen && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className={labelClass}>{startLabel}</label>
+            <TimePickerField
+              value={displayStart}
+              onChange={onStartChange}
+              disabled={readOnly || timesFromShift}
+              placeholder="Select time"
+            />
+            {timesFromShift && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
+          </div>
+          <div>
+            <label className={labelClass}>{endLabel}</label>
+            <TimePickerField
+              value={displayEnd}
+              onChange={onEndChange}
+              disabled={readOnly || timesFromShift}
+              placeholder="Select time"
+            />
+            {timesFromShift && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
+          </div>
         </div>
-        <div>
-          <label className={labelClass}>{shiftId && !readOnly ? "Default end" : "Default end *"}</label>
-          <TimePickerField
-            value={end}
-            onChange={onEndChange}
-            disabled={readOnly || timesFromShift}
-            placeholder="Select time"
-          />
-          {timesFromShift && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
+      )}
+      {showSession2 && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className={labelClass}>Session 2 start</label>
+            <TimePickerField
+              value={resolvedSession2Start}
+              onChange={() => {}}
+              disabled
+              placeholder="Select time"
+            />
+            {timesFromShift && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
+          </div>
+          <div>
+            <label className={labelClass}>Session 2 end</label>
+            <TimePickerField
+              value={resolvedSession2End}
+              onChange={() => {}}
+              disabled
+              placeholder="Select time"
+            />
+            {timesFromShift && <p className="mt-0.5 text-xs text-slate-500">From selected shift</p>}
+          </div>
         </div>
-      </div>
+      )}
       <div>
         <label className={labelClass}>Work hours per day</label>
         <input
           type="number"
           min={0}
           step={0.25}
-          value={hours}
+          value={displayHours}
           onChange={(e) => onHoursChange(Number(e.target.value) || 0)}
-          readOnly={readOnly || timesFromShift}
+          readOnly={readOnly || (timesFromShift && !showOpen)}
           className={inputClass}
         />
+        {showOpen && (
+          <p className="mt-0.5 text-xs text-slate-500">Expected hours. Open shifts have no start or end time.</p>
+        )}
+        {showSession2 && timesFromShift && (
+          <p className="mt-0.5 text-xs text-slate-500">Combined hours from both sessions</p>
+        )}
+        {showFlexi && timesFromShift && (
+          <p className="mt-0.5 text-xs text-slate-500">Minimum work hours from selected flexi shift</p>
+        )}
+        {timesFromShift && selectedShift && (selectedShift.breakHours ?? 0) > 0 && !showOpen && (
+          <p className="mt-0.5 text-xs text-slate-500">
+            Shift includes {(selectedShift.breakHours ?? 0).toFixed(1).replace(/\.0$/, "")}h break (tracked on shift; work hours use the full {displayStart}–{displayEnd} window).
+          </p>
+        )}
       </div>
     </>
   );
@@ -2618,8 +2685,11 @@ function RosterTab() {
   const [bulkTplName, setBulkTplName] = useState("");
   const [bulkTplDesc, setBulkTplDesc] = useState("");
   const [bulkTplShiftId, setBulkTplShiftId] = useState("");
+  const [bulkTplShiftType, setBulkTplShiftType] = useState("");
   const [bulkTplStart, setBulkTplStart] = useState("09:00");
   const [bulkTplEnd, setBulkTplEnd] = useState("17:00");
+  const [bulkTplSession2Start, setBulkTplSession2Start] = useState("");
+  const [bulkTplSession2End, setBulkTplSession2End] = useState("");
   const [bulkTplHours, setBulkTplHours] = useState(8);
   const [bulkTplActive, setBulkTplActive] = useState(true);
   const [bulkFrom, setBulkFrom] = useState("");
@@ -2665,6 +2735,19 @@ function RosterTab() {
   useEffect(() => { loadLookups(); }, [loadLookups]);
 
   useEffect(() => {
+    if (!bulkTplShiftId || shifts.length === 0) return;
+    const s = findShiftById(shifts, bulkTplShiftId);
+    if (!s) return;
+    const times = applyShiftToTemplateTimes(s);
+    setBulkTplStart(times.start);
+    setBulkTplEnd(times.end);
+    setBulkTplSession2Start(times.session2Start);
+    setBulkTplSession2End(times.session2End);
+    setBulkTplShiftType(times.shiftType);
+    setBulkTplHours(times.hours);
+  }, [shifts, bulkTplShiftId]);
+
+  useEffect(() => {
     if (!filterEmployeeId || !filterDeptId) return;
     const emp = employees.find((e) => e.id === filterEmployeeId);
     if (emp && emp.departmentId !== filterDeptId) setFilterEmployeeId("");
@@ -2673,14 +2756,21 @@ function RosterTab() {
   function handleBulkTplShiftChange(shiftId: string) {
     setBulkTplShiftId(shiftId);
     if (shiftId) {
-      const s = shifts.find((x) => x.id === shiftId);
+      const s = findShiftById(shifts, shiftId);
       if (s) {
         const times = applyShiftToTemplateTimes(s);
         setBulkTplStart(times.start);
         setBulkTplEnd(times.end);
+        setBulkTplSession2Start(times.session2Start);
+        setBulkTplSession2End(times.session2End);
+        setBulkTplShiftType(times.shiftType);
         setBulkTplHours(times.hours);
+        return;
       }
     }
+    setBulkTplShiftType("");
+    setBulkTplSession2Start("");
+    setBulkTplSession2End("");
   }
 
   function resetBulkTemplateFields() {
@@ -2688,8 +2778,11 @@ function RosterTab() {
     setBulkTplName("");
     setBulkTplDesc("");
     setBulkTplShiftId("");
+    setBulkTplShiftType("");
     setBulkTplStart("09:00");
     setBulkTplEnd("17:00");
+    setBulkTplSession2Start("");
+    setBulkTplSession2End("");
     setBulkTplHours(8);
     setBulkTplActive(true);
   }
@@ -2838,15 +2931,20 @@ function RosterTab() {
         setBulkStep(1);
         return;
       }
+      const tplTimes = resolveRosterTemplateTimes(shifts, bulkTplShiftId, {
+        start: bulkTplStart,
+        end: bulkTplEnd,
+        hours: bulkTplHours,
+      });
       const created = await apiFetch<RosterTemplateItem>("/api/roster/templates", {
         method: "POST",
         body: JSON.stringify({
           code: bulkTplCode.trim(),
           name: bulkTplName.trim(),
           description: bulkTplDesc.trim() || null,
-          defaultStartTime: timeInputToSpan(bulkTplStart || "09:00"),
-          defaultEndTime: timeInputToSpan(bulkTplEnd || "17:00"),
-          workHoursPerDay: bulkTplHours || 8,
+          defaultStartTime: timeInputToSpan(tplTimes.start || "09:00"),
+          defaultEndTime: timeInputToSpan(tplTimes.end || "17:00"),
+          workHoursPerDay: tplTimes.hours || 8,
           isActive: bulkTplActive,
           defaultShiftPatternId: bulkTplShiftId || null,
         }),
@@ -3119,9 +3217,12 @@ function RosterTab() {
               <RosterTemplateFields
                 shifts={shifts}
                 shiftId={bulkTplShiftId}
+                shiftType={bulkTplShiftType}
                 onShiftChange={handleBulkTplShiftChange}
                 start={bulkTplStart}
                 end={bulkTplEnd}
+                session2Start={bulkTplSession2Start}
+                session2End={bulkTplSession2End}
                 hours={bulkTplHours}
                 onStartChange={setBulkTplStart}
                 onEndChange={setBulkTplEnd}

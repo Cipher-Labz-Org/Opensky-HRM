@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Filters;
 using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain;
@@ -15,7 +16,7 @@ namespace OpenSkyHRM.Api.Controllers;
 [ApiController]
 [RequireLicensedModule("Attendance")]
 [Route("api/[controller]")]
-public class AttendanceController : ControllerBase
+public partial class AttendanceController : ControllerBase
 {
     private readonly IAttendanceService _attendanceService;
     private readonly IAttendancePlaceService _attendancePlaceService;
@@ -362,12 +363,32 @@ public class AttendanceController : ControllerBase
     public async Task<IActionResult> GetOvertimeNopay(
         [FromQuery] DateTime from,
         [FromQuery] DateTime to,
-        [FromQuery] Guid? employeeId = null)
+        [FromQuery] Guid? employeeId = null,
+        [FromQuery] bool teamOnly = false)
     {
-        if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
+        var actingId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
+        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(actingId, teamOnly);
+        if (employeeId.HasValue && allowedIds != null && !allowedIds.Contains(employeeId.Value))
             return Forbid();
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        return Ok(await _attendanceService.CalculateOvertimeNopayAsync(from, to, employeeId, allowedIds));
+        var hrCanOverride = PeopleAccessHelper.CanOverrideOvertimeApproval(User);
+        var rows = await _attendanceService.CalculateOvertimeNopayAsync(
+            from, to, employeeId, allowedIds, actingEmployeeId: actingId, hrCanOverride: hrCanOverride);
+        return Ok(rows);
+    }
+
+    [HttpGet("overtime-nopay/days")]
+    public async Task<IActionResult> GetOvertimeNopayDays(
+        [FromQuery] DateTime from,
+        [FromQuery] DateTime to,
+        [FromQuery] Guid? employeeId = null,
+        [FromQuery] bool teamOnly = false)
+    {
+        var actingId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
+        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(actingId, teamOnly);
+        if (employeeId.HasValue && allowedIds != null && !allowedIds.Contains(employeeId.Value))
+            return Forbid();
+        var rows = await _attendanceService.GetOvertimeNopayDaysAsync(from, to, employeeId, allowedIds);
+        return Ok(rows);
     }
 
     [HttpPost("overtime-nopay/approve")]
@@ -375,17 +396,26 @@ public class AttendanceController : ControllerBase
         [FromQuery] DateTime from,
         [FromQuery] DateTime to,
         [FromQuery] Guid employeeId,
-        [FromBody] ApproveRejectOvertimeNopayDto? dto)
+        [FromQuery] bool teamOnly = false,
+        [FromBody] ApproveRejectOvertimeNopayDto? dto = null)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
-            return Forbid();
-        var approverId = LeaveAccessHelper.GetCurrentEmployeeId(User);
-        if (!approverId.HasValue)
+        var hrCanOverride = PeopleAccessHelper.CanOverrideOvertimeApproval(User);
+        var approverId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
+        if (!approverId.HasValue && !hrCanOverride)
             return BadRequest(new { message = "Your account must be linked to an employee to approve overtime." });
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        var result = await _attendanceService.SetOvertimeNopayPeriodApprovalAsync(
-            from, to, employeeId, approverId.Value, true, dto?.Remarks, allowedIds);
-        return result == null ? NotFound() : Ok(result);
+        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(approverId, teamOnly);
+        if (allowedIds != null && !allowedIds.Contains(employeeId))
+            return Forbid();
+        try
+        {
+            var result = await _attendanceService.SetOvertimeNopayPeriodApprovalAsync(
+                from, to, employeeId, approverId, true, dto?.Remarks, allowedIds, hrCanOverride);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("overtime-nopay/reject")]
@@ -393,17 +423,90 @@ public class AttendanceController : ControllerBase
         [FromQuery] DateTime from,
         [FromQuery] DateTime to,
         [FromQuery] Guid employeeId,
-        [FromBody] ApproveRejectOvertimeNopayDto? dto)
+        [FromQuery] bool teamOnly = false,
+        [FromBody] ApproveRejectOvertimeNopayDto? dto = null)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
-            return Forbid();
-        var approverId = LeaveAccessHelper.GetCurrentEmployeeId(User);
-        if (!approverId.HasValue)
+        var hrCanOverride = PeopleAccessHelper.CanOverrideOvertimeApproval(User);
+        var approverId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
+        if (!approverId.HasValue && !hrCanOverride)
             return BadRequest(new { message = "Your account must be linked to an employee to reject overtime." });
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        var result = await _attendanceService.SetOvertimeNopayPeriodApprovalAsync(
-            from, to, employeeId, approverId.Value, false, dto?.Remarks, allowedIds);
-        return result == null ? NotFound() : Ok(result);
+        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(approverId, teamOnly);
+        if (allowedIds != null && !allowedIds.Contains(employeeId))
+            return Forbid();
+        try
+        {
+            var result = await _attendanceService.SetOvertimeNopayPeriodApprovalAsync(
+                from, to, employeeId, approverId, false, dto?.Remarks, allowedIds, hrCanOverride);
+            return result == null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private async Task<HashSet<Guid>> GetReportingDescendantIdsAsync(Guid? actingEmployeeId)
+    {
+        if (!actingEmployeeId.HasValue)
+            return [];
+        var graph = await ReportingChain.LoadAsync(_db);
+        return ReportingChain.GetDescendantIds(graph, actingEmployeeId.Value);
+    }
+
+    /// <summary>
+    /// Approvals (teamOnly) limits supervisors to their reporting tree.
+    /// HR / ADMIN keep company-wide People access so they can approve OT the supervisor has not.
+    /// </summary>
+    private async Task<IReadOnlyList<Guid>?> GetOvertimeVisibleEmployeeIdsAsync(Guid? actingEmployeeId, bool teamOnly)
+    {
+        var descendants = await GetReportingDescendantIdsAsync(actingEmployeeId);
+        var dimensionIds = await PeopleAccessHelper.GetDimensionFilteredEmployeeIdsAsync(User, _db);
+        var hrCanOverride = PeopleAccessHelper.CanOverrideOvertimeApproval(User);
+
+        if (teamOnly && !hrCanOverride)
+        {
+            if (!actingEmployeeId.HasValue)
+                return Array.Empty<Guid>();
+            return PeopleAccessHelper.IntersectEmployeeScopes(descendants.ToList(), dimensionIds)
+                ?? descendants.ToList();
+        }
+
+        var peopleRead = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var peopleScope = PeopleAccessHelper.ResolvePeopleScope(
+            User.FindAll("permission").Select(c => c.Value), "Read");
+
+        if (!hrCanOverride && (UserHasRole("SUPERVISOR") || peopleScope == "Team"))
+        {
+            return PeopleAccessHelper.IntersectEmployeeScopes(descendants.ToList(), dimensionIds)
+                ?? descendants.ToList();
+        }
+
+        if (descendants.Count == 0)
+            return peopleRead;
+        if (peopleRead == null)
+            return null;
+
+        var merged = peopleRead.Union(descendants).ToList();
+        return PeopleAccessHelper.IntersectEmployeeScopes(merged, dimensionIds);
+    }
+
+    private bool UserHasRole(string roleCode)
+    {
+        if (User.IsInRole(roleCode)) return true;
+        foreach (var c in User.FindAll(System.Security.Claims.ClaimTypes.Role).Concat(User.FindAll("role")))
+        {
+            if (string.Equals(c.Value, roleCode, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (roleCode == "ADMIN" && string.Equals(c.Value, "Admin", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (roleCode == "SUPERVISOR" && string.Equals(c.Value, "Supervisor", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (roleCode == "HR_MANAGER" && (
+                string.Equals(c.Value, "HR Manager", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Value, "HR_MANAGER", StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+        return false;
     }
 
     private static string MapPlaceSaveError(DbUpdateException ex)

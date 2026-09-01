@@ -9,6 +9,7 @@ import { resolveAssetUrl } from "@/config/constants";
 import { formatDate } from "@/lib/date-utils";
 import { applyFromDateInRange, applyToDateInRange } from "@/lib/datePickerIso";
 import { appAlert } from "@/components/ui/appDialogs";
+import { formatLeaveDays, formatLeaveDurationLabel } from "@/lib/leave-duration";
 
 export interface LeaveRequestRow {
   id: string;
@@ -19,6 +20,9 @@ export interface LeaveRequestRow {
   startDate: string;
   endDate: string;
   totalDays: number;
+  durationKind?: string | null;
+  halfDayPeriod?: string | null;
+  shortLeaveHours?: number | null;
   reason: string | null;
   status: string;
   coveragePerson: string | null;
@@ -434,7 +438,9 @@ export function LeaveRequestsPanel({
                 </tr>
               )}
               {!loading &&
-                items.map((r) => (
+                items.map((r) => {
+                  const durationLabel = formatLeaveDurationLabel(r.durationKind, r.halfDayPeriod, r.shortLeaveHours);
+                  return (
                   <tr key={r.id} className="transition hover:bg-slate-50/70">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -453,6 +459,7 @@ export function LeaveRequestsPanel({
                       <span className="inline-flex rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
                         {r.leaveTypeName}
                       </span>
+                      {durationLabel ? <p className="mt-1 text-[11px] text-slate-500">{durationLabel}</p> : null}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-700">
                       <span>{formatDate(r.startDate)}</span>
@@ -461,7 +468,7 @@ export function LeaveRequestsPanel({
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="inline-flex min-w-[2.25rem] justify-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold tabular-nums text-blue-700">
-                        {Number(r.totalDays).toFixed(1)}
+                        {formatLeaveDays(Number(r.totalDays))}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -509,7 +516,8 @@ export function LeaveRequestsPanel({
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
             </tbody>
           </table>
         </div>
@@ -544,7 +552,10 @@ export function LeaveRequestsPanel({
         {actionRow && (
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
-              <span className="font-medium text-slate-800">{actionRow.employeeName}</span> — {actionRow.leaveTypeName}{" "}
+              <span className="font-medium text-slate-800">{actionRow.employeeName}</span> — {actionRow.leaveTypeName}
+              {formatLeaveDurationLabel(actionRow.durationKind, actionRow.halfDayPeriod, actionRow.shortLeaveHours)
+                ? ` · ${formatLeaveDurationLabel(actionRow.durationKind, actionRow.halfDayPeriod, actionRow.shortLeaveHours)}`
+                : ""}{" "}
               ({formatDate(actionRow.startDate)} → {formatDate(actionRow.endDate)})
             </p>
             <div>

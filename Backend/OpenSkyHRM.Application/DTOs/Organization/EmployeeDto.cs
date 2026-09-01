@@ -221,3 +221,14 @@ public class UpdateEmployeeDto
     public Guid? ManagerId { get; set; }
     public bool IsTopOfHierarchy { get; set; }
 }
+
+/// <summary>Lightweight row for employee type-ahead dropdowns.</summary>
+public class EmployeeLookupDto
+{
+    public Guid Id { get; set; }
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string? DepartmentName { get; set; }
+}

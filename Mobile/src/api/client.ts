@@ -22,9 +22,17 @@ function parseErrorMessage(text: string, status: number): string {
       title?: string;
       code?: string;
       module?: string;
+      errors?: Record<string, string[]>;
     };
     if (parsed.code === "MODULE_NOT_LICENSED") {
       return `The "${parsed.module ?? "requested"}" module is not licensed.`;
+    }
+    if (parsed.errors && typeof parsed.errors === "object") {
+      for (const messages of Object.values(parsed.errors)) {
+        if (Array.isArray(messages) && messages.length > 0 && messages[0]?.trim()) {
+          return messages[0];
+        }
+      }
     }
     return parsed.message ?? parsed.detail ?? parsed.title ?? text;
   } catch {

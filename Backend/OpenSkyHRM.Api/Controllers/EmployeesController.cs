@@ -64,6 +64,19 @@ public class EmployeesController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Lightweight type-ahead list (id, name, code, department). Same People:Read scope as GetAll.</summary>
+    [HttpGet("lookup")]
+    public async Task<IActionResult> Lookup(
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? search = null,
+        [FromQuery] Guid? departmentId = null,
+        [FromQuery] bool excludeTerminated = true)
+    {
+        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var result = await _employeeService.GetLookupAsync(pageSize, search, departmentId, allowedIds, excludeTerminated);
+        return Ok(result);
+    }
+
     [HttpGet("{id:guid}/lifecycle-timeline")]
     public async Task<IActionResult> GetLifecycleTimeline(
         Guid id,

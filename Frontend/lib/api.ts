@@ -37,6 +37,24 @@ function parseHttpErrorMessage(text: string, status: number, endpoint: string): 
 
 export type ApiFetchOptions = RequestInit & { timeoutMs?: number; baseUrl?: string };
 
+export class ApiHttpError extends Error {
+  readonly status: number;
+  readonly endpoint: string;
+
+  constructor(message: string, status: number, endpoint: string) {
+    super(message);
+    this.name = "ApiHttpError";
+    this.status = status;
+    this.endpoint = endpoint;
+  }
+}
+
+export function isMissingApiRoute(err: unknown): boolean {
+  if (err instanceof ApiHttpError) return err.status === 404 || err.status === 405;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /Request failed \(40[45]\)|Method Not Allowed/i.test(msg);
+}
+
 export async function apiFetch<T>(
   endpoint: string,
   options?: ApiFetchOptions
@@ -96,7 +114,7 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "Unknown error");
-    throw new Error(parseHttpErrorMessage(text, res.status, endpoint));
+    throw new ApiHttpError(parseHttpErrorMessage(text, res.status, endpoint), res.status, endpoint);
   }
 
   if (res.status === 204) return undefined as T;
@@ -161,7 +179,7 @@ export async function publicApiFetch<T>(endpoint: string, options?: ApiFetchOpti
 
   if (!res.ok) {
     const text = await res.text().catch(() => "Unknown error");
-    throw new Error(parseHttpErrorMessage(text, res.status, endpoint));
+    throw new ApiHttpError(parseHttpErrorMessage(text, res.status, endpoint), res.status, endpoint);
   }
 
   if (res.status === 204) return undefined as T;
@@ -181,7 +199,7 @@ export async function publicApiFetch<T>(endpoint: string, options?: ApiFetchOpti
 
 /** GET binary content (e.g. PDF) with auth. Caller should revoke blob URLs when done. */
 export async function apiFetchBlob(endpoint: string, options?: ApiFetchOptions): Promise<Blob> {
-  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, ...fetchInit } = options ?? {};
+  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, baseUrl, ...fetchInit } = options ?? {};
   const token = getAuthToken();
   const headers: Record<string, string> = {
     ...(fetchInit?.headers as Record<string, string>),
@@ -192,10 +210,11 @@ export async function apiFetchBlob(endpoint: string, options?: ApiFetchOptions):
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const requestBase = (baseUrl ?? getApiBaseUrl()).replace(/\/$/, "");
 
   let res: Response;
   try {
-    res = await fetch(`${getApiBaseUrl()}${endpoint}`, {
+    res = await fetch(`${requestBase}${endpoint}`, {
       ...fetchInit,
       headers,
       signal: controller.signal,
@@ -227,7 +246,11 @@ export async function apiFetchBlob(endpoint: string, options?: ApiFetchOptions):
 
   if (!res.ok) {
     const text = await res.text().catch(() => "Unknown error");
-    throw new Error(`API ${res.status}: ${text.slice(0, 300)}`);
+    throw new ApiHttpError(
+      parseHttpErrorMessage(text, res.status, endpoint),
+      res.status,
+      endpoint,
+    );
   }
 
   return res.blob();
