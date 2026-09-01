@@ -6,7 +6,7 @@ namespace OpenSkyHRM.Application.Services;
 /// Maps biometric device PINs / user IDs to HRM employees.
 /// Prefers <see cref="Employee.FingerprintId"/> when set; otherwise falls back to <see cref="Employee.EmployeeCode"/> aliases.
 /// </summary>
-internal static class BiometricEmployeeResolver
+public static class BiometricEmployeeResolver
 {
     public static Dictionary<string, Employee> BuildLookup(IEnumerable<Employee> employees)
     {
