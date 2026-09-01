@@ -4,23 +4,27 @@ import { useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
-import { apiFetch, apiFetchBlob } from "@/lib/api";
+import { API_ASSET_BASE_URL, getApiBaseUrl, getAssetBaseUrl } from "@/config/constants";
+import { apiFetch, apiFetchBlob, isMissingApiRoute } from "@/lib/api";
+import {
+  buildAttendanceImportTemplateCsv,
+  importAttendanceFromWorkbook,
+  type AttendanceImportUploadResult,
+} from "@/lib/attendance-excel-import";
 import { downloadBlob } from "@/lib/template-pdf";
 
-interface AttendanceImportRowResult {
-  row: number;
-  employeeCode: string;
-  date: string | null;
-  status: string;
-  errors: string[];
-}
-
-interface AttendanceImportUploadResult {
-  created: number;
-  updated: number;
-  skipped: number;
-  totalRows: number;
-  results: AttendanceImportRowResult[];
+/**
+ * Multipart POSTs through Next.js `/hrm-backend` or same-origin `/api` rewrites
+ * return HTTP 405. Prefer the real IIS/API origin when one is available.
+ */
+function attendanceImportApiBase(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const base = getApiBaseUrl();
+  if (base === "/hrm-backend" || base === "") {
+    const direct = getAssetBaseUrl() || API_ASSET_BASE_URL;
+    return direct || undefined;
+  }
+  return undefined;
 }
 
 interface Props {
@@ -36,12 +40,14 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
   const [result, setResult] = useState<AttendanceImportUploadResult | null>(null);
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [progress, setProgress] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   function resetState() {
     setFile(null);
     setResult(null);
     setError("");
+    setProgress("");
     setDragOver(false);
     if (fileRef.current) fileRef.current.value = "";
   }
@@ -61,9 +67,15 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
     setDownloadingTemplate(true);
     setError("");
     try {
-      const blob = await apiFetchBlob("/api/attendance/import-template");
+      const blob = await apiFetchBlob("/api/attendance/import-template", {
+        baseUrl: attendanceImportApiBase(),
+      });
       downloadBlob(blob, "AttendanceImportTemplate.xlsx");
     } catch (err) {
+      if (isMissingApiRoute(err)) {
+        downloadBlob(buildAttendanceImportTemplateCsv(), "AttendanceImportTemplate.csv");
+        return;
+      }
       setError(err instanceof Error ? err.message : "Could not download the template.");
     } finally {
       setDownloadingTemplate(false);
@@ -74,15 +86,11 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
     if (!file) return;
     setUploading(true);
     setError("");
+    setProgress("");
     setResult(null);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const json = await apiFetch<AttendanceImportUploadResult>("/api/attendance/import", {
-        method: "POST",
-        body: formData,
-        timeoutMs: 300_000,
-      });
+      const json = await postAttendanceWorkbook(file);
+      setProgress("");
       setResult(json);
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
@@ -93,6 +101,25 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
       setError(err instanceof Error ? err.message : "Import failed");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function postAttendanceWorkbook(workbook: File): Promise<AttendanceImportUploadResult> {
+    const formData = new FormData();
+    formData.append("file", workbook);
+    try {
+      return await apiFetch<AttendanceImportUploadResult>("/api/attendance/import", {
+        method: "POST",
+        body: formData,
+        timeoutMs: 300_000,
+        baseUrl: attendanceImportApiBase(),
+      });
+    } catch (err) {
+      if (!isMissingApiRoute(err)) throw err;
+      setProgress("Saving attendance rows…");
+      return importAttendanceFromWorkbook(workbook, (done, total) => {
+        setProgress(`Saving ${done} of ${total} attendance rows…`);
+      });
     }
   }
 
@@ -169,6 +196,11 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
             <p className="mt-1 text-xs text-slate-500">
               Created {result.created}, updated {result.updated}, skipped {result.skipped} of {result.totalRows} rows.
             </p>
+            {(result.created + result.updated) > 0 && (
+              <p className="mt-2 text-xs text-slate-500">
+                Payroll uses these records. Open the salary batch, choose Import Attendance & Leave, then Calculate so no-pay and overtime follow this sheet.
+              </p>
+            )}
             {skippedRows.length > 0 && (
               <div className="mt-3 max-h-40 overflow-y-auto rounded-lg border border-slate-100">
                 <table className="w-full text-left text-xs">
@@ -195,6 +227,7 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
         )}
 
         <div className="flex items-center justify-end gap-3 pt-2">
+          {progress && <p className="mr-auto text-xs text-slate-500">{progress}</p>}
           <Button variant="secondary" type="button" onClick={handleClose}>
             Close
           </Button>

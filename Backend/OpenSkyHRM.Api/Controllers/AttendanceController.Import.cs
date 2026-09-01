@@ -5,6 +5,7 @@ using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Application.Services;
 using OpenSkyHRM.Domain.Entities;
 
 namespace OpenSkyHRM.Api.Controllers;
@@ -74,8 +75,11 @@ public partial class AttendanceController
     }
 
     [HttpPost("import")]
+    [HttpPost("import-excel")]
+    [Consumes("multipart/form-data")]
     [RequestSizeLimit(10_000_000)]
-    public async Task<IActionResult> ImportFromExcel(IFormFile file)
+    [RequestFormLimits(MultipartBodyLengthLimit = 10_000_000)]
+    public async Task<IActionResult> ImportFromExcel([FromForm] IFormFile file)
     {
         if (file is null || file.Length == 0)
             return BadRequest(new { message = "No file uploaded." });
@@ -92,12 +96,16 @@ public partial class AttendanceController
 
         var employees = await _db.Employees.AsNoTracking()
             .Where(e => !e.IsDeleted)
-            .Select(e => new { e.Id, e.EmployeeCode, e.FirstName, e.LastName })
+            .Select(e => new { e.Id, e.EmployeeCode, e.FingerprintId, e.FirstName, e.LastName })
             .ToListAsync();
-        var employeeByCode = employees
-            .Where(e => !string.IsNullOrWhiteSpace(e.EmployeeCode))
-            .GroupBy(e => e.EmployeeCode!.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var employeeByCode = new Dictionary<string, (Guid Id, string? EmployeeCode)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var employee in employees)
+        {
+            foreach (var alias in BiometricEmployeeResolver.GetAliases(employee.EmployeeCode))
+                employeeByCode.TryAdd(alias, (employee.Id, employee.EmployeeCode));
+            foreach (var alias in BiometricEmployeeResolver.GetAliases(employee.FingerprintId))
+                employeeByCode[alias] = (employee.Id, employee.EmployeeCode);
+        }
 
         var allowedUpdateIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
 
@@ -170,7 +178,7 @@ public partial class AttendanceController
                 continue;
             }
 
-            if (!employeeByCode.TryGetValue(empCode!.Trim(), out var employee))
+            if (!TryResolveImportEmployee(employeeByCode, empCode, out var employee))
             {
                 skipped++;
                 results.Add(new AttendanceImportRowResult(r, empCode, date, "Skipped", ["Employee not found."]));
@@ -414,6 +422,29 @@ public partial class AttendanceController
 
         cells.Add(current.ToString().Trim());
         return cells;
+    }
+
+    private static bool TryResolveImportEmployee(
+        Dictionary<string, (Guid Id, string? EmployeeCode)> lookup,
+        string? empCode,
+        out (Guid Id, string? EmployeeCode) employee)
+    {
+        employee = default;
+        var key = empCode?.Trim();
+        if (string.IsNullOrEmpty(key))
+            return false;
+
+        if (lookup.TryGetValue(key, out employee))
+            return true;
+
+        foreach (var alias in BiometricEmployeeResolver.GetAliases(key))
+        {
+            if (lookup.TryGetValue(alias, out employee))
+                return true;
+        }
+
+        var trimmedZeros = key.TrimStart('0');
+        return !string.IsNullOrEmpty(trimmedZeros) && lookup.TryGetValue(trimmedZeros, out employee);
     }
 
     private static int? ResolveImportColumn(Dictionary<string, int> headerMap, string logicalName)
