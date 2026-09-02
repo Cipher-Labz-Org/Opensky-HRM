@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
-import { API_BASE_URL } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { formatDate as fmtDate } from "@/lib/date-utils";
 import { formatInt } from "@/lib/workspace-charts";
+import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
 import Link from "next/link";
 import { DatePickerField, InlinePageAlert } from "@/components/ui";
@@ -16,6 +16,7 @@ type LicensingSummary = {
   validFrom: string;
   validUntil: string | null;
   licensedModules: string[];
+  maxEmployees?: number | null;
 };
 
 type AdminModule = {
@@ -48,7 +49,7 @@ function formatDate(iso: string) {
 }
 
 export default function BillingPage() {
-  const { token, isAdmin, refreshProfile } = useAuth();
+  const { isAdmin, refreshProfile } = useAuth();
   const [summary, setSummary] = useState<LicensingSummary | null>(null);
   const [admin, setAdmin] = useState<AdminState | null>(null);
   const [optionalEnabled, setOptionalEnabled] = useState<Set<string>>(new Set());
@@ -61,29 +62,13 @@ export default function BillingPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const authHeaders = useCallback(() => {
-    const t = token ?? (typeof window !== "undefined" ? localStorage.getItem("auth_token") : null);
-    return {
-      Authorization: `Bearer ${t}`,
-      "Content-Type": "application/json",
-    } as Record<string, string>;
-  }, [token]);
-
   const loadSummary = useCallback(async () => {
-    const res = await fetch(`${API_BASE_URL}/api/licensing/summary`, {
-      headers: authHeaders(),
-    });
-    if (!res.ok) throw new Error("Could not load licensing summary.");
-    const data: LicensingSummary = await res.json();
+    const data = await apiFetch<LicensingSummary>("/api/licensing/summary");
     setSummary(data);
-  }, [authHeaders]);
+  }, []);
 
   const loadAdmin = useCallback(async () => {
-    const res = await fetch(`${API_BASE_URL}/api/licensing/admin`, {
-      headers: authHeaders(),
-    });
-    if (!res.ok) throw new Error("Could not load admin licensing data.");
-    const data: AdminState = await res.json();
+    const data = await apiFetch<AdminState>("/api/licensing/admin");
     setAdmin(data);
     const opt = new Set(
       data.modules.filter((m) => !m.isRequired && m.isEnabled).map((m) => m.code)
@@ -93,7 +78,7 @@ export default function BillingPage() {
     setStatus(data.subscription.status);
     setValidUntil(data.subscription.validUntil ? data.subscription.validUntil.slice(0, 10) : "");
     setNotes(data.subscription.notes ?? "");
-  }, [authHeaders]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,8 +87,18 @@ export default function BillingPage() {
       setError(null);
       try {
         await loadSummary();
-        if (isAdmin) await loadAdmin();
-        else setAdmin(null);
+        if (!isAdmin) {
+          if (!cancelled) setAdmin(null);
+          return;
+        }
+        try {
+          await loadAdmin();
+        } catch (adminErr) {
+          if (!cancelled) {
+            setAdmin(null);
+            setError(adminErr instanceof Error ? adminErr.message : "Could not load admin licensing data.");
+          }
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Load failed.");
       } finally {
@@ -129,17 +124,12 @@ export default function BillingPage() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/licensing/entitlements`, {
+      await apiFetch("/api/licensing/entitlements", {
         method: "PUT",
-        headers: authHeaders(),
         body: JSON.stringify({
           enabledOptionalModuleCodes: Array.from(optionalEnabled),
         }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || "Save failed.");
-      }
       setSuccess("Module entitlements updated.");
       await loadSummary();
       await loadAdmin();
@@ -156,9 +146,8 @@ export default function BillingPage() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/licensing/subscription`, {
+      await apiFetch("/api/licensing/subscription", {
         method: "PUT",
-        headers: authHeaders(),
         body: JSON.stringify({
           planName: planName || undefined,
           status: status || undefined,
@@ -166,10 +155,6 @@ export default function BillingPage() {
           notes: notes || null,
         }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || "Save failed.");
-      }
       setSuccess("Subscription details updated.");
       await loadSummary();
       await loadAdmin();
@@ -197,8 +182,8 @@ export default function BillingPage() {
         { label: "Seat cap", value: "—", sub: "—" },
       ];
     }
-    const cap =
-      admin?.subscription.maxEmployees != null ? formatInt(admin.subscription.maxEmployees) : "Not set";
+    const seatCap = summary.maxEmployees ?? admin?.subscription.maxEmployees ?? null;
+    const cap = seatCap != null ? formatInt(seatCap) : "Not set";
     return [
       {
         label: "Plan",
