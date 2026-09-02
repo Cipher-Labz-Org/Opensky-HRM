@@ -12,10 +12,12 @@ import { Button } from "@/components/ui/Button";
 import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { useApplyFilter } from "@/lib/use-apply-filter";
+import { printPayslip } from "@/lib/payslip-print";
 
 interface Component {
   id: string; name: string; code: string; type: string; category: string;
-  isTaxable: boolean; isStatutory: boolean; isActive: boolean;
+  isTaxable: boolean; isEpfApplicable: boolean; isEtfApplicable: boolean;
+  isStatutory: boolean; isActive: boolean;
   description?: string; formulaExpression?: string; dependsOnComponentCode?: string;
   sortOrder: number; isEmployerContribution: boolean;
 }
@@ -31,7 +33,10 @@ interface Batch {
   id: string; batchCode: string; month: number; year: number;
   effectiveFrom: string; effectiveTo?: string;
   processType: string; status: string;
-  processedAt?: string; approvedBy?: string; employeeCount: number;
+  processedAt?: string;
+  reviewedBy?: string; reviewedAt?: string;
+  approvedBy?: string; approvedAt?: string;
+  employeeCount: number;
   totalGross: number; totalDeductions: number; totalNet: number; totalEmployerCost: number;
   notes?: string; selectedCount: number; createdAt: string;
 }
@@ -130,6 +135,31 @@ const YES_NO_TF_OPTS: FormSelectOption[] = [
   { value: "true", label: "Yes" },
 ];
 
+const EPF_ETF_OPTS: FormSelectOption[] = [
+  { value: "no", label: "No" },
+  { value: "epf", label: "EPF" },
+  { value: "etf", label: "ETF" },
+];
+
+function epfEtfKindFromFlags(c?: Pick<Component, "isEpfApplicable" | "isEtfApplicable"> | null): string {
+  if (!c) return "no";
+  if (c.isEpfApplicable) return "epf";
+  if (c.isEtfApplicable) return "etf";
+  return "no";
+}
+
+function flagsFromEpfEtfKind(kind: string): { isEpfApplicable: boolean; isEtfApplicable: boolean } {
+  return {
+    isEpfApplicable: kind === "epf",
+    isEtfApplicable: kind === "etf",
+  };
+}
+
+function epfEtfKindLabel(c: Pick<Component, "isEpfApplicable" | "isEtfApplicable">): string {
+  const kind = epfEtfKindFromFlags(c);
+  return EPF_ETF_OPTS.find((o) => o.value === kind)?.label ?? "No";
+}
+
 const ACTIVE_STATUS_OPTS: FormSelectOption[] = [
   { value: "true", label: "Active" },
   { value: "false", label: "Inactive" },
@@ -139,24 +169,44 @@ const DEFAULT_FIXED_SALARY_EFFECTIVE_FROM = "2020-01-01";
 
 const fmt = (n: number) => n.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+async function printStatement(stmt: Statement): Promise<void> {
+  const detail =
+    stmt.lines && stmt.lines.length > 0
+      ? stmt
+      : await apiFetch<Statement>(`/api/payroll/statements/${stmt.id}`);
+  await printPayslip(detail);
+}
+
 function formatPayrollAmount(n: number): string {
   return `LKR ${fmt(n)}`;
 }
 const roundMoney = (n: number) => Math.round(n * 100) / 100;
 
+function calcApitTable01(taxableEarnings: number): number {
+  if (taxableEarnings <= 150000) return 0;
+  if (taxableEarnings <= 233333) return roundMoney(taxableEarnings * 0.06 - 9000);
+  if (taxableEarnings <= 275000) return roundMoney(taxableEarnings * 0.18 - 37000);
+  if (taxableEarnings <= 316667) return roundMoney(taxableEarnings * 0.24 - 53500);
+  if (taxableEarnings <= 358333) return roundMoney(taxableEarnings * 0.30 - 72500);
+  return Math.max(0, roundMoney(taxableEarnings * 0.36 - 94000));
+}
+
 function calcStatutoryAmount(
   def: Component,
+  epfEarnings: number,
+  etfEarnings: number,
   taxableEarnings: number,
   settings: Settings | null
 ): number {
-  if (!settings || taxableEarnings <= 0) return 0;
   switch (def.code.toUpperCase()) {
     case "EPF_EE":
-      return roundMoney(taxableEarnings * settings.epfEmployeeRate);
+      return settings && epfEarnings > 0 ? roundMoney(epfEarnings * settings.epfEmployeeRate) : 0;
     case "EPF_ER":
-      return roundMoney(taxableEarnings * settings.epfEmployerRate);
+      return settings && epfEarnings > 0 ? roundMoney(epfEarnings * settings.epfEmployerRate) : 0;
     case "ETF_ER":
-      return roundMoney(taxableEarnings * settings.etfEmployerRate);
+      return settings && etfEarnings > 0 ? roundMoney(etfEarnings * settings.etfEmployerRate) : 0;
+    case "APIT":
+      return calcApitTable01(taxableEarnings);
     default:
       return 0;
   }
@@ -173,6 +223,11 @@ const badgeCls: Record<string, string> = {
   Cancelled: "bg-red-50 text-red-600",
   Pending: "bg-amber-50 text-amber-600",
   Rejected: "bg-red-50 text-red-600",
+};
+
+const statusLabel: Record<string, string> = {
+  Calculated: "Pending review",
+  Reviewed: "Pending HR approval",
 };
 
 export default function PayrollPage() {
@@ -328,7 +383,7 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
     { tab: "Components", title: "Components", sub: "Earnings, deductions, and formulas" },
     { tab: "Employee Salary", title: "Employee salary", sub: "Fixed pay and assignments" },
     { tab: "Variable Entry", title: "Variable entry", sub: "One-off adjustments" },
-    { tab: "Payroll Run", title: "Payroll run", sub: "Calculate and approve cycles" },
+    { tab: "Payroll Run", title: "Payroll run", sub: "Calculate, review, and approve cycles" },
     { tab: "Pay Slips", title: "Pay slips", sub: "Employee payslips and line items" },
     { tab: "Settings", title: "Settings", sub: "EPF, ETF, and payroll rules" },
   ];
@@ -522,7 +577,8 @@ function ComponentsTab() {
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500">
               <th className="px-4 py-3 font-medium">Name</th><th className="px-4 py-3 font-medium">Code</th>
               <th className="px-4 py-3 font-medium">Type</th><th className="px-4 py-3 font-medium">Category</th>
-              <th className="px-4 py-3 font-medium">Tax</th><th className="px-4 py-3 font-medium">Formula</th>
+              <th className="px-4 py-3 font-medium">Taxable</th><th className="px-4 py-3 font-medium">EPF & ETF</th>
+              <th className="px-4 py-3 font-medium">Formula</th>
               <th className="px-4 py-3 font-medium">Order</th><th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr></thead>
@@ -533,7 +589,8 @@ function ComponentsTab() {
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.code}</td>
                   <td className="px-4 py-3 text-slate-600">{c.type}</td>
                   <td className="px-4 py-3 text-slate-600">{c.category}</td>
-                  <td className="px-4 py-3">{c.isTaxable ? <span className="text-amber-600">Taxable</span> : <span className="text-slate-400">No</span>}</td>
+                  <td className="px-4 py-3">{c.isTaxable ? <span className="text-amber-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
+                  <td className="px-4 py-3">{epfEtfKindLabel(c) === "No" ? <span className="text-slate-400">No</span> : <span className="text-sky-600">{epfEtfKindLabel(c)}</span>}</td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.formulaExpression || "—"}</td>
                   <td className="px-4 py-3 text-slate-500">{c.sortOrder}</td>
                   <td className="px-4 py-3">{c.isActive ? <span className="text-green-600">Active</span> : <span className="text-slate-400">Inactive</span>}</td>
@@ -566,7 +623,9 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
     const fd = new FormData(e.currentTarget);
     const payload = {
       name: fd.get("name"), code: fd.get("code"), type: fd.get("type"), category: fd.get("category"),
-      isTaxable: fd.get("isTaxable") === "true", isStatutory: fd.get("isStatutory") === "true",
+      isTaxable: fd.get("isTaxable") === "true",
+      ...flagsFromEpfEtfKind(String(fd.get("epfEtfKind") || "no")),
+      isStatutory: fd.get("isStatutory") === "true",
       description: fd.get("description") || null, formulaExpression: fd.get("formulaExpression") || null,
       dependsOnComponentCode: fd.get("dependsOnComponentCode") || null,
       sortOrder: Number(fd.get("sortOrder") || 0),
@@ -601,6 +660,9 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
           <div><label className={labelCls}>Taxable</label>
             <FormSelect name="isTaxable" defaultValue={String(editing?.isTaxable ?? false)} options={YES_NO_TF_OPTS} placeholder="—" />
           </div>
+          <div><label className={labelCls}>EPF & ETF</label>
+            <FormSelect name="epfEtfKind" defaultValue={epfEtfKindFromFlags(editing)} options={EPF_ETF_OPTS} placeholder="—" />
+          </div>
           <div><label className={labelCls}>Statutory</label>
             <FormSelect name="isStatutory" defaultValue={String(editing?.isStatutory ?? false)} options={YES_NO_TF_OPTS} placeholder="—" />
           </div>
@@ -609,7 +671,7 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
           </div>
           <div><label className={labelCls}>Sort Order</label><input name="sortOrder" type="number" className={inputCls} defaultValue={editing?.sortOrder ?? 0} /></div>
         </div>
-        <div><label className={labelCls}>Formula Expression</label><input name="formulaExpression" className={inputCls} defaultValue={editing?.formulaExpression ?? ""} placeholder="e.g. BASIC * 0.08" /></div>
+        <div><label className={labelCls}>Formula Expression</label><input name="formulaExpression" className={inputCls} defaultValue={editing?.formulaExpression ?? ""} placeholder="e.g. EPF_EARNINGS * EPF_EE_RATE or APIT_AMOUNT" /></div>
         <div><label className={labelCls}>Depends On Component Code</label><input name="dependsOnComponentCode" className={inputCls} defaultValue={editing?.dependsOnComponentCode ?? ""} /></div>
         <div><label className={labelCls}>Description</label><textarea name="description" className={inputCls} rows={2} defaultValue={editing?.description ?? ""} /></div>
         {editing && (
@@ -896,7 +958,7 @@ function EmployeeSalaryTab() {
   );
 }
 
-/** Lists payroll components for Fixed or batch-scoped Variable / OneTime entry; blur saves like the classic salary grid. */
+/** Lists payroll components for Fixed or batch-scoped Variable / OneTime entry. */
 function SalaryComponentsEditor({
   employeeId,
   employeeName,
@@ -963,11 +1025,14 @@ function SalaryComponentsEditor({
 
   const [draftByComp, setDraftByComp] = useState<Record<string, string>>({});
   const [savingCompId, setSavingCompId] = useState<string | null>(null);
+  const [savingAll, setSavingAll] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveOk, setSaveOk] = useState<string | null>(null);
 
   useEffect(() => {
     setDraftByComp({});
     setSaveError(null);
+    setSaveOk(null);
   }, [employeeId, mode, batchId, processType]);
 
   function lineForComponent(componentId: string): EmpComp | undefined {
@@ -978,12 +1043,15 @@ function SalaryComponentsEditor({
     return Math.abs(a - b) < 0.005;
   }
 
-  async function commitComponent(def: Component) {
-    if (isStatutory(def)) return;
-    const line = lineForComponent(def.id);
-    const draft = draftByComp[def.id];
-    if (draft === undefined) return;
+  function clearDraft(componentId: string) {
+    setDraftByComp((d) => {
+      const n = { ...d };
+      delete n[componentId];
+      return n;
+    });
+  }
 
+  function parseDraftAmount(draft: string): { isEmpty: boolean; target: number } {
     const trimmed = draft.trim();
     const parsed =
       trimmed === "" || trimmed === "-" || trimmed === "\u2014"
@@ -991,67 +1059,108 @@ function SalaryComponentsEditor({
         : Number.parseFloat(trimmed.replace(/,/g, ""));
     const isEmpty =
       trimmed === "" || parsed === null || Number.isNaN(parsed) || parsed === 0;
+    return { isEmpty, target: isEmpty ? 0 : Math.round((parsed ?? 0) * 100) / 100 };
+  }
 
-    if (!line && isEmpty) {
-      setDraftByComp((d) => {
-        const n = { ...d };
-        delete n[def.id];
-        return n;
+  async function persistComponent(def: Component, draft: string): Promise<boolean> {
+    const line = lineForComponent(def.id);
+    const { isEmpty, target } = parseDraftAmount(draft);
+
+    if (!line && isEmpty) return false;
+    if (line && !isEmpty && closeEnough(Number(line.amount), target)) return false;
+
+    if (isEmpty && line) {
+      await apiFetch(`/api/payroll/compensation/line/${line.id}`, { method: "DELETE" });
+    } else if (!isEmpty && line) {
+      await apiFetch(`/api/payroll/compensation/line/${line.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          amount: target,
+          currency: line.currency || "LKR",
+          effectiveFrom: line.effectiveFrom,
+          effectiveTo: line.effectiveTo ?? null,
+          isActive: true,
+        }),
       });
-      return;
-    }
-
-    const target = isEmpty ? 0 : Math.round(parsed * 100) / 100;
-
-    if (line && !isEmpty && closeEnough(Number(line.amount), target)) {
-      setDraftByComp((d) => {
-        const n = { ...d };
-        delete n[def.id];
-        return n;
+    } else if (!isEmpty && !line) {
+      const payload: Record<string, unknown> = {
+        componentId: def.id,
+        amount: target,
+        currency: "LKR",
+        effectiveFrom: mode === "Fixed" ? DEFAULT_FIXED_SALARY_EFFECTIVE_FROM : new Date().toISOString(),
+      };
+      if (mode === "Variable" && batchId) payload.batchId = batchId;
+      await apiFetch(`/api/payroll/compensation/${employeeId}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
       });
-      return;
     }
+    return true;
+  }
+
+  async function commitComponent(def: Component) {
+    if (savingAll || isStatutory(def)) return;
+    const draft = draftByComp[def.id];
+    if (draft === undefined) return;
 
     setSaveError(null);
+    setSaveOk(null);
     setSavingCompId(def.id);
     try {
-      if (isEmpty && line) {
-        await apiFetch(`/api/payroll/compensation/line/${line.id}`, { method: "DELETE" });
-      } else if (!isEmpty && line) {
-        await apiFetch(`/api/payroll/compensation/line/${line.id}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            amount: target,
-            currency: line.currency || "LKR",
-            effectiveFrom: line.effectiveFrom,
-            effectiveTo: line.effectiveTo ?? null,
-            isActive: true,
-          }),
-        });
-      } else if (!isEmpty && !line) {
-        const payload: Record<string, unknown> = {
-          componentId: def.id,
-          amount: target,
-          currency: "LKR",
-          effectiveFrom: mode === "Fixed" ? DEFAULT_FIXED_SALARY_EFFECTIVE_FROM : new Date().toISOString(),
-        };
-        if (mode === "Variable" && batchId) payload.batchId = batchId;
-        await apiFetch(`/api/payroll/compensation/${employeeId}`, {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-      }
-      setDraftByComp((d) => {
-        const n = { ...d };
-        delete n[def.id];
-        return n;
-      });
-      await onReload();
+      const wrote = await persistComponent(def, draft);
+      clearDraft(def.id);
+      if (wrote) await onReload();
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "Could not save");
     } finally {
       setSavingCompId(null);
     }
+  }
+
+  async function saveAll() {
+    if (savingAll || loading) return;
+    const dirty = manualDefinitions.filter((d) => draftByComp[d.id] !== undefined);
+    setSaveError(null);
+    setSaveOk(null);
+    if (dirty.length === 0) {
+      setSaveOk("Salary is already saved.");
+      return;
+    }
+
+    setSavingAll(true);
+    try {
+      const snapshot = { ...draftByComp };
+      let wroteAny = false;
+      for (const def of dirty) {
+        const draft = snapshot[def.id];
+        if (draft === undefined) continue;
+        const wrote = await persistComponent(def, draft);
+        if (wrote) wroteAny = true;
+      }
+      setDraftByComp({});
+      if (wroteAny) await onReload();
+      setSaveOk("Salary saved.");
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Could not save");
+    } finally {
+      setSavingAll(false);
+    }
+  }
+
+  const dirtyCount = Object.keys(draftByComp).length;
+  const isBusy = loading || savingAll || savingCompId !== null;
+
+  function saveButton(className = "") {
+    return (
+      <Button
+        className={className}
+        disabled={loading || savingAll}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => void saveAll()}
+      >
+        {savingAll ? "Saving…" : "Save"}
+      </Button>
+    );
   }
 
   const earningsDefs = manualDefinitions.filter((d) => d.type === "Earning");
@@ -1070,12 +1179,19 @@ function SalaryComponentsEditor({
     return line?.amount ?? 0;
   }
 
+  const epfEarnings = earningsDefs
+    .filter((d) => d.isEpfApplicable)
+    .reduce((s, d) => s + numericAmount(d.id), 0);
+  const etfEarnings = earningsDefs
+    .filter((d) => d.isEtfApplicable)
+    .reduce((s, d) => s + numericAmount(d.id), 0);
   const taxableEarnings = earningsDefs
     .filter((d) => d.isTaxable)
     .reduce((s, d) => s + numericAmount(d.id), 0);
+  const hasStatutoryBase = epfEarnings > 0 || etfEarnings > 0 || taxableEarnings > 0;
 
   function statutoryAmount(def: Component): number {
-    return calcStatutoryAmount(def, taxableEarnings, payrollSettings);
+    return calcStatutoryAmount(def, epfEarnings, etfEarnings, taxableEarnings, payrollSettings);
   }
 
   function displayAmount(def: Component): number {
@@ -1086,20 +1202,20 @@ function SalaryComponentsEditor({
   const totalEarnings = earningsDefs.reduce((s, d) => s + numericAmount(d.id), 0);
   const manualDeductions = manualDeductionDefs.reduce((s, d) => s + numericAmount(d.id), 0);
   const employeeStatutoryDeductions =
-    taxableEarnings > 0
+    hasStatutoryBase
       ? statutoryDefs
           .filter((d) => d.type === "StatutoryDeduction")
           .reduce((s, d) => s + statutoryAmount(d), 0)
       : 0;
   const totalEmployeeDeductions = manualDeductions + employeeStatutoryDeductions;
   const employerStatutoryCost =
-    taxableEarnings > 0
+    hasStatutoryBase
       ? statutoryDefs
           .filter((d) => d.isEmployerContribution)
           .reduce((s, d) => s + statutoryAmount(d), 0)
       : 0;
   const visibleDeductionDefs =
-    taxableEarnings > 0 ? [...manualDeductionDefs, ...statutoryDefs] : manualDeductionDefs;
+    hasStatutoryBase ? [...manualDeductionDefs, ...statutoryDefs] : manualDeductionDefs;
   const deductionDisplayTotal = visibleDeductionDefs.reduce((s, d) => s + displayAmount(d), 0);
 
   function inputDisplay(defId: string): string {
@@ -1152,7 +1268,13 @@ function SalaryComponentsEditor({
                 {isStatutory(def) ? (
                   <div
                     className="flex h-10 min-w-[7rem] items-center justify-end gap-2 rounded-lg border border-slate-200/70 bg-slate-50 px-3 font-mono text-sm tabular-nums text-slate-700 md:min-w-[8.75rem]"
-                    title={`Auto-calculated from taxable earnings (LKR ${fmt(taxableEarnings)})`}
+                    title={
+                      def.code.toUpperCase() === "APIT"
+                        ? `APIT (IRD Table 01) from taxable earnings (LKR ${fmt(taxableEarnings)})`
+                        : def.code.toUpperCase().startsWith("ETF")
+                          ? `Auto-calculated from ETF-applicable earnings (LKR ${fmt(etfEarnings)})`
+                          : `Auto-calculated from EPF-applicable earnings (LKR ${fmt(epfEarnings)})`
+                    }
                   >
                     <span className="rounded bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                       Auto
@@ -1163,13 +1285,19 @@ function SalaryComponentsEditor({
                   <input
                     type="text"
                     inputMode="decimal"
-                    disabled={loading || savingCompId === def.id}
+                    disabled={isBusy}
                     className={salaryAmtInputCls}
                     value={inputDisplay(def.id)}
                     onChange={(e) =>
                       setDraftByComp((prev) => ({ ...prev, [def.id]: e.target.value }))
                     }
                     onBlur={() => void commitComponent(def)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void saveAll();
+                      }
+                    }}
                     placeholder="—"
                     aria-label={`${def.name} amount`}
                   />
@@ -1185,20 +1313,20 @@ function SalaryComponentsEditor({
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)]">
       <div className="border-b border-slate-100 bg-white px-6 pb-5 pt-6">
-        <h2 className="text-xl font-semibold tracking-tight text-slate-900">{title}</h2>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-900">{title}</h2>
+          {saveButton("shrink-0")}
+        </div>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
-          Enter amounts in LKR and leave the field to save. EPF and ETF are calculated for{" "}
-          <span className="font-medium text-slate-700">{employeeName}</span> only, from their taxable earnings.
-          {taxableEarnings > 0 && payrollSettings ? (
+          Enter amounts in LKR, then click Save. EPF/ETF use the EPF &amp; ETF mark; APIT uses Taxable earnings.
+          {hasStatutoryBase && payrollSettings ? (
             <span className="mt-1 block text-xs text-slate-400">
-              {employeeName} taxable base: LKR {fmt(taxableEarnings)} · EPF{" "}
-              {Math.round(payrollSettings.epfEmployeeRate * 100)}% /{" "}
-              {Math.round(payrollSettings.epfEmployerRate * 100)}% · ETF{" "}
-              {Math.round(payrollSettings.etfEmployerRate * 100)}%
+              {employeeName} EPF base: LKR {fmt(epfEarnings)} · ETF base: LKR {fmt(etfEarnings)} · APIT
+              taxable: LKR {fmt(taxableEarnings)}
             </span>
           ) : (
             <span className="mt-1 block text-xs text-amber-600">
-              Add taxable earnings above to auto-calculate EPF and ETF for this employee.
+              Mark earnings as Taxable (APIT) or EPF/ETF on the Components tab to auto-calculate statutory amounts.
             </span>
           )}
         </p>
@@ -1210,7 +1338,20 @@ function SalaryComponentsEditor({
             <span className="text-slate-500">Employer statutory: LKR {fmt(employerStatutoryCost)}</span>
           ) : null}
         </div>
-        <InlinePageAlert message={saveError} className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700 scroll-mt-20" />
+        <FlashMessageBanner
+          msg={
+            saveError
+              ? { type: "err", text: saveError }
+              : saveOk
+                ? { type: "ok", text: saveOk }
+                : null
+          }
+          onClear={() => {
+            setSaveError(null);
+            setSaveOk(null);
+          }}
+          className="mt-3"
+        />
       </div>
 
       {loading ? (
@@ -1246,7 +1387,7 @@ function SalaryComponentsEditor({
             </div>
             <div className="max-h-[min(62vh,26rem)] min-h-[14rem] overflow-y-auto overscroll-contain">
               {renderSalaryColumnTable(manualDeductionDefs, "deduction")}
-              {taxableEarnings > 0 && statutoryDefs.length > 0 ? (
+              {hasStatutoryBase && statutoryDefs.length > 0 ? (
                 <div className="border-t border-slate-200/90 bg-slate-50/50">
                   <div className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     Statutory (auto — {employeeName})
@@ -1258,6 +1399,14 @@ function SalaryComponentsEditor({
           </section>
         </div>
       )}
+
+      {!loading && dirtyCount > 0 ? (
+        <div className="border-t border-slate-100 bg-slate-50/80 px-6 py-3">
+          <span className="text-xs font-medium text-amber-700">
+            {dirtyCount} unsaved change{dirtyCount === 1 ? "" : "s"}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1596,6 +1745,12 @@ function PayrollRunTab() {
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=50").then(d => setBatches(d.items)).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
+  async function refreshBatches() {
+    const d = await apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=50");
+    setBatches(d.items);
+    return d.items;
+  }
+
   useEffect(() => { load(); }, [load]);
   const batchesPager = useClientPagination(batches);
 
@@ -1603,13 +1758,29 @@ function PayrollRunTab() {
     setActionLoading(batchId);
     try {
       if (action === "calculate") {
-        if (!(await appConfirm("Run payroll calculation for this batch? Totals will be computed (or refreshed) from current compensation data."))) {
+        if (!(await appConfirm("Run payroll calculation for this batch? Totals will be computed (or refreshed) from current compensation data, including EPF/ETF for salary runs."))) {
           setActionLoading(null);
           return;
         }
         await apiFetch(`/api/payroll/batches/${batchId}/calculate`, { method: "POST" });
+        const items = await refreshBatches();
+        const updated = items.find(b => b.id === batchId);
+        if (updated) await viewBatchDetails(updated);
+        return;
+      } else if (action === "review") {
+        if (!(await appConfirm("Mark this payroll batch as reviewed? Confirm you have checked gross, EPF/ETF, deductions, and net pay."))) {
+          setActionLoading(null);
+          return;
+        }
+        await apiFetch(`/api/payroll/batches/${batchId}/review`, { method: "PUT" });
+      } else if (action === "return") {
+        if (!(await appConfirm("Send this batch back to Calculated so it can be recalculated?"))) {
+          setActionLoading(null);
+          return;
+        }
+        await apiFetch(`/api/payroll/batches/${batchId}/return`, { method: "PUT" });
       } else if (action === "approve") {
-        if (!(await appConfirm("Approve this payroll batch? Confirm you have reviewed gross, deductions, and net pay before approving."))) {
+        if (!(await appConfirm("Approve this salary batch? Payslips will be locked as Finalized."))) {
           setActionLoading(null);
           return;
         }
@@ -1623,8 +1794,13 @@ function PayrollRunTab() {
       } else if (action === "delete") {
         if (!(await appConfirm("Delete this batch?"))) { setActionLoading(null); return; }
         await apiFetch(`/api/payroll/batches/${batchId}`, { method: "DELETE" });
+        setSelectedBatch(null);
+        await refreshBatches();
+        return;
       }
-      load();
+      const items = await refreshBatches();
+      const updated = items.find(b => b.id === batchId);
+      if (updated) await viewBatchDetails(updated);
     } catch (err: unknown) {
       await appAlert(err instanceof Error ? err.message : "Action failed");
     } finally { setActionLoading(null); }
@@ -1632,8 +1808,8 @@ function PayrollRunTab() {
 
   async function viewBatchDetails(batch: Batch) {
     setSelectedBatch(batch);
-    const data = await apiFetch<PagedResult<Statement>>(`/api/payroll/statements?pageSize=200`);
-    setBatchStatements(data.items.filter(s => s.batchId === batch.id));
+    const data = await apiFetch<Statement[]>(`/api/payroll/batches/${batch.id}/statements`);
+    setBatchStatements(Array.isArray(data) ? data : []);
   }
 
   if (loading) return <Loading />;
@@ -1641,7 +1817,10 @@ function PayrollRunTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-800">Payroll Batches</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800">Payroll Batches</h2>
+          <p className="mt-0.5 text-xs text-slate-500">Salary batches: calculate (includes EPF/ETF) → review → HR approve salary (Finalized).</p>
+        </div>
         <Button onClick={() => setShowCreate(true)}>+ New Batch</Button>
       </div>
 
@@ -1651,7 +1830,8 @@ function PayrollRunTab() {
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500">
               <th className="px-4 py-3 font-medium">Batch</th><th className="px-4 py-3 font-medium">Type</th><th className="px-4 py-3 font-medium">Period</th>
               <th className="px-4 py-3 font-medium">Employees</th><th className="px-4 py-3 font-medium text-right">Gross</th>
-              <th className="px-4 py-3 font-medium text-right">Net</th><th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium text-right">Net</th>
+              <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr></thead>
             <tbody>
@@ -1670,16 +1850,21 @@ function PayrollRunTab() {
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{b.status === "Draft" ? "—" : formatPayrollAmount(b.totalNet)}</td>
                   <td className="px-4 py-3"><Badge status={b.status} /></td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap items-center gap-1">
                       {(b.status === "Draft" || b.status === "Calculated")
                         && (b.processType === "Salary" || b.processType === "OtherTransactions") && (
                         <ActionBtn label="Import OT/No-pay" onClick={() => setImportBatch(b)} loading={false} />
                       )}
                       {b.status === "Draft" && <ActionBtn label="Calculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />}
-                      {b.status === "Calculated" && <ActionBtn label="Recalculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />}
-                      {b.status === "Calculated" && <ActionBtn label="Approve" onClick={() => handleAction(b.id, "approve")} loading={actionLoading === b.id} />}
+                      {b.status === "Calculated" && <ActionBtn label="Review" onClick={() => handleAction(b.id, "review")} loading={actionLoading === b.id} />}
+                      {(b.status === "Calculated" || b.status === "Reviewed") && <ActionBtn label="Approve" onClick={() => handleAction(b.id, "approve")} loading={actionLoading === b.id} />}
+                      {b.status === "Reviewed" && (
+                        <button type="button" onClick={() => handleAction(b.id, "return")} className="rounded px-2 py-1 text-xs text-amber-600 hover:bg-amber-50">Send back</button>
+                      )}
                       {b.status === "Approved" && <ActionBtn label="Finalize" onClick={() => handleAction(b.id, "finalize")} loading={actionLoading === b.id} />}
-                      {(b.status === "Draft" || b.status === "Calculated") && <button onClick={() => handleAction(b.id, "delete")} className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50">Delete</button>}
+                      {(b.status === "Draft" || b.status === "Calculated") && (
+                        <button type="button" onClick={() => handleAction(b.id, "delete")} className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50">Delete</button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1693,7 +1878,13 @@ function PayrollRunTab() {
       {showCreate && <CreateBatchModal onClose={() => setShowCreate(false)} onCreated={load} />}
 
       {selectedBatch && (
-        <BatchDetailModal batch={selectedBatch} statements={batchStatements} onClose={() => setSelectedBatch(null)} />
+        <BatchDetailModal
+          batch={selectedBatch}
+          statements={batchStatements}
+          actionLoading={actionLoading === selectedBatch.id}
+          onClose={() => setSelectedBatch(null)}
+          onAction={(action) => handleAction(selectedBatch.id, action)}
+        />
       )}
 
       {importBatch && (
@@ -1842,11 +2033,14 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
   useEffect(() => {
     if (step !== 2) return;
     setEmpLoading(true);
-    apiFetch<EligibleEmployee[]>("/api/payroll/eligible-employees")
+    setError("");
+    apiFetch<EligibleEmployee[]>(
+      `/api/payroll/eligible-employees?month=${month}&year=${year}&processType=${encodeURIComponent(processType)}`,
+    )
       .then(emps => { setEmployees(emps); setSelected(new Set(emps.map(e => e.id))); })
       .catch(() => setError("Failed to load employees"))
       .finally(() => setEmpLoading(false));
-  }, [step]);
+  }, [step, month, year, processType]);
 
   const { departments, grades, locations } = useMemo(
     () => ({
@@ -1975,6 +2169,9 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
       {step === 2 && (
         <div className="space-y-3">
+          <p className="text-xs text-slate-500">
+            Employees already in another {formatProcessType(processType)} batch for {MONTHS[month - 1]} {year} are hidden so they do not get a second payslip. Select only staff who are not yet in this month’s run (for example a newly added employee).
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
               className={inputCls + " !mb-0 min-w-[180px] flex-1"}
@@ -2030,7 +2227,11 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
-                    <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">No employees match the current filters</td></tr>
+                    <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">
+                      {employees.length === 0
+                        ? `No employees left for this ${formatProcessType(processType)} run. Everyone with salary is already in a ${MONTHS[month - 1]} ${year} batch.`
+                        : "No employees match the current filters"}
+                    </td></tr>
                   ) : filtered.map(e => (
                     <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer" onClick={() => toggle(e.id)}>
                       <td className="px-3 py-2"><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} className="rounded" /></td>
@@ -2058,14 +2259,43 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
   );
 }
 
-function BatchDetailModal({ batch, statements, onClose }: { batch: Batch; statements: Statement[]; onClose: () => void }) {
+function BatchDetailModal({
+  batch,
+  statements,
+  actionLoading,
+  onClose,
+  onAction,
+}: {
+  batch: Batch;
+  statements: Statement[];
+  actionLoading: boolean;
+  onClose: () => void;
+  onAction: (action: string) => void;
+}) {
   const [selectedStmt, setSelectedStmt] = useState<Statement | null>(null);
   const [stmtDetail, setStmtDetail] = useState<Statement | null>(null);
+  const [printingId, setPrintingId] = useState<string | null>(null);
+  const canApproveSalary = batch.status === "Calculated" || batch.status === "Reviewed";
 
   async function viewPayslip(stmt: Statement) {
     setSelectedStmt(stmt);
+    if (stmt.lines && stmt.lines.length > 0) {
+      setStmtDetail(stmt);
+      return;
+    }
     const detail = await apiFetch<Statement>(`/api/payroll/statements/${stmt.id}`);
     setStmtDetail(detail);
+  }
+
+  async function handlePrint(stmt: Statement) {
+    setPrintingId(stmt.id);
+    try {
+      await printStatement(stmt);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not print payslip");
+    } finally {
+      setPrintingId(null);
+    }
   }
 
   return (
@@ -2075,7 +2305,36 @@ function BatchDetailModal({ batch, statements, onClose }: { batch: Batch; statem
         <span>Period: <strong className="text-slate-800">{MONTHS[batch.month - 1]} {batch.year}</strong></span>
         <span>Effective: <strong className="text-slate-800">{formatBatchPeriod(batch)}</strong></span>
         <span>Status: <Badge status={batch.status} /></span>
+        {batch.reviewedBy && (
+          <span>Reviewed by: <strong className="text-slate-800">{batch.reviewedBy}</strong>
+            {batch.reviewedAt ? ` · ${formatDateTime(batch.reviewedAt)}` : ""}
+          </span>
+        )}
+        {batch.approvedBy && (
+          <span>Approved by: <strong className="text-slate-800">{batch.approvedBy}</strong>
+            {batch.approvedAt ? ` · ${formatDateTime(batch.approvedAt)}` : ""}
+          </span>
+        )}
       </div>
+      {(batch.status === "Calculated" || batch.status === "Reviewed" || batch.status === "Approved") && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {batch.status === "Calculated" && <ActionBtn label="Review" onClick={() => onAction("review")} loading={actionLoading} />}
+          {canApproveSalary && <ActionBtn label="Approve salary" onClick={() => onAction("approve")} loading={actionLoading} />}
+          {batch.status === "Reviewed" && (
+            <button type="button" onClick={() => onAction("return")} className="rounded px-2 py-1 text-xs text-amber-600 hover:bg-amber-50">Send back</button>
+          )}
+          {batch.status === "Approved" && (
+            <button
+              type="button"
+              onClick={() => onAction("finalize")}
+              disabled={actionLoading}
+              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${badgeCls.Finalized} hover:opacity-80 disabled:opacity-50`}
+            >
+              {actionLoading ? "..." : "Finalized"}
+            </button>
+          )}
+        </div>
+      )}
       <div className="mb-4 grid gap-3 sm:grid-cols-4 text-sm">
         <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-400">Gross</div><div className="font-semibold">LKR {fmt(batch.totalGross)}</div></div>
         <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-400">Deductions</div><div className="font-semibold">LKR {fmt(batch.totalDeductions)}</div></div>
@@ -2089,7 +2348,7 @@ function BatchDetailModal({ batch, statements, onClose }: { batch: Batch; statem
             <thead><tr className="border-b text-xs text-slate-400">
               <th className="pb-2 font-medium">Employee</th><th className="pb-2 font-medium text-right">Gross</th>
               <th className="pb-2 font-medium text-right">Deductions</th><th className="pb-2 font-medium text-right">Net</th>
-              <th className="pb-2 font-medium">View</th>
+              <th className="pb-2 font-medium">Actions</th>
             </tr></thead>
             <tbody>
               {statements.map(s => (
@@ -2098,7 +2357,19 @@ function BatchDetailModal({ batch, statements, onClose }: { batch: Batch; statem
                   <td className="py-2.5 text-right font-mono">LKR {fmt(s.grossPay)}</td>
                   <td className="py-2.5 text-right font-mono text-red-600">LKR {fmt(s.totalDeductions)}</td>
                   <td className="py-2.5 text-right font-mono font-semibold">LKR {fmt(s.netPay)}</td>
-                  <td className="py-2.5"><button onClick={() => viewPayslip(s)} className="text-xs text-blue-600 hover:underline">Payslip</button></td>
+                  <td className="py-2.5">
+                    <div className="flex items-center gap-3">
+                      <button type="button" onClick={() => viewPayslip(s)} className="text-xs text-blue-600 hover:underline">Payslip</button>
+                      {canApproveSalary && (
+                        <button type="button" onClick={() => onAction("approve")} disabled={actionLoading} className="text-xs font-medium text-green-700 hover:underline disabled:opacity-40">
+                          Approve salary
+                        </button>
+                      )}
+                      <button type="button" onClick={() => void handlePrint(s)} disabled={printingId === s.id} className="text-xs text-blue-600 hover:underline disabled:opacity-40">
+                        {printingId === s.id ? "Printing…" : "Print"}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2107,16 +2378,46 @@ function BatchDetailModal({ batch, statements, onClose }: { batch: Batch; statem
       )}
 
       {stmtDetail && stmtDetail.lines && (
-        <PayslipModal statement={stmtDetail} onClose={() => { setStmtDetail(null); setSelectedStmt(null); }} />
+        <PayslipModal
+          statement={stmtDetail}
+          canApproveSalary={canApproveSalary}
+          approveLoading={actionLoading}
+          onApprove={() => onAction("approve")}
+          onClose={() => { setStmtDetail(null); setSelectedStmt(null); }}
+        />
       )}
     </Modal>
   );
 }
 
-function PayslipModal({ statement, onClose }: { statement: Statement; onClose: () => void }) {
+function PayslipModal({
+  statement,
+  onClose,
+  canApproveSalary = false,
+  approveLoading = false,
+  onApprove,
+}: {
+  statement: Statement;
+  onClose: () => void;
+  canApproveSalary?: boolean;
+  approveLoading?: boolean;
+  onApprove?: () => void;
+}) {
+  const [printing, setPrinting] = useState(false);
   const earnings = statement.lines?.filter(l => l.type === "Earning" && !l.isEmployerContribution) || [];
   const deductions = statement.lines?.filter(l => (l.type === "Deduction" || l.type === "StatutoryDeduction") && !l.isEmployerContribution) || [];
   const employerItems = statement.lines?.filter(l => l.isEmployerContribution) || [];
+
+  async function handlePrint() {
+    setPrinting(true);
+    try {
+      await printStatement(statement);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not print payslip");
+    } finally {
+      setPrinting(false);
+    }
+  }
 
   return (
     <Modal open onClose={onClose} title={`Payslip — ${statement.employeeName}`} wide>
@@ -2173,6 +2474,17 @@ function PayslipModal({ statement, onClose }: { statement: Statement; onClose: (
           </table>
         </div>
       )}
+      <div className="mt-6 flex justify-end gap-3">
+        <Button variant="secondary" onClick={onClose}>Close</Button>
+        {canApproveSalary && onApprove && (
+          <Button variant="secondary" onClick={onApprove} disabled={approveLoading}>
+            {approveLoading ? "Approving…" : "Approve salary"}
+          </Button>
+        )}
+        <Button onClick={() => void handlePrint()} disabled={printing}>
+          {printing ? "Preparing…" : "Print"}
+        </Button>
+      </div>
     </Modal>
   );
 }
@@ -2185,6 +2497,7 @@ function PayStatementsTab() {
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [viewStmt, setViewStmt] = useState<Statement | null>(null);
+  const [printingId, setPrintingId] = useState<string | null>(null);
   const pageSize = 20;
 
   const load = useCallback(() => {
@@ -2199,6 +2512,17 @@ function PayStatementsTab() {
   async function viewPayslip(stmt: Statement) {
     const detail = await apiFetch<Statement>(`/api/payroll/statements/${stmt.id}`);
     setViewStmt(detail);
+  }
+
+  async function handlePrint(stmt: Statement) {
+    setPrintingId(stmt.id);
+    try {
+      await printStatement(stmt);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not print payslip");
+    } finally {
+      setPrintingId(null);
+    }
   }
 
   if (loading) return <Loading />;
@@ -2217,7 +2541,7 @@ function PayStatementsTab() {
                 <th className="px-4 py-3 font-medium">Employee</th><th className="px-4 py-3 font-medium">Period</th>
                 <th className="px-4 py-3 font-medium text-right">Gross</th><th className="px-4 py-3 font-medium text-right">Deductions</th>
                 <th className="px-4 py-3 font-medium text-right">Net Pay</th><th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">View</th>
+                <th className="px-4 py-3 font-medium">Actions</th>
               </tr></thead>
               <tbody>
                 {statements.map(s => (
@@ -2228,7 +2552,14 @@ function PayStatementsTab() {
                     <td className="px-4 py-3 text-right font-mono text-red-600">LKR {fmt(s.totalDeductions)}</td>
                     <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">LKR {fmt(s.netPay)}</td>
                     <td className="px-4 py-3"><Badge status={s.status} /></td>
-                    <td className="px-4 py-3"><button onClick={() => viewPayslip(s)} className="text-xs text-blue-600 hover:underline">Payslip</button></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => viewPayslip(s)} className="text-xs text-blue-600 hover:underline">Payslip</button>
+                        <button type="button" onClick={() => void handlePrint(s)} disabled={printingId === s.id} className="text-xs text-blue-600 hover:underline disabled:opacity-40">
+                          {printingId === s.id ? "Printing…" : "Print"}
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2339,7 +2670,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 }
 
 function Badge({ status }: { status: string }) {
-  return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${badgeCls[status] || "bg-slate-100 text-slate-600"}`}>{status}</span>;
+  return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${badgeCls[status] || "bg-slate-100 text-slate-600"}`}>{statusLabel[status] ?? status}</span>;
 }
 
 function ActionBtn({ label, onClick, loading }: { label: string; onClick: () => void; loading: boolean }) {

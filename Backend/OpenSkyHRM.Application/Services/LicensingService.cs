@@ -73,7 +73,8 @@ public class LicensingService : ILicensingService
                 Status = sub.Status.ToString(),
                 ValidFrom = sub.ValidFrom,
                 ValidUntil = sub.ValidUntil,
-                LicensedModules = modules
+                LicensedModules = modules,
+                MaxEmployees = sub.MaxEmployees
             };
         }
         catch (Exception ex)

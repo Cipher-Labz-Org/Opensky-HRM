@@ -111,15 +111,17 @@ public static class PayrollSeeder
     }
 
     /// <summary>
-    /// Keeps EPF/ETF formulas aligned with taxable earnings base (idempotent).
+    /// Keeps EPF/ETF on EPF/ETF-applicable earnings and APIT on taxable earnings (idempotent).
+    /// TAXABLE_EARNINGS is reserved for APIT, not EPF/ETF.
     /// </summary>
     public static async Task EnsureStatutoryFormulasAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {
         var formulas = new Dictionary<string, (string Expression, string DependsOn)>(StringComparer.OrdinalIgnoreCase)
         {
-            ["EPF_EE"] = ("TAXABLE_EARNINGS * EPF_EE_RATE", "TAXABLE_EARNINGS"),
-            ["EPF_ER"] = ("TAXABLE_EARNINGS * EPF_ER_RATE", "TAXABLE_EARNINGS"),
-            ["ETF_ER"] = ("TAXABLE_EARNINGS * ETF_RATE", "TAXABLE_EARNINGS"),
+            ["EPF_EE"] = ("EPF_EARNINGS * EPF_EE_RATE", "EPF_EARNINGS"),
+            ["EPF_ER"] = ("EPF_EARNINGS * EPF_ER_RATE", "EPF_EARNINGS"),
+            ["ETF_ER"] = ("ETF_EARNINGS * ETF_RATE", "ETF_EARNINGS"),
+            ["APIT"] = ("APIT_AMOUNT", "TAXABLE_EARNINGS"),
         };
 
         var statutory = await context.CompensationComponents
@@ -134,11 +136,38 @@ public static class PayrollSeeder
             if (comp.DependsOnComponentCode != dependsOn)
                 comp.DependsOnComponentCode = dependsOn;
         }
+
+        var leftover = await context.CompensationComponents
+            .Where(c => c.FormulaExpression != null && c.FormulaExpression.Contains("TAXABLE_EARNINGS"))
+            .ToListAsync(cancellationToken);
+
+        foreach (var comp in leftover)
+        {
+            var formula = comp.FormulaExpression!;
+            if (formula.Contains("EPF_EE_RATE", StringComparison.OrdinalIgnoreCase))
+            {
+                comp.FormulaExpression = formula.Replace("TAXABLE_EARNINGS", "EPF_EARNINGS", StringComparison.OrdinalIgnoreCase);
+                if (string.Equals(comp.DependsOnComponentCode, "TAXABLE_EARNINGS", StringComparison.OrdinalIgnoreCase))
+                    comp.DependsOnComponentCode = "EPF_EARNINGS";
+            }
+            else if (formula.Contains("EPF_ER_RATE", StringComparison.OrdinalIgnoreCase))
+            {
+                comp.FormulaExpression = formula.Replace("TAXABLE_EARNINGS", "EPF_EARNINGS", StringComparison.OrdinalIgnoreCase);
+                if (string.Equals(comp.DependsOnComponentCode, "TAXABLE_EARNINGS", StringComparison.OrdinalIgnoreCase))
+                    comp.DependsOnComponentCode = "EPF_EARNINGS";
+            }
+            else if (formula.Contains("ETF_RATE", StringComparison.OrdinalIgnoreCase))
+            {
+                comp.FormulaExpression = formula.Replace("TAXABLE_EARNINGS", "ETF_EARNINGS", StringComparison.OrdinalIgnoreCase);
+                if (string.Equals(comp.DependsOnComponentCode, "TAXABLE_EARNINGS", StringComparison.OrdinalIgnoreCase))
+                    comp.DependsOnComponentCode = "ETF_EARNINGS";
+            }
+        }
     }
 
     /// <summary>
     /// Development helper: sets BASIC to LKR 100,000 for the first 10 active employees so EPF/ETF
-    /// preview uses a simple taxable base (100k → EPF 8k/12k, ETF 3k).
+    /// preview uses a simple EPF/ETF base (100k → EPF 8k/12k, ETF 3k).
     /// </summary>
     public static async Task EnsureDemoSalary100kAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {

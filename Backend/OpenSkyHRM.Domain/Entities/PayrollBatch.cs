@@ -13,7 +13,10 @@ public class PayrollBatch : AuditableEntity
     public PayrollProcessType ProcessType { get; set; } = PayrollProcessType.Salary;
     public BatchStatus Status { get; set; } = BatchStatus.Draft;
     public DateTime? ProcessedAt { get; set; }
+    public string? ReviewedBy { get; set; }
+    public DateTime? ReviewedAt { get; set; }
     public string? ApprovedBy { get; set; }
+    public DateTime? ApprovedAt { get; set; }
     public int EmployeeCount { get; set; }
     public decimal TotalGross { get; set; }
     public decimal TotalDeductions { get; set; }

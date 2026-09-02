@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Payroll;
@@ -42,6 +43,8 @@ public class PayrollService : IPayrollService
             Type = Enum.Parse<ComponentType>(dto.Type),
             Category = Enum.Parse<ComponentCategory>(dto.Category),
             IsTaxable = dto.IsTaxable,
+            IsEpfApplicable = dto.IsEpfApplicable,
+            IsEtfApplicable = dto.IsEtfApplicable,
             IsStatutory = dto.IsStatutory,
             Description = dto.Description,
             FormulaExpression = dto.FormulaExpression,
@@ -64,6 +67,8 @@ public class PayrollService : IPayrollService
         entity.Type = Enum.Parse<ComponentType>(dto.Type);
         entity.Category = Enum.Parse<ComponentCategory>(dto.Category);
         entity.IsTaxable = dto.IsTaxable;
+        entity.IsEpfApplicable = dto.IsEpfApplicable;
+        entity.IsEtfApplicable = dto.IsEtfApplicable;
         entity.IsStatutory = dto.IsStatutory;
         entity.IsActive = dto.IsActive;
         entity.Description = dto.Description;
@@ -302,6 +307,24 @@ public class PayrollService : IPayrollService
 
         var (effectiveFrom, effectiveTo) = ResolveBatchEffectiveDates(dto);
 
+        if (dto.EmployeeIds.Count > 0)
+        {
+            var alreadyInPeriod = await PayrollPeriodOccupancy.GetEmployeeIdsAsync(
+                _db, dto.Year, dto.Month, processType);
+            var overlap = dto.EmployeeIds.Where(alreadyInPeriod.Contains).Distinct().ToList();
+            if (overlap.Count > 0)
+            {
+                var codes = await _db.Employees.AsNoTracking()
+                    .Where(e => overlap.Contains(e.Id))
+                    .Select(e => e.EmployeeCode)
+                    .ToListAsync();
+                var monthName = CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(dto.Month);
+                throw new InvalidOperationException(
+                    $"These employees already have a {processType} payroll for {monthName} {dto.Year}: {string.Join(", ", codes)}. " +
+                    "Select only employees who are not already in a batch for this month.");
+            }
+        }
+
         var prefix = processType switch
         {
             PayrollProcessType.Salary => "SAL",
@@ -332,6 +355,76 @@ public class PayrollService : IPayrollService
         return MapBatchDto(entity);
     }
 
+    public async Task<PayrollBatchDto?> ReviewBatchAsync(Guid id, string reviewedBy)
+    {
+        var batch = await _db.PayrollBatches.FindAsync(id);
+        if (batch is null) return null;
+        if (batch.Status != BatchStatus.Calculated)
+            throw new InvalidOperationException($"Batch must be Calculated before review. Current: {batch.Status}");
+
+        batch.Status = BatchStatus.Reviewed;
+        batch.ReviewedBy = string.IsNullOrWhiteSpace(reviewedBy) ? "System" : reviewedBy.Trim();
+        batch.ReviewedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return MapBatchDto(batch);
+    }
+
+    public async Task<PayrollBatchDto?> ApproveBatchAsync(Guid id, string approvedBy)
+    {
+        var batch = await _db.PayrollBatches
+            .Include(b => b.PayStatements)
+            .FirstOrDefaultAsync(b => b.Id == id);
+        if (batch is null) return null;
+        if (batch.Status != BatchStatus.Calculated && batch.Status != BatchStatus.Reviewed)
+            throw new InvalidOperationException($"Batch must be Calculated or Reviewed before HR salary approval. Current: {batch.Status}");
+
+        var actor = string.IsNullOrWhiteSpace(approvedBy) ? "System" : approvedBy.Trim();
+        var now = DateTime.UtcNow;
+        if (batch.Status == BatchStatus.Calculated)
+        {
+            batch.ReviewedBy ??= actor;
+            batch.ReviewedAt ??= now;
+        }
+
+        batch.ApprovedBy = actor;
+        batch.ApprovedAt = now;
+        batch.Status = BatchStatus.Finalized;
+        foreach (var stmt in batch.PayStatements)
+            stmt.Status = PayStatementStatus.Finalized;
+        await _db.SaveChangesAsync();
+        return MapBatchDto(batch);
+    }
+
+    public async Task<PayrollBatchDto?> ReturnBatchToCalculatedAsync(Guid id)
+    {
+        var batch = await _db.PayrollBatches.FindAsync(id);
+        if (batch is null) return null;
+        if (batch.Status != BatchStatus.Reviewed)
+            throw new InvalidOperationException($"Only Reviewed batches can be sent back. Current: {batch.Status}");
+
+        batch.Status = BatchStatus.Calculated;
+        batch.ReviewedBy = null;
+        batch.ReviewedAt = null;
+        await _db.SaveChangesAsync();
+        return MapBatchDto(batch);
+    }
+
+    public async Task<PayrollBatchDto?> FinalizeBatchAsync(Guid id)
+    {
+        var batch = await _db.PayrollBatches
+            .Include(b => b.PayStatements)
+            .FirstOrDefaultAsync(b => b.Id == id);
+        if (batch is null) return null;
+        if (batch.Status != BatchStatus.Approved)
+            throw new InvalidOperationException($"Batch must be Approved before finalizing. Current: {batch.Status}");
+
+        batch.Status = BatchStatus.Finalized;
+        foreach (var stmt in batch.PayStatements)
+            stmt.Status = PayStatementStatus.Finalized;
+        await _db.SaveChangesAsync();
+        return MapBatchDto(batch);
+    }
+
     public async Task<bool> DeleteBatchAsync(Guid id)
     {
         var entity = await _db.PayrollBatches.FindAsync(id);
@@ -350,6 +443,8 @@ public class PayrollService : IPayrollService
             .AsQueryable();
         if (employeeId.HasValue) query = query.Where(p => p.EmployeeId == employeeId.Value);
         if (allowedEmployeeIds != null) query = query.Where(p => allowedEmployeeIds.Contains(p.EmployeeId));
+
+        query = await RestrictToCanonicalStatementsAsync(query);
 
         var total = await query.CountAsync();
         var items = await query.OrderByDescending(p => p.Year).ThenByDescending(p => p.Month)
@@ -374,33 +469,28 @@ public class PayrollService : IPayrollService
             .Include(s => s.Employee).ThenInclude(e => e.Department)
             .Include(s => s.Lines)
             .FirstOrDefaultAsync(s => s.Id == id);
-        if (p is null) return null;
+        return p is null ? null : MapPayStatementDto(p, includeLines: true);
+    }
 
-        return new PayStatementDto
-        {
-            Id = p.Id, BatchId = p.BatchId, EmployeeId = p.EmployeeId,
-            EmployeeName = p.Employee.FirstName + " " + p.Employee.LastName,
-            EmployeeCode = p.Employee.EmployeeCode,
-            Department = p.Employee.Department?.Name,
-            Month = p.Month, Year = p.Year, BasicPay = p.BasicPay,
-            TotalEarnings = p.TotalEarnings, TotalDeductions = p.TotalDeductions,
-            GrossPay = p.GrossPay, NetPay = p.NetPay, EmployerCost = p.EmployerCost,
-            Status = p.Status.ToString(),
-            Lines = p.Lines.OrderBy(l => l.SortOrder).Select(l => new PayStatementLineDto
-            {
-                Id = l.Id, ComponentId = l.ComponentId,
-                ComponentName = l.ComponentName, ComponentCode = l.ComponentCode,
-                Type = l.Type, Amount = l.Amount,
-                IsEmployerContribution = l.IsEmployerContribution, SortOrder = l.SortOrder,
-            }).ToList(),
-        };
+    public async Task<List<PayStatementDto>> GetStatementsByBatchAsync(Guid batchId)
+    {
+        var statements = await _db.PayStatements
+            .Include(p => p.Employee).ThenInclude(e => e.Department)
+            .Include(p => p.Lines)
+            .Where(p => p.BatchId == batchId)
+            .OrderBy(p => p.Employee.LastName).ThenBy(p => p.Employee.FirstName)
+            .ToListAsync();
+        return statements.Select(p => MapPayStatementDto(p, includeLines: true)).ToList();
     }
 
     public async Task<List<PayStatementDto>> GetStatementsByEmployeeAsync(Guid employeeId)
     {
-        return await _db.PayStatements
+        var query = _db.PayStatements
             .Include(p => p.Employee).ThenInclude(e => e.Department)
-            .Where(p => p.EmployeeId == employeeId)
+            .Where(p => p.EmployeeId == employeeId);
+        query = await RestrictToCanonicalStatementsAsync(query);
+
+        return await query
             .OrderByDescending(p => p.Year).ThenByDescending(p => p.Month)
             .Select(p => new PayStatementDto
             {
@@ -441,11 +531,22 @@ public class PayrollService : IPayrollService
 
     // ── Helpers ──────────────────────────────────────────────────────
 
+    private async Task<IQueryable<PayStatement>> RestrictToCanonicalStatementsAsync(IQueryable<PayStatement> query)
+    {
+        var keys = await query
+            .Select(p => new PayrollPeriodOccupancy.PayStatementKey(
+                p.Id, p.EmployeeId, p.Month, p.Year, p.Batch.ProcessType, p.Status, p.CreatedAt))
+            .ToListAsync();
+        var keepIds = PayrollPeriodOccupancy.CanonicalStatementIds(keys);
+        return query.Where(p => keepIds.Contains(p.Id));
+    }
+
     private static CompensationComponentDto MapComponentDto(CompensationComponent c) => new()
     {
         Id = c.Id, Name = c.Name, Code = c.Code,
         Type = c.Type.ToString(), Category = c.Category.ToString(),
-        IsTaxable = c.IsTaxable, IsStatutory = c.IsStatutory, IsActive = c.IsActive,
+        IsTaxable = c.IsTaxable, IsEpfApplicable = c.IsEpfApplicable, IsEtfApplicable = c.IsEtfApplicable,
+        IsStatutory = c.IsStatutory, IsActive = c.IsActive,
         Description = c.Description, FormulaExpression = c.FormulaExpression,
         DependsOnComponentCode = c.DependsOnComponentCode,
         SortOrder = c.SortOrder, IsEmployerContribution = c.IsEmployerContribution,
@@ -464,6 +565,30 @@ public class PayrollService : IPayrollService
         return (effectiveFrom, effectiveTo);
     }
 
+    private static PayStatementDto MapPayStatementDto(PayStatement p, bool includeLines)
+    {
+        return new PayStatementDto
+        {
+            Id = p.Id, BatchId = p.BatchId, EmployeeId = p.EmployeeId,
+            EmployeeName = p.Employee.FirstName + " " + p.Employee.LastName,
+            EmployeeCode = p.Employee.EmployeeCode,
+            Department = p.Employee.Department?.Name,
+            Month = p.Month, Year = p.Year, BasicPay = p.BasicPay,
+            TotalEarnings = p.TotalEarnings, TotalDeductions = p.TotalDeductions,
+            GrossPay = p.GrossPay, NetPay = p.NetPay, EmployerCost = p.EmployerCost,
+            Status = p.Status.ToString(),
+            Lines = includeLines
+                ? (p.Lines ?? []).OrderBy(l => l.SortOrder).Select(l => new PayStatementLineDto
+                {
+                    Id = l.Id, ComponentId = l.ComponentId,
+                    ComponentName = l.ComponentName, ComponentCode = l.ComponentCode,
+                    Type = l.Type, Amount = l.Amount,
+                    IsEmployerContribution = l.IsEmployerContribution, SortOrder = l.SortOrder,
+                }).ToList()
+                : new List<PayStatementLineDto>(),
+        };
+    }
+
     private static PayrollBatchDto MapBatchDto(PayrollBatch b)
     {
         var selectedCount = 0;
@@ -475,7 +600,9 @@ public class PayrollService : IPayrollService
         {
             Id = b.Id, BatchCode = b.BatchCode, Month = b.Month, Year = b.Year,
             EffectiveFrom = b.EffectiveFrom, EffectiveTo = b.EffectiveTo,
-            ProcessType = b.ProcessType.ToString(), Status = b.Status.ToString(), ProcessedAt = b.ProcessedAt, ApprovedBy = b.ApprovedBy,
+            ProcessType = b.ProcessType.ToString(), Status = b.Status.ToString(), ProcessedAt = b.ProcessedAt,
+            ReviewedBy = b.ReviewedBy, ReviewedAt = b.ReviewedAt,
+            ApprovedBy = b.ApprovedBy, ApprovedAt = b.ApprovedAt,
             EmployeeCount = b.EmployeeCount, TotalGross = b.TotalGross,
             TotalDeductions = b.TotalDeductions, TotalNet = b.TotalNet,
             TotalEmployerCost = b.TotalEmployerCost, Notes = b.Notes,

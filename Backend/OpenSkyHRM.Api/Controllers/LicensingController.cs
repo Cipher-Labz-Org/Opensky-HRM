@@ -32,14 +32,14 @@ public class LicensingController : ControllerBase
     }
 
     [HttpGet("admin")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Roles = "ADMIN,Admin")]
     public async Task<ActionResult<LicensingAdminDto>> GetAdmin(CancellationToken cancellationToken)
     {
         return Ok(await _licensing.GetAdminStateAsync(cancellationToken));
     }
 
     [HttpPut("entitlements")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Roles = "ADMIN,Admin")]
     public async Task<IActionResult> UpdateEntitlements([FromBody] UpdateModuleEntitlementsDto dto, CancellationToken cancellationToken)
     {
         try
@@ -54,7 +54,7 @@ public class LicensingController : ControllerBase
     }
 
     [HttpPut("subscription")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Roles = "ADMIN,Admin")]
     public async Task<ActionResult<InstanceSubscriptionDto>> UpdateSubscription([FromBody] UpdateInstanceSubscriptionDto dto, CancellationToken cancellationToken)
     {
         try
