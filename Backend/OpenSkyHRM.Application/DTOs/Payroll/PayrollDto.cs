@@ -8,6 +8,8 @@ public class CompensationComponentDto
     public string Type { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
     public bool IsTaxable { get; set; }
+    public bool IsEpfApplicable { get; set; }
+    public bool IsEtfApplicable { get; set; }
     public bool IsStatutory { get; set; }
     public bool IsActive { get; set; }
     public string? Description { get; set; }
@@ -24,6 +26,8 @@ public class CreateComponentDto
     public string Type { get; set; } = "Earning";
     public string Category { get; set; } = "Fixed";
     public bool IsTaxable { get; set; }
+    public bool IsEpfApplicable { get; set; }
+    public bool IsEtfApplicable { get; set; }
     public bool IsStatutory { get; set; }
     public string? Description { get; set; }
     public string? FormulaExpression { get; set; }
@@ -112,7 +116,10 @@ public class PayrollBatchDto
     public string ProcessType { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public DateTime? ProcessedAt { get; set; }
+    public string? ReviewedBy { get; set; }
+    public DateTime? ReviewedAt { get; set; }
     public string? ApprovedBy { get; set; }
+    public DateTime? ApprovedAt { get; set; }
     public int EmployeeCount { get; set; }
     public decimal TotalGross { get; set; }
     public decimal TotalDeductions { get; set; }

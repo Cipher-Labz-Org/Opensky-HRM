@@ -21,6 +21,7 @@ public class PayrollBatchExportJob
         _logger.LogInformation("Running payroll batch export job...");
 
         var pendingBatches = await _db.PayrollBatches
+            .Include(b => b.PayStatements)
             .Where(b => b.Status == BatchStatus.Approved)
             .ToListAsync();
 
@@ -28,6 +29,8 @@ public class PayrollBatchExportJob
         {
             batch.Status = BatchStatus.Finalized;
             batch.ProcessedAt = DateTime.UtcNow;
+            foreach (var stmt in batch.PayStatements)
+                stmt.Status = PayStatementStatus.Finalized;
             _logger.LogInformation("Exported payroll batch {BatchCode} for {Month}/{Year}",
                 batch.BatchCode, batch.Month, batch.Year);
         }

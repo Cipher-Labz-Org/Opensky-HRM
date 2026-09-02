@@ -103,4 +103,42 @@ public class PayrollCalculationEngineTests
 
         Assert.Equal(45_000m, basic);
     }
+
+    [Theory]
+    [InlineData(30_000, 0)]
+    [InlineData(150_000, 0)]
+    [InlineData(200_000, 3_000)]
+    [InlineData(250_000, 8_000)]
+    [InlineData(300_000, 18_500)]
+    [InlineData(350_000, 32_500)]
+    [InlineData(400_000, 50_000)]
+    public void CalculateApitTable01_UsesIrdMonthlySlabs(decimal taxable, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.CalculateApitTable01(taxable));
+    }
+}
+
+public class PayrollPeriodOccupancyTests
+{
+    [Fact]
+    public void CanonicalStatementIds_KeepsOneSlipPerEmployeeMonthAndProcessType()
+    {
+        var empA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var empB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var first = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var duplicate = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var other = Guid.Parse("33333333-3333-3333-3333-333333333333");
+
+        var keep = PayrollPeriodOccupancy.CanonicalStatementIds(
+        [
+            new(first, empA, 9, 2026, PayrollProcessType.Salary, PayStatementStatus.Finalized, new DateTime(2026, 9, 2)),
+            new(duplicate, empA, 9, 2026, PayrollProcessType.Salary, PayStatementStatus.Draft, new DateTime(2026, 9, 10)),
+            new(other, empB, 9, 2026, PayrollProcessType.Salary, PayStatementStatus.Draft, new DateTime(2026, 9, 10)),
+        ]);
+
+        Assert.Equal(2, keep.Count);
+        Assert.Contains(first, keep);
+        Assert.Contains(other, keep);
+        Assert.DoesNotContain(duplicate, keep);
+    }
 }

@@ -15,6 +15,7 @@ public class PayrollBatchConfiguration : IEntityTypeConfiguration<PayrollBatch>
         builder.Property(b => b.BatchCode).HasMaxLength(50).IsRequired();
         builder.Property(b => b.ProcessType).HasConversion<string>().HasMaxLength(30);
         builder.Property(b => b.Status).HasConversion<string>().HasMaxLength(20);
+        builder.Property(b => b.ReviewedBy).HasMaxLength(200);
         builder.Property(b => b.ApprovedBy).HasMaxLength(200);
         builder.Property(b => b.Notes).HasMaxLength(1000);
         builder.Property(b => b.TotalGross).HasColumnType("numeric(18,2)");

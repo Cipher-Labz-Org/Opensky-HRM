@@ -10,6 +10,8 @@ public class CompensationComponent : AuditableEntity
     public ComponentType Type { get; set; } = ComponentType.Earning;
     public ComponentCategory Category { get; set; } = ComponentCategory.Fixed;
     public bool IsTaxable { get; set; }
+    public bool IsEpfApplicable { get; set; }
+    public bool IsEtfApplicable { get; set; }
     public bool IsStatutory { get; set; }
     public bool IsActive { get; set; } = true;
     public string? Description { get; set; }
