@@ -288,11 +288,12 @@ public class PayrollService : IPayrollService
 
     public async Task<PagedResult<PayrollBatchDto>> GetBatchesAsync(int page = 1, int pageSize = 20)
     {
-        var query = _db.PayrollBatches.AsQueryable();
+        var query = _db.PayrollBatches.AsNoTracking().AsQueryable();
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(b => b.Year).ThenByDescending(b => b.Month)
+        var rows = await query.OrderByDescending(b => b.Year).ThenByDescending(b => b.Month)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(b => MapBatchDto(b)).ToListAsync();
+            .ToListAsync();
+        var items = rows.Select(MapBatchDto).ToList();
         return new PagedResult<PayrollBatchDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
 

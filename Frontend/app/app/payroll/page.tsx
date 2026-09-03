@@ -287,8 +287,11 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    setLoadError("");
     Promise.all([
       apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=8"),
       apiFetch<Settings>("/api/payroll/settings"),
@@ -298,9 +301,15 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
         setBatches(items);
         setSettings(s);
       })
-      .catch(() => {})
+      .catch((err) => {
+        setBatches([]);
+        setSettings(null);
+        setLoadError(err instanceof Error ? err.message : "Could not load payroll dashboard.");
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const latest = batches[0] ?? null;
 
@@ -402,6 +411,12 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
 
   return (
     <>
+      {loadError ? (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <InlinePageAlert message={loadError} className="min-w-0 flex-1" />
+          <Button variant="secondary" onClick={load}>Retry</Button>
+        </div>
+      ) : null}
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((kpi) => (
           <div
@@ -1768,9 +1783,18 @@ function PayrollRunTab() {
   const [batchStatements, setBatchStatements] = useState<Statement[]>([]);
   const [importBatch, setImportBatch] = useState<Batch | null>(null);
 
+  const [loadError, setLoadError] = useState("");
+
   const load = useCallback(() => {
     setLoading(true);
-    apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=50").then(d => setBatches(d.items)).catch(() => {}).finally(() => setLoading(false));
+    setLoadError("");
+    apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=50")
+      .then(d => setBatches(d.items ?? []))
+      .catch((err) => {
+        setBatches([]);
+        setLoadError(err instanceof Error ? err.message : "Could not load payroll batches.");
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   async function refreshBatches() {
@@ -1852,7 +1876,12 @@ function PayrollRunTab() {
         <Button onClick={() => setShowCreate(true)}>+ New Batch</Button>
       </div>
 
-      {batches.length === 0 ? <EmptyState text="No payroll batches yet. Create one to start." /> : (
+      {loadError ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <InlinePageAlert message={loadError} className="min-w-0 flex-1" />
+          <Button variant="secondary" onClick={load}>Retry</Button>
+        </div>
+      ) : batches.length === 0 ? <EmptyState text="No payroll batches yet. Create one to start." /> : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500">
