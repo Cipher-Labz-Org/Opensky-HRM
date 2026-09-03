@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
@@ -24,7 +25,7 @@ public partial class BulkUploadController
         ws.Name = "Logins";
         var cols = new[]
         {
-            "Employee ID", "Username", "Password", "Employee Type", "Email", "Active", "Must Change Password",
+            "Employee ID", "Username", "Password", "Employee Type", "Active", "Must Change Password",
         };
         for (var i = 0; i < cols.Length; i++)
         {
@@ -54,14 +55,10 @@ public partial class BulkUploadController
             "Required. Use an Employee Type from the EmployeeTypes sheet (e.g. EMPLOYEE, SUPERVISOR, HR_MANAGER, ADMIN).");
 
         ws.Cell(1, 5).CreateComment();
-        ws.Cell(1, 5).GetComment().AddText(
-            "Optional. Falls back to the employee work email, then personal email, then a placeholder address.");
+        ws.Cell(1, 5).GetComment().AddText("Optional. Yes/Y/True/1 or No/N/False/0. Defaults to Yes.");
 
         ws.Cell(1, 6).CreateComment();
         ws.Cell(1, 6).GetComment().AddText("Optional. Yes/Y/True/1 or No/N/False/0. Defaults to Yes.");
-
-        ws.Cell(1, 7).CreateComment();
-        ws.Cell(1, 7).GetComment().AddText("Optional. Yes/Y/True/1 or No/N/False/0. Defaults to Yes.");
 
         ws.SheetView.SplitRow = 1;
         ws.Row(1).Height = 22;
@@ -125,12 +122,16 @@ public partial class BulkUploadController
             empByCode[code] = (e.Id, e.Email, e.OtherEmail);
         }
 
-        var employeeIdsWithLogin = (await _db.Users
-                .AsNoTracking()
-                .Where(u => !u.IsDeleted && u.EmployeeId != null)
-                .Select(u => u.EmployeeId!.Value)
-                .ToListAsync())
-            .ToHashSet();
+        var existingUsers = await _db.Users
+            .Include(u => u.UserRoles)
+            .Where(u => !u.IsDeleted && u.EmployeeId != null)
+            .ToListAsync();
+        var userByEmployeeId = new Dictionary<Guid, User>();
+        foreach (var existing in existingUsers)
+        {
+            if (existing.EmployeeId is Guid linkedId && !userByEmployeeId.ContainsKey(linkedId))
+                userByEmployeeId[linkedId] = existing;
+        }
 
         var usernamesTaken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var un in await _db.Users.AsNoTracking().Select(u => u.Username).ToListAsync())
@@ -159,8 +160,21 @@ public partial class BulkUploadController
 
         var allowedCreate = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Create");
 
-        using var stream = file.OpenReadStream();
-        using var wb = new XLWorkbook(stream);
+        using var stream = new MemoryStream();
+        await file.CopyToAsync(stream);
+        stream.Position = 0;
+        XLWorkbook wb;
+        try
+        {
+            wb = new XLWorkbook(stream);
+        }
+        catch
+        {
+            return BadRequest("Could not read the Excel file. Download the template, fill the Logins sheet, and upload a .xlsx file.");
+        }
+
+        using (wb)
+        {
         var ws = TryLoginSheet(wb);
         if (ws is null)
             return BadRequest("Could not find a Logins sheet. Fill the Logins sheet and upload again.");
@@ -177,8 +191,9 @@ public partial class BulkUploadController
 
         var results = new List<LoginRowResult>();
         var created = 0;
+        var updated = 0;
         var skipped = 0;
-        var last = ws.LastRowUsed()?.RowNumber() ?? 1;
+        var last = Math.Min(ws.LastRowUsed()?.RowNumber() ?? 1, 10_000);
         var employeesSeenInFile = new HashSet<Guid>();
 
         for (var r = 2; r <= last; r++)
@@ -220,19 +235,19 @@ public partial class BulkUploadController
             {
                 skipped++;
                 results.Add(SkipLogin(r, code, usernameRaw, typeRaw,
-                    "No permission to create a login for this employee."));
+                    "No permission to create or update a login for this employee."));
                 continue;
             }
 
-            if (employeeIdsWithLogin.Contains(emp.Id) || employeesSeenInFile.Contains(emp.Id))
+            if (employeesSeenInFile.Contains(emp.Id))
             {
                 skipped++;
-                var reason = employeesSeenInFile.Contains(emp.Id)
-                    ? "Employee already processed in this file."
-                    : "Employee already has a login.";
-                results.Add(SkipLogin(r, code, usernameRaw, typeRaw, reason));
+                results.Add(SkipLogin(r, code, usernameRaw, typeRaw,
+                    "Employee already processed in this file."));
                 continue;
             }
+
+            userByEmployeeId.TryGetValue(emp.Id, out var existingUser);
 
             var username = usernameRaw.Trim();
             if (username.Length > 100)
@@ -250,7 +265,7 @@ public partial class BulkUploadController
                 continue;
             }
 
-            if (usernamesTaken.Contains(username))
+            if (LoginValueTakenByOther(usernamesTaken, username, existingUser?.Username))
             {
                 skipped++;
                 results.Add(SkipLogin(r, code, username, typeRaw, $"Username '{username}' is already in use."));
@@ -274,7 +289,11 @@ public partial class BulkUploadController
             }
 
             string email;
-            if (!string.IsNullOrWhiteSpace(emailRaw))
+            if (existingUser is not null && string.IsNullOrWhiteSpace(emailRaw))
+            {
+                email = existingUser.Email;
+            }
+            else if (!string.IsNullOrWhiteSpace(emailRaw))
             {
                 if (!InputValidators.IsValidEmailInput(emailRaw, required: true))
                 {
@@ -284,7 +303,7 @@ public partial class BulkUploadController
                 }
 
                 email = emailRaw.Trim();
-                if (emailsTaken.Contains(email))
+                if (LoginValueTakenByOther(emailsTaken, email, existingUser?.Email))
                 {
                     skipped++;
                     results.Add(SkipLogin(r, code, username, role.Code, $"Email '{email}' is already in use."));
@@ -294,7 +313,7 @@ public partial class BulkUploadController
             else
             {
                 email = ResolveLoginEmail(emp.Email, emp.OtherEmail, code);
-                if (emailsTaken.Contains(email))
+                if (LoginValueTakenByOther(emailsTaken, email, existingUser?.Email))
                 {
                     var usedEmployeeEmail = !string.IsNullOrWhiteSpace(emp.Email) || !string.IsNullOrWhiteSpace(emp.OtherEmail);
                     if (usedEmployeeEmail)
@@ -323,38 +342,71 @@ public partial class BulkUploadController
                 continue;
             }
 
-            var user = new User
-            {
-                Username = username,
-                Email = email,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(passwordRaw.Trim()),
-                MustChangePassword = mustChange,
-                IsActive = isActive,
-                EmployeeId = emp.Id,
-            };
-            user.UserRoles.Add(new UserRole { RoleId = role.Id });
-            _db.Users.Add(user);
-
+            User? pendingUser = null;
             try
             {
-                await _db.SaveChangesAsync();
-                created++;
-                usernamesTaken.Add(username);
-                emailsTaken.Add(email);
-                employeeIdsWithLogin.Add(emp.Id);
-                employeesSeenInFile.Add(emp.Id);
-                results.Add(new LoginRowResult(r, code.Trim(), username, role.Code, "Created", [], null));
+                if (existingUser is not null)
+                {
+                    var previousUsername = existingUser.Username;
+                    var previousEmail = existingUser.Email;
+                    existingUser.Username = username;
+                    existingUser.Email = email;
+                    existingUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(passwordRaw.Trim());
+                    existingUser.MustChangePassword = mustChange;
+                    existingUser.IsActive = isActive;
+                    var currentRole = existingUser.UserRoles.FirstOrDefault();
+                    if (currentRole is null)
+                        existingUser.UserRoles.Add(new UserRole { UserId = existingUser.Id, RoleId = role.Id });
+                    else if (currentRole.RoleId != role.Id)
+                        currentRole.RoleId = role.Id;
+
+                    await _db.SaveChangesAsync();
+                    updated++;
+                    usernamesTaken.Remove(previousUsername);
+                    usernamesTaken.Add(username);
+                    if (!string.IsNullOrWhiteSpace(previousEmail))
+                        emailsTaken.Remove(previousEmail);
+                    emailsTaken.Add(email);
+                    employeesSeenInFile.Add(emp.Id);
+                    results.Add(new LoginRowResult(r, code.Trim(), username, role.Code, "Updated", [],
+                        ["Username and password updated."]));
+                }
+                else
+                {
+                    pendingUser = new User
+                    {
+                        Username = username,
+                        Email = email,
+                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(passwordRaw.Trim()),
+                        MustChangePassword = mustChange,
+                        IsActive = isActive,
+                        EmployeeId = emp.Id,
+                    };
+                    pendingUser.UserRoles.Add(new UserRole { RoleId = role.Id });
+                    _db.Users.Add(pendingUser);
+
+                    await _db.SaveChangesAsync();
+                    created++;
+                    usernamesTaken.Add(username);
+                    emailsTaken.Add(email);
+                    employeesSeenInFile.Add(emp.Id);
+                    results.Add(new LoginRowResult(r, code.Trim(), username, role.Code, "Created", [], null));
+                }
             }
-            catch (DbUpdateException)
+            catch (Exception ex)
             {
-                DetachTrackedUser(user);
+                if (existingUser is not null)
+                    DetachTrackedUser(existingUser);
+                if (pendingUser is not null)
+                    DetachTrackedUser(pendingUser);
                 skipped++;
-                results.Add(SkipLogin(r, code, username, role.Code, "Could not save login (duplicate username or email)."));
+                results.Add(SkipLogin(r, code, username, role.Code, DescribeLoginSaveFailure(ex)));
             }
         }
 
         var dataRows = results.Count;
-        return Ok(new LoginUploadResult(created, skipped, dataRows, results));
+        return Ok(new LoginUploadResult(created, updated, skipped, dataRows, results));
+        }
     }
 
     private static IXLWorksheet? TryLoginSheet(XLWorkbook wb)
@@ -460,6 +512,33 @@ public partial class BulkUploadController
         }
     }
 
+    private static bool LoginValueTakenByOther(HashSet<string> taken, string value, string? currentValue)
+    {
+        if (!taken.Contains(value)) return false;
+        return string.IsNullOrWhiteSpace(currentValue)
+            || !string.Equals(value, currentValue, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string DescribeLoginSaveFailure(Exception ex)
+    {
+        for (var inner = ex; inner != null; inner = inner.InnerException!)
+        {
+            if (inner is PostgresException pg)
+            {
+                if (pg.SqlState == "23505")
+                    return "Could not save login (duplicate username or email).";
+                if (pg.SqlState == "22001")
+                    return "A login value exceeds the maximum allowed length.";
+            }
+
+            if (inner.Message.Contains("timestamp", StringComparison.OrdinalIgnoreCase)
+                && inner.Message.Contains("DateTime", StringComparison.OrdinalIgnoreCase))
+                return "Could not update login because of a date/time value. Try again, or reset the user from User management.";
+        }
+
+        return "Could not save login. Check username, password, and employee type, then try again.";
+    }
+
     private static LoginRowResult SkipLogin(int row, string? employeeCode, string? username, string? employeeType, string error)
         => new(row, employeeCode?.Trim() ?? "", username?.Trim() ?? "", employeeType?.Trim() ?? "", "Skipped", [error]);
 
@@ -472,5 +551,5 @@ public partial class BulkUploadController
         List<string> Errors,
         List<string>? Notes = null);
 
-    public record LoginUploadResult(int Created, int Skipped, int TotalRows, List<LoginRowResult> Results);
+    public record LoginUploadResult(int Created, int Updated, int Skipped, int TotalRows, List<LoginRowResult> Results);
 }

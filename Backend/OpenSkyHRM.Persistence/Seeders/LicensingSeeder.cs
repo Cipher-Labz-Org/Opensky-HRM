@@ -26,7 +26,7 @@ public static class LicensingSeeder
         (Guid.Parse("10000001-0000-0000-0000-000000000020"), "Leave", "Leave & Absence", "Workforce", 10, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000021"), "Attendance", "Time & Attendance", "Workforce", 20, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000022"), "Payroll", "Payroll", "Workforce", 30, false),
-        (Guid.Parse("10000001-0000-0000-0000-000000000023"), "Performance", "Performance", "Workforce", 40, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000023"), "Performance", "Performance Appraisal", "Workforce", 40, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000024"), "Learning", "Learning & Skills", "Workforce", 50, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000030"), "OrgStructure", "Org Structure", "Intelligence", 10, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000031"), "Analytics", "Analytics & Reports", "Intelligence", 20, false),
@@ -45,11 +45,36 @@ public static class LicensingSeeder
         {
             if (existingIdSet.Contains(m.Id))
             {
-                var row = await context.LicensedModules.FirstOrDefaultAsync(x => x.Id == m.Id, cancellationToken);
-                if (row != null && row.DisplayName != m.DisplayName)
+                var row = await context.LicensedModules
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(x => x.Id == m.Id, cancellationToken);
+                if (row != null)
+                {
+                    row.Code = m.Code;
                     row.DisplayName = m.DisplayName;
+                    row.Category = m.Category;
+                    row.SortOrder = m.Sort;
+                    row.IsRequired = m.Required;
+                    row.IsActive = true;
+                    row.IsDeleted = false;
+                }
                 continue;
             }
+
+            var existingByCode = await context.LicensedModules
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(x => x.Code == m.Code, cancellationToken);
+            if (existingByCode != null)
+            {
+                existingByCode.DisplayName = m.DisplayName;
+                existingByCode.Category = m.Category;
+                existingByCode.SortOrder = m.Sort;
+                existingByCode.IsRequired = m.Required;
+                existingByCode.IsActive = true;
+                existingByCode.IsDeleted = false;
+                continue;
+            }
+
             context.LicensedModules.Add(new LicensedModule
             {
                 Id = m.Id,
@@ -61,6 +86,8 @@ public static class LicensingSeeder
                 IsActive = true
             });
         }
+
+        await context.SaveChangesAsync(cancellationToken);
 
         if (!await context.InstanceSubscriptions.AnyAsync(cancellationToken))
         {
@@ -105,6 +132,76 @@ public static class LicensingSeeder
             }
         }
 
+        await EnsureWorkforceModulesEntitledAsync(context, cancellationToken);
+    }
+
+    /// <summary>
+    /// Ensures Performance Appraisal and Learning appear in the sidebar (module row active + entitlement enabled).
+    /// </summary>
+    public static async Task EnsureWorkforceModulesEntitledAsync(AppDbContext context, CancellationToken cancellationToken = default)
+    {
+        var codes = new[] { "Performance", "Learning" };
+        var modules = await context.LicensedModules
+            .IgnoreQueryFilters()
+            .Where(m => codes.Contains(m.Code))
+            .ToListAsync(cancellationToken);
+
+        foreach (var def in ModuleDefinitions.Where(m => codes.Contains(m.Code)))
+        {
+            if (modules.Any(m => m.Code == def.Code)) continue;
+            var created = new LicensedModule
+            {
+                Id = def.Id,
+                Code = def.Code,
+                DisplayName = def.DisplayName,
+                Category = def.Category,
+                SortOrder = def.Sort,
+                IsRequired = def.Required,
+                IsActive = true,
+            };
+            context.LicensedModules.Add(created);
+            modules.Add(created);
+        }
+
+        foreach (var mod in modules)
+        {
+            mod.IsActive = true;
+            mod.IsDeleted = false;
+        }
+
+        var subs = await context.InstanceSubscriptions
+            .Include(s => s.ModuleEntitlements)
+            .Where(s => !s.IsDeleted && s.InstanceKey == InstanceSubscription.DefaultInstanceKey)
+            .ToListAsync(cancellationToken);
+
+        foreach (var sub in subs)
+        {
+            foreach (var mod in modules)
+            {
+                var ent = sub.ModuleEntitlements.FirstOrDefault(e => e.LicensedModuleId == mod.Id && !e.IsDeleted);
+                if (ent == null)
+                {
+                    context.InstanceModuleEntitlements.Add(new InstanceModuleEntitlement
+                    {
+                        InstanceSubscriptionId = sub.Id,
+                        LicensedModuleId = mod.Id,
+                        IsEnabled = true,
+                    });
+                }
+                else
+                {
+                    ent.IsEnabled = true;
+                    ent.IsDeleted = false;
+                }
+            }
+        }
+
         await context.SaveChangesAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Dev/local alias — kept for callers that already reference this name.
+    /// </summary>
+    public static Task EnsureDevWorkforceModulesAsync(AppDbContext context, CancellationToken cancellationToken = default)
+        => EnsureWorkforceModulesEntitledAsync(context, cancellationToken);
 }

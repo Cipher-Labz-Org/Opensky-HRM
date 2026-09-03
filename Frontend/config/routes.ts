@@ -35,6 +35,7 @@ export const ROUTES = {
   attendance: "/app/attendance",
   payroll: "/app/payroll",
   performance: "/app/performance",
+  performanceAppraisal: (id: string) => `/app/performance/appraisal/${id}`,
   learning: "/app/learning",
 
   // App – Intelligence

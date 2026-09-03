@@ -380,10 +380,22 @@ if (dbAvailable)
 {
     try
     {
+        using var licensingScope = app.Services.CreateScope();
+        var licensingDb = licensingScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await LicensingSeeder.EnsureAsync(licensingDb);
+        await LicensingSeeder.EnsureWorkforceModulesEntitledAsync(licensingDb);
+        licensingScope.ServiceProvider.GetRequiredService<OpenSkyHRM.Application.Interfaces.ILicensingService>().InvalidateCache();
+        Console.WriteLine("INFO: Licensing catalog and entitlements ensured.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Licensing catalog could not be ensured: {ex.Message}");
+    }
+
+    try
+    {
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await LicensingSeeder.EnsureAsync(db);
-        scope.ServiceProvider.GetRequiredService<OpenSkyHRM.Application.Interfaces.ILicensingService>().InvalidateCache();
         await OrganizationSeeder.RepairNullEmployeeEmailsAsync(db);
         await OrganizationSeeder.EnsureSampleEmployeesIfEmptyAsync(db);
         await OpenSkyHRM.Persistence.Seeders.EmployeeLifecycleTemplateSeeder.EnsureAsync(db);
@@ -427,6 +439,18 @@ if (dbAvailable)
     catch (Exception ex)
     {
         Console.WriteLine($"WARNING: Payroll catalog could not be ensured: {ex.Message}");
+    }
+
+    try
+    {
+        using var appraisalScope = app.Services.CreateScope();
+        var appraisalDb = appraisalScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await AppraisalDevSeeder.EnsureSampleDataAsync(appraisalDb);
+        Console.WriteLine("INFO: Appraisal sample data ensured.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Appraisal sample data could not be ensured: {ex.Message}");
     }
 
     try

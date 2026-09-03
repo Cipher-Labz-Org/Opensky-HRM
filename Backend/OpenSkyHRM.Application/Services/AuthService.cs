@@ -448,7 +448,8 @@ public class AuthService : IAuthService
             throw new InvalidOperationException("Role name is required.");
 
         var code = NormalizeRoleCode(string.IsNullOrWhiteSpace(dto.Code) ? name : dto.Code!);
-        if (await _db.SecurityRoles.AnyAsync(r => !r.IsDeleted && r.Code == code))
+        if (await _db.SecurityRoles.AnyAsync(r =>
+                !r.IsDeleted && r.Code.ToLower() == code.ToLower()))
             throw new InvalidOperationException($"A role with code '{code}' already exists.");
 
         var role = new SecurityRole

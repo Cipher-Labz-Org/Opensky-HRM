@@ -30,6 +30,8 @@ public static class SecurityRolesSeeder
 
     public static async Task EnsureAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {
+        await DeduplicateCanonicalRolesAsync(context, cancellationToken);
+
         await EnsureRoleAsync(
             context,
             "ADMIN",
@@ -66,6 +68,9 @@ public static class SecurityRolesSeeder
             BuildEmployeePermissions(),
             cancellationToken);
 
+        await EnsureRoleHasPermissionsAsync(context, "ADMIN", BuildAllActionsAllScope(AllModules), cancellationToken);
+        await EnsureRoleHasPermissionsAsync(context, "HR_MANAGER", BuildAllActionsAllScope(HrManagerModules), cancellationToken);
+        await EnsureRoleHasPermissionsAsync(context, "SUPERVISOR", BuildSupervisorPermissions(), cancellationToken);
         await EnsureRoleHasPermissionsAsync(context, "EMPLOYEE", BuildEmployeePermissions(), cancellationToken);
         await EnsureSidebarChildPermissionsAsync(context, cancellationToken);
     }
@@ -79,9 +84,7 @@ public static class SecurityRolesSeeder
         IReadOnlyList<(string Module, string Action, string Scope)> permissions,
         CancellationToken cancellationToken)
     {
-        var role = await context.SecurityRoles
-            .Include(r => r.Permissions)
-            .FirstOrDefaultAsync(r => r.Code == code && !r.IsDeleted, cancellationToken);
+        var role = await FindCanonicalRoleAsync(context, code, name, cancellationToken);
 
         if (role == null)
         {
@@ -97,28 +100,139 @@ public static class SecurityRolesSeeder
         }
         else
         {
-            if (string.IsNullOrWhiteSpace(role.Name))
+            role.Code = code;
+            if (string.IsNullOrWhiteSpace(role.Name)
+                || string.Equals(role.Name, name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role.Name, role.Code, StringComparison.OrdinalIgnoreCase))
                 role.Name = name;
             if (string.IsNullOrWhiteSpace(role.Description))
                 role.Description = description;
             role.IsSystemRole = isSystemRole;
         }
 
-        if (role.Permissions.Any(p => !p.IsDeleted))
+        if (await context.Permissions.AnyAsync(p => p.RoleId == role.Id && !p.IsDeleted, cancellationToken))
             return;
 
-        foreach (var (module, action, scope) in permissions)
+        context.Permissions.AddRange(permissions.Select(p => new Permission
         {
-            role.Permissions.Add(new Permission
-            {
-                RoleId = role.Id,
-                Module = module,
-                Action = action,
-                Scope = scope
-            });
-        }
+            RoleId = role.Id,
+            Module = p.Module,
+            Action = p.Action,
+            Scope = p.Scope,
+        }));
 
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static readonly (string Code, string Name)[] CanonicalRoles =
+    [
+        ("ADMIN", "Admin"),
+        ("HR_MANAGER", "HR Manager"),
+        ("SUPERVISOR", "Supervisor"),
+        ("EMPLOYEE", "Employee"),
+    ];
+
+    private static async Task<SecurityRole?> FindCanonicalRoleAsync(
+        AppDbContext context,
+        string code,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        var roles = await context.SecurityRoles
+            .Include(r => r.Permissions)
+            .Where(r => !r.IsDeleted)
+            .ToListAsync(cancellationToken);
+
+        return roles
+            .Where(r =>
+                string.Equals(r.Code, code, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(r => string.Equals(r.Code, code, StringComparison.Ordinal))
+            .ThenByDescending(r => r.IsSystemRole)
+            .ThenBy(r => r.CreatedAt)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Legacy databases used display names as codes ("Employee", "Supervisor"). The seeder
+    /// later inserted EMPLOYEE / SUPERVISOR, which showed as duplicate names in Roles &amp; permissions.
+    /// </summary>
+    private static async Task DeduplicateCanonicalRolesAsync(
+        AppDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var roles = await context.SecurityRoles
+            .Include(r => r.Permissions)
+            .Where(r => !r.IsDeleted)
+            .ToListAsync(cancellationToken);
+        if (roles.Count == 0)
+            return;
+
+        var userRoles = await context.UserRoles
+            .Where(ur => !ur.IsDeleted)
+            .ToListAsync(cancellationToken);
+
+        var changed = false;
+        foreach (var (code, name) in CanonicalRoles)
+        {
+            var matches = roles
+                .Where(r =>
+                    !r.IsDeleted
+                    && (string.Equals(r.Code, code, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(r => string.Equals(r.Code, code, StringComparison.Ordinal))
+                .ThenByDescending(r => r.IsSystemRole)
+                .ThenBy(r => r.CreatedAt)
+                .ToList();
+            if (matches.Count == 0)
+                continue;
+
+            var keeper = matches[0];
+            if (!string.Equals(keeper.Code, code, StringComparison.Ordinal)
+                || !string.Equals(keeper.Name, name, StringComparison.Ordinal)
+                || !keeper.IsSystemRole)
+            {
+                keeper.Code = code;
+                keeper.Name = name;
+                keeper.IsSystemRole = true;
+                changed = true;
+            }
+
+            var usersWithKeeper = userRoles
+                .Where(ur => ur.RoleId == keeper.Id && !ur.IsDeleted)
+                .Select(ur => ur.UserId)
+                .ToHashSet();
+
+            foreach (var dup in matches.Skip(1))
+            {
+                foreach (var ur in userRoles.Where(x => x.RoleId == dup.Id && !x.IsDeleted))
+                {
+                    if (usersWithKeeper.Contains(ur.UserId))
+                    {
+                        ur.IsDeleted = true;
+                    }
+                    else
+                    {
+                        ur.RoleId = keeper.Id;
+                        usersWithKeeper.Add(ur.UserId);
+                    }
+
+                    changed = true;
+                }
+
+                foreach (var perm in dup.Permissions.Where(p => !p.IsDeleted))
+                {
+                    perm.IsDeleted = true;
+                    changed = true;
+                }
+
+                dup.IsDeleted = true;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            await context.SaveChangesAsync(cancellationToken);
     }
 
     private static List<(string Module, string Action, string Scope)> BuildAllActionsAllScope(
@@ -189,32 +303,38 @@ public static class SecurityRolesSeeder
         IReadOnlyList<(string Module, string Action, string Scope)> required,
         CancellationToken cancellationToken)
     {
-        var role = await context.SecurityRoles
-            .Include(r => r.Permissions)
-            .FirstOrDefaultAsync(r => r.Code == roleCode && !r.IsDeleted, cancellationToken);
-        if (role == null) return;
+        var roleId = await context.SecurityRoles
+            .Where(r => r.Code == roleCode && !r.IsDeleted)
+            .Select(r => r.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (roleId == Guid.Empty) return;
 
-        var existing = role.Permissions
-            .Where(p => !p.IsDeleted)
+        var existing = await context.Permissions
+            .Where(p => p.RoleId == roleId && !p.IsDeleted)
+            .Select(p => new { p.Module, p.Action, p.Scope })
+            .ToListAsync(cancellationToken);
+
+        var existingSet = existing
             .Select(p => (p.Module, p.Action, p.Scope))
             .ToHashSet();
 
-        var added = false;
+        var toAdd = new List<Permission>();
         foreach (var perm in required)
         {
-            if (existing.Contains(perm)) continue;
-            role.Permissions.Add(new Permission
+            if (existingSet.Contains(perm)) continue;
+            toAdd.Add(new Permission
             {
-                RoleId = role.Id,
+                RoleId = roleId,
                 Module = perm.Module,
                 Action = perm.Action,
-                Scope = perm.Scope
+                Scope = perm.Scope,
             });
-            added = true;
         }
 
-        if (added)
-            await context.SaveChangesAsync(cancellationToken);
+        if (toAdd.Count == 0) return;
+
+        context.Permissions.AddRange(toAdd);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
@@ -242,20 +362,20 @@ public static class SecurityRolesSeeder
                 {
                     var key = (child, perm.Action, perm.Scope);
                     if (existing.Contains(key)) continue;
-                    role.Permissions.Add(new Permission
+                    context.Permissions.Add(new Permission
                     {
                         RoleId = role.Id,
                         Module = child,
                         Action = perm.Action,
-                        Scope = perm.Scope
+                        Scope = perm.Scope,
                     });
                     existing.Add(key);
                     added = true;
                 }
             }
 
-            added |= TryAddApprovalsFromWorkforce(role, live, existing);
-            added |= TryAddHelpRead(role, existing);
+            added |= TryAddApprovalsFromWorkforce(context, role, live, existing);
+            added |= TryAddHelpRead(context, role, existing);
         }
 
         if (added)
@@ -263,6 +383,7 @@ public static class SecurityRolesSeeder
     }
 
     private static bool TryAddApprovalsFromWorkforce(
+        AppDbContext context,
         SecurityRole role,
         List<Permission> live,
         HashSet<(string Module, string Action, string Scope)> existing)
@@ -280,7 +401,7 @@ public static class SecurityRolesSeeder
             && (readScope is "Team" or "All" || string.Equals(role.Code, "SUPERVISOR", StringComparison.OrdinalIgnoreCase)))
         {
             var scope = readScope is "Team" or "All" ? readScope : "Team";
-            added |= AddIfMissing(role, existing, "Approvals", "Read", scope);
+            added |= AddIfMissing(context, role, existing, "Approvals", "Read", scope);
         }
 
         var updateScope = HighestScope(workforceUpdates.Select(p => p.Scope));
@@ -288,21 +409,25 @@ public static class SecurityRolesSeeder
             && (updateScope is "Team" or "All" || string.Equals(role.Code, "SUPERVISOR", StringComparison.OrdinalIgnoreCase)))
         {
             var scope = updateScope is "Team" or "All" ? updateScope : "Team";
-            added |= AddIfMissing(role, existing, "Approvals", "Update", scope);
+            added |= AddIfMissing(context, role, existing, "Approvals", "Update", scope);
         }
 
         return added;
     }
 
-    private static bool TryAddHelpRead(SecurityRole role, HashSet<(string Module, string Action, string Scope)> existing)
+    private static bool TryAddHelpRead(
+        AppDbContext context,
+        SecurityRole role,
+        HashSet<(string Module, string Action, string Scope)> existing)
     {
         if (existing.Any(p => p.Module == "Help" && p.Action == "Read"))
             return false;
         var scope = string.Equals(role.Code, "EMPLOYEE", StringComparison.OrdinalIgnoreCase) ? "Own" : "All";
-        return AddIfMissing(role, existing, "Help", "Read", scope);
+        return AddIfMissing(context, role, existing, "Help", "Read", scope);
     }
 
     private static bool AddIfMissing(
+        AppDbContext context,
         SecurityRole role,
         HashSet<(string Module, string Action, string Scope)> existing,
         string module,
@@ -311,12 +436,12 @@ public static class SecurityRolesSeeder
     {
         var key = (module, action, scope);
         if (existing.Contains(key)) return false;
-        role.Permissions.Add(new Permission
+        context.Permissions.Add(new Permission
         {
             RoleId = role.Id,
             Module = module,
             Action = action,
-            Scope = scope
+            Scope = scope,
         });
         existing.Add(key);
         return true;

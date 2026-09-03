@@ -53,7 +53,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
       },
       { href: ROUTES.attendance, label: "Time & Attendance", module: "Attendance" },
       { href: ROUTES.payroll, label: "Payroll", module: "Payroll" },
-      { href: ROUTES.performance, label: "Performance", module: "Performance" },
+      { href: ROUTES.performance, label: "Performance Appraisal", module: "Performance" },
       { href: ROUTES.learning, label: "Learning & Skills", module: "Learning" },
     ],
   },

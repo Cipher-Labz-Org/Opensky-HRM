@@ -611,9 +611,25 @@ export default function UserManagementPage() {
               className="mb-3 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800"
             />
 
-            <div className="space-y-3">
+            <form autoComplete="off" onSubmit={(e) => e.preventDefault()} className="space-y-3">
+              <input type="text" name="prevent-username-autofill" autoComplete="username" tabIndex={-1} aria-hidden="true" className="sr-only" />
+              <input type="password" name="prevent-password-autofill" autoComplete="current-password" tabIndex={-1} aria-hidden="true" className="sr-only" />
               <div className="grid gap-3 sm:grid-cols-2">
-                <div><label className={labelClass}>Username *</label><UsernameInput value={username} onChange={(e) => setUsername(e.target.value)} className={inputClass} /></div>
+                <div>
+                  <label className={labelClass}>Username *</label>
+                  <UsernameInput
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className={inputClass}
+                    name="new-user-username"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                  />
+                </div>
                 <div>
               <label className={labelClass}>Email</label>
               <EmailInput
@@ -621,13 +637,28 @@ export default function UserManagementPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 title="Optional. When set, must be a valid email (e.g. name@company.com)"
                 className={inputClass}
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
               />
             </div>
               </div>
 
               {!editUser && (
                 <>
-                  <div><label className={labelClass}>Password *</label><input value={password} onChange={(e) => setPassword(e.target.value)} type="password" className={inputClass} /></div>
+                  <div>
+                    <label className={labelClass}>Password *</label>
+                    <input
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      type="password"
+                      name="new-user-password"
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      className={inputClass}
+                    />
+                  </div>
                   <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
                     <input
                       type="checkbox"
@@ -693,7 +724,7 @@ export default function UserManagementPage() {
                 onGradeChange={setSelectedGradeIds}
                 onJobTitleChange={setSelectedJobTitleIds}
               />
-            </div>
+            </form>
 
             <div className="mt-5 flex items-center justify-end gap-3">
               <Button type="button" variant="secondary" onClick={() => setShowModal(false)}>
@@ -889,6 +920,9 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
                 }`}
               >
                 {r.name}
+                {r.code ? (
+                  <span className="mt-0.5 block text-[11px] font-normal text-slate-400">{r.code}</span>
+                ) : null}
               </button>
             ))}
           </div>
