@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 
@@ -42,6 +43,11 @@ public static class PayrollComponentSeeder
             "Monthly medical / health allowance"),
         new("Attendance Allowance", "ATTEND", ComponentType.Earning, ComponentCategory.Fixed, 70,
             "Allowance for full attendance in the month", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
+        new("Poya Day Pay", PayrollPoyaComponent.DefaultCode, ComponentType.Earning, ComponentCategory.Fixed, 15,
+            "Pay for days worked on a Poya holiday (Basic ÷ 30 × Poya days)",
+            IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true,
+            FormulaExpression: PayrollPoyaComponent.FormulaExpression,
+            DependsOnComponentCode: PayrollPoyaComponent.DependsOnComponentCode),
 
         // Variable earnings
         new("Overtime", "OT", ComponentType.Earning, ComponentCategory.Variable, 100,
@@ -101,18 +107,28 @@ public static class PayrollComponentSeeder
     /// </summary>
     public static async Task EnsureAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {
-        var existingCodes = await context.CompensationComponents
-            .AsNoTracking()
-            .Select(c => c.Code)
-            .ToListAsync(cancellationToken);
-        var knownCodes = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
+        var existing = await context.CompensationComponents.ToListAsync(cancellationToken);
+        var knownCodes = new HashSet<string>(existing.Select(c => c.Code), StringComparer.OrdinalIgnoreCase);
+        var hasPoyaComponent = existing.Any(c => PayrollPoyaComponent.IsMatch(c.Code, c.Name));
 
         foreach (var definition in DefaultComponents)
         {
             if (knownCodes.Contains(definition.Code))
                 continue;
+            if (definition.Code.Equals(PayrollPoyaComponent.DefaultCode, StringComparison.OrdinalIgnoreCase)
+                && hasPoyaComponent)
+                continue;
 
             context.CompensationComponents.Add(ToEntity(definition));
+        }
+
+        foreach (var component in existing.Where(c => c.IsActive && PayrollPoyaComponent.IsMatch(c.Code, c.Name)))
+        {
+            component.FormulaExpression = PayrollPoyaComponent.FormulaExpression;
+            component.DependsOnComponentCode = PayrollPoyaComponent.DependsOnComponentCode;
+            component.IsTaxable = true;
+            component.IsEpfApplicable = true;
+            component.IsEtfApplicable = true;
         }
 
         foreach (var (key, value, description) in DefaultSystemSettings)
