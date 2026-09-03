@@ -35,7 +35,7 @@ public interface IPayrollService
     Task<bool> DeleteBatchAsync(Guid id);
 
     // Pay Statements
-    Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null);
+    Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, string? search = null, IReadOnlyList<Guid>? allowedEmployeeIds = null);
     Task<PayStatementDto?> GetStatementByIdAsync(Guid id);
     Task<List<PayStatementDto>> GetStatementsByBatchAsync(Guid batchId);
     Task<List<PayStatementDto>> GetStatementsByEmployeeAsync(Guid employeeId);

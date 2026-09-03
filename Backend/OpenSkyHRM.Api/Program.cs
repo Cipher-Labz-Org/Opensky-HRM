@@ -420,9 +420,10 @@ if (dbAvailable)
         var payrollDb = payrollScope.ServiceProvider.GetRequiredService<AppDbContext>();
         await PayrollComponentSeeder.EnsureAsync(payrollDb);
         await PayrollSeeder.EnsureStatutoryFormulasAsync(payrollDb);
+        await PayrollSeeder.EnsureStarterBatchAsync(payrollDb);
         if (app.Environment.IsDevelopment())
             await PayrollSeeder.EnsureDemoSalary100kAsync(payrollDb);
-        Console.WriteLine("INFO: Payroll compensation components ensured.");
+        Console.WriteLine("INFO: Payroll compensation components and starter batch ensured.");
     }
     catch (Exception ex)
     {

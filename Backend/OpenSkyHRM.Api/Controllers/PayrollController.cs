@@ -143,21 +143,35 @@ public class PayrollController : ControllerBase
         if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
             return Forbid();
         var result = await _payrollService.CreateEmployeeCompensationAsync(employeeId, dto);
-        return Created(string.Empty, result);
+        var recalculated = dto.BatchId is null
+            ? await _engine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(employeeId)
+            : 0;
+        return Created(string.Empty, new { result, recalculatedBatches = recalculated });
     }
 
     [HttpPut("compensation/line/{id:guid}")]
     public async Task<IActionResult> UpdateCompensation(Guid id, [FromBody] UpdateEmployeeCompensationDto dto)
     {
         var result = await _payrollService.UpdateEmployeeCompensationAsync(id, dto);
-        return result is null ? NotFound() : Ok(result);
+        if (result is null) return NotFound();
+        var recalculated = result.BatchId is null
+            ? await _engine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(result.EmployeeId)
+            : 0;
+        return Ok(new { result, recalculatedBatches = recalculated });
     }
 
     [HttpDelete("compensation/line/{id:guid}")]
     public async Task<IActionResult> DeleteCompensation(Guid id)
     {
+        var line = await _db.EmployeeCompensations.AsNoTracking()
+            .FirstOrDefaultAsync(ec => ec.Id == id);
+        if (line is null) return NotFound();
         var ok = await _payrollService.DeleteEmployeeCompensationAsync(id);
-        return ok ? NoContent() : NotFound();
+        if (!ok) return NotFound();
+        var recalculated = line.BatchId is null
+            ? await _engine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(line.EmployeeId)
+            : 0;
+        return Ok(new { recalculatedBatches = recalculated });
     }
 
     // ── Salary Revisions ─────────────────────────────────────────────
@@ -299,6 +313,23 @@ public class PayrollController : ControllerBase
         return Ok(await _payrollService.GetStatementsByBatchAsync(id));
     }
 
+    [HttpPost("batches/sync-from-employee-salary")]
+    public async Task<IActionResult> SyncAllBatchesFromEmployeeSalary()
+    {
+        var (recalculated, errors) = await _engine.TryRecalculateAllOpenSalaryBatchesAsync();
+        if (recalculated == 0 && errors.Count > 0)
+            return BadRequest(new { message = errors[0], recalculated, errors });
+
+        return Ok(new
+        {
+            recalculated,
+            errors,
+            message = recalculated > 0
+                ? $"Updated pay slips for {recalculated} payroll run(s) from Employee Salary."
+                : "No open salary batches to update.",
+        });
+    }
+
     [HttpPost("batches/{id:guid}/calculate")]
     public async Task<IActionResult> CalculateBatch(Guid id)
     {
@@ -411,12 +442,16 @@ public class PayrollController : ControllerBase
     // ── Pay Statements ───────────────────────────────────────────────
 
     [HttpGet("statements")]
-    public async Task<IActionResult> GetStatements([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? employeeId = null)
+    public async Task<IActionResult> GetStatements(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] Guid? employeeId = null,
+        [FromQuery] string? search = null)
     {
         if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
             return Forbid();
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        return Ok(await _payrollService.GetStatementsAsync(page, pageSize, employeeId, allowedIds));
+        return Ok(await _payrollService.GetStatementsAsync(page, pageSize, employeeId, search, allowedIds));
     }
 
     [HttpGet("statements/{id:guid}")]

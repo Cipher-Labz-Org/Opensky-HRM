@@ -34,6 +34,13 @@ public static class PayrollSchemaRepair
                   AND "IsEpfApplicable" = FALSE
                   AND "IsEtfApplicable" = FALSE
                   AND "IsTaxable" = TRUE;
+
+                UPDATE "CompensationComponents"
+                SET "IsEtfApplicable" = TRUE
+                WHERE NOT "IsDeleted"
+                  AND "IsEpfApplicable" = TRUE
+                  AND "IsEtfApplicable" = FALSE
+                  AND "Type" = 'Earning';
                 """;
             await cmd.ExecuteNonQueryAsync();
             Console.WriteLine("INFO: Payroll compensation-component schema columns verified.");
