@@ -6,6 +6,7 @@ using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Seeders;
 
 namespace OpenSkyHRM.Application.Services;
 
@@ -24,6 +25,7 @@ public class PayrollService : IPayrollService
 
     public async Task<List<CompensationComponentDto>> GetComponentsAsync()
     {
+        await PayrollComponentSeeder.EnsureAsync(_db);
         return await _db.CompensationComponents.OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
             .Select(c => MapComponentDto(c)).ToListAsync();
     }
