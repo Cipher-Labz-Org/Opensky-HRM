@@ -66,6 +66,9 @@ public static class SecurityRolesSeeder
             BuildEmployeePermissions(),
             cancellationToken);
 
+        await EnsureRoleHasPermissionsAsync(context, "ADMIN", BuildAllActionsAllScope(AllModules), cancellationToken);
+        await EnsureRoleHasPermissionsAsync(context, "HR_MANAGER", BuildAllActionsAllScope(HrManagerModules), cancellationToken);
+        await EnsureRoleHasPermissionsAsync(context, "SUPERVISOR", BuildSupervisorPermissions(), cancellationToken);
         await EnsureRoleHasPermissionsAsync(context, "EMPLOYEE", BuildEmployeePermissions(), cancellationToken);
         await EnsureSidebarChildPermissionsAsync(context, cancellationToken);
     }
@@ -104,19 +107,16 @@ public static class SecurityRolesSeeder
             role.IsSystemRole = isSystemRole;
         }
 
-        if (role.Permissions.Any(p => !p.IsDeleted))
+        if (await context.Permissions.AnyAsync(p => p.RoleId == role.Id && !p.IsDeleted, cancellationToken))
             return;
 
-        foreach (var (module, action, scope) in permissions)
+        context.Permissions.AddRange(permissions.Select(p => new Permission
         {
-            role.Permissions.Add(new Permission
-            {
-                RoleId = role.Id,
-                Module = module,
-                Action = action,
-                Scope = scope
-            });
-        }
+            RoleId = role.Id,
+            Module = p.Module,
+            Action = p.Action,
+            Scope = p.Scope,
+        }));
 
         await context.SaveChangesAsync(cancellationToken);
     }
@@ -189,32 +189,38 @@ public static class SecurityRolesSeeder
         IReadOnlyList<(string Module, string Action, string Scope)> required,
         CancellationToken cancellationToken)
     {
-        var role = await context.SecurityRoles
-            .Include(r => r.Permissions)
-            .FirstOrDefaultAsync(r => r.Code == roleCode && !r.IsDeleted, cancellationToken);
-        if (role == null) return;
+        var roleId = await context.SecurityRoles
+            .Where(r => r.Code == roleCode && !r.IsDeleted)
+            .Select(r => r.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (roleId == Guid.Empty) return;
 
-        var existing = role.Permissions
-            .Where(p => !p.IsDeleted)
+        var existing = await context.Permissions
+            .Where(p => p.RoleId == roleId && !p.IsDeleted)
+            .Select(p => new { p.Module, p.Action, p.Scope })
+            .ToListAsync(cancellationToken);
+
+        var existingSet = existing
             .Select(p => (p.Module, p.Action, p.Scope))
             .ToHashSet();
 
-        var added = false;
+        var toAdd = new List<Permission>();
         foreach (var perm in required)
         {
-            if (existing.Contains(perm)) continue;
-            role.Permissions.Add(new Permission
+            if (existingSet.Contains(perm)) continue;
+            toAdd.Add(new Permission
             {
-                RoleId = role.Id,
+                RoleId = roleId,
                 Module = perm.Module,
                 Action = perm.Action,
-                Scope = perm.Scope
+                Scope = perm.Scope,
             });
-            added = true;
         }
 
-        if (added)
-            await context.SaveChangesAsync(cancellationToken);
+        if (toAdd.Count == 0) return;
+
+        context.Permissions.AddRange(toAdd);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
@@ -242,20 +248,20 @@ public static class SecurityRolesSeeder
                 {
                     var key = (child, perm.Action, perm.Scope);
                     if (existing.Contains(key)) continue;
-                    role.Permissions.Add(new Permission
+                    context.Permissions.Add(new Permission
                     {
                         RoleId = role.Id,
                         Module = child,
                         Action = perm.Action,
-                        Scope = perm.Scope
+                        Scope = perm.Scope,
                     });
                     existing.Add(key);
                     added = true;
                 }
             }
 
-            added |= TryAddApprovalsFromWorkforce(role, live, existing);
-            added |= TryAddHelpRead(role, existing);
+            added |= TryAddApprovalsFromWorkforce(context, role, live, existing);
+            added |= TryAddHelpRead(context, role, existing);
         }
 
         if (added)
@@ -263,6 +269,7 @@ public static class SecurityRolesSeeder
     }
 
     private static bool TryAddApprovalsFromWorkforce(
+        AppDbContext context,
         SecurityRole role,
         List<Permission> live,
         HashSet<(string Module, string Action, string Scope)> existing)
@@ -280,7 +287,7 @@ public static class SecurityRolesSeeder
             && (readScope is "Team" or "All" || string.Equals(role.Code, "SUPERVISOR", StringComparison.OrdinalIgnoreCase)))
         {
             var scope = readScope is "Team" or "All" ? readScope : "Team";
-            added |= AddIfMissing(role, existing, "Approvals", "Read", scope);
+            added |= AddIfMissing(context, role, existing, "Approvals", "Read", scope);
         }
 
         var updateScope = HighestScope(workforceUpdates.Select(p => p.Scope));
@@ -288,21 +295,25 @@ public static class SecurityRolesSeeder
             && (updateScope is "Team" or "All" || string.Equals(role.Code, "SUPERVISOR", StringComparison.OrdinalIgnoreCase)))
         {
             var scope = updateScope is "Team" or "All" ? updateScope : "Team";
-            added |= AddIfMissing(role, existing, "Approvals", "Update", scope);
+            added |= AddIfMissing(context, role, existing, "Approvals", "Update", scope);
         }
 
         return added;
     }
 
-    private static bool TryAddHelpRead(SecurityRole role, HashSet<(string Module, string Action, string Scope)> existing)
+    private static bool TryAddHelpRead(
+        AppDbContext context,
+        SecurityRole role,
+        HashSet<(string Module, string Action, string Scope)> existing)
     {
         if (existing.Any(p => p.Module == "Help" && p.Action == "Read"))
             return false;
         var scope = string.Equals(role.Code, "EMPLOYEE", StringComparison.OrdinalIgnoreCase) ? "Own" : "All";
-        return AddIfMissing(role, existing, "Help", "Read", scope);
+        return AddIfMissing(context, role, existing, "Help", "Read", scope);
     }
 
     private static bool AddIfMissing(
+        AppDbContext context,
         SecurityRole role,
         HashSet<(string Module, string Action, string Scope)> existing,
         string module,
@@ -311,12 +322,12 @@ public static class SecurityRolesSeeder
     {
         var key = (module, action, scope);
         if (existing.Contains(key)) return false;
-        role.Permissions.Add(new Permission
+        context.Permissions.Add(new Permission
         {
             RoleId = role.Id,
             Module = module,
             Action = action,
-            Scope = scope
+            Scope = scope,
         });
         existing.Add(key);
         return true;

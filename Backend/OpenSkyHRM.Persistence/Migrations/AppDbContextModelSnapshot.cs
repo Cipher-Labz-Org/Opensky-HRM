@@ -2409,6 +2409,55 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.ToTable("EmployeeDriverLicenses", (string)null);
                 });
 
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeEvaluation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("EvaluatorEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EvaluatorName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("EvaluatorEmployeeId");
+
+                    b.ToTable("EmployeeEvaluations", (string)null);
+                });
+
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeLanguage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5297,6 +5346,11 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp without time zone");
 
@@ -5323,7 +5377,8 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp without time zone");
@@ -5335,6 +5390,8 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasColumnType("numeric");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Code");
 
                     b.HasIndex("DefaultShiftPatternId");
 
@@ -6639,6 +6696,24 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeEvaluation", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "EvaluatorEmployee")
+                        .WithMany()
+                        .HasForeignKey("EvaluatorEmployeeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("EvaluatorEmployee");
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeLanguage", b =>

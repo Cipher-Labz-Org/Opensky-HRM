@@ -30,7 +30,7 @@ public static class RolePermissionCatalog
         new("Approvals", "Approvals", "Workforce", 65, ["Leave", "Attendance"]),
         new("Attendance", "Time & Attendance", "Workforce", 70, ["Attendance"]),
         new("Payroll", "Payroll", "Workforce", 80, ["Payroll"]),
-        new("Performance", "Performance", "Workforce", 90, ["Performance"]),
+        new("Performance", "Performance Appraisal", "Workforce", 90, ["Performance"]),
         new("Learning", "Learning & Skills", "Workforce", 100, ["Learning"]),
 
         new("Reports", "Reports", "Intelligence", 110, ["Analytics"]),

@@ -9,9 +9,14 @@ import { DatePickerField, TablePagination } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { FormSelect } from "@/components/ui/FormSelect";
 import { apiFetch } from "@/lib/api";
-import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatDate } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
 import Link from "next/link";
+import {
+  DashboardCardHeader,
+  DashboardKpiGrid,
+} from "@/components/dashboard/DashboardUi";
+import { OPENSKY_THEME } from "@/lib/opensky-theme";
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -395,347 +400,248 @@ export default function PerformancePage() {
     ];
   }, [dashboard, selectedCycle]);
 
-  const appraisalTimeline = useMemo(() => {
-    return [...cycleAppraisals]
-      .filter((a) => a.reviewers?.some((r) => r.submittedAt))
-      .sort((a, b) => {
-        const ta = Math.max(...a.reviewers.map((r) => (r.submittedAt ? new Date(r.submittedAt).getTime() : 0)));
-        const tb = Math.max(...b.reviewers.map((r) => (r.submittedAt ? new Date(r.submittedAt).getTime() : 0)));
-        return tb - ta;
-      })
-      .slice(0, 8)
-      .map((a) => {
-        const latest = a.reviewers
-          .filter((r) => r.submittedAt)
-          .sort((x, y) => new Date(y.submittedAt!).getTime() - new Date(x.submittedAt!).getTime())[0];
-        return {
-          at: latest?.submittedAt ?? a.acknowledgedAt ?? "",
-          title: `${a.employeeName} · ${latest?.reviewerType ?? "Review"} submitted`,
-          body: `${PHASE_LABELS[a.status] ?? a.status}${a.finalRating != null ? ` · Final ${a.finalRating.toFixed(1)}` : ""}`,
-        };
-      })
-      .filter((x) => x.at);
-  }, [cycleAppraisals]);
+  const hasInsightCharts =
+    deptBars.length > 0 || ratingDonut.length > 0 || pipelineBars.some((x) => x.value > 0);
+
+  const managerPending =
+    dashboard && dashboard.selfCompleted > 0 && dashboard.managerCompleted < dashboard.totalEmployees;
 
   return (
     <>
-      <AppTopbar title="Performance Appraisal" subtitle="360-degree performance appraisal management — cycles, templates, and reviews." />
+      <AppTopbar
+        title="Performance Appraisal"
+        subtitle="Track review cycles, monitor progress, and manage appraisal setup."
+      />
 
-      <div className="mt-6 flex flex-col gap-2">
-        {([["dashboard", "Dashboard"], ["cycles", "Appraisal Cycles"], ["setup", "Setup"]] as const).map(([key, label]) => (
-          <div key={key} className="space-y-3">
+      <div className="mt-6 mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+          {(
+            [
+              ["dashboard", "Dashboard"],
+              ["cycles", "Appraisal Cycles"],
+              ["setup", "Setup"],
+            ] as const
+          ).map(([key, label]) => (
             <button
+              key={key}
               type="button"
               onClick={() => setTab(key)}
-              className={`w-full rounded-xl border px-3.5 py-2.5 text-left text-xs font-semibold transition sm:text-sm ${
-                tab === key
-                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
-                  : "border-slate-200/90 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                tab === key ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
               }`}
             >
               {label}
             </button>
+          ))}
+        </div>
+        {tab === "cycles" && <Button onClick={openCreateCycle}>+ New Cycle</Button>}
+      </div>
 
-            {tab === key && key === "dashboard" && (
-            <div className="pb-2">
-          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <label className="text-sm font-semibold text-slate-700">Cycle</label>
-            <div className="min-w-[14rem] max-w-full flex-1 sm:max-w-md">
-              <FormSelect
-                value={selectedCycleId ?? ""}
-                onValueChange={setSelectedCycleId}
-                options={cycles.map((c) => ({
-                  value: c.id,
-                  label: `${c.name} (${PHASE_LABELS[c.phase] ?? c.phase})`,
-                }))}
-                className="h-[42px]"
-              />
+      {tab === "dashboard" && (
+        <div className="space-y-6">
+          {cycles.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+              <p className="text-sm font-medium text-slate-700">No appraisal cycles yet</p>
+              <p className="mt-1 text-sm text-slate-500">Create a cycle to start reviews for your team.</p>
+              <Button className="mt-4" onClick={() => { setTab("cycles"); openCreateCycle(); }}>
+                Create first cycle
+              </Button>
             </div>
-          </div>
-
-          {dashboard && selectedCycle && (
+          ) : (
             <>
-              <div className="mb-6 flex flex-wrap items-center gap-2">
-                {["SelfAssessment", "ManagerReview", "PeerReview", "Calibration", "Acknowledgement", "Completed"].map((p, i) => {
-                  const phases = ["SelfAssessment", "ManagerReview", "PeerReview", "Calibration", "Acknowledgement", "Completed"];
-                  const currentIdx = phases.indexOf(selectedCycle.phase);
-                  const isActive = i <= currentIdx;
-                  const isCurrent = p === selectedCycle.phase;
-                  if (p === "PeerReview" && !selectedCycle.includePeerReview) return null;
-                  return (
-                    <div key={p} className="flex items-center gap-2">
-                      <div
-                        className={`flex h-8 items-center rounded-full px-3 text-[11px] font-semibold transition ${
-                          isCurrent
-                            ? PHASE_COLORS[p] ?? "bg-slate-100 text-slate-600"
-                            : isActive
-                              ? "bg-emerald-50 text-emerald-600"
-                              : "bg-slate-50 text-slate-400"
-                        }`}
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div className="flex flex-wrap items-end gap-4">
+                  <div className="min-w-[14rem] flex-1 sm:max-w-md">
+                    <label className={labelClass}>Review cycle</label>
+                    <FormSelect
+                      value={selectedCycleId ?? ""}
+                      onValueChange={setSelectedCycleId}
+                      options={cycles.map((c) => ({
+                        value: c.id,
+                        label: `${c.name} · ${PHASE_LABELS[c.phase] ?? c.phase}`,
+                      }))}
+                      className="h-[42px]"
+                    />
+                  </div>
+                  {selectedCycle && (
+                    <div className="flex flex-wrap items-center gap-2 pb-0.5">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${PHASE_COLORS[selectedCycle.phase] ?? "bg-slate-100 text-slate-600"}`}
                       >
-                        {isActive && !isCurrent && (
-                          <svg className="mr-1 h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                        {PHASE_LABELS[p] ?? p}
-                      </div>
-                      {i < phases.length - 1 && <div className={`h-0.5 w-6 ${isActive ? "bg-emerald-300" : "bg-slate-200"}`} />}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                {dashboardKpis.map((kpi) => (
-                  <div
-                    key={kpi.label}
-                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                  >
-                    <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
-                    <div className="mt-2 text-3xl font-semibold leading-none text-slate-900">{kpi.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-6 grid gap-6 lg:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-slate-800">Department completion</h3>
-                  </div>
-                  {deptBars.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-slate-500">No department breakdown returned.</p>
-                  ) : (
-                    <HorizontalCompareBars items={deptBars} />
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-slate-800">Review pipeline</h3>
-                  </div>
-                  {pipelineBars.every((x) => x.value === 0) ? (
-                    <p className="py-8 text-center text-sm text-slate-500">No completion counts yet.</p>
-                  ) : (
-                    <HorizontalCompareBars items={pipelineBars} />
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-slate-800">Rating distribution</h3>
-                  </div>
-                  {ratingDonut.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-slate-500">No ratings in the sample.</p>
-                  ) : (
-                    <DonutMixChart values={ratingDonut} />
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-slate-800">Ratings by label</h3>
-                </div>
-                {ratingBars.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-slate-500">No distribution rows.</p>
-                ) : (
-                  <HorizontalCompareBars items={ratingBars} />
-                )}
-              </div>
-
-              <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-4">
-                    <h3 className="text-base font-semibold text-slate-900">Recent review activity</h3>
-                  </div>
-                  {appraisalTimeline.length === 0 ? (
-                    <p className="py-10 text-center text-sm text-slate-500">No submitted reviews yet for this cycle.</p>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {appraisalTimeline.map((ev, i) => (
-                        <div
-                          key={`${ev.at}-${i}`}
-                          className="group grid grid-cols-[88px_1fr] items-start gap-3 rounded-xl border border-slate-200/90 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50/70"
-                        >
-                          <div className="pt-0.5 text-[11px] font-medium text-slate-500">{formatDateTime(ev.at)}</div>
-                          <div className="min-w-0">
-                            <div className="mb-0.5 flex items-center gap-2">
-                              <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-violet-500" />
-                              <strong className="truncate text-sm text-slate-800">{ev.title}</strong>
-                            </div>
-                            <div className="line-clamp-2 text-sm text-slate-600">{ev.body}</div>
-                          </div>
-                        </div>
-                      ))}
+                        {PHASE_LABELS[selectedCycle.phase] ?? selectedCycle.phase}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {formatDate(selectedCycle.startDate)} – {formatDate(selectedCycle.endDate)}
+                      </span>
                     </div>
                   )}
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-4">
-                    <h3 className="text-base font-semibold text-slate-900">Quick actions</h3>
-                  </div>
-                  <div className="grid gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setTab("cycles")}
-                      className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-slate-800">Appraisal cycles</div>
-                        </div>
-                        <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
-                          →
-                        </span>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTab("setup")}
-                      className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-slate-800">Rating scales</div>
-                        </div>
-                        <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
-                          →
-                        </span>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTab("setup")}
-                      className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-slate-800">Competencies</div>
-                        </div>
-                        <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
-                          →
-                        </span>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTab("setup")}
-                      className="group rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-slate-800">Templates</div>
-                        </div>
-                        <span className="mt-0.5 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700">
-                          →
-                        </span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-                  <div>
-                    <h4 className="text-base font-semibold text-slate-900">Employee appraisals</h4>
-                  </div>
-                  {selectedCycle.phase !== "Completed" && selectedCycle.phase !== "Draft" && (
-                    <Button className="min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => advanceCycle(selectedCycle.id)}>
-                      Advance to next phase
+                  {selectedCycle && selectedCycle.phase !== "Completed" && selectedCycle.phase !== "Draft" && (
+                    <Button className="ml-auto min-h-0 rounded-lg px-3 py-1.5 text-xs" onClick={() => advanceCycle(selectedCycle.id)}>
+                      Advance phase
                     </Button>
                   )}
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] text-[12px]">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/60">
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                          Employee
-                        </th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                          Department
-                        </th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                          Status
-                        </th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                          Self
-                        </th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                          Manager
-                        </th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                          Final rating
-                        </th>
-                        <th className="w-20 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cycleAppraisalsPager.pageItems.map((a) => {
-                        const selfR = a.reviewers.find((r) => r.reviewerType === "Self");
-                        const mgrR = a.reviewers.find((r) => r.reviewerType === "Manager");
-                        return (
-                          <tr key={a.id} className="border-b border-slate-50 transition hover:bg-slate-50/50">
-                            <td className="px-4 py-2.5 font-medium text-slate-700">
-                              {a.employeeName}{" "}
-                              <span className="font-normal text-slate-400">{a.employeeCode}</span>
-                            </td>
-                            <td className="px-4 py-2.5 text-slate-500">{a.departmentName ?? "—"}</td>
-                            <td className="px-4 py-2.5">
-                              <span
-                                className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${PHASE_COLORS[a.status] ?? "bg-slate-100 text-slate-600"}`}
-                              >
-                                {PHASE_LABELS[a.status] ?? a.status}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5">
-                              {selfR ? <StatusBadge status={selfR.status} rating={selfR.overallRating} /> : "—"}
-                            </td>
-                            <td className="px-4 py-2.5">
-                              {mgrR ? <StatusBadge status={mgrR.status} rating={mgrR.overallRating} /> : "—"}
-                            </td>
-                            <td className="px-4 py-2.5 font-semibold text-slate-700">{a.finalRating?.toFixed(2) ?? "—"}</td>
-                            <td className="px-4 py-2.5">
-                              <Link href={`/app/performance/appraisal/${a.id}`} className="text-[11px] text-blue-600 hover:underline">
-                                View
-                              </Link>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <TablePagination page={cycleAppraisalsPager.page} totalPages={cycleAppraisalsPager.totalPages} totalCount={cycleAppraisalsPager.totalCount} pageSize={cycleAppraisalsPager.pageSize} onPageChange={cycleAppraisalsPager.setPage} />
-                {cycleAppraisals.length === 0 && (
-                  <div className="py-12 text-center text-sm text-slate-400">
-                    No appraisals in this cycle yet. Activate the cycle to generate them.
+
+                {selectedCycle && (
+                  <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-4">
+                    {["SelfAssessment", "ManagerReview", "PeerReview", "Calibration", "Acknowledgement", "Completed"].map((p, i, arr) => {
+                      const phases = arr;
+                      const currentIdx = phases.indexOf(selectedCycle.phase);
+                      const isActive = i <= currentIdx;
+                      const isCurrent = p === selectedCycle.phase;
+                      if (p === "PeerReview" && !selectedCycle.includePeerReview) return null;
+                      return (
+                        <div key={p} className="flex items-center gap-1.5">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                              isCurrent
+                                ? PHASE_COLORS[p] ?? "bg-slate-100 text-slate-600"
+                                : isActive
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : "bg-slate-50 text-slate-400"
+                            }`}
+                          >
+                            {isActive && !isCurrent ? "✓ " : ""}
+                            {PHASE_LABELS[p] ?? p}
+                          </span>
+                          {i < phases.length - 1 && (
+                            <span className={`hidden h-px w-4 sm:inline-block ${isActive ? "bg-emerald-300" : "bg-slate-200"}`} />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
+              {dashboard && selectedCycle ? (
+                <>
+                  <DashboardKpiGrid items={dashboardKpis} />
+
+                  {managerPending && (
+                    <div
+                      className="rounded-2xl border px-4 py-3 text-sm"
+                      style={{ borderColor: OPENSKY_THEME.border, backgroundColor: OPENSKY_THEME.actionSoft, color: OPENSKY_THEME.navy }}
+                    >
+                      <strong>Manager reviews pending.</strong>{" "}
+                      {dashboard.selfCompleted} self-assessments submitted — {dashboard.totalEmployees - dashboard.managerCompleted} manager
+                      review{dashboard.totalEmployees - dashboard.managerCompleted === 1 ? "" : "s"} still open.
+                    </div>
+                  )}
+
+                  {hasInsightCharts ? (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <DashboardCardHeader title="Review pipeline" subtitle="Completion by review stage" compact />
+                        <div className="mt-4">
+                          <HorizontalCompareBars items={pipelineBars} />
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <DashboardCardHeader
+                          title={ratingDonut.length > 0 ? "Rating distribution" : "Department progress"}
+                          subtitle={ratingDonut.length > 0 ? "Submitted ratings in this cycle" : "Completed appraisals by department"}
+                          compact
+                        />
+                        <div className="mt-4">
+                          {ratingDonut.length > 0 ? (
+                            <DonutMixChart values={ratingDonut} />
+                          ) : deptBars.length > 0 ? (
+                            <HorizontalCompareBars items={deptBars} />
+                          ) : (
+                            <p className="py-6 text-center text-sm text-slate-500">Charts populate as reviews are submitted.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                      <DashboardCardHeader
+                        title="Employee appraisals"
+                        subtitle={`${cycleAppraisals.length} employee${cycleAppraisals.length === 1 ? "" : "s"} in this cycle`}
+                        compact
+                      />
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[720px] text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50/80 text-left">
+                            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Employee</th>
+                            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Department</th>
+                            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Self</th>
+                            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Manager</th>
+                            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Rating</th>
+                            <th className="w-16 px-4 py-2.5" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {cycleAppraisalsPager.pageItems.map((a) => {
+                            const selfR = a.reviewers.find((r) => r.reviewerType === "Self");
+                            const mgrR = a.reviewers.find((r) => r.reviewerType === "Manager");
+                            return (
+                              <tr key={a.id} className="transition hover:bg-slate-50/60">
+                                <td className="px-4 py-3 font-medium text-slate-800">
+                                  {a.employeeName}
+                                  {a.employeeCode && (
+                                    <span className="ml-1 font-normal text-slate-400">{a.employeeCode}</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600">{a.departmentName ?? "—"}</td>
+                                <td className="px-4 py-3">
+                                  <span
+                                    className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${PHASE_COLORS[a.status] ?? "bg-slate-100 text-slate-600"}`}
+                                  >
+                                    {PHASE_LABELS[a.status] ?? a.status}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {selfR ? <StatusBadge status={selfR.status} rating={selfR.overallRating} /> : "—"}
+                                </td>
+                                <td className="px-4 py-3">
+                                  {mgrR ? <StatusBadge status={mgrR.status} rating={mgrR.overallRating} /> : "—"}
+                                </td>
+                                <td className="px-4 py-3 font-semibold text-slate-700">{a.finalRating?.toFixed(1) ?? "—"}</td>
+                                <td className="px-4 py-3">
+                                  <Link href={`/app/performance/appraisal/${a.id}`} className="text-xs font-medium text-blue-600 hover:underline">
+                                    Open
+                                  </Link>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <TablePagination
+                      page={cycleAppraisalsPager.page}
+                      totalPages={cycleAppraisalsPager.totalPages}
+                      totalCount={cycleAppraisalsPager.totalCount}
+                      pageSize={cycleAppraisalsPager.pageSize}
+                      onPageChange={cycleAppraisalsPager.setPage}
+                    />
+                    {cycleAppraisals.length === 0 && (
+                      <div className="border-t border-slate-100 py-12 text-center text-sm text-slate-500">
+                        No appraisals yet. Activate the cycle from the Appraisal Cycles tab.
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-sm text-slate-500 shadow-sm">
+                  Loading cycle dashboard…
+                </div>
+              )}
             </>
           )}
-          {cycles.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center shadow-sm">
-              <p className="text-sm text-slate-400">No appraisal cycles created yet. Go to the Cycles tab to create one.</p>
-            </div>
-          )}
-            </div>
-            )}
+        </div>
+      )}
 
-            {tab === key && key === "cycles" && (
-        <section className="space-y-3 pb-2">
-          <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">Appraisal Cycles</h2>
-          </div>
-          <div className="flex justify-end">
-            <Button onClick={openCreateCycle}>+ New Cycle</Button>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      {tab === "cycles" && (
+        <section className="space-y-4">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -798,19 +704,14 @@ export default function PerformancePage() {
             </div>
           </div>
         </section>
-            )}
+      )}
 
-            {tab === key && key === "setup" && (
-        <div className="space-y-8 pb-2">
-          <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">Setup</h2>
-          </div>
+      {tab === "setup" && (
+        <div className="space-y-8">
           {/* Rating Scales */}
           <section className="space-y-3">
-            <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Rating Scales</h2>
-            </div>
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-slate-900">Rating scales</h2>
               <Button onClick={openCreateScale}>+ New Scale</Button>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -864,10 +765,8 @@ export default function PerformancePage() {
 
           {/* Competencies */}
           <section className="space-y-3">
-            <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Competencies</h2>
-            </div>
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-slate-900">Competencies</h2>
               <Button onClick={openCreateCategory}>+ New Category</Button>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -906,10 +805,8 @@ export default function PerformancePage() {
 
           {/* Templates */}
           <section className="space-y-3">
-            <div className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Templates</h2>
-            </div>
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-slate-900">Templates</h2>
               <Button onClick={openCreateTemplate}>+ New Template</Button>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -960,10 +857,7 @@ export default function PerformancePage() {
             </div>
           </section>
         </div>
-            )}
-          </div>
-        ))}
-      </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           MODALS

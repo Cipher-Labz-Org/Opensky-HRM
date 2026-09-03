@@ -5,9 +5,9 @@ import { useState, useRef } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { InlinePageAlert } from "@/components/ui";
-import { API_BASE_URL, API_ASSET_BASE_URL, getApiBaseUrl } from "@/config/constants";
+import { API_ASSET_BASE_URL, getApiBaseUrl, getAssetBaseUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
-import { apiFetch, isMissingApiRoute } from "@/lib/api";
+import { apiFetch, apiFetchBlob, isMissingApiRoute } from "@/lib/api";
 
 const kpiTileClass =
   "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
@@ -80,6 +80,7 @@ interface LoginRowResult {
 
 interface LoginUploadResult {
   created: number;
+  updated: number;
   skipped: number;
   totalRows: number;
   results: LoginRowResult[];
@@ -282,22 +283,21 @@ export default function AdministrationPage() {
   );
 }
 
-async function downloadTemplate(path: string, fallbackFilename: string) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE_URL}${path}`, {
-      method: "GET",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-  } catch {
-    throw new Error(
-      `Cannot reach API at ${API_BASE_URL}. Set NEXT_PUBLIC_API_URL and ensure the backend is running.`
-    );
+function bulkImportApiBase(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const base = getApiBaseUrl();
+  if (base === "/hrm-backend") {
+    const direct = getAssetBaseUrl() || API_ASSET_BASE_URL;
+    return direct || undefined;
   }
-  if (!res.ok) throw new Error((await res.text().catch(() => "")) || `Download failed (${res.status})`);
+  return undefined;
+}
 
-  const blob = await res.blob();
+async function downloadTemplate(path: string, fallbackFilename: string) {
+  const blob = await apiFetchBlob(path, {
+    timeoutMs: 60_000,
+    baseUrl: bulkImportApiBase(),
+  });
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -342,21 +342,16 @@ function EmployeeUploadSection() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("createUserLogins", createUserLogins ? "true" : "false");
-      const bulkUploadBase =
-        typeof window !== "undefined" &&
-        getApiBaseUrl() === "/hrm-backend"
-          ? API_ASSET_BASE_URL
-          : undefined;
       const json = await apiFetch<UploadResult>("/api/bulkupload/employees", {
         method: "POST",
         body: formData,
         timeoutMs: 300_000,
-        baseUrl: bulkUploadBase,
+        baseUrl: bulkImportApiBase(),
       });
       setResult(json);
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
-    } catch (err) { setError(err instanceof Error ? err.message : "Upload failed"); }
+    } catch (err) { setError(bulkUploadErrorMessage(err, "Upload failed")); }
     finally { setUploading(false); }
   }
 
@@ -538,11 +533,16 @@ function LeaveBalanceUploadSection() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const json = await apiFetch<LeaveBalanceUploadResult>("/api/bulkupload/leave-balances", { method: "POST", body: formData });
+      const json = await apiFetch<LeaveBalanceUploadResult>("/api/bulkupload/leave-balances", {
+        method: "POST",
+        body: formData,
+        timeoutMs: 300_000,
+        baseUrl: bulkImportApiBase(),
+      });
       setResult(json);
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
-    } catch (err) { setError(err instanceof Error ? err.message : "Upload failed"); }
+    } catch (err) { setError(bulkUploadErrorMessage(err, "Upload failed")); }
     finally { setUploading(false); }
   }
 
@@ -717,12 +717,17 @@ function PayrollUploadSection() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const json = await apiFetch<unknown>("/api/bulkupload/payroll", { method: "POST", body: formData });
+      const json = await apiFetch<unknown>("/api/bulkupload/payroll", {
+        method: "POST",
+        body: formData,
+        timeoutMs: 300_000,
+        baseUrl: bulkImportApiBase(),
+      });
       setResult(parsePayrollImportSummary(json));
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(bulkUploadErrorMessage(err, "Upload failed"));
     } finally {
       setUploading(false);
     }
@@ -869,15 +874,11 @@ function LoginUploadSection() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const bulkUploadBase =
-        typeof window !== "undefined" && getApiBaseUrl() === "/hrm-backend"
-          ? API_ASSET_BASE_URL
-          : undefined;
       const json = await apiFetch<LoginUploadResult>("/api/bulkupload/logins", {
         method: "POST",
         body: formData,
         timeoutMs: 300_000,
-        baseUrl: bulkUploadBase,
+        baseUrl: bulkImportApiBase(),
       });
       setResult(json);
       setFile(null);
@@ -920,7 +921,7 @@ function LoginUploadSection() {
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-800">Login import</h2>
-              <p className="text-xs text-slate-500">Create application logins for existing employees — Employee ID, username, password, and employee type required</p>
+              <p className="text-xs text-slate-500">Create or update application logins for existing employees — Employee ID, username, password, and employee type required</p>
             </div>
           </div>
           <Button
@@ -947,7 +948,7 @@ function LoginUploadSection() {
               <li>Click <strong>Download template</strong> to get the Excel file with the <strong>Logins</strong> sheet and an <strong>EmployeeTypes</strong> lookup.</li>
               <li>
                 Every row must include <strong>Employee ID</strong>, <strong>Username</strong>, <strong>Password</strong>, and{" "}
-                <strong>Employee Type</strong>. Employee ID is the same value as Employee Code in People, for someone who does not already have a login.
+                <strong>Employee Type</strong>. Employee ID is the same value as Employee Code in People. If the employee already has a login, this upload updates that username and password.
               </li>
               <li>
                 <strong>Username</strong> must be unique. Allowed characters: letters, digits,{" "}
@@ -962,7 +963,7 @@ function LoginUploadSection() {
                 <strong>SUPERVISOR</strong>, <strong>HR_MANAGER</strong>, <strong>ADMIN</strong>).
               </li>
               <li>
-                <strong>Email</strong>, <strong>Active</strong>, and <strong>Must Change Password</strong> are optional. Email falls back to the employee work email. Active and Must Change Password default to Yes. Employees who already have a login are skipped.
+                <strong>Active</strong> and <strong>Must Change Password</strong> are optional and default to Yes. Login email is taken from the employee work email. Upload again for the same employee to update that login with the new username and password.
               </li>
               <li>Upload the completed file below.</li>
             </ol>
@@ -986,7 +987,7 @@ function LoginUploadSection() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-slate-800">Import results</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Row-level outcomes from the last upload</p>
+                <p className="mt-0.5 text-xs text-slate-500">Created, updated, and skipped rows from the last upload</p>
               </div>
               {result.skipped > 0 && (
                 <Button variant="secondary" className="gap-2" onClick={downloadSkippedRows}>
@@ -999,7 +1000,7 @@ function LoginUploadSection() {
             </div>
           </div>
           <div className="p-6">
-            <div className="mb-5 grid gap-4 sm:grid-cols-3">
+            <div className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Total rows</div>
                 <p className="mt-2 text-2xl font-semibold text-slate-900">{result.totalRows}</p>
@@ -1007,6 +1008,10 @@ function LoginUploadSection() {
               <div className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-emerald-600">Created</div>
                 <p className="mt-2 text-2xl font-semibold text-emerald-700">{result.created}</p>
+              </div>
+              <div className={kpiTileClass}>
+                <div className="text-xs font-medium uppercase tracking-wider text-sky-600">Updated</div>
+                <p className="mt-2 text-2xl font-semibold text-sky-700">{result.updated ?? 0}</p>
               </div>
               <div className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-rose-600">Skipped</div>
@@ -1037,6 +1042,11 @@ function LoginUploadSection() {
                           {r.status === "Created" && (
                             <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-100">
                               Created
+                            </span>
+                          )}
+                          {r.status === "Updated" && (
+                            <span className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800 ring-1 ring-sky-100">
+                              Updated
                             </span>
                           )}
                           {r.status === "Skipped" && (
