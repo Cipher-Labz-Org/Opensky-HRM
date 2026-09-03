@@ -1178,33 +1178,15 @@ public partial class BulkUploadController : ControllerBase
         DateTime? DateCell(IXLRow row, string colName)
         {
             if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
-            var cell = row.Cell(c);
-            if (cell.DataType == XLDataType.DateTime) return cell.GetDateTime().Date;
-            if (cell.DataType == XLDataType.Number && cell.TryGetValue<double>(out var oaDate))
-            {
-                try
-                {
-                    if (oaDate >= 1 && oaDate < 2958466)
-                        return DateTime.FromOADate(oaDate).Date;
-                }
-                catch (ArgumentException)
-                {
-                    /* fall through to text parse */
-                }
-            }
-
-            var s = GetCellTrimmedDisplayText(cell);
-            if (string.IsNullOrEmpty(s)) return null;
-            if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt)) return dt.Date;
-            if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return dt.Date;
-            return null;
+            return ParseExcelDate(row.Cell(c));
         }
 
-        bool HasDateColumnValue(IXLRow row, string colName)
+        bool HasMeaningfulDateText(IXLRow row, string colName)
         {
             if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return false;
             var cell = row.Cell(c);
-            return cell.DataType != XLDataType.Blank && !string.IsNullOrWhiteSpace(GetCellTrimmedDisplayText(cell));
+            if (cell.DataType == XLDataType.Blank) return false;
+            return !IsEmptyImportToken(GetCellTrimmedDisplayText(cell));
         }
 
         var lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
@@ -1217,27 +1199,33 @@ public partial class BulkUploadController : ControllerBase
             var empCode = Cell(row, "Employee Code");
             var leaveTypeName = Cell(row, "Leave Type");
             var yearStr = Cell(row, "Year");
-            var entitled = DecCell(row, "Entitled");
+            var entitled = DecCell(row, "Entitled") ?? 0;
             var used = DecCell(row, "Used");
             var carried = DecCell(row, "Carried Forward");
             var reason = Cell(row, "Reason");
 
-            var startRaw = HasDateColumnValue(row, "Start Date");
-            var endRaw = HasDateColumnValue(row, "End Date");
+            var startRaw = HasMeaningfulDateText(row, "Start Date");
+            var endRaw = HasMeaningfulDateText(row, "End Date");
             var startDate = DateCell(row, "Start Date");
             var endDate = DateCell(row, "End Date");
 
             if (string.IsNullOrEmpty(empCode)) errors.Add("Employee Code is required");
             if (string.IsNullOrEmpty(leaveTypeName)) errors.Add("Leave Type is required");
-            if (string.IsNullOrEmpty(yearStr) || !int.TryParse(yearStr, out var year)) { errors.Add("Valid Year is required"); year = 0; }
-            if (entitled is null) errors.Add("Entitled is required");
-
-            if (startRaw || endRaw)
+            if (string.IsNullOrEmpty(yearStr) || !int.TryParse(yearStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var year))
             {
-                if (startDate is null) errors.Add("Start Date is invalid or missing");
-                if (endDate is null) errors.Add("End Date is invalid or missing");
-                if (startDate is not null && endDate is not null && endDate < startDate)
-                    errors.Add("End Date cannot be before Start Date");
+                errors.Add("Valid Year is required");
+                year = 0;
+            }
+
+            if (startRaw && startDate is null)
+                notes.Add("Start Date could not be parsed and was ignored");
+            if (endRaw && endDate is null)
+                notes.Add("End Date could not be parsed and was ignored");
+            if (startDate is not null && endDate is not null && endDate < startDate)
+            {
+                notes.Add("End Date is before Start Date; dates were ignored");
+                startDate = null;
+                endDate = null;
             }
 
             var emp = employees.FirstOrDefault(e => e.EmployeeCode.Equals(empCode, StringComparison.OrdinalIgnoreCase));
@@ -1259,7 +1247,7 @@ public partial class BulkUploadController : ControllerBase
             string status;
             if (existing != null)
             {
-                existing.Entitled = entitled!.Value;
+                existing.Entitled = entitled;
                 existing.Used = used ?? 0;
                 existing.CarriedForward = carried ?? 0;
                 existing.BroughtForwardDays = Math.Max(existing.BroughtForwardDays, carried ?? 0);
@@ -1274,18 +1262,25 @@ public partial class BulkUploadController : ControllerBase
                     EmployeeId = emp!.Id,
                     LeaveTypeId = lt!.Id,
                     Year = year,
-                    Entitled = entitled!.Value,
+                    Entitled = entitled,
                     Used = used ?? 0,
                     CarriedForward = cf,
                     BroughtForwardDays = cf,
                 };
                 _db.LeaveBalances.Add(balance);
                 existingBalances.Add(balance);
+                existing = balance;
                 created++;
                 status = "Created";
             }
 
-            if (startDate is not null && endDate is not null)
+            if (LooksLikeEntitlementPeriod(startDate, endDate, year))
+            {
+                existing!.PeriodStart = DateTime.SpecifyKind(startDate!.Value.Date, DateTimeKind.Utc);
+                existing.PeriodEnd = DateTime.SpecifyKind(endDate!.Value.Date, DateTimeKind.Utc);
+                notes.Add($"Entitlement period set ({startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd})");
+            }
+            else if (startDate is not null && endDate is not null)
             {
                 var start = DateTime.SpecifyKind(startDate.Value.Date, DateTimeKind.Utc);
                 var end = DateTime.SpecifyKind(endDate.Value.Date, DateTimeKind.Utc);
@@ -1345,6 +1340,67 @@ public partial class BulkUploadController : ControllerBase
         await _db.SaveChangesAsync();
 
         return Ok(new LeaveBalanceUploadResult(created, updated, skipped, lastRow - 1, results));
+    }
+
+    private static readonly string[] ExcelDateFormats =
+    {
+        "d/M/yyyy", "dd/MM/yyyy", "d/M/yy", "dd/MM/yy",
+        "d-M-yyyy", "dd-MM-yyyy", "d-M-yy", "dd-MM-yy",
+        "d.M.yyyy", "dd.MM.yyyy",
+        "yyyy-MM-dd", "yyyy/M/d", "yyyy/MM/dd",
+        "M/d/yyyy", "MM/dd/yyyy", "M/d/yy", "MM/dd/yy",
+    };
+
+    private static bool IsEmptyImportToken(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return true;
+        var t = s.Trim();
+        return t is "0" or "-" or "." or "#"
+            || t.Equals("#N/A", StringComparison.OrdinalIgnoreCase)
+            || t.Equals("N/A", StringComparison.OrdinalIgnoreCase)
+            || t.Equals("NA", StringComparison.OrdinalIgnoreCase)
+            || t.Equals("null", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Year-range columns (1/1/2026–31/12/2026) are entitlement periods, not leave taken.</summary>
+    private static bool LooksLikeEntitlementPeriod(DateTime? start, DateTime? end, int year)
+    {
+        if (start is null || end is null) return false;
+        var s = start.Value.Date;
+        var e = end.Value.Date;
+        if ((e - s).TotalDays + 1 >= 300) return true;
+        if (year > 0 && s.Year == year && e.Year == year && s.Month == 1 && s.Day == 1 && e.Month == 12 && e.Day == 31)
+            return true;
+        return false;
+    }
+
+    private static DateTime? ParseExcelDate(IXLCell cell)
+    {
+        if (cell.DataType == XLDataType.DateTime)
+            return cell.GetDateTime().Date;
+
+        if (cell.DataType == XLDataType.Number && cell.TryGetValue<double>(out var oaDate))
+        {
+            // 0 / tiny numbers are placeholders, not 1899-12-30 Excel serials.
+            if (oaDate is >= 200 and < 2958466)
+            {
+                try { return DateTime.FromOADate(oaDate).Date; }
+                catch (ArgumentException) { /* fall through */ }
+            }
+        }
+
+        var s = GetCellTrimmedDisplayText(cell);
+        if (IsEmptyImportToken(s)) return null;
+
+        foreach (var culture in new[] { CultureInfo.GetCultureInfo("en-GB"), CultureInfo.CurrentCulture, CultureInfo.InvariantCulture })
+        {
+            if (DateTime.TryParseExact(s, ExcelDateFormats, culture, DateTimeStyles.None, out var exact))
+                return exact.Date;
+            if (DateTime.TryParse(s, culture, DateTimeStyles.None, out var parsed))
+                return parsed.Date;
+        }
+
+        return null;
     }
 
     public record RowResult(int Row, string FirstName, string LastName, bool Success, List<string> Errors, List<string>? Notes = null);

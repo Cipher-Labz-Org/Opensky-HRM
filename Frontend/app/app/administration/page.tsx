@@ -597,8 +597,8 @@ function LeaveBalanceUploadSection() {
             <h4 className="mb-2 text-sm font-semibold text-slate-800">How to import leave balances</h4>
             <ol className="list-inside list-decimal space-y-1 text-xs text-slate-600">
               <li>Click <strong>Download template</strong> to get the Excel file with pre-formatted columns.</li>
-              <li>Fill the <strong>LeaveBalances</strong> sheet: <strong>Employee Code, Leave Type, Year, Entitled</strong> (required). Used and Carried Forward default to 0.</li>
-              <li>Optional leave dates: add <strong>Start Date</strong> and <strong>End Date</strong> (and optional <strong>Reason</strong>) so each employee gets an approved leave record for those dates (calendar / attendance). Use one row per leave period; repeat Employee Code + Leave Type + Year if needed.</li>
+              <li>Fill the <strong>LeaveBalances</strong> sheet: <strong>Employee Code, Leave Type, Year</strong> are required. Entitled, Used, and Carried Forward default to 0 if blank.</li>
+              <li>Optional dates: use <strong>Start Date</strong> and <strong>End Date</strong> as <code>dd/MM/yyyy</code> (for example 1/1/2026 and 31/12/2026). A full-year range sets the entitlement period. A shorter range with both dates creates an approved leave record. One date alone is ignored and does not skip the row.</li>
               <li>Use exact employee codes and leave type names as they appear in the system.</li>
               <li>If a balance already exists for the same employee + leave type + year, it will be <strong>updated</strong>. Matching leave dates are updated; overlapping dates are skipped.</li>
               <li>Upload the completed file below.</li>
