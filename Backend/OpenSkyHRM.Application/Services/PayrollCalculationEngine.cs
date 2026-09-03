@@ -28,7 +28,9 @@ public class PayrollCalculationEngine
             .FirstOrDefaultAsync(b => b.Id == batchId)
             ?? throw new InvalidOperationException("Batch not found.");
 
-        if (batch.Status != BatchStatus.Draft && batch.Status != BatchStatus.Calculated)
+        if (batch.Status != BatchStatus.Draft
+            && batch.Status != BatchStatus.Calculated
+            && batch.Status != BatchStatus.Reviewed)
             throw new InvalidOperationException($"Batch is in '{batch.Status}' status and cannot be recalculated.");
 
         // Parse selected employee IDs stored on the batch
@@ -196,6 +198,8 @@ public class PayrollCalculationEngine
         batch.TotalNet = newStatements.Sum(s => s.NetPay);
         batch.TotalEmployerCost = newStatements.Sum(s => s.EmployerCost);
         batch.Status = BatchStatus.Calculated;
+        batch.ReviewedBy = null;
+        batch.ReviewedAt = null;
         batch.ProcessedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
@@ -209,7 +213,9 @@ public class PayrollCalculationEngine
     {
         var batches = await _db.PayrollBatches
             .Where(b => b.ProcessType == PayrollProcessType.Salary
-                && (b.Status == BatchStatus.Calculated || b.Status == BatchStatus.Draft))
+                && (b.Status == BatchStatus.Calculated
+                    || b.Status == BatchStatus.Draft
+                    || b.Status == BatchStatus.Reviewed))
             .Where(b => _db.PayStatements.Any(s => s.BatchId == b.Id))
             .ToListAsync();
 
@@ -247,7 +253,9 @@ public class PayrollCalculationEngine
     {
         var batches = await _db.PayrollBatches
             .Where(b => b.ProcessType == PayrollProcessType.Salary
-                && (b.Status == BatchStatus.Calculated || b.Status == BatchStatus.Draft))
+                && (b.Status == BatchStatus.Calculated
+                    || b.Status == BatchStatus.Draft
+                    || b.Status == BatchStatus.Reviewed))
             .OrderByDescending(b => b.Year)
             .ThenByDescending(b => b.Month)
             .ThenByDescending(b => b.CreatedAt)

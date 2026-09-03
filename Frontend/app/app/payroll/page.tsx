@@ -2040,7 +2040,7 @@ function PayrollRunTab() {
         }
         await apiFetch(`/api/payroll/batches/${batchId}/return`, { method: "PUT" });
       } else if (action === "approve") {
-        if (!(await appConfirm("Approve this salary batch? Payslips will be locked as Approved."))) {
+        if (!(await appConfirm("Approve this salary batch? Pay slips will lock using the last Calculate totals — save Employee Salary and run Calculate (or Sync from Employee Salary) first so EPF and allowances match."))) {
           setActionLoading(null);
           return;
         }

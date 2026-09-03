@@ -124,7 +124,7 @@ public class PayrollBatchApprovalTests
 
         var beforeReturn = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             engine.CalculateBatchAsync(batch.Id));
-        Assert.Contains("cannot be recalculated", beforeReturn.Message);
+        Assert.Contains("No employees selected", beforeReturn.Message);
 
         var returned = await svc.ReturnBatchToCalculatedAsync(batch.Id);
         Assert.NotNull(returned);
@@ -136,6 +136,77 @@ public class PayrollBatchApprovalTests
             engine.CalculateBatchAsync(batch.Id));
         Assert.DoesNotContain("cannot be recalculated", afterReturn.Message);
         Assert.Contains("No employees selected", afterReturn.Message);
+    }
+
+    [Fact]
+    public async Task CalculateBatchAsync_FromReviewed_UsesEmployeeSalaryAndClearsReview()
+    {
+        var (db, svc, engine) = CreateSut();
+        var dept = new Department { Id = Guid.NewGuid(), Name = "ADMIN", Code = "ADMIN" };
+        var employee = new Employee
+        {
+            Id = Guid.NewGuid(),
+            EmployeeCode = "EMP-000022",
+            FirstName = "Sumali",
+            LastName = "Liyana",
+            DateOfBirth = new DateTime(1990, 1, 1),
+            JoinDate = new DateTime(2020, 1, 1),
+            DepartmentId = dept.Id,
+        };
+        var batch = new PayrollBatch
+        {
+            Id = Guid.NewGuid(),
+            BatchCode = "SAL-2026-09-006",
+            Month = 9,
+            Year = 2026,
+            EffectiveFrom = new DateTime(2026, 9, 1),
+            EffectiveTo = new DateTime(2026, 9, 30),
+            ProcessType = PayrollProcessType.Salary,
+            Status = BatchStatus.Reviewed,
+            ReviewedBy = "reviewer",
+            ReviewedAt = DateTime.UtcNow,
+            SelectedEmployeeIds = System.Text.Json.JsonSerializer.Serialize(new List<Guid> { employee.Id }),
+        };
+        db.Departments.Add(dept);
+        db.Employees.Add(employee);
+        db.PayrollBatches.Add(batch);
+        await db.SaveChangesAsync();
+
+        await OpenSkyHRM.Persistence.Seeders.PayrollComponentSeeder.EnsureAsync(db);
+        var basic = await db.CompensationComponents.SingleAsync(c => c.Code == "BASIC");
+        var poya = await db.CompensationComponents.SingleAsync(c => c.Code == PayrollPoyaComponent.DefaultCode);
+        db.EmployeeCompensations.AddRange(
+            new EmployeeCompensation
+            {
+                EmployeeId = employee.Id,
+                ComponentId = basic.Id,
+                Amount = 44_500m,
+                EffectiveFrom = new DateTime(2020, 1, 1),
+                IsActive = true,
+            },
+            new EmployeeCompensation
+            {
+                EmployeeId = employee.Id,
+                ComponentId = poya.Id,
+                Amount = 1_483.33m,
+                EffectiveFrom = new DateTime(2020, 1, 1),
+                IsActive = true,
+            });
+        await db.SaveChangesAsync();
+
+        await engine.CalculateBatchAsync(batch.Id);
+
+        var updatedBatch = await db.PayrollBatches.SingleAsync(b => b.Id == batch.Id);
+        Assert.Equal(BatchStatus.Calculated, updatedBatch.Status);
+        Assert.Null(updatedBatch.ReviewedBy);
+        Assert.Null(updatedBatch.ReviewedAt);
+
+        var slips = await svc.GetStatementsByBatchAsync(batch.Id);
+        Assert.Single(slips);
+        Assert.Equal(45_983.33m, slips[0].GrossPay);
+        Assert.Contains(slips[0].Lines, l => l.ComponentCode == "BASIC" && l.Amount == 44_500m);
+        Assert.Contains(slips[0].Lines, l => l.ComponentCode == "POYA" && l.Amount == 1_483.33m);
+        Assert.Contains(slips[0].Lines, l => l.ComponentCode == "EPF_EE" && l.Amount == 3_678.67m);
     }
 
     [Fact]
