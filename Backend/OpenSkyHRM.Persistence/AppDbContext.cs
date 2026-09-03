@@ -226,6 +226,10 @@ public class AppDbContext : DbContext
                         or nameof(AttendanceRecord.Date))
                     continue;
 
+                // Last login is timestamp without time zone; UTC Kind cannot be written.
+                if (entry.Entity is User && prop.Metadata.Name is nameof(User.LastLoginAt))
+                    continue;
+
                 if (prop.CurrentValue is DateTime dt && dt.Kind == DateTimeKind.Unspecified)
                     prop.CurrentValue = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             }

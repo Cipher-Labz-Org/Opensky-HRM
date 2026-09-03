@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
@@ -159,8 +160,21 @@ public partial class BulkUploadController
 
         var allowedCreate = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Create");
 
-        using var stream = file.OpenReadStream();
-        using var wb = new XLWorkbook(stream);
+        using var stream = new MemoryStream();
+        await file.CopyToAsync(stream);
+        stream.Position = 0;
+        XLWorkbook wb;
+        try
+        {
+            wb = new XLWorkbook(stream);
+        }
+        catch
+        {
+            return BadRequest("Could not read the Excel file. Download the template, fill the Logins sheet, and upload a .xlsx file.");
+        }
+
+        using (wb)
+        {
         var ws = TryLoginSheet(wb);
         if (ws is null)
             return BadRequest("Could not find a Logins sheet. Fill the Logins sheet and upload again.");
@@ -179,7 +193,7 @@ public partial class BulkUploadController
         var created = 0;
         var updated = 0;
         var skipped = 0;
-        var last = ws.LastRowUsed()?.RowNumber() ?? 1;
+        var last = Math.Min(ws.LastRowUsed()?.RowNumber() ?? 1, 10_000);
         var employeesSeenInFile = new HashSet<Guid>();
 
         for (var r = 2; r <= last; r++)
@@ -340,13 +354,11 @@ public partial class BulkUploadController
                     existingUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(passwordRaw.Trim());
                     existingUser.MustChangePassword = mustChange;
                     existingUser.IsActive = isActive;
-                    existingUser.UpdatedAt = DateTime.UtcNow;
-                    if (!existingUser.UserRoles.Any(ur => ur.RoleId == role.Id))
-                    {
-                        _db.UserRoles.RemoveRange(existingUser.UserRoles);
-                        await _db.SaveChangesAsync();
+                    var currentRole = existingUser.UserRoles.FirstOrDefault();
+                    if (currentRole is null)
                         existingUser.UserRoles.Add(new UserRole { UserId = existingUser.Id, RoleId = role.Id });
-                    }
+                    else if (currentRole.RoleId != role.Id)
+                        currentRole.RoleId = role.Id;
 
                     await _db.SaveChangesAsync();
                     updated++;
@@ -381,19 +393,20 @@ public partial class BulkUploadController
                     results.Add(new LoginRowResult(r, code.Trim(), username, role.Code, "Created", [], null));
                 }
             }
-            catch (DbUpdateException)
+            catch (Exception ex)
             {
                 if (existingUser is not null)
                     DetachTrackedUser(existingUser);
                 if (pendingUser is not null)
                     DetachTrackedUser(pendingUser);
                 skipped++;
-                results.Add(SkipLogin(r, code, username, role.Code, "Could not save login (duplicate username or email)."));
+                results.Add(SkipLogin(r, code, username, role.Code, DescribeLoginSaveFailure(ex)));
             }
         }
 
         var dataRows = results.Count;
         return Ok(new LoginUploadResult(created, updated, skipped, dataRows, results));
+        }
     }
 
     private static IXLWorksheet? TryLoginSheet(XLWorkbook wb)
@@ -504,6 +517,26 @@ public partial class BulkUploadController
         if (!taken.Contains(value)) return false;
         return string.IsNullOrWhiteSpace(currentValue)
             || !string.Equals(value, currentValue, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string DescribeLoginSaveFailure(Exception ex)
+    {
+        for (var inner = ex; inner != null; inner = inner.InnerException!)
+        {
+            if (inner is PostgresException pg)
+            {
+                if (pg.SqlState == "23505")
+                    return "Could not save login (duplicate username or email).";
+                if (pg.SqlState == "22001")
+                    return "A login value exceeds the maximum allowed length.";
+            }
+
+            if (inner.Message.Contains("timestamp", StringComparison.OrdinalIgnoreCase)
+                && inner.Message.Contains("DateTime", StringComparison.OrdinalIgnoreCase))
+                return "Could not update login because of a date/time value. Try again, or reset the user from User management.";
+        }
+
+        return "Could not save login. Check username, password, and employee type, then try again.";
     }
 
     private static LoginRowResult SkipLogin(int row, string? employeeCode, string? username, string? employeeType, string error)
