@@ -150,6 +150,30 @@ public class PayrollCalculationEngineTests
 
         Assert.Equal(0m, amount);
     }
+
+    [Theory]
+    [InlineData(100_000, 0, 80_000, 100_000, 100_000)]
+    [InlineData(0, 0, 80_000, 80_000, 80_000)]
+    [InlineData(100_000, 50_000, 80_000, 100_000, 50_000)]
+    public void ResolveStatutoryBases_UsesEpfBaseForEtfWhenEtfUnset(
+        decimal epfEarnings, decimal etfEarnings, decimal basicPay,
+        decimal expectedEpfBase, decimal expectedEtfBase)
+    {
+        var (epfBase, etfBase) = PayrollCalculationEngine.ResolveStatutoryBases(
+            epfEarnings, etfEarnings, basicPay);
+
+        Assert.Equal(expectedEpfBase, epfBase);
+        Assert.Equal(expectedEtfBase, etfBase);
+    }
+
+    [Theory]
+    [InlineData(0.08, 0.08)]
+    [InlineData(8, 0.08)]
+    [InlineData(12, 0.12)]
+    public void NormalizePayrollRate_AcceptsDecimalOrWholePercent(decimal input, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.NormalizePayrollRate(input));
+    }
 }
 
 public class PayrollPoyaAttendanceTests

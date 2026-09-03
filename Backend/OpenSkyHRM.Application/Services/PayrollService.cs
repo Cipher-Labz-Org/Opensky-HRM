@@ -288,6 +288,15 @@ public class PayrollService : IPayrollService
 
     public async Task<PagedResult<PayrollBatchDto>> GetBatchesAsync(int page = 1, int pageSize = 20)
     {
+        try
+        {
+            await PayrollSeeder.EnsureStarterBatchAsync(_db);
+        }
+        catch
+        {
+            // Never block batch listing if auto-seed fails on a legacy tenant DB.
+        }
+
         var query = _db.PayrollBatches.AsQueryable();
         var total = await query.CountAsync();
         var items = await query.OrderByDescending(b => b.Year).ThenByDescending(b => b.Month)
@@ -438,19 +447,27 @@ public class PayrollService : IPayrollService
 
     // ── Pay Statements ───────────────────────────────────────────────
 
-    public async Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null)
+    public async Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, string? search = null, IReadOnlyList<Guid>? allowedEmployeeIds = null)
     {
         var query = _db.PayStatements
             .Include(p => p.Employee).ThenInclude(e => e.Department)
             .AsQueryable();
         if (employeeId.HasValue) query = query.Where(p => p.EmployeeId == employeeId.Value);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(p =>
+                p.Employee.FirstName.ToLower().Contains(term) ||
+                p.Employee.LastName.ToLower().Contains(term) ||
+                p.Employee.EmployeeCode.ToLower().Contains(term) ||
+                (p.Employee.FirstName + " " + p.Employee.LastName).ToLower().Contains(term));
+        }
         if (allowedEmployeeIds != null) query = query.Where(p => allowedEmployeeIds.Contains(p.EmployeeId));
 
         query = await RestrictToCanonicalStatementsAsync(query);
 
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(p => p.Year).ThenByDescending(p => p.Month)
-            .Skip((page - 1) * pageSize).Take(pageSize)
+        var rows = await query
             .Select(p => new PayStatementDto
             {
                 Id = p.Id, BatchId = p.BatchId, EmployeeId = p.EmployeeId,
@@ -461,7 +478,17 @@ public class PayrollService : IPayrollService
                 TotalEarnings = p.TotalEarnings, TotalDeductions = p.TotalDeductions,
                 GrossPay = p.GrossPay, NetPay = p.NetPay, EmployerCost = p.EmployerCost,
                 Status = p.Status.ToString(),
-            }).ToListAsync();
+            })
+            .ToListAsync();
+
+        var items = rows
+            .OrderBy(p => EmployeeCodeSort.NumericKey(p.EmployeeCode))
+            .ThenBy(p => p.EmployeeCode, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(p => p.Year)
+            .ThenByDescending(p => p.Month)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
         return new PagedResult<PayStatementDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
 
@@ -480,9 +507,13 @@ public class PayrollService : IPayrollService
             .Include(p => p.Employee).ThenInclude(e => e.Department)
             .Include(p => p.Lines)
             .Where(p => p.BatchId == batchId)
-            .OrderBy(p => p.Employee.LastName).ThenBy(p => p.Employee.FirstName)
             .ToListAsync();
-        return statements.Select(p => MapPayStatementDto(p, includeLines: true)).ToList();
+
+        return statements
+            .OrderBy(p => EmployeeCodeSort.NumericKey(p.Employee.EmployeeCode))
+            .ThenBy(p => p.Employee.EmployeeCode, StringComparer.OrdinalIgnoreCase)
+            .Select(p => MapPayStatementDto(p, includeLines: true))
+            .ToList();
     }
 
     public async Task<List<PayStatementDto>> GetStatementsByEmployeeAsync(Guid employeeId)
@@ -511,11 +542,23 @@ public class PayrollService : IPayrollService
 
     public async Task<PayrollSettingsDto> GetPayrollSettingsAsync()
     {
+        try
+        {
+            await PayrollComponentSeeder.EnsureDefaultSettingsAsync(_db);
+        }
+        catch
+        {
+            // Fall back to hard-coded defaults below if settings table is unavailable.
+        }
+
         return new PayrollSettingsDto
         {
-            EpfEmployeeRate = decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployeeRate"), out var ee) ? ee : 0.08m,
-            EpfEmployerRate = decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployerRate"), out var er) ? er : 0.12m,
-            EtfEmployerRate = decimal.TryParse(await _settings.GetAsync("Payroll_ETF_EmployerRate"), out var etf) ? etf : 0.03m,
+            EpfEmployeeRate = PayrollCalculationEngine.NormalizePayrollRate(
+                decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployeeRate"), out var ee) ? ee : 0.08m),
+            EpfEmployerRate = PayrollCalculationEngine.NormalizePayrollRate(
+                decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployerRate"), out var er) ? er : 0.12m),
+            EtfEmployerRate = PayrollCalculationEngine.NormalizePayrollRate(
+                decimal.TryParse(await _settings.GetAsync("Payroll_ETF_EmployerRate"), out var etf) ? etf : 0.03m),
             OtHourlyDivisor = decimal.TryParse(await _settings.GetAsync("Payroll_OT_HourlyDivisor"), out var div) ? div : 208m,
             OtMultiplier = decimal.TryParse(await _settings.GetAsync("Payroll_OT_Multiplier"), out var mul) ? mul : 1.5m,
         };

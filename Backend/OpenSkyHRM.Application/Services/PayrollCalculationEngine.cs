@@ -49,6 +49,7 @@ public class PayrollCalculationEngine
                 "Every selected employee already has a payroll for this month. Select only employees who are not in another batch for the same period.");
 
         await PayrollComponentSeeder.EnsureAsync(_db);
+        await PayrollSeeder.EnsureStatutoryFormulasAsync(_db);
 
         var rates = await LoadRatesAsync();
 
@@ -73,10 +74,11 @@ public class PayrollCalculationEngine
         {
             case PayrollProcessType.Salary:
             {
+                // Employee Salary tab: all batchId-null rows except one-time bonuses.
                 var fixedCompensations = await _db.EmployeeCompensations
                     .Include(ec => ec.Component)
                     .Where(ec => ec.IsActive && ec.BatchId == null && employeeIdSet.Contains(ec.EmployeeId)
-                        && (ec.Component.Category == ComponentCategory.Fixed || ec.Component.Category == ComponentCategory.Statutory))
+                        && ec.Component.Category != ComponentCategory.OneTime)
                     .ToListAsync();
 
                 var variableCompensations = await _db.EmployeeCompensations
@@ -200,6 +202,75 @@ public class PayrollCalculationEngine
         return batch;
     }
 
+    /// <summary>
+    /// After fixed salary changes, refresh payslips on open salary batches that already ran Calculate.
+    /// </summary>
+    public async Task<int> TryRecalculateOpenSalaryBatchesForEmployeeAsync(Guid employeeId)
+    {
+        var batches = await _db.PayrollBatches
+            .Where(b => b.ProcessType == PayrollProcessType.Salary
+                && (b.Status == BatchStatus.Calculated || b.Status == BatchStatus.Draft))
+            .Where(b => _db.PayStatements.Any(s => s.BatchId == b.Id))
+            .ToListAsync();
+
+        var recalculated = 0;
+        foreach (var batch in batches)
+        {
+            List<Guid>? selectedIds = null;
+            if (!string.IsNullOrEmpty(batch.SelectedEmployeeIds))
+            {
+                try { selectedIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(batch.SelectedEmployeeIds); }
+                catch { /* ignore malformed JSON */ }
+            }
+
+            if (selectedIds?.Contains(employeeId) != true)
+                continue;
+
+            try
+            {
+                await CalculateBatchAsync(batch.Id);
+                recalculated++;
+            }
+            catch (InvalidOperationException)
+            {
+                // Other employees in the batch may block a full recalc — salary save still succeeds.
+            }
+        }
+
+        return recalculated;
+    }
+
+    /// <summary>
+    /// Rebuilds every open salary batch from saved Employee Salary data (all employees in each batch).
+    /// </summary>
+    public async Task<(int Recalculated, IReadOnlyList<string> Errors)> TryRecalculateAllOpenSalaryBatchesAsync()
+    {
+        var batches = await _db.PayrollBatches
+            .Where(b => b.ProcessType == PayrollProcessType.Salary
+                && (b.Status == BatchStatus.Calculated || b.Status == BatchStatus.Draft))
+            .OrderByDescending(b => b.Year)
+            .ThenByDescending(b => b.Month)
+            .ThenByDescending(b => b.CreatedAt)
+            .ToListAsync();
+
+        var recalculated = 0;
+        var errors = new List<string>();
+        foreach (var batch in batches)
+        {
+            try
+            {
+                await CalculateBatchAsync(batch.Id);
+                recalculated++;
+            }
+            catch (InvalidOperationException ex)
+            {
+                errors.Add($"{batch.BatchCode}: {ex.Message}");
+            }
+        }
+
+        return (recalculated, errors);
+    }
+
     private PayStatement CalculateEmployeePayStatement(
         PayrollBatch batch, Employee employee,
         List<EmployeeCompensation> empComp,
@@ -248,6 +319,11 @@ public class PayrollCalculationEngine
                         : comp.FormulaExpression,
                     resolvedValues, rates);
             }
+            else if (assignment != null && comp.Category == ComponentCategory.Fixed)
+            {
+                // Fixed salary lines always use saved Employee Salary amounts (not formulas).
+                amount = assignment.Amount;
+            }
             else if (!string.IsNullOrEmpty(comp.FormulaExpression))
             {
                 amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates);
@@ -279,6 +355,42 @@ public class PayrollCalculationEngine
             });
         }
 
+        // Include fixed salary assignments even when the catalog row is inactive or miscategorized.
+        var processedComponentIds = lines.Select(l => l.ComponentId).ToHashSet();
+        foreach (var assignment in empComp.Where(ec => ec.Component.Category != ComponentCategory.Statutory))
+        {
+            if (processedComponentIds.Contains(assignment.ComponentId))
+                continue;
+
+            var comp = assignment.Component;
+            var isPoya = PayrollPoyaComponent.IsMatch(comp.Code, comp.Name);
+            if (isPoya)
+                continue;
+
+            var amount = assignment.Amount;
+            resolvedValues[comp.Code] = amount;
+            if (IsBasicComponentCode(comp.Code))
+                resolvedValues["BASIC"] = amount;
+            if (comp.Type == ComponentType.Earning && comp.IsTaxable)
+                taxableEarnings += amount;
+            if (comp.Type == ComponentType.Earning && comp.IsEpfApplicable)
+                epfEarnings += amount;
+            if (comp.Type == ComponentType.Earning && comp.IsEtfApplicable)
+                etfEarnings += amount;
+
+            lines.Add(new PayStatementLine
+            {
+                ComponentId = comp.Id,
+                ComponentName = comp.Name,
+                ComponentCode = comp.Code,
+                Type = comp.Type.ToString(),
+                Amount = amount,
+                IsEmployerContribution = comp.IsEmployerContribution,
+                SortOrder = comp.SortOrder,
+            });
+            processedComponentIds.Add(assignment.ComponentId);
+        }
+
         decimal totalEarnings = lines
             .Where(l => l.Type == ComponentType.Earning.ToString() && !l.IsEmployerContribution)
             .Sum(l => l.Amount);
@@ -291,8 +403,7 @@ public class PayrollCalculationEngine
         resolvedValues["TAXABLE_EARNINGS"] = taxableEarnings;
         decimal basicPay = ResolveBasicPay(resolvedValues, empComp, totalEarnings);
         resolvedValues["BASIC"] = basicPay;
-        var epfBase = epfEarnings > 0 ? epfEarnings : basicPay;
-        var etfBase = etfEarnings > 0 ? etfEarnings : basicPay;
+        var (epfBase, etfBase) = ResolveStatutoryBases(epfEarnings, etfEarnings, basicPay);
         resolvedValues["EPF_EARNINGS"] = epfBase;
         resolvedValues["ETF_EARNINGS"] = etfBase;
         decimal apitAmount = CalculateApitTable01(taxableEarnings);
@@ -396,6 +507,20 @@ public class PayrollCalculationEngine
     /// <summary>
     /// Resolves basic pay from BASIC or BASIC* component codes (e.g. BASIC1).
     /// </summary>
+    /// <summary>
+    /// EPF/ETF statutory bases. When ETF-applicable earnings are unset, reuse the EPF base
+    /// (then basic pay) so employer ETF is not dropped after a component is marked EPF-only.
+    /// </summary>
+    internal static (decimal EpfBase, decimal EtfBase) ResolveStatutoryBases(
+        decimal epfEarnings, decimal etfEarnings, decimal basicPay)
+    {
+        var epfBase = epfEarnings > 0 ? epfEarnings : basicPay;
+        var etfBase = etfEarnings > 0 ? etfEarnings : epfEarnings > 0 ? epfEarnings : basicPay;
+        return (epfBase, etfBase);
+    }
+
+    internal static decimal NormalizePayrollRate(decimal rate) => rate > 1m ? rate / 100m : rate;
+
     internal static decimal ResolveBasicPay(
         Dictionary<string, decimal> resolvedValues,
         List<EmployeeCompensation> empComp,
@@ -538,9 +663,12 @@ public class PayrollCalculationEngine
     {
         return new PayrollRates
         {
-            EpfEmployeeRate = decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployeeRate"), out var ee) ? ee : 0.08m,
-            EpfEmployerRate = decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployerRate"), out var er) ? er : 0.12m,
-            EtfEmployerRate = decimal.TryParse(await _settings.GetAsync("Payroll_ETF_EmployerRate"), out var etf) ? etf : 0.03m,
+            EpfEmployeeRate = NormalizePayrollRate(
+                decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployeeRate"), out var ee) ? ee : 0.08m),
+            EpfEmployerRate = NormalizePayrollRate(
+                decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployerRate"), out var er) ? er : 0.12m),
+            EtfEmployerRate = NormalizePayrollRate(
+                decimal.TryParse(await _settings.GetAsync("Payroll_ETF_EmployerRate"), out var etf) ? etf : 0.03m),
         };
     }
 }
