@@ -319,6 +319,7 @@ if (dbAvailable)
         await BankAccountSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, app.Configuration);
         await LeaveSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
+        await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
     }
     catch (Exception ex)
     {
@@ -327,10 +328,11 @@ if (dbAvailable)
         {
             var fallbackConn = builder.Configuration.GetConnectionString("DefaultConnection");
             await LeaveSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
+            await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
         }
         catch (Exception repairEx)
         {
-            Console.WriteLine($"WARNING: Leave schema repair after migration failure skipped: {repairEx.Message}");
+            Console.WriteLine($"WARNING: Schema repair after migration failure skipped: {repairEx.Message}");
         }
     }
 
@@ -384,10 +386,6 @@ if (dbAvailable)
         scope.ServiceProvider.GetRequiredService<OpenSkyHRM.Application.Interfaces.ILicensingService>().InvalidateCache();
         await OrganizationSeeder.RepairNullEmployeeEmailsAsync(db);
         await OrganizationSeeder.EnsureSampleEmployeesIfEmptyAsync(db);
-        await PayrollComponentSeeder.EnsureAsync(db);
-        await PayrollSeeder.EnsureStatutoryFormulasAsync(db);
-        if (app.Environment.IsDevelopment())
-            await PayrollSeeder.EnsureDemoSalary100kAsync(db);
         await OpenSkyHRM.Persistence.Seeders.EmployeeLifecycleTemplateSeeder.EnsureAsync(db);
         await DocumentTemplateSeeder.SeedAsync(db);
         await DocumentTemplateSeeder.EnsureLetterPackAsync(db);
@@ -414,6 +412,21 @@ if (dbAvailable)
     catch (Exception ex)
     {
         Console.WriteLine($"WARNING: Licensing defaults could not be ensured: {ex.Message}");
+    }
+
+    try
+    {
+        using var payrollScope = app.Services.CreateScope();
+        var payrollDb = payrollScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await PayrollComponentSeeder.EnsureAsync(payrollDb);
+        await PayrollSeeder.EnsureStatutoryFormulasAsync(payrollDb);
+        if (app.Environment.IsDevelopment())
+            await PayrollSeeder.EnsureDemoSalary100kAsync(payrollDb);
+        Console.WriteLine("INFO: Payroll compensation components ensured.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Payroll catalog could not be ensured: {ex.Message}");
     }
 
     try

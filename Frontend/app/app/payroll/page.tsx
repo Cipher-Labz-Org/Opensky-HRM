@@ -545,12 +545,20 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
 function ComponentsTab() {
   const [components, setComponents] = useState<Component[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Component | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
-    apiFetch<Component[]>("/api/payroll/components").then(setComponents).catch(() => {}).finally(() => setLoading(false));
+    setLoadError("");
+    apiFetch<Component[]>("/api/payroll/components")
+      .then(setComponents)
+      .catch((err) => {
+        setComponents([]);
+        setLoadError(err instanceof Error ? err.message : "Could not load compensation components.");
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -573,7 +581,11 @@ function ComponentsTab() {
         <Button onClick={() => { setEditing(null); setShowForm(true); }}>+ Add Component</Button>
       </div>
 
-      {components.length === 0 ? <EmptyState text="No components defined yet. Add your first component." /> : (
+      {loadError ? (
+        <InlinePageAlert message={loadError} />
+      ) : components.length === 0 ? (
+        <EmptyState text="No components defined yet. Add your first component." />
+      ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500">
