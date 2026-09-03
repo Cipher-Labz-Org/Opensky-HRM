@@ -12,6 +12,16 @@ ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "FormulaExpression
 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "DependsOnComponentCode" text;
 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEmployerContribution" boolean NOT NULL DEFAULT false;
 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "SortOrder" integer NOT NULL DEFAULT 0;
+ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEpfApplicable" boolean NOT NULL DEFAULT false;
+ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEtfApplicable" boolean NOT NULL DEFAULT false;
+
+UPDATE "CompensationComponents"
+SET "IsEpfApplicable" = "IsTaxable",
+    "IsEtfApplicable" = "IsTaxable"
+WHERE NOT "IsDeleted"
+  AND "IsEpfApplicable" = FALSE
+  AND "IsEtfApplicable" = FALSE
+  AND "IsTaxable" = TRUE;
 
 -- 2. PayrollBatches: add missing columns
 ALTER TABLE "PayrollBatches" ADD COLUMN IF NOT EXISTS "ApprovedBy" varchar(200);
@@ -77,31 +87,54 @@ WHERE NOT EXISTS (
 );
 
 -- ============================================================
--- 8. Seed common payroll components (skip if data exists)
+-- 8. Restore / seed default payroll components (per missing code)
 -- ============================================================
-INSERT INTO "CompensationComponents" ("Id","Name","Code","Type","Category","IsTaxable","IsStatutory","IsEmployerContribution","SortOrder","Description","IsActive","IsDeleted","CreatedAt","UpdatedAt")
-SELECT * FROM (VALUES
-  (gen_random_uuid(),'Basic Salary','BASIC','Earning','Fixed',true,false,false,10,'Monthly basic salary',true,false,now(),now()),
-  (gen_random_uuid(),'Transport Allowance','TA','Earning','Fixed',true,false,false,20,'Monthly transport / travel allowance',true,false,now(),now()),
-  (gen_random_uuid(),'Meal Allowance','MEAL','Earning','Fixed',false,false,false,30,'Daily meal / food allowance',true,false,now(),now()),
-  (gen_random_uuid(),'Housing Allowance','HOUSING','Earning','Fixed',true,false,false,40,'Monthly housing / rent allowance',true,false,now(),now()),
-  (gen_random_uuid(),'Communication Allowance','COMM','Earning','Fixed',false,false,false,50,'Phone and internet allowance',true,false,now(),now()),
-  (gen_random_uuid(),'Medical Allowance','MEDICAL','Earning','Fixed',false,false,false,60,'Monthly medical / health allowance',true,false,now(),now()),
-  (gen_random_uuid(),'Attendance Allowance','ATTEND','Earning','Fixed',true,false,false,70,'Allowance for full attendance',true,false,now(),now()),
-  (gen_random_uuid(),'Overtime','OT','Earning','Variable',true,false,false,100,'Overtime pay for additional hours',true,false,now(),now()),
-  (gen_random_uuid(),'Commission','COMMISSION','Earning','Variable',true,false,false,110,'Sales commission',true,false,now(),now()),
-  (gen_random_uuid(),'Incentive','INCENTIVE','Earning','Variable',true,false,false,120,'Performance incentive payment',true,false,now(),now()),
-  (gen_random_uuid(),'Bonus','BONUS','Earning','OneTime',true,false,false,200,'Annual or special bonus',true,false,now(),now()),
-  (gen_random_uuid(),'Festival Advance','FESTIVAL','Earning','OneTime',false,false,false,210,'Festival advance',true,false,now(),now()),
-  (gen_random_uuid(),'Loan Deduction','LOAN','Deduction','Fixed',false,false,false,300,'Monthly loan repayment deduction',true,false,now(),now()),
-  (gen_random_uuid(),'No-Pay Deduction','NOPAY','Deduction','Variable',false,false,false,310,'Deduction for no-pay leave days',true,false,now(),now()),
-  (gen_random_uuid(),'Salary Advance','ADVANCE','Deduction','Variable',false,false,false,320,'Salary advance recovery',true,false,now(),now()),
-  (gen_random_uuid(),'Insurance Premium','INSURANCE','Deduction','Fixed',false,false,false,330,'Employee insurance premium deduction',true,false,now(),now()),
-  (gen_random_uuid(),'EPF - Employee 8%','EPF_EE','StatutoryDeduction','Statutory',false,true,false,900,'EPF employee contribution (8%)',true,false,now(),now()),
-  (gen_random_uuid(),'EPF - Employer 12%','EPF_ER','StatutoryContribution','Statutory',false,true,true,910,'EPF employer contribution (12%)',true,false,now(),now()),
-  (gen_random_uuid(),'ETF - Employer 3%','ETF_ER','StatutoryContribution','Statutory',false,true,true,920,'ETF employer contribution (3%)',true,false,now(),now())
-) AS v("Id","Name","Code","Type","Category","IsTaxable","IsStatutory","IsEmployerContribution","SortOrder","Description","IsActive","IsDeleted","CreatedAt","UpdatedAt")
-WHERE NOT EXISTS (SELECT 1 FROM "CompensationComponents" LIMIT 1);
+UPDATE "CompensationComponents"
+SET "IsDeleted" = false, "IsActive" = true, "UpdatedAt" = now()
+WHERE "IsDeleted" = true
+  AND "Code" IN (
+    'BASIC','TA','MEAL','HOUSING','COMM','MEDICAL','ATTEND','POYA','OT','COMMISSION','INCENTIVE',
+    'BONUS','FESTIVAL','LOAN','NOPAY','ADVANCE','INSURANCE','EPF_EE','EPF_ER','ETF_ER','APIT'
+  );
+
+INSERT INTO "CompensationComponents" (
+  "Id","Name","Code","Type","Category","IsTaxable","IsEpfApplicable","IsEtfApplicable","IsStatutory",
+  "IsEmployerContribution","SortOrder","Description","FormulaExpression","DependsOnComponentCode",
+  "IsActive","IsDeleted","CreatedAt","UpdatedAt"
+)
+SELECT v."Id", v."Name", v."Code", v."Type", v."Category", v."IsTaxable", v."IsEpfApplicable", v."IsEtfApplicable",
+       v."IsStatutory", v."IsEmployerContribution", v."SortOrder", v."Description", v."FormulaExpression",
+       v."DependsOnComponentCode", v."IsActive", v."IsDeleted", v."CreatedAt", v."UpdatedAt"
+FROM (VALUES
+  (gen_random_uuid(),'Basic Salary','BASIC','Earning','Fixed',true,true,true,false,false,10,'Monthly basic salary',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Poya Day Pay','POYA','Earning','Fixed',true,true,true,false,false,15,'Pay for days worked on a Poya holiday (Basic ÷ 30 × Poya days)','BASIC / 30 * POYA_DAYS','BASIC',true,false,now(),now()),
+  (gen_random_uuid(),'Transport Allowance','TA','Earning','Fixed',true,true,true,false,false,20,'Monthly transport / travel allowance',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Meal Allowance','MEAL','Earning','Fixed',false,false,false,false,false,30,'Daily meal / food allowance',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Housing Allowance','HOUSING','Earning','Fixed',true,true,true,false,false,40,'Monthly housing / rent allowance',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Communication Allowance','COMM','Earning','Fixed',false,false,false,false,false,50,'Phone and internet allowance',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Medical Allowance','MEDICAL','Earning','Fixed',false,false,false,false,false,60,'Monthly medical / health allowance',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Attendance Allowance','ATTEND','Earning','Fixed',true,true,true,false,false,70,'Allowance for full attendance',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Overtime','OT','Earning','Variable',true,true,true,false,false,100,'Overtime pay for additional hours',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Commission','COMMISSION','Earning','Variable',true,true,true,false,false,110,'Sales commission',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Incentive','INCENTIVE','Earning','Variable',true,true,true,false,false,120,'Performance incentive payment',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Bonus','BONUS','Earning','OneTime',true,true,true,false,false,200,'Annual or special bonus',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Festival Advance','FESTIVAL','Earning','OneTime',false,false,false,false,false,210,'Festival advance',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Loan Deduction','LOAN','Deduction','Fixed',false,false,false,false,false,300,'Monthly loan repayment deduction',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'No-Pay Deduction','NOPAY','Deduction','Variable',false,false,false,false,false,310,'Deduction for no-pay leave days','BASIC / 30 * NOPAY_DAYS','BASIC',true,false,now(),now()),
+  (gen_random_uuid(),'Salary Advance','ADVANCE','Deduction','Variable',false,false,false,false,false,320,'Salary advance recovery',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'Insurance Premium','INSURANCE','Deduction','Fixed',false,false,false,false,false,330,'Employee insurance premium deduction',NULL,NULL,true,false,now(),now()),
+  (gen_random_uuid(),'EPF - Employee 8%','EPF_EE','StatutoryDeduction','Statutory',false,false,false,true,false,900,'EPF employee contribution (8%)','EPF_EARNINGS * EPF_EE_RATE','EPF_EARNINGS',true,false,now(),now()),
+  (gen_random_uuid(),'EPF - Employer 12%','EPF_ER','StatutoryContribution','Statutory',false,false,false,true,true,910,'EPF employer contribution (12%)','EPF_EARNINGS * EPF_ER_RATE','EPF_EARNINGS',true,false,now(),now()),
+  (gen_random_uuid(),'ETF - Employer 3%','ETF_ER','StatutoryContribution','Statutory',false,false,false,true,true,920,'ETF employer contribution (3%)','ETF_EARNINGS * ETF_RATE','ETF_EARNINGS',true,false,now(),now()),
+  (gen_random_uuid(),'APIT','APIT','StatutoryDeduction','Statutory',false,false,false,true,false,905,'Advance Personal Income Tax — IRD Table 01','APIT_AMOUNT','TAXABLE_EARNINGS',true,false,now(),now())
+) AS v(
+  "Id","Name","Code","Type","Category","IsTaxable","IsEpfApplicable","IsEtfApplicable","IsStatutory",
+  "IsEmployerContribution","SortOrder","Description","FormulaExpression","DependsOnComponentCode",
+  "IsActive","IsDeleted","CreatedAt","UpdatedAt"
+)
+WHERE NOT EXISTS (
+  SELECT 1 FROM "CompensationComponents" c WHERE c."Code" = v."Code"
+);
 
 -- 9. Seed default EPF/ETF rates
 INSERT INTO "SystemSettings" ("Key","Value","Description")

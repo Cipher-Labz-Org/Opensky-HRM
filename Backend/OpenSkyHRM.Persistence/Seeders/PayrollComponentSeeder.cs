@@ -104,26 +104,36 @@ public static class PayrollComponentSeeder
 
     /// <summary>
     /// Ensures the full default payroll component catalog and rate settings exist (idempotent).
+    /// Restores soft-deleted default codes — unique Code still occupies the row after UI delete,
+    /// so a filtered lookup would try to insert duplicates and leave Payroll Components empty.
     /// </summary>
     public static async Task EnsureAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {
-        var existing = await context.CompensationComponents.ToListAsync(cancellationToken);
-        var knownCodes = new HashSet<string>(existing.Select(c => c.Code), StringComparer.OrdinalIgnoreCase);
-        var hasPoyaComponent = existing.Any(c => PayrollPoyaComponent.IsMatch(c.Code, c.Name));
+        var existing = await context.CompensationComponents
+            .IgnoreQueryFilters()
+            .ToListAsync(cancellationToken);
 
         foreach (var definition in DefaultComponents)
         {
-            if (knownCodes.Contains(definition.Code))
+            var match = FindExisting(existing, definition);
+            if (match is not null)
+            {
+                if (match.IsDeleted)
+                {
+                    match.IsDeleted = false;
+                    match.IsActive = true;
+                }
                 continue;
-            if (definition.Code.Equals(PayrollPoyaComponent.DefaultCode, StringComparison.OrdinalIgnoreCase)
-                && hasPoyaComponent)
-                continue;
+            }
 
-            context.CompensationComponents.Add(ToEntity(definition));
+            var entity = ToEntity(definition);
+            context.CompensationComponents.Add(entity);
+            existing.Add(entity);
         }
 
-        foreach (var component in existing.Where(c => c.IsActive && PayrollPoyaComponent.IsMatch(c.Code, c.Name)))
+        foreach (var component in existing.Where(c => !c.IsDeleted && PayrollPoyaComponent.IsMatch(c.Code, c.Name)))
         {
+            component.IsActive = true;
             component.FormulaExpression = PayrollPoyaComponent.FormulaExpression;
             component.DependsOnComponentCode = PayrollPoyaComponent.DependsOnComponentCode;
             component.IsTaxable = true;
@@ -145,6 +155,21 @@ public static class PayrollComponentSeeder
         }
 
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static CompensationComponent? FindExisting(
+        IReadOnlyCollection<CompensationComponent> existing,
+        PayrollComponentDefinition definition)
+    {
+        var byCode = existing.FirstOrDefault(c =>
+            c.Code.Equals(definition.Code, StringComparison.OrdinalIgnoreCase));
+        if (byCode is not null)
+            return byCode;
+
+        if (definition.Code.Equals(PayrollPoyaComponent.DefaultCode, StringComparison.OrdinalIgnoreCase))
+            return existing.FirstOrDefault(c => PayrollPoyaComponent.IsMatch(c.Code, c.Name));
+
+        return null;
     }
 
     private static CompensationComponent ToEntity(PayrollComponentDefinition definition) =>
