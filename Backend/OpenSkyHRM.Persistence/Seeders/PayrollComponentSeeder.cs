@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 
@@ -18,6 +19,8 @@ public static class PayrollComponentSeeder
         int SortOrder,
         string Description,
         bool IsTaxable = false,
+        bool IsEpfApplicable = false,
+        bool IsEtfApplicable = false,
         bool IsStatutory = false,
         bool IsEmployerContribution = false,
         string? FormulaExpression = null,
@@ -27,31 +30,36 @@ public static class PayrollComponentSeeder
     [
         // Fixed earnings
         new("Basic Salary", "BASIC", ComponentType.Earning, ComponentCategory.Fixed, 10,
-            "Monthly basic salary", IsTaxable: true),
+            "Monthly basic salary", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
         new("Transport Allowance", "TA", ComponentType.Earning, ComponentCategory.Fixed, 20,
-            "Monthly transport / travel allowance", IsTaxable: true),
+            "Monthly transport / travel allowance", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
         new("Meal Allowance", "MEAL", ComponentType.Earning, ComponentCategory.Fixed, 30,
             "Daily meal / food allowance"),
         new("Housing Allowance", "HOUSING", ComponentType.Earning, ComponentCategory.Fixed, 40,
-            "Monthly housing / rent allowance", IsTaxable: true),
+            "Monthly housing / rent allowance", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
         new("Communication Allowance", "COMM", ComponentType.Earning, ComponentCategory.Fixed, 50,
             "Phone and internet allowance"),
         new("Medical Allowance", "MEDICAL", ComponentType.Earning, ComponentCategory.Fixed, 60,
             "Monthly medical / health allowance"),
         new("Attendance Allowance", "ATTEND", ComponentType.Earning, ComponentCategory.Fixed, 70,
-            "Allowance for full attendance in the month", IsTaxable: true),
+            "Allowance for full attendance in the month", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
+        new("Poya Day Pay", PayrollPoyaComponent.DefaultCode, ComponentType.Earning, ComponentCategory.Fixed, 15,
+            "Pay for days worked on a Poya holiday (Basic ÷ 30 × Poya days)",
+            IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true,
+            FormulaExpression: PayrollPoyaComponent.FormulaExpression,
+            DependsOnComponentCode: PayrollPoyaComponent.DependsOnComponentCode),
 
         // Variable earnings
         new("Overtime", "OT", ComponentType.Earning, ComponentCategory.Variable, 100,
-            "Overtime pay for additional hours worked", IsTaxable: true),
+            "Overtime pay for additional hours worked", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
         new("Commission", "COMMISSION", ComponentType.Earning, ComponentCategory.Variable, 110,
-            "Sales commission or performance-based pay", IsTaxable: true),
+            "Sales commission or performance-based pay", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
         new("Incentive", "INCENTIVE", ComponentType.Earning, ComponentCategory.Variable, 120,
-            "Performance incentive payment", IsTaxable: true),
+            "Performance incentive payment", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
 
         // One-time earnings
         new("Bonus", "BONUS", ComponentType.Earning, ComponentCategory.OneTime, 200,
-            "Annual or special bonus payment", IsTaxable: true),
+            "Annual or special bonus payment", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
         new("Festival Advance", "FESTIVAL", ComponentType.Earning, ComponentCategory.OneTime, 210,
             "Festival advance (Sinhala/Tamil New Year, Vesak, etc.)"),
 
@@ -68,17 +76,21 @@ public static class PayrollComponentSeeder
 
         // Statutory
         new("EPF - Employee 8%", "EPF_EE", ComponentType.StatutoryDeduction, ComponentCategory.Statutory, 900,
-            "Employee Provident Fund — employee contribution (8% of gross)",
+            "Employee Provident Fund — employee contribution (8% of EPF-applicable earnings)",
             IsStatutory: true,
-            FormulaExpression: "TAXABLE_EARNINGS * EPF_EE_RATE", DependsOnComponentCode: "TAXABLE_EARNINGS"),
+            FormulaExpression: "EPF_EARNINGS * EPF_EE_RATE", DependsOnComponentCode: "EPF_EARNINGS"),
         new("EPF - Employer 12%", "EPF_ER", ComponentType.StatutoryContribution, ComponentCategory.Statutory, 910,
-            "Employee Provident Fund — employer contribution (12% of gross)",
+            "Employee Provident Fund — employer contribution (12% of EPF-applicable earnings)",
             IsStatutory: true, IsEmployerContribution: true,
-            FormulaExpression: "TAXABLE_EARNINGS * EPF_ER_RATE", DependsOnComponentCode: "TAXABLE_EARNINGS"),
+            FormulaExpression: "EPF_EARNINGS * EPF_ER_RATE", DependsOnComponentCode: "EPF_EARNINGS"),
         new("ETF - Employer 3%", "ETF_ER", ComponentType.StatutoryContribution, ComponentCategory.Statutory, 920,
-            "Employee Trust Fund — employer contribution (3% of gross)",
+            "Employee Trust Fund — employer contribution (3% of ETF-applicable earnings)",
             IsStatutory: true, IsEmployerContribution: true,
-            FormulaExpression: "TAXABLE_EARNINGS * ETF_RATE", DependsOnComponentCode: "TAXABLE_EARNINGS"),
+            FormulaExpression: "ETF_EARNINGS * ETF_RATE", DependsOnComponentCode: "ETF_EARNINGS"),
+        new("APIT", "APIT", ComponentType.StatutoryDeduction, ComponentCategory.Statutory, 905,
+            "Advance Personal Income Tax — IRD Table 01 on taxable earnings",
+            IsStatutory: true,
+            FormulaExpression: "APIT_AMOUNT", DependsOnComponentCode: "TAXABLE_EARNINGS"),
     ];
 
     private static readonly (string Key, string Value, string Description)[] DefaultSystemSettings =
@@ -95,18 +107,28 @@ public static class PayrollComponentSeeder
     /// </summary>
     public static async Task EnsureAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {
-        var existingCodes = await context.CompensationComponents
-            .AsNoTracking()
-            .Select(c => c.Code)
-            .ToListAsync(cancellationToken);
-        var knownCodes = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
+        var existing = await context.CompensationComponents.ToListAsync(cancellationToken);
+        var knownCodes = new HashSet<string>(existing.Select(c => c.Code), StringComparer.OrdinalIgnoreCase);
+        var hasPoyaComponent = existing.Any(c => PayrollPoyaComponent.IsMatch(c.Code, c.Name));
 
         foreach (var definition in DefaultComponents)
         {
             if (knownCodes.Contains(definition.Code))
                 continue;
+            if (definition.Code.Equals(PayrollPoyaComponent.DefaultCode, StringComparison.OrdinalIgnoreCase)
+                && hasPoyaComponent)
+                continue;
 
             context.CompensationComponents.Add(ToEntity(definition));
+        }
+
+        foreach (var component in existing.Where(c => c.IsActive && PayrollPoyaComponent.IsMatch(c.Code, c.Name)))
+        {
+            component.FormulaExpression = PayrollPoyaComponent.FormulaExpression;
+            component.DependsOnComponentCode = PayrollPoyaComponent.DependsOnComponentCode;
+            component.IsTaxable = true;
+            component.IsEpfApplicable = true;
+            component.IsEtfApplicable = true;
         }
 
         foreach (var (key, value, description) in DefaultSystemSettings)
@@ -135,6 +157,8 @@ public static class PayrollComponentSeeder
             SortOrder = definition.SortOrder,
             Description = definition.Description,
             IsTaxable = definition.IsTaxable,
+            IsEpfApplicable = definition.IsEpfApplicable,
+            IsEtfApplicable = definition.IsEtfApplicable,
             IsStatutory = definition.IsStatutory,
             IsEmployerContribution = definition.IsEmployerContribution,
             FormulaExpression = definition.FormulaExpression,

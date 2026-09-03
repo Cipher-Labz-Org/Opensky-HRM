@@ -1351,6 +1351,12 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<bool>("IsEmployerContribution")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsEpfApplicable")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsEtfApplicable")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsStatutory")
                         .HasColumnType("boolean");
 
@@ -4437,6 +4443,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<string>("ApprovedBy")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -4478,6 +4487,13 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<DateTime?>("ProcessedAt")
                         .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("SelectedEmployeeIds")
                         .HasColumnType("text");
@@ -4553,6 +4569,9 @@ namespace OpenSkyHRM.Persistence.Migrations
 
                     b.Property<bool>("OtOutdated")
                         .HasColumnType("boolean");
+
+                    b.Property<decimal>("PoyaDaysWorked")
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<int>("TotalNopayDays")
                         .HasColumnType("integer");

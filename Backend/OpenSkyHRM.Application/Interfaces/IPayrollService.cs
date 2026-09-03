@@ -28,11 +28,16 @@ public interface IPayrollService
     Task<PagedResult<PayrollBatchDto>> GetBatchesAsync(int page = 1, int pageSize = 20);
     Task<PayrollBatchDto?> GetBatchByIdAsync(Guid id);
     Task<PayrollBatchDto> CreateBatchAsync(CreatePayrollBatchDto dto);
+    Task<PayrollBatchDto?> ReviewBatchAsync(Guid id, string reviewedBy);
+    Task<PayrollBatchDto?> ApproveBatchAsync(Guid id, string approvedBy);
+    Task<PayrollBatchDto?> ReturnBatchToCalculatedAsync(Guid id);
+    Task<PayrollBatchDto?> FinalizeBatchAsync(Guid id);
     Task<bool> DeleteBatchAsync(Guid id);
 
     // Pay Statements
     Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null);
     Task<PayStatementDto?> GetStatementByIdAsync(Guid id);
+    Task<List<PayStatementDto>> GetStatementsByBatchAsync(Guid batchId);
     Task<List<PayStatementDto>> GetStatementsByEmployeeAsync(Guid employeeId);
 
     // Settings

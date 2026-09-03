@@ -13,6 +13,7 @@ public class LicensingSummaryDto
     public DateTime ValidFrom { get; set; }
     public DateTime? ValidUntil { get; set; }
     public List<string> LicensedModules { get; set; } = new();
+    public int? MaxEmployees { get; set; }
 }
 
 public class InstanceSubscriptionDto

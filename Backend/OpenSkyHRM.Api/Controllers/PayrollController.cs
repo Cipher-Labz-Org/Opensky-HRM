@@ -219,8 +219,15 @@ public class PayrollController : ControllerBase
     [HttpPost("batches")]
     public async Task<IActionResult> CreateBatch([FromBody] CreatePayrollBatchDto dto)
     {
-        var result = await _payrollService.CreateBatchAsync(dto);
-        return Created(string.Empty, result);
+        try
+        {
+            var result = await _payrollService.CreateBatchAsync(dto);
+            return Created(string.Empty, result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpGet("active-employees")]
@@ -246,7 +253,10 @@ public class PayrollController : ControllerBase
     }
 
     [HttpGet("eligible-employees")]
-    public async Task<IActionResult> GetEligibleEmployees()
+    public async Task<IActionResult> GetEligibleEmployees(
+        [FromQuery] int? month = null,
+        [FromQuery] int? year = null,
+        [FromQuery] string? processType = null)
     {
         var employeesWithComp = await _db.EmployeeCompensations
             .Where(ec => ec.IsActive && (ec.EffectiveTo == null || ec.EffectiveTo >= DateTime.UtcNow))
@@ -262,6 +272,14 @@ public class PayrollController : ControllerBase
             .OrderBy(e => e.FirstName).ThenBy(e => e.LastName)
             .ToListAsync();
 
+        if (month is > 0 and <= 12
+            && year is >= 2000
+            && Enum.TryParse<PayrollProcessType>(processType, ignoreCase: true, out var parsedType))
+        {
+            var alreadyInPeriod = await PayrollPeriodOccupancy.GetEmployeeIdsAsync(_db, year.Value, month.Value, parsedType);
+            employees = employees.Where(e => !alreadyInPeriod.Contains(e.Id)).ToList();
+        }
+
         return Ok(employees.Select(e => new {
             e.Id,
             e.EmployeeCode,
@@ -271,6 +289,14 @@ public class PayrollController : ControllerBase
             grade = e.Grade?.Name ?? "",
             location = e.Location?.Name ?? "",
         }));
+    }
+
+    [HttpGet("batches/{id:guid}/statements")]
+    public async Task<IActionResult> GetBatchStatements(Guid id)
+    {
+        var batch = await _db.PayrollBatches.FindAsync(id);
+        if (batch is null) return NotFound();
+        return Ok(await _payrollService.GetStatementsByBatchAsync(id));
     }
 
     [HttpPost("batches/{id:guid}/calculate")]
@@ -319,35 +345,60 @@ public class PayrollController : ControllerBase
         }
     }
 
+    [HttpPut("batches/{id:guid}/review")]
+    public async Task<IActionResult> ReviewBatch(Guid id)
+    {
+        try
+        {
+            var result = await _payrollService.ReviewBatchAsync(id, User.Identity?.Name ?? "System");
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("batches/{id:guid}/return")]
+    public async Task<IActionResult> ReturnBatch(Guid id)
+    {
+        try
+        {
+            var result = await _payrollService.ReturnBatchToCalculatedAsync(id);
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPut("batches/{id:guid}/approve")]
     public async Task<IActionResult> ApproveBatch(Guid id)
     {
-        var batch = await _db.PayrollBatches.FindAsync(id);
-        if (batch is null) return NotFound();
-        if (batch.Status != BatchStatus.Calculated && batch.Status != BatchStatus.Reviewed)
-            return BadRequest(new { message = $"Batch must be in Calculated or Reviewed status. Current: {batch.Status}" });
-
-        batch.Status = BatchStatus.Approved;
-        batch.ApprovedBy = User.Identity?.Name ?? "System";
-        await _db.SaveChangesAsync();
-        return Ok(await _payrollService.GetBatchByIdAsync(id));
+        try
+        {
+            var result = await _payrollService.ApproveBatchAsync(id, User.Identity?.Name ?? "System");
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("batches/{id:guid}/finalize")]
     public async Task<IActionResult> FinalizeBatch(Guid id)
     {
-        var batch = await _db.PayrollBatches
-            .Include(b => b.PayStatements)
-            .FirstOrDefaultAsync(b => b.Id == id);
-        if (batch is null) return NotFound();
-        if (batch.Status != BatchStatus.Approved)
-            return BadRequest(new { message = $"Batch must be Approved before finalizing. Current: {batch.Status}" });
-
-        batch.Status = BatchStatus.Finalized;
-        foreach (var stmt in batch.PayStatements)
-            stmt.Status = PayStatementStatus.Finalized;
-        await _db.SaveChangesAsync();
-        return Ok(await _payrollService.GetBatchByIdAsync(id));
+        try
+        {
+            var result = await _payrollService.FinalizeBatchAsync(id);
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("batches/{id:guid}")]

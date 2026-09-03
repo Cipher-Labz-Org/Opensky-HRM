@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.Payroll;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
@@ -40,27 +41,14 @@ public class PayrollCalculationEngine
         if (selectedIds is null || selectedIds.Count == 0)
             throw new InvalidOperationException("No employees selected for this batch. Please delete and create a new batch with employees selected.");
 
+        var alreadyPaid = await PayrollPeriodOccupancy.GetEmployeeIdsAsync(
+            _db, batch.Year, batch.Month, batch.ProcessType, exceptBatchId: batch.Id);
+        selectedIds = selectedIds.Where(id => !alreadyPaid.Contains(id)).Distinct().ToList();
+        if (selectedIds.Count == 0)
+            throw new InvalidOperationException(
+                "Every selected employee already has a payroll for this month. Select only employees who are not in another batch for the same period.");
+
         await PayrollComponentSeeder.EnsureAsync(_db);
-
-        // Bulk-delete previous lines then statements (bypasses change tracker to avoid concurrency issues)
-        var oldStatementIds = await _db.PayStatements
-            .IgnoreQueryFilters()
-            .Where(s => s.BatchId == batchId)
-            .Select(s => s.Id)
-            .ToListAsync();
-
-        if (oldStatementIds.Count > 0)
-        {
-            await _db.PayStatementLines
-                .IgnoreQueryFilters()
-                .Where(l => oldStatementIds.Contains(l.PayStatementId))
-                .ExecuteDeleteAsync();
-
-            await _db.PayStatements
-                .IgnoreQueryFilters()
-                .Where(s => s.BatchId == batchId)
-                .ExecuteDeleteAsync();
-        }
 
         var rates = await LoadRatesAsync();
 
@@ -139,18 +127,63 @@ public class PayrollCalculationEngine
         var attendanceSnapshots = await _db.PayrollBatchAttendanceSnapshots
             .Where(s => s.BatchId == batchId)
             .ToDictionaryAsync(s => s.EmployeeId);
+        var poyaDaysByEmp = includeStatutory
+            ? await PayrollPoyaAttendance.GetDaysWorkedByEmployeeAsync(
+                _db, employeeIdSet, periodStart, periodEnd)
+            : new Dictionary<Guid, decimal>();
+        var missingSalary = new List<string>();
 
         foreach (var employee in activeEmployees)
         {
             var empComp = allCompensations.Where(c => c.EmployeeId == employee.Id).ToList();
             attendanceSnapshots.TryGetValue(employee.Id, out var snapshot);
 
-            // Allow employees with attendance snapshot (NOPAY) even if no other compensation yet
-            if (empComp.Count == 0 && snapshot == null) continue;
+            if (empComp.Count == 0 && snapshot == null)
+            {
+                if (includeStatutory)
+                {
+                    var label = string.IsNullOrWhiteSpace(employee.EmployeeCode)
+                        ? $"{employee.FirstName} {employee.LastName}".Trim()
+                        : employee.EmployeeCode;
+                    missingSalary.Add(label);
+                }
+                continue;
+            }
+
+            var poyaDays = poyaDaysByEmp.GetValueOrDefault(employee.Id);
+            if (poyaDays <= 0)
+                poyaDays = snapshot?.PoyaDaysWorked ?? 0;
 
             var statement = CalculateEmployeePayStatement(
-                batch, employee, empComp, relevantComponents, rates, includeStatutory, snapshot);
+                batch, employee, empComp, relevantComponents, rates, includeStatutory, snapshot, poyaDays);
             newStatements.Add(statement);
+        }
+
+        if (missingSalary.Count > 0)
+            throw new InvalidOperationException(
+                $"No salary found on the Employee Salary tab for: {string.Join(", ", missingSalary)}. Add their fixed salary, then calculate again.");
+
+        if (newStatements.Count == 0)
+            throw new InvalidOperationException(
+                "No pay slips were generated. Add employee salary on the Employee Salary tab, then calculate again.");
+
+        var oldStatementIds = await _db.PayStatements
+            .IgnoreQueryFilters()
+            .Where(s => s.BatchId == batchId)
+            .Select(s => s.Id)
+            .ToListAsync();
+
+        if (oldStatementIds.Count > 0)
+        {
+            await _db.PayStatementLines
+                .IgnoreQueryFilters()
+                .Where(l => oldStatementIds.Contains(l.PayStatementId))
+                .ExecuteDeleteAsync();
+
+            await _db.PayStatements
+                .IgnoreQueryFilters()
+                .Where(s => s.BatchId == batchId)
+                .ExecuteDeleteAsync();
         }
 
         _db.PayStatements.AddRange(newStatements);
@@ -173,7 +206,8 @@ public class PayrollCalculationEngine
         List<CompensationComponent> allComponents,
         PayrollRates rates,
         bool includeStatutory,
-        PayrollBatchAttendanceSnapshot? attendanceSnapshot = null)
+        PayrollBatchAttendanceSnapshot? attendanceSnapshot = null,
+        decimal poyaDaysWorked = 0)
     {
         var resolvedValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
@@ -181,19 +215,40 @@ public class PayrollCalculationEngine
         {
             resolvedValues["NOPAY_DAYS"] = attendanceSnapshot.TotalNopayDays;
             resolvedValues["OT_HOURS"] = attendanceSnapshot.ApprovedOtHours;
+            if (poyaDaysWorked <= 0)
+                poyaDaysWorked = attendanceSnapshot.PoyaDaysWorked;
         }
+
+        var poyaAssignment = empComp.FirstOrDefault(ec =>
+            PayrollPoyaComponent.IsMatch(ec.Component?.Code, ec.Component?.Name));
+        resolvedValues["POYA_DAYS"] = PayrollPoyaComponent.ResolveDays(poyaAssignment?.Amount, poyaDaysWorked);
 
         var lines = new List<PayStatementLine>();
         decimal taxableEarnings = 0;
+        decimal epfEarnings = 0;
+        decimal etfEarnings = 0;
 
         // Phase 1: Resolve fixed/variable earnings from employee compensation assignments
         foreach (var comp in allComponents.Where(c => c.Category != ComponentCategory.Statutory))
         {
+            var isPoya = PayrollPoyaComponent.IsMatch(comp.Code, comp.Name);
             var assignment = empComp.FirstOrDefault(ec => ec.ComponentId == comp.Id);
-            if (assignment is null && string.IsNullOrEmpty(comp.FormulaExpression)) continue;
+            if (assignment is null && string.IsNullOrEmpty(comp.FormulaExpression) && !isPoya) continue;
 
             decimal amount;
-            if (!string.IsNullOrEmpty(comp.FormulaExpression))
+            if (isPoya && assignment != null && PayrollPoyaComponent.IsLumpSumPay(assignment.Amount))
+            {
+                amount = assignment.Amount;
+            }
+            else if (isPoya)
+            {
+                amount = EvaluateFormula(
+                    string.IsNullOrEmpty(comp.FormulaExpression)
+                        ? PayrollPoyaComponent.FormulaExpression
+                        : comp.FormulaExpression,
+                    resolvedValues, rates);
+            }
+            else if (!string.IsNullOrEmpty(comp.FormulaExpression))
             {
                 amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates);
             }
@@ -207,6 +262,10 @@ public class PayrollCalculationEngine
                 resolvedValues["BASIC"] = amount;
             if (comp.Type == ComponentType.Earning && comp.IsTaxable)
                 taxableEarnings += amount;
+            if (comp.Type == ComponentType.Earning && comp.IsEpfApplicable)
+                epfEarnings += amount;
+            if (comp.Type == ComponentType.Earning && comp.IsEtfApplicable)
+                etfEarnings += amount;
 
             lines.Add(new PayStatementLine
             {
@@ -232,14 +291,20 @@ public class PayrollCalculationEngine
         resolvedValues["TAXABLE_EARNINGS"] = taxableEarnings;
         decimal basicPay = ResolveBasicPay(resolvedValues, empComp, totalEarnings);
         resolvedValues["BASIC"] = basicPay;
+        var epfBase = epfEarnings > 0 ? epfEarnings : basicPay;
+        var etfBase = etfEarnings > 0 ? etfEarnings : basicPay;
+        resolvedValues["EPF_EARNINGS"] = epfBase;
+        resolvedValues["ETF_EARNINGS"] = etfBase;
+        decimal apitAmount = CalculateApitTable01(taxableEarnings);
+        resolvedValues["APIT_AMOUNT"] = apitAmount;
+        resolvedValues["APIT"] = apitAmount;
 
         if (includeStatutory)
         {
-            // Phase 2: Statutory — EPF/ETF base is taxable earnings (falls back to basic)
-            var epfBase = taxableEarnings > 0 ? taxableEarnings : basicPay;
+            // Phase 2: EPF/ETF use applicable-earnings bases; APIT uses taxable earnings (IRD Table 01)
             decimal epfEmployee = Math.Round(epfBase * rates.EpfEmployeeRate, 2);
             decimal epfEmployer = Math.Round(epfBase * rates.EpfEmployerRate, 2);
-            decimal etfEmployer = Math.Round(epfBase * rates.EtfEmployerRate, 2);
+            decimal etfEmployer = Math.Round(etfBase * rates.EtfEmployerRate, 2);
 
             // Statutory components from master list (formula-based)
             foreach (var comp in allComponents.Where(c => c.Category == ComponentCategory.Statutory))
@@ -256,6 +321,7 @@ public class PayrollCalculationEngine
                         "EPF_EE" => epfEmployee,
                         "EPF_ER" => epfEmployer,
                         "ETF_ER" => etfEmployer,
+                        "APIT" => apitAmount,
                         _ => 0
                     };
                 }
@@ -358,6 +424,24 @@ public class PayrollCalculationEngine
     private static bool IsBasicComponentCode(string code) =>
         code.Equals("BASIC", StringComparison.OrdinalIgnoreCase)
         || code.StartsWith("BASIC", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// IRD Tax Table 01 (Y/A 2025/26) — monthly APIT on regular taxable profits.
+    /// </summary>
+    internal static decimal CalculateApitTable01(decimal taxableEarnings)
+    {
+        if (taxableEarnings <= 150_000m)
+            return 0;
+        if (taxableEarnings <= 233_333m)
+            return Math.Round(taxableEarnings * 0.06m - 9_000m, 2);
+        if (taxableEarnings <= 275_000m)
+            return Math.Round(taxableEarnings * 0.18m - 37_000m, 2);
+        if (taxableEarnings <= 316_667m)
+            return Math.Round(taxableEarnings * 0.24m - 53_500m, 2);
+        if (taxableEarnings <= 358_333m)
+            return Math.Round(taxableEarnings * 0.30m - 72_500m, 2);
+        return Math.Max(0, Math.Round(taxableEarnings * 0.36m - 94_000m, 2));
+    }
 
     /// <summary>
     /// Simple expression evaluator: supports component code references, arithmetic (+, -, *, /),
