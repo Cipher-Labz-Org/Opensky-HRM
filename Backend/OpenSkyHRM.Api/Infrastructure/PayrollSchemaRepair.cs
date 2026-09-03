@@ -27,20 +27,33 @@ public static class PayrollSchemaRepair
                 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEpfApplicable" boolean NOT NULL DEFAULT FALSE;
                 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEtfApplicable" boolean NOT NULL DEFAULT FALSE;
 
+                -- Phase 1: Earning components marked taxable should default to EPF+ETF applicable
+                -- when both flags are still at their default FALSE values.
                 UPDATE "CompensationComponents"
-                SET "IsEpfApplicable" = "IsTaxable",
-                    "IsEtfApplicable" = "IsTaxable"
+                SET "IsEpfApplicable" = TRUE,
+                    "IsEtfApplicable" = TRUE
                 WHERE NOT "IsDeleted"
                   AND "IsEpfApplicable" = FALSE
                   AND "IsEtfApplicable" = FALSE
-                  AND "IsTaxable" = TRUE;
+                  AND "IsTaxable" = TRUE
+                  AND "Type" = 'Earning';
 
+                -- Phase 2: Earning components with EPF but missing ETF (old single-select UI bug)
                 UPDATE "CompensationComponents"
                 SET "IsEtfApplicable" = TRUE
                 WHERE NOT "IsDeleted"
                   AND "IsEpfApplicable" = TRUE
                   AND "IsEtfApplicable" = FALSE
                   AND "Type" = 'Earning';
+
+                -- Phase 3: Known default catalog codes that must always have EPF+ETF
+                UPDATE "CompensationComponents"
+                SET "IsEpfApplicable" = TRUE,
+                    "IsEtfApplicable" = TRUE
+                WHERE NOT "IsDeleted"
+                  AND "Type" = 'Earning'
+                  AND "Code" IN ('BASIC','TA','HOUSING','ATTEND','OT','COMMISSION','INCENTIVE','BONUS','POYA_DAY_PAY')
+                  AND ("IsEpfApplicable" = FALSE OR "IsEtfApplicable" = FALSE);
                 """;
             await cmd.ExecuteNonQueryAsync();
             Console.WriteLine("INFO: Payroll compensation-component schema columns verified.");

@@ -467,7 +467,15 @@ public class PayrollService : IPayrollService
         query = await RestrictToCanonicalStatementsAsync(query);
 
         var total = await query.CountAsync();
-        var rows = await query
+
+        // Sort by employee code (ascending, numeric-aware) then newest period first.
+        // Paginate in SQL to avoid loading all rows into memory.
+        var items = await query
+            .OrderBy(p => p.Employee.EmployeeCode)
+            .ThenByDescending(p => p.Year)
+            .ThenByDescending(p => p.Month)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(p => new PayStatementDto
             {
                 Id = p.Id, BatchId = p.BatchId, EmployeeId = p.EmployeeId,
@@ -481,14 +489,14 @@ public class PayrollService : IPayrollService
             })
             .ToListAsync();
 
-        var items = rows
+        // Apply numeric-aware re-sort on the page slice for codes like EMP-001, EMP-002
+        items = items
             .OrderBy(p => EmployeeCodeSort.NumericKey(p.EmployeeCode))
             .ThenBy(p => p.EmployeeCode, StringComparer.OrdinalIgnoreCase)
             .ThenByDescending(p => p.Year)
             .ThenByDescending(p => p.Month)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
             .ToList();
+
         return new PagedResult<PayStatementDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
 

@@ -186,8 +186,13 @@ public static class PayrollComponentSeeder
         if (definition.Type != ComponentType.Earning)
             return;
 
-        // Repair catalog rows left with EPF-only after the old single-select UI cleared ETF.
-        if (definition.IsEpfApplicable && definition.IsEtfApplicable && match.IsEpfApplicable && !match.IsEtfApplicable)
+        // Repair EPF/ETF flags: ensure catalog components match the definition.
+        // This covers rows left with EPF-only (old single-select UI cleared ETF),
+        // and rows where both flags were never set (migration didn't run or schema
+        // repair only partially applied on live).
+        if (definition.IsEpfApplicable && !match.IsEpfApplicable)
+            match.IsEpfApplicable = true;
+        if (definition.IsEtfApplicable && !match.IsEtfApplicable)
             match.IsEtfApplicable = true;
     }
 
