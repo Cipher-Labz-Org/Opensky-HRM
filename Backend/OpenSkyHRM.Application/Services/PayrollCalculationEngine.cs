@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.Payroll;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
@@ -126,6 +127,10 @@ public class PayrollCalculationEngine
         var attendanceSnapshots = await _db.PayrollBatchAttendanceSnapshots
             .Where(s => s.BatchId == batchId)
             .ToDictionaryAsync(s => s.EmployeeId);
+        var poyaDaysByEmp = includeStatutory
+            ? await PayrollPoyaAttendance.GetDaysWorkedByEmployeeAsync(
+                _db, employeeIdSet, periodStart, periodEnd)
+            : new Dictionary<Guid, decimal>();
         var missingSalary = new List<string>();
 
         foreach (var employee in activeEmployees)
@@ -145,8 +150,12 @@ public class PayrollCalculationEngine
                 continue;
             }
 
+            var poyaDays = poyaDaysByEmp.GetValueOrDefault(employee.Id);
+            if (poyaDays <= 0)
+                poyaDays = snapshot?.PoyaDaysWorked ?? 0;
+
             var statement = CalculateEmployeePayStatement(
-                batch, employee, empComp, relevantComponents, rates, includeStatutory, snapshot);
+                batch, employee, empComp, relevantComponents, rates, includeStatutory, snapshot, poyaDays);
             newStatements.Add(statement);
         }
 
@@ -197,7 +206,8 @@ public class PayrollCalculationEngine
         List<CompensationComponent> allComponents,
         PayrollRates rates,
         bool includeStatutory,
-        PayrollBatchAttendanceSnapshot? attendanceSnapshot = null)
+        PayrollBatchAttendanceSnapshot? attendanceSnapshot = null,
+        decimal poyaDaysWorked = 0)
     {
         var resolvedValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
@@ -205,7 +215,13 @@ public class PayrollCalculationEngine
         {
             resolvedValues["NOPAY_DAYS"] = attendanceSnapshot.TotalNopayDays;
             resolvedValues["OT_HOURS"] = attendanceSnapshot.ApprovedOtHours;
+            if (poyaDaysWorked <= 0)
+                poyaDaysWorked = attendanceSnapshot.PoyaDaysWorked;
         }
+
+        var poyaAssignment = empComp.FirstOrDefault(ec =>
+            PayrollPoyaComponent.IsMatch(ec.Component?.Code, ec.Component?.Name));
+        resolvedValues["POYA_DAYS"] = PayrollPoyaComponent.ResolveDays(poyaAssignment?.Amount, poyaDaysWorked);
 
         var lines = new List<PayStatementLine>();
         decimal taxableEarnings = 0;
@@ -215,11 +231,24 @@ public class PayrollCalculationEngine
         // Phase 1: Resolve fixed/variable earnings from employee compensation assignments
         foreach (var comp in allComponents.Where(c => c.Category != ComponentCategory.Statutory))
         {
+            var isPoya = PayrollPoyaComponent.IsMatch(comp.Code, comp.Name);
             var assignment = empComp.FirstOrDefault(ec => ec.ComponentId == comp.Id);
-            if (assignment is null && string.IsNullOrEmpty(comp.FormulaExpression)) continue;
+            if (assignment is null && string.IsNullOrEmpty(comp.FormulaExpression) && !isPoya) continue;
 
             decimal amount;
-            if (!string.IsNullOrEmpty(comp.FormulaExpression))
+            if (isPoya && assignment != null && PayrollPoyaComponent.IsLumpSumPay(assignment.Amount))
+            {
+                amount = assignment.Amount;
+            }
+            else if (isPoya)
+            {
+                amount = EvaluateFormula(
+                    string.IsNullOrEmpty(comp.FormulaExpression)
+                        ? PayrollPoyaComponent.FormulaExpression
+                        : comp.FormulaExpression,
+                    resolvedValues, rates);
+            }
+            else if (!string.IsNullOrEmpty(comp.FormulaExpression))
             {
                 amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates);
             }

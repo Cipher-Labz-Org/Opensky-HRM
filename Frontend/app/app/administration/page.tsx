@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { InlinePageAlert } from "@/components/ui";
 import { API_BASE_URL, API_ASSET_BASE_URL, getApiBaseUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, isMissingApiRoute } from "@/lib/api";
 
 const kpiTileClass =
   "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
@@ -68,6 +68,23 @@ interface PayrollImportSummary {
   directDeposits: PayrollSheetSummary;
 }
 
+interface LoginRowResult {
+  row: number;
+  employeeCode: string;
+  username: string;
+  employeeType?: string;
+  status: string;
+  errors: string[];
+  notes?: string[] | null;
+}
+
+interface LoginUploadResult {
+  created: number;
+  skipped: number;
+  totalRows: number;
+  results: LoginRowResult[];
+}
+
 function parsePayrollImportSummary(json: unknown): PayrollImportSummary {
   const j = json as Record<string, unknown>;
   const sheet = (raw: unknown): PayrollSheetSummary => {
@@ -91,7 +108,14 @@ function parsePayrollImportSummary(json: unknown): PayrollImportSummary {
   };
 }
 
-type ActiveSection = "employees" | "leaveBalances" | "payroll";
+type ActiveSection = "employees" | "leaveBalances" | "payroll" | "logins";
+
+function bulkUploadErrorMessage(err: unknown, fallback: string): string {
+  if (isMissingApiRoute(err)) {
+    return "This import is not available on the API that is running. Restart the backend so it loads the latest code, then try again.";
+  }
+  return err instanceof Error ? err.message : fallback;
+}
 
 // ──── Page ────
 
@@ -108,7 +132,7 @@ export default function AdministrationPage() {
     <>
       <AppTopbar
         title="Administration"
-        subtitle="Bulk Excel import for people data, leave balances, and bank details. Download a template before you upload."
+        subtitle="Bulk Excel import for people data, leave balances, bank details, and logins. Download a template before you upload."
       />
 
       <div className="space-y-6">
@@ -206,11 +230,23 @@ export default function AdministrationPage() {
           >
             Bank details import
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveSection("logins")}
+            className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+              activeSection === "logins"
+                ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/90"
+                : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
+            }`}
+          >
+            Login import
+          </button>
         </div>
 
         {activeSection === "employees" && <EmployeeUploadSection />}
         {activeSection === "leaveBalances" && <LeaveBalanceUploadSection />}
         {activeSection === "payroll" && <PayrollUploadSection />}
+        {activeSection === "logins" && <LoginUploadSection />}
 
         <div className={`${panelClass} overflow-hidden`}>
           <div className="border-b border-slate-100 px-6 py-4">
@@ -802,6 +838,222 @@ function PayrollUploadSection() {
                 <strong>{result.directDeposits.errors.length}</strong>
               </p>
             </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ──── Login Upload Section ────
+
+function LoginUploadSection() {
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<LoginUploadResult | null>(null);
+  const [error, setError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function handleFileChange(f: File | null) {
+    setFile(f);
+    setResult(null);
+    setError("");
+  }
+
+  async function handleUpload() {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    setResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const bulkUploadBase =
+        typeof window !== "undefined" && getApiBaseUrl() === "/hrm-backend"
+          ? API_ASSET_BASE_URL
+          : undefined;
+      const json = await apiFetch<LoginUploadResult>("/api/bulkupload/logins", {
+        method: "POST",
+        body: formData,
+        timeoutMs: 300_000,
+        baseUrl: bulkUploadBase,
+      });
+      setResult(json);
+      setFile(null);
+      if (fileRef.current) fileRef.current.value = "";
+    } catch (err) {
+      setError(bulkUploadErrorMessage(err, "Upload failed"));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function downloadSkippedRows() {
+    if (!result) return;
+    const skippedRows = result.results.filter((r) => r.status === "Skipped");
+    if (skippedRows.length === 0) return;
+    const rows = skippedRows.map((r) => [
+      String(r.row),
+      r.employeeCode,
+      r.username,
+      r.employeeType ?? "",
+      r.status,
+      r.errors.join("; "),
+    ]);
+    downloadCsv(
+      "login-import-skipped-rows.csv",
+      ["Row", "Employee ID", "Username", "Employee Type", "Status", "Details"],
+      rows
+    );
+  }
+
+  return (
+    <>
+      <div className={`${panelClass} overflow-hidden`}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-50 ring-1 ring-sky-100">
+              <svg className="h-5 w-5 text-sky-700" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-800">Login import</h2>
+              <p className="text-xs text-slate-500">Create application logins for existing employees — Employee ID, username, password, and employee type required</p>
+            </div>
+          </div>
+          <Button
+            variant="secondary"
+            className="gap-2"
+            onClick={async () => {
+              try {
+                await downloadTemplate("/api/bulkupload/login-template", "LoginImportTemplate.xlsx");
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Template download failed");
+              }
+            }}
+          >
+            <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Download template
+          </Button>
+        </div>
+        <div className="p-6">
+          <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+            <h4 className="mb-2 text-sm font-semibold text-slate-800">How to import logins</h4>
+            <ol className="list-inside list-decimal space-y-1 text-xs text-slate-600">
+              <li>Click <strong>Download template</strong> to get the Excel file with the <strong>Logins</strong> sheet and an <strong>EmployeeTypes</strong> lookup.</li>
+              <li>
+                Every row must include <strong>Employee ID</strong>, <strong>Username</strong>, <strong>Password</strong>, and{" "}
+                <strong>Employee Type</strong>. Employee ID is the same value as Employee Code in People, for someone who does not already have a login.
+              </li>
+              <li>
+                <strong>Username</strong> must be unique. Allowed characters: letters, digits,{" "}
+                <code className="text-[11px]">@</code>, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>,{" "}
+                <code className="text-[11px]">-</code>.
+              </li>
+              <li>
+                <strong>Password</strong> is required and must be at least 6 characters. Users must change it on first sign-in unless you set Must Change Password to No.
+              </li>
+              <li>
+                <strong>Employee Type</strong> is the login role. Use a value from the EmployeeTypes sheet (for example <strong>EMPLOYEE</strong>,{" "}
+                <strong>SUPERVISOR</strong>, <strong>HR_MANAGER</strong>, <strong>ADMIN</strong>).
+              </li>
+              <li>
+                <strong>Email</strong>, <strong>Active</strong>, and <strong>Must Change Password</strong> are optional. Email falls back to the employee work email. Active and Must Change Password default to Yes. Employees who already have a login are skipped.
+              </li>
+              <li>Upload the completed file below.</li>
+            </ol>
+          </div>
+          <DropZone file={file} fileRef={fileRef} dragOver={dragOver} setDragOver={setDragOver} onFileChange={handleFileChange} />
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button disabled={!file || uploading} onClick={handleUpload}>
+              {uploading && (
+                <span className="mr-2 inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-[#2B7DE9]" aria-hidden />
+              )}
+              {uploading ? "Uploading…" : "Upload & import"}
+            </Button>
+            <InlinePageAlert message={error} className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800 scroll-mt-20" />
+          </div>
+        </div>
+      </div>
+
+      {result && (
+        <div className={`${panelClass} overflow-hidden`}>
+          <div className="border-b border-slate-100 px-6 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">Import results</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Row-level outcomes from the last upload</p>
+              </div>
+              {result.skipped > 0 && (
+                <Button variant="secondary" className="gap-2" onClick={downloadSkippedRows}>
+                  <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download skipped list
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="p-6">
+            <div className="mb-5 grid gap-4 sm:grid-cols-3">
+              <div className={kpiTileClass}>
+                <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Total rows</div>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{result.totalRows}</p>
+              </div>
+              <div className={kpiTileClass}>
+                <div className="text-xs font-medium uppercase tracking-wider text-emerald-600">Created</div>
+                <p className="mt-2 text-2xl font-semibold text-emerald-700">{result.created}</p>
+              </div>
+              <div className={kpiTileClass}>
+                <div className="text-xs font-medium uppercase tracking-wider text-rose-600">Skipped</div>
+                <p className="mt-2 text-2xl font-semibold text-rose-700">{result.skipped}</p>
+              </div>
+            </div>
+            {result.results.length > 0 && (
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-left">
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Row</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Employee ID</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Username</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Employee type</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Status</th>
+                      <th className="px-4 py-2.5 font-semibold text-slate-600">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {result.results.map((r) => (
+                      <tr key={r.row} className={r.status === "Skipped" ? "bg-rose-50/40" : ""}>
+                        <td className="px-4 py-2 text-slate-600">{r.row}</td>
+                        <td className="px-4 py-2 font-medium text-slate-700">{r.employeeCode}</td>
+                        <td className="px-4 py-2 text-slate-600">{r.username || "—"}</td>
+                        <td className="px-4 py-2 text-slate-600">{r.employeeType || "—"}</td>
+                        <td className="px-4 py-2">
+                          {r.status === "Created" && (
+                            <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-100">
+                              Created
+                            </span>
+                          )}
+                          {r.status === "Skipped" && (
+                            <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-100">
+                              Skipped
+                            </span>
+                          )}
+                        </td>
+                        <td className={`px-4 py-2 text-xs ${r.status === "Skipped" ? "text-rose-700" : "text-slate-600"}`}>
+                          {[...(r.errors ?? []), ...(r.notes ?? [])].join("; ") || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

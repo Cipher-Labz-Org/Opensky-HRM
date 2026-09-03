@@ -61,6 +61,8 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
         var attendanceByEmp = attendanceRows.ToDictionary(r => r.EmployeeId);
 
         var leaveNopayDays = await GetUnpaidLeaveDaysAsync(selectedIds, periodFrom, periodTo);
+        var poyaDaysByEmp = await PayrollPoyaAttendance.GetDaysWorkedByEmployeeAsync(
+            _db, selectedIds, periodFrom, periodTo);
         var basicByEmp = await GetBasicPayByEmployeeAsync(selectedIds, periodFrom, periodTo);
         var employees = await _db.Employees
             .Where(e => selectedIds.Contains(e.Id))
@@ -72,6 +74,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
             attendanceByEmp.TryGetValue(empId, out var att);
             basicByEmp.TryGetValue(empId, out var basic);
             leaveNopayDays.TryGetValue(empId, out var leaveDays);
+            poyaDaysByEmp.TryGetValue(empId, out var poyaDays);
             employees.TryGetValue(empId, out var emp);
 
             var otApproved = string.Equals(att?.OvertimeApprovalStatus, ApprovalStatus.Approved.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -108,6 +111,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
                 AttendanceNopayDays = attendanceNopay,
                 LeaveNopayDays = leaveDays,
                 TotalNopayDays = totalNopay,
+                PoyaDaysWorked = poyaDays,
                 BasicPay = basic,
                 Warning = warning,
             });
@@ -127,6 +131,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
                 return !l.OtApproved && (a?.OvertimeHours ?? 0) > 0;
             }),
             EmployeesWithNopay = lines.Count(l => l.TotalNopayDays > 0),
+            EmployeesWithPoya = lines.Count(l => l.PoyaDaysWorked > 0),
         };
 
         if (persist)
@@ -156,6 +161,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
                 AttendanceNopayDays = line.AttendanceNopayDays,
                 LeaveNopayDays = line.LeaveNopayDays,
                 TotalNopayDays = line.TotalNopayDays,
+                PoyaDaysWorked = line.PoyaDaysWorked,
                 OtApproved = line.OtApproved,
                 OtOutdated = line.OtOutdated,
                 ImportedAt = now,

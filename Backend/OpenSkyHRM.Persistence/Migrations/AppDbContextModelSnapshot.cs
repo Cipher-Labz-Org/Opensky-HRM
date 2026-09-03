@@ -4570,6 +4570,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<bool>("OtOutdated")
                         .HasColumnType("boolean");
 
+                    b.Property<decimal>("PoyaDaysWorked")
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<int>("TotalNopayDays")
                         .HasColumnType("integer");
 

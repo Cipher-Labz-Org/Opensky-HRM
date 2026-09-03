@@ -300,7 +300,7 @@ export const HELP_CONTENT_BY_SLUG: Record<string, HelpContentDoc> = {
       title: "Overview",
       tabLabel: "Overview",
       paragraphs: [
-        "Data Import / Export supports bulk upload of employees and related entities using templates.",
+        "Data Import / Export supports bulk upload of employees, leave balances, bank details, and logins using templates.",
         "Download templates, fill them in Excel, then upload and review validation results before committing.",
       ],
     },

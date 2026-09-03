@@ -69,6 +69,7 @@ interface AttendanceImportLine {
   employeeId: string; employeeName: string; employeeCode?: string;
   approvedOtHours: number; otAmount: number; otApproved: boolean; otOutdated: boolean;
   attendanceNopayDays: number; leaveNopayDays: number; totalNopayDays: number;
+  poyaDaysWorked: number;
   basicPay: number; warning?: string;
 }
 
@@ -76,6 +77,7 @@ interface AttendanceImportPreview {
   batchId: string; batchCode: string; effectiveFrom: string; effectiveTo?: string;
   lines: AttendanceImportLine[];
   employeesWithApprovedOt: number; employeesMissingOtApproval: number; employeesWithNopay: number;
+  employeesWithPoya: number;
 }
 interface PagedResult<T> { items: T[]; totalCount: number; page: number; pageSize: number; }
 
@@ -1001,6 +1003,10 @@ function SalaryComponentsEditor({
   }, [componentsLibrary, mode, batchUsesOneTime]);
 
   const isStatutory = (def: Component) => def.category === "Statutory" || def.isStatutory;
+  const isPoya = (def: Component) => {
+    const code = def.code.toUpperCase();
+    return code === "POYA" || code === "PD002" || code.startsWith("POYA") || /poya/i.test(def.name);
+  };
 
   const manualDefinitions = useMemo(
     () => definitions.filter((d) => !isStatutory(d)),
@@ -1199,6 +1205,11 @@ function SalaryComponentsEditor({
     return numericAmount(def.id);
   }
 
+  const basicSalaryAmount = earningsDefs
+    .filter((d) => d.code.toUpperCase() === "BASIC" || d.code.toUpperCase().startsWith("BASIC"))
+    .reduce((s, d) => s + numericAmount(d.id), 0);
+  const poyaDayRate = basicSalaryAmount > 0 ? Math.round((basicSalaryAmount / 30) * 100) / 100 : 0;
+
   const totalEarnings = earningsDefs.reduce((s, d) => s + numericAmount(d.id), 0);
   const manualDeductions = manualDeductionDefs.reduce((s, d) => s + numericAmount(d.id), 0);
   const employeeStatutoryDeductions =
@@ -1258,7 +1269,12 @@ function SalaryComponentsEditor({
                   {def.name}{" "}
                   <span className="font-normal text-slate-400">({def.code})</span>
                 </div>
-                {variant === "deduction" ? (
+                {isPoya(def) ? (
+                  <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                    Auto on Payroll Run: Basic ÷ 30 × Poya days worked
+                    {poyaDayRate > 0 ? ` (LKR ${fmt(poyaDayRate)} per day)` : ""}. Leave blank to use attendance, or enter 0.5–15 days / a larger LKR amount.
+                  </p>
+                ) : variant === "deduction" ? (
                   <span className="mt-1.5 inline-block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                     {def.type.toUpperCase()}
                   </span>
@@ -1758,7 +1774,7 @@ function PayrollRunTab() {
     setActionLoading(batchId);
     try {
       if (action === "calculate") {
-        if (!(await appConfirm("Run payroll calculation for this batch? Totals will be computed (or refreshed) from current compensation data, including EPF/ETF for salary runs."))) {
+        if (!(await appConfirm("Run payroll calculation for this batch? Totals will be computed (or refreshed) from current compensation data, including Poya day pay (Basic ÷ 30 × days worked) and EPF/ETF for salary runs."))) {
           setActionLoading(null);
           return;
         }
@@ -1856,6 +1872,7 @@ function PayrollRunTab() {
                         <ActionBtn label="Import OT/No-pay" onClick={() => setImportBatch(b)} loading={false} />
                       )}
                       {b.status === "Draft" && <ActionBtn label="Calculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />}
+                      {b.status === "Calculated" && <ActionBtn label="Recalculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />}
                       {b.status === "Calculated" && <ActionBtn label="Review" onClick={() => handleAction(b.id, "review")} loading={actionLoading === b.id} />}
                       {(b.status === "Calculated" || b.status === "Reviewed") && <ActionBtn label="Approve" onClick={() => handleAction(b.id, "approve")} loading={actionLoading === b.id} />}
                       {b.status === "Reviewed" && (
@@ -1942,6 +1959,7 @@ function ImportAttendanceLeaveModal({
         <p className="text-xs text-slate-500">
           Uses only Approved OT hours. Pending, rejected, and supervisor-not-assigned OT is excluded.
           No-pay combines attendance absences with approved unpaid leave for this exact period.
+          Poya pay is Basic ÷ 30 × days the employee was present (or half-day) on a Poya holiday.
         </p>
       </div>
 
@@ -1949,10 +1967,11 @@ function ImportAttendanceLeaveModal({
 
       {loading ? <Loading /> : preview ? (
         <>
-          <div className="mb-4 grid gap-3 sm:grid-cols-3 text-sm">
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
             <div className="rounded-lg bg-green-50 p-3"><div className="text-xs text-green-700">Approved OT</div><div className="font-semibold text-green-900">{preview.employeesWithApprovedOt}</div></div>
             <div className="rounded-lg bg-amber-50 p-3"><div className="text-xs text-amber-700">Missing OT approval</div><div className="font-semibold text-amber-900">{preview.employeesMissingOtApproval}</div></div>
             <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-500">With no-pay days</div><div className="font-semibold text-slate-800">{preview.employeesWithNopay}</div></div>
+            <div className="rounded-lg bg-indigo-50 p-3"><div className="text-xs text-indigo-700">With Poya days</div><div className="font-semibold text-indigo-900">{preview.employeesWithPoya ?? 0}</div></div>
           </div>
 
           <div className="max-h-[360px] overflow-y-auto rounded-lg border border-slate-200">
@@ -1962,6 +1981,7 @@ function ImportAttendanceLeaveModal({
                   <th className="px-3 py-2 font-medium">Employee</th>
                   <th className="px-3 py-2 font-medium text-right">OT Hrs</th>
                   <th className="px-3 py-2 font-medium text-right">OT Amount</th>
+                  <th className="px-3 py-2 font-medium text-right">Poya</th>
                   <th className="px-3 py-2 font-medium text-right">Att. NP</th>
                   <th className="px-3 py-2 font-medium text-right">Leave NP</th>
                   <th className="px-3 py-2 font-medium text-right">Total NP</th>
@@ -1977,6 +1997,7 @@ function ImportAttendanceLeaveModal({
                     </td>
                     <td className="px-3 py-2 text-right font-mono">{line.approvedOtHours || "—"}</td>
                     <td className="px-3 py-2 text-right font-mono">{line.otAmount ? `LKR ${fmt(line.otAmount)}` : "—"}</td>
+                    <td className="px-3 py-2 text-right font-medium">{line.poyaDaysWorked || "—"}</td>
                     <td className="px-3 py-2 text-right">{line.attendanceNopayDays || "—"}</td>
                     <td className="px-3 py-2 text-right">{line.leaveNopayDays || "—"}</td>
                     <td className="px-3 py-2 text-right font-medium">{line.totalNopayDays || "—"}</td>
@@ -2318,6 +2339,7 @@ function BatchDetailModal({
       </div>
       {(batch.status === "Calculated" || batch.status === "Reviewed" || batch.status === "Approved") && (
         <div className="mb-4 flex flex-wrap gap-2">
+          {batch.status === "Calculated" && <ActionBtn label="Recalculate" onClick={() => onAction("calculate")} loading={actionLoading} />}
           {batch.status === "Calculated" && <ActionBtn label="Review" onClick={() => onAction("review")} loading={actionLoading} />}
           {canApproveSalary && <ActionBtn label="Approve salary" onClick={() => onAction("approve")} loading={actionLoading} />}
           {batch.status === "Reviewed" && (
