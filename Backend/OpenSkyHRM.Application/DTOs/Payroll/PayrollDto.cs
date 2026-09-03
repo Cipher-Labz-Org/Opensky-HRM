@@ -192,6 +192,7 @@ public class PayrollAttendanceImportPreviewDto
     public int EmployeesWithApprovedOt { get; set; }
     public int EmployeesMissingOtApproval { get; set; }
     public int EmployeesWithNopay { get; set; }
+    public int EmployeesWithPoya { get; set; }
 }
 
 public class PayrollAttendanceImportLineDto
@@ -206,6 +207,7 @@ public class PayrollAttendanceImportLineDto
     public int AttendanceNopayDays { get; set; }
     public int LeaveNopayDays { get; set; }
     public int TotalNopayDays { get; set; }
+    public decimal PoyaDaysWorked { get; set; }
     public decimal BasicPay { get; set; }
     public string? Warning { get; set; }
 }
