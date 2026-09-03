@@ -30,6 +30,8 @@ public static class SecurityRolesSeeder
 
     public static async Task EnsureAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {
+        await DeduplicateCanonicalRolesAsync(context, cancellationToken);
+
         await EnsureRoleAsync(
             context,
             "ADMIN",
@@ -82,9 +84,7 @@ public static class SecurityRolesSeeder
         IReadOnlyList<(string Module, string Action, string Scope)> permissions,
         CancellationToken cancellationToken)
     {
-        var role = await context.SecurityRoles
-            .Include(r => r.Permissions)
-            .FirstOrDefaultAsync(r => r.Code == code && !r.IsDeleted, cancellationToken);
+        var role = await FindCanonicalRoleAsync(context, code, name, cancellationToken);
 
         if (role == null)
         {
@@ -100,7 +100,10 @@ public static class SecurityRolesSeeder
         }
         else
         {
-            if (string.IsNullOrWhiteSpace(role.Name))
+            role.Code = code;
+            if (string.IsNullOrWhiteSpace(role.Name)
+                || string.Equals(role.Name, name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role.Name, role.Code, StringComparison.OrdinalIgnoreCase))
                 role.Name = name;
             if (string.IsNullOrWhiteSpace(role.Description))
                 role.Description = description;
@@ -119,6 +122,117 @@ public static class SecurityRolesSeeder
         }));
 
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static readonly (string Code, string Name)[] CanonicalRoles =
+    [
+        ("ADMIN", "Admin"),
+        ("HR_MANAGER", "HR Manager"),
+        ("SUPERVISOR", "Supervisor"),
+        ("EMPLOYEE", "Employee"),
+    ];
+
+    private static async Task<SecurityRole?> FindCanonicalRoleAsync(
+        AppDbContext context,
+        string code,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        var roles = await context.SecurityRoles
+            .Include(r => r.Permissions)
+            .Where(r => !r.IsDeleted)
+            .ToListAsync(cancellationToken);
+
+        return roles
+            .Where(r =>
+                string.Equals(r.Code, code, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(r => string.Equals(r.Code, code, StringComparison.Ordinal))
+            .ThenByDescending(r => r.IsSystemRole)
+            .ThenBy(r => r.CreatedAt)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Legacy databases used display names as codes ("Employee", "Supervisor"). The seeder
+    /// later inserted EMPLOYEE / SUPERVISOR, which showed as duplicate names in Roles &amp; permissions.
+    /// </summary>
+    private static async Task DeduplicateCanonicalRolesAsync(
+        AppDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var roles = await context.SecurityRoles
+            .Include(r => r.Permissions)
+            .Where(r => !r.IsDeleted)
+            .ToListAsync(cancellationToken);
+        if (roles.Count == 0)
+            return;
+
+        var userRoles = await context.UserRoles
+            .Where(ur => !ur.IsDeleted)
+            .ToListAsync(cancellationToken);
+
+        var changed = false;
+        foreach (var (code, name) in CanonicalRoles)
+        {
+            var matches = roles
+                .Where(r =>
+                    !r.IsDeleted
+                    && (string.Equals(r.Code, code, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(r => string.Equals(r.Code, code, StringComparison.Ordinal))
+                .ThenByDescending(r => r.IsSystemRole)
+                .ThenBy(r => r.CreatedAt)
+                .ToList();
+            if (matches.Count == 0)
+                continue;
+
+            var keeper = matches[0];
+            if (!string.Equals(keeper.Code, code, StringComparison.Ordinal)
+                || !string.Equals(keeper.Name, name, StringComparison.Ordinal)
+                || !keeper.IsSystemRole)
+            {
+                keeper.Code = code;
+                keeper.Name = name;
+                keeper.IsSystemRole = true;
+                changed = true;
+            }
+
+            var usersWithKeeper = userRoles
+                .Where(ur => ur.RoleId == keeper.Id && !ur.IsDeleted)
+                .Select(ur => ur.UserId)
+                .ToHashSet();
+
+            foreach (var dup in matches.Skip(1))
+            {
+                foreach (var ur in userRoles.Where(x => x.RoleId == dup.Id && !x.IsDeleted))
+                {
+                    if (usersWithKeeper.Contains(ur.UserId))
+                    {
+                        ur.IsDeleted = true;
+                    }
+                    else
+                    {
+                        ur.RoleId = keeper.Id;
+                        usersWithKeeper.Add(ur.UserId);
+                    }
+
+                    changed = true;
+                }
+
+                foreach (var perm in dup.Permissions.Where(p => !p.IsDeleted))
+                {
+                    perm.IsDeleted = true;
+                    changed = true;
+                }
+
+                dup.IsDeleted = true;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            await context.SaveChangesAsync(cancellationToken);
     }
 
     private static List<(string Module, string Action, string Scope)> BuildAllActionsAllScope(

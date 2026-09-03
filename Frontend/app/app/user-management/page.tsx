@@ -889,6 +889,9 @@ function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSave
                 }`}
               >
                 {r.name}
+                {r.code ? (
+                  <span className="mt-0.5 block text-[11px] font-normal text-slate-400">{r.code}</span>
+                ) : null}
               </button>
             ))}
           </div>
