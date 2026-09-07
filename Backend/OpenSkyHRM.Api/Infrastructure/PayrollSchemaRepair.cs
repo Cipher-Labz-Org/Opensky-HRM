@@ -54,6 +54,28 @@ public static class PayrollSchemaRepair
                   AND "Type" = 'Earning'
                   AND "Code" IN ('BASIC','TA','HOUSING','ATTEND','OT','COMMISSION','INCENTIVE','BONUS','POYA_DAY_PAY')
                   AND ("IsEpfApplicable" = FALSE OR "IsEtfApplicable" = FALSE);
+
+                ALTER TABLE "Employees" ADD COLUMN IF NOT EXISTS "ApitTaxMode" character varying(20);
+                ALTER TABLE "PayStatements" ADD COLUMN IF NOT EXISTS "ApitTaxable" numeric(18,2) NOT NULL DEFAULT 0;
+
+                CREATE TABLE IF NOT EXISTS "EmployeeApitYearBalances" (
+                    "Id" uuid NOT NULL,
+                    "EmployeeId" uuid NOT NULL,
+                    "TaxYearStartYear" integer NOT NULL,
+                    "CumulativeTaxable" numeric(18,2) NOT NULL,
+                    "CumulativeApit" numeric(18,2) NOT NULL,
+                    "CreatedAt" timestamp without time zone NOT NULL,
+                    "UpdatedAt" timestamp without time zone,
+                    "IsDeleted" boolean NOT NULL,
+                    "CreatedBy" text,
+                    "UpdatedBy" text,
+                    CONSTRAINT "PK_EmployeeApitYearBalances" PRIMARY KEY ("Id"),
+                    CONSTRAINT "FK_EmployeeApitYearBalances_Employees_EmployeeId"
+                        FOREIGN KEY ("EmployeeId") REFERENCES "Employees" ("Id") ON DELETE CASCADE
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_EmployeeApitYearBalances_EmployeeId_TaxYearStartYear"
+                    ON "EmployeeApitYearBalances" ("EmployeeId", "TaxYearStartYear")
+                    WHERE "IsDeleted" = FALSE;
                 """;
             await cmd.ExecuteNonQueryAsync();
             Console.WriteLine("INFO: Payroll compensation-component schema columns verified.");

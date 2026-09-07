@@ -29,6 +29,7 @@ import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
 import { usePeopleScopedLookups } from "@/lib/people-scope-filters";
 import { BirthdaysCompanyNoticesWidget } from "@/components/employee-profile/BirthdaysCompanyNoticesWidget";
+import { EmployeePayrollTab } from "@/components/people/EmployeePayrollTab";
 import { EmployeeTimesheetsWidget } from "@/components/employee-profile/EmployeeTimesheetsWidget";
 import {
   type EmploymentTypeCatalogItem,
@@ -773,7 +774,7 @@ const DRIVERS_LICENSE_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "Other", label: "Other" },
 ];
 
-type PageTab = "profile" | "personal" | "job" | "contactDetails" | "emergencyContacts" | "dependents" | "qualifications" | "workExperience" | "driversLicense" | "bankAccount" | "reportTo" | "benefits" | "immigration";
+type PageTab = "profile" | "personal" | "job" | "contactDetails" | "emergencyContacts" | "dependents" | "qualifications" | "workExperience" | "driversLicense" | "bankAccount" | "reportTo" | "benefits" | "immigration" | "payroll";
 const PAGE_TABS: { key: PageTab; label: string }[] = [
   { key: "profile", label: "Profile" },
   { key: "personal", label: "Personal Details" },
@@ -788,6 +789,7 @@ const PAGE_TABS: { key: PageTab; label: string }[] = [
   { key: "reportTo", label: "Supervisor" },
   { key: "benefits", label: "Benefits" },
   { key: "immigration", label: "Immigration Docs" },
+  { key: "payroll", label: "Payroll" },
 ];
 const VISIBLE_TAB_COUNT = 3;
 const PRIMARY_TABS = PAGE_TABS.slice(0, VISIBLE_TAB_COUNT);
@@ -7031,6 +7033,8 @@ export default function EmployeeDetailPage() {
           </div>
         </div>
       )}
+
+      {pageTab === "payroll" && id && <EmployeePayrollTab employeeId={id} />}
     </>
   );
 }

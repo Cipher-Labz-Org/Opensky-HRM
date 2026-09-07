@@ -63,7 +63,14 @@ interface Revision {
 
 interface Employee { id: string; firstName: string; lastName: string; employeeCode: string; }
 interface EligibleEmployee { id: string; firstName: string; lastName: string; employeeCode: string; department: string; grade: string; location: string; }
-interface Settings { epfEmployeeRate: number; epfEmployerRate: number; etfEmployerRate: number; otHourlyDivisor: number; otMultiplier: number; }
+interface Settings {
+  epfEmployeeRate: number;
+  epfEmployerRate: number;
+  etfEmployerRate: number;
+  otHourlyDivisor: number;
+  otMultiplier: number;
+  apitTaxMode?: string;
+}
 
 interface AttendanceImportLine {
   employeeId: string; employeeName: string; employeeCode?: string;
@@ -81,6 +88,7 @@ const DEFAULT_PAYROLL_SETTINGS: Settings = {
   etfEmployerRate: 0.03,
   otHourlyDivisor: 208,
   otMultiplier: 1.5,
+  apitTaxMode: "Exact",
 };
 
 function pagedItems<T>(result: PagedResult<T> | null | undefined): T[] {
@@ -321,11 +329,113 @@ function calcApitTable01(taxableEarnings: number): number {
   return Math.max(0, roundMoney(taxableEarnings * 0.36 - 94000));
 }
 
+function resolveTaxableBase(taxableRegular: number, epfBase: number, basicPay: number): number {
+  if (taxableRegular > 0) return taxableRegular;
+  if (epfBase > 0) return epfBase;
+  return basicPay;
+}
+
+function calcApit(regularTaxable: number, lumpTaxable: number): number {
+  const table01 = calcApitTable01(regularTaxable);
+  if (lumpTaxable <= 0) return table01;
+  const table02 = Math.max(0, calcApitTable01(regularTaxable + lumpTaxable) - table01);
+  return roundMoney(table01 + table02);
+}
+
+/** Tax year starts 1 March: March = 1 … February = 12. */
+function apitTaxYearMonthNumber(calendarMonth: number): number {
+  return calendarMonth >= 3 ? calendarMonth - 2 : calendarMonth + 10;
+}
+
+function calcCumulativeApit(regularTaxable: number, lumpTaxable: number, calendarMonth: number): number {
+  return roundMoney(calcApit(regularTaxable, lumpTaxable) * apitTaxYearMonthNumber(calendarMonth));
+}
+
+function normalizeApitTaxMode(mode?: string): "Monthly" | "Annual" | "Exact" {
+  const value = (mode ?? "").trim().toLowerCase();
+  if (value === "monthly") return "Monthly";
+  if (value === "annual" || value === "annualy" || value === "annually") return "Annual";
+  return "Exact";
+}
+
+function calcApitTableAnnual(yearlyProfits: number): number {
+  if (yearlyProfits <= 1800000) return 0;
+  if (yearlyProfits <= 2800000) return roundMoney(yearlyProfits * 0.06 - 108000);
+  if (yearlyProfits <= 3300000) return roundMoney(yearlyProfits * 0.18 - 444000);
+  if (yearlyProfits <= 3800000) return roundMoney(yearlyProfits * 0.24 - 642000);
+  if (yearlyProfits <= 4300000) return roundMoney(yearlyProfits * 0.30 - 870000);
+  return Math.max(0, roundMoney(yearlyProfits * 0.36 - 1128000));
+}
+
+function calcLowSalaryAnnualApit(monthlySalary: number): number {
+  if (monthlySalary <= 0) return 0;
+  const yearly = monthlySalary * 12;
+  if (yearly < 150000) return 0;
+  return roundMoney(yearly * 0.06);
+}
+
+function calcMonthlyApitWithAnnualFallback(regularTaxable: number, lumpTaxable: number): number {
+  return calcApit(regularTaxable, lumpTaxable);
+}
+
+function calcAnnualApitIncrement(priorCumulativeTaxable: number, thisMonthTaxable: number): number {
+  const prior = Math.max(0, priorCumulativeTaxable);
+  const added = Math.max(0, thisMonthTaxable);
+  return Math.max(0, roundMoney(calcApitTableAnnual(prior + added) - calcApitTableAnnual(prior)));
+}
+
+function calcAnnualApitAmount(regularTaxable: number, lumpTaxable: number): number {
+  return calcAnnualApitIncrement(0, regularTaxable + lumpTaxable);
+}
+
+function calcApitTable41(monthlyProfits: number): number {
+  if (monthlyProfits <= 0) return 0;
+  if (monthlyProfits <= 83333) return roundMoney(monthlyProfits * 0.06);
+  if (monthlyProfits <= 125000) return roundMoney(monthlyProfits * 0.18 - 10000);
+  if (monthlyProfits <= 166667) return roundMoney(monthlyProfits * 0.24 - 17500);
+  if (monthlyProfits <= 208333) return roundMoney(monthlyProfits * 0.30 - 27500);
+  return Math.max(0, roundMoney(monthlyProfits * 0.36 - 40000));
+}
+
+function calcApitTable42Gross(d: number): number {
+  if (d <= 0) return 0;
+  if (d <= 1000000) return roundMoney(d * 0.06);
+  if (d <= 1500000) return roundMoney(d * 0.18 - 120000);
+  if (d <= 2000000) return roundMoney(d * 0.24 - 210000);
+  if (d <= 2500000) return roundMoney(d * 0.30 - 330000);
+  return Math.max(0, roundMoney(d * 0.36 - 480000));
+}
+
+function calcExactApit(regularTaxable: number, lumpTaxable: number): number {
+  const remainingMonths = 12;
+  const expected = regularTaxable * remainingMonths + Math.max(0, lumpTaxable);
+  const aggregated = remainingMonths * calcApitTable41(regularTaxable);
+  const lumpTax = Math.max(0, roundMoney(calcApitTable42Gross(expected) - aggregated));
+  return roundMoney(calcApitTable41(regularTaxable) + lumpTax);
+}
+
+function calcApitByMode(
+  regularTaxable: number,
+  lumpTaxable: number,
+  calendarMonth: number,
+  mode?: string
+): number {
+  const monthly = calcMonthlyApitWithAnnualFallback(regularTaxable, lumpTaxable);
+  switch (normalizeApitTaxMode(mode)) {
+    case "Monthly":
+      return monthly;
+    case "Annual":
+      return calcAnnualApitAmount(regularTaxable, lumpTaxable);
+    default:
+      return calcExactApit(regularTaxable, lumpTaxable);
+  }
+}
+
 function calcStatutoryAmount(
   def: Component,
   epfBase: number,
   etfBase: number,
-  taxableEarnings: number,
+  apitAmount: number,
   settings: Settings | null
 ): number {
   switch (def.code.toUpperCase()) {
@@ -336,7 +446,7 @@ function calcStatutoryAmount(
     case "ETF_ER":
       return settings && etfBase > 0 ? roundMoney(etfBase * settings.etfEmployerRate) : 0;
     case "APIT":
-      return calcApitTable01(taxableEarnings);
+      return apitAmount;
     default:
       return 0;
   }
@@ -1416,17 +1526,32 @@ function SalaryComponentsEditor({
   const etfEarnings = earningsDefs
     .filter((d) => d.isEtfApplicable)
     .reduce((s, d) => s + numericAmount(d.id), 0);
-  const taxableEarnings = earningsDefs
-    .filter((d) => d.isTaxable)
+  const taxableRegularMarked = earningsDefs
+    .filter((d) => d.isTaxable && d.category !== "OneTime")
+    .reduce((s, d) => s + numericAmount(d.id), 0);
+  const taxableLump = earningsDefs
+    .filter((d) => d.isTaxable && d.category === "OneTime")
     .reduce((s, d) => s + numericAmount(d.id), 0);
   const basicSalaryAmount = earningsDefs
     .filter((d) => d.code.toUpperCase() === "BASIC" || d.code.toUpperCase().startsWith("BASIC"))
     .reduce((s, d) => s + numericAmount(d.id), 0);
   const { epfBase, etfBase } = resolveStatutoryBases(epfEarnings, etfEarnings, basicSalaryAmount);
-  const hasStatutoryBase = epfBase > 0 || etfBase > 0 || taxableEarnings > 0;
+  const monthlySalaryForApit = earningsDefs
+    .filter((d) => d.category !== "OneTime")
+    .reduce((s, d) => s + numericAmount(d.id), 0);
+  const taxableEarnings = monthlySalaryForApit > 0
+    ? monthlySalaryForApit
+    : resolveTaxableBase(taxableRegularMarked, epfBase, basicSalaryAmount);
+  const apitAmount = calcApitByMode(
+    taxableEarnings,
+    taxableLump,
+    new Date().getMonth() + 1,
+    payrollSettings?.apitTaxMode
+  );
+  const hasStatutoryBase = epfBase > 0 || etfBase > 0 || taxableEarnings > 0 || taxableLump > 0;
 
   function statutoryAmount(def: Component): number {
-    return calcStatutoryAmount(def, epfBase, etfBase, taxableEarnings, payrollSettings);
+    return calcStatutoryAmount(def, epfBase, etfBase, apitAmount, payrollSettings);
   }
 
   function displayAmount(def: Component): number {
@@ -1516,7 +1641,7 @@ function SalaryComponentsEditor({
                     className="flex h-10 min-w-[7rem] items-center justify-end gap-2 rounded-lg border border-slate-200/70 bg-slate-50 px-3 font-mono text-sm tabular-nums text-slate-700 md:min-w-[8.75rem]"
                     title={
                       def.code.toUpperCase() === "APIT"
-                        ? `APIT (IRD Table 01) from taxable earnings (LKR ${fmt(taxableEarnings)})`
+                        ? `APIT Table 01 on taxable LKR ${fmt(taxableEarnings)}${taxableLump > 0 ? ` + Table 02 lump LKR ${fmt(taxableLump)}` : ""}`
                         : def.code.toUpperCase().startsWith("ETF")
                           ? `Auto-calculated from ETF-applicable earnings (LKR ${fmt(etfBase)})`
                           : `Auto-calculated from EPF-applicable earnings (LKR ${fmt(epfBase)})`
@@ -1564,7 +1689,7 @@ function SalaryComponentsEditor({
           {saveButton("shrink-0")}
         </div>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
-          Enter amounts in LKR, then click Save. EPF/ETF use the EPF &amp; ETF mark; APIT uses Taxable earnings.
+          Enter amounts in LKR, then click Save. EPF/ETF use the EPF &amp; ETF mark; APIT uses Taxable earnings (IRD Table 01 + Table 02 for lump sums).
           {dirtyCount > 0 ? (
             <span className="mt-1 block text-sm font-medium text-amber-700">
               You have unsaved changes — pay slips will not match until you click Save.
@@ -1573,7 +1698,7 @@ function SalaryComponentsEditor({
           {hasStatutoryBase && payrollSettings ? (
             <span className="mt-1 block text-xs text-slate-400">
               {employeeName} EPF base: LKR {fmt(epfBase)} · ETF base: LKR {fmt(etfBase)} · APIT
-              taxable: LKR {fmt(taxableEarnings)}
+              taxable: LKR {fmt(taxableEarnings)}{taxableLump > 0 ? ` + lump LKR ${fmt(taxableLump)}` : ""} · APIT: LKR {fmt(apitAmount)}
             </span>
           ) : (
             <span className="mt-1 block text-xs text-amber-600">
@@ -2845,8 +2970,6 @@ function paySlipHitName(hit: PaySlipSearchHit): string {
 function PayStatementsTab() {
   const [statements, setStatements] = useState<Statement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncMsg, setSyncMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [viewStmt, setViewStmt] = useState<Statement | null>(null);
@@ -2859,6 +2982,11 @@ function PayStatementsTab() {
   const [suggestions, setSuggestions] = useState<PaySlipSearchHit[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [batchId, setBatchId] = useState("");
+
+  const selectedBatch = batches.find((b) => b.id === batchId);
+  const hasFilters = searchFilter.hasApplied || Boolean(batchId);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -2867,6 +2995,7 @@ function PayStatementsTab() {
       pageSize: String(pageSize),
     });
     if (searchFilter.applied.trim()) params.set("search", searchFilter.applied.trim());
+    if (batchId) params.set("batchId", batchId);
     apiFetch<PagedResult<Statement>>(`/api/payroll/statements?${params.toString()}`)
       .then(d => {
         setStatements(pagedItems(d));
@@ -2874,9 +3003,15 @@ function PayStatementsTab() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, searchFilter.applied]);
+  }, [page, searchFilter.applied, batchId]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200")
+      .then((d) => setBatches(sortBatchesNewestFirst(pagedItems(d))))
+      .catch(() => setBatches([]));
+  }, []);
 
   useEffect(
     () => () => {
@@ -2941,6 +3076,7 @@ function PayStatementsTab() {
 
   function clearSearch() {
     searchFilter.clear();
+    setBatchId("");
     setSuggestOpen(false);
     setSuggestions([]);
     setPage(1);
@@ -2971,33 +3107,6 @@ function PayStatementsTab() {
     }
   }
 
-  async function syncAllFromEmployeeSalary() {
-    if (!(await appConfirm(
-      "Rebuild all open pay slips from the Employee Salary tab? Every employee in each draft or calculated salary batch will be recalculated (Basic, allowances, deductions, EPF/ETF)."
-    ))) {
-      return;
-    }
-    setSyncMsg(null);
-    setSyncing(true);
-    try {
-      const res = await apiFetch<{ message?: string; recalculated?: number; errors?: string[] }>(
-        "/api/payroll/batches/sync-from-employee-salary",
-        { method: "POST" }
-      );
-      const errNote = res.errors?.length ? ` ${res.errors.length} batch(es) could not update.` : "";
-      setSyncMsg({ type: "ok", text: `${res.message ?? "Pay slips updated."}${errNote}` });
-      setPage(1);
-      load();
-    } catch (err: unknown) {
-      setSyncMsg({
-        type: "err",
-        text: err instanceof Error ? err.message : "Could not update pay slips from Employee Salary.",
-      });
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const displayStatements = useMemo(
     () => [...statements].sort((a, b) => compareEmployeeCode(a.employeeCode, b.employeeCode)),
@@ -3006,94 +3115,108 @@ function PayStatementsTab() {
 
   return (
     <div className="space-y-4">
-      <FlashMessageBanner msg={syncMsg} onClear={() => setSyncMsg(null)} />
-
       <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)]">
         <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white px-6 py-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight text-slate-900">Pay Slips</h2>
-              <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-500">
-                View and print employee payslips after payroll is approved. Payslip and Print appear only when status is Approved.
-              </p>
-            </div>
-            <Button
-              variant="secondary"
-              className="shrink-0 rounded-lg border-[#2E7BBF]/35 bg-white px-4 text-[#256aa3] hover:border-[#2E7BBF]/55 hover:bg-[#2E7BBF]/[0.06]"
-              disabled={syncing}
-              onClick={() => void syncAllFromEmployeeSalary()}
-            >
-              {syncing ? "Updating…" : "Update all from Employee Salary"}
-            </Button>
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-slate-900">Pay Slips</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-500">
+              View and print employee payslips after payroll is approved. Payslip and Print appear only when status is Approved.
+            </p>
           </div>
 
           <div className="mt-5">
-            <label htmlFor="payslip-employee-search" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Search employee
-            </label>
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-stretch">
-              <div ref={searchWrapRef} className="relative min-w-0 flex-1">
-                <input
-                  id="payslip-employee-search"
-                  type="text"
-                  autoComplete="off"
-                  aria-autocomplete="list"
-                  aria-expanded={suggestOpen}
+            <div className="flex w-full flex-col gap-2 lg:flex-row lg:items-end">
+              <div className="min-w-0 flex-1">
+                <label htmlFor="payslip-employee-search" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Search employee
+                </label>
+                <div ref={searchWrapRef} className="relative min-w-0">
+                  <input
+                    id="payslip-employee-search"
+                    type="text"
+                    autoComplete="off"
+                    aria-autocomplete="list"
+                    aria-expanded={suggestOpen}
+                    className={
+                      inputCls +
+                      " min-h-10 w-full min-w-0 !mb-0 rounded-lg border-slate-200/90 bg-white py-2.5 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400"
+                    }
+                    placeholder="Name or employee code…"
+                    value={searchFilter.input}
+                    onChange={(e) => {
+                      searchFilter.setInput(e.target.value);
+                      queueSuggestions(e.target.value);
+                    }}
+                    onFocus={() => {
+                      if (searchFilter.input.trim()) void fetchSuggestions(searchFilter.input);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") applySearch();
+                      if (e.key === "Escape") setSuggestOpen(false);
+                    }}
+                  />
+                  {suggestOpen ? (
+                    <ul
+                      role="listbox"
+                      className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                    >
+                      {suggestLoading && suggestions.length === 0 ? (
+                        <li className="px-3 py-2.5 text-sm text-slate-400">Loading suggestions…</li>
+                      ) : null}
+                      {!suggestLoading && suggestions.length === 0 ? (
+                        <li className="px-3 py-2.5 text-sm text-slate-400">No matching employees</li>
+                      ) : null}
+                      {suggestions.map((hit) => (
+                        <li key={hit.id} role="presentation">
+                          <button
+                            type="button"
+                            role="option"
+                            className="flex w-full flex-col items-start gap-0.5 px-3 py-2.5 text-left text-sm hover:bg-[#e3eef8]"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => pickSuggestion(hit)}
+                          >
+                            <span className="font-medium text-slate-800">{paySlipHitName(hit)}</span>
+                            <span className="text-[11px] text-slate-500">
+                              {[hit.employeeCode ? hit.employeeCode : null, hit.departmentName?.trim() || null]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              </div>
+              <div className="w-full min-w-0 lg:w-[22rem]">
+                <label htmlFor="payslip-batch-filter" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Search batch
+                </label>
+                <select
+                  id="payslip-batch-filter"
                   className={
                     inputCls +
-                    " min-h-10 w-full min-w-0 !mb-0 rounded-lg border-slate-200/90 bg-white py-2.5 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400"
+                    " min-h-10 w-full !mb-0 rounded-lg border-slate-200/90 bg-white py-2.5 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)]"
                   }
-                  placeholder="Name or employee code…"
-                  value={searchFilter.input}
+                  value={batchId}
                   onChange={(e) => {
-                    searchFilter.setInput(e.target.value);
-                    queueSuggestions(e.target.value);
+                    setBatchId(e.target.value);
+                    setPage(1);
                   }}
-                  onFocus={() => {
-                    if (searchFilter.input.trim()) void fetchSuggestions(searchFilter.input);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") applySearch();
-                    if (e.key === "Escape") setSuggestOpen(false);
-                  }}
-                />
-                {suggestOpen ? (
-                  <ul
-                    role="listbox"
-                    className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
-                  >
-                    {suggestLoading && suggestions.length === 0 ? (
-                      <li className="px-3 py-2.5 text-sm text-slate-400">Loading suggestions…</li>
-                    ) : null}
-                    {!suggestLoading && suggestions.length === 0 ? (
-                      <li className="px-3 py-2.5 text-sm text-slate-400">No matching employees</li>
-                    ) : null}
-                    {suggestions.map((hit) => (
-                      <li key={hit.id} role="presentation">
-                        <button
-                          type="button"
-                          role="option"
-                          className="flex w-full flex-col items-start gap-0.5 px-3 py-2.5 text-left text-sm hover:bg-[#e3eef8]"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => pickSuggestion(hit)}
-                        >
-                          <span className="font-medium text-slate-800">{paySlipHitName(hit)}</span>
-                          <span className="text-[11px] text-slate-500">
-                            {[hit.employeeCode ? hit.employeeCode : null, hit.departmentName?.trim() || null]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
+                >
+                  <option value="">All batches</option>
+                  {batches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.batchCode} · {MONTHS[b.month - 1]} {b.year}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex shrink-0 items-stretch gap-2">
                 <Button className="min-h-10 min-w-[6.5rem] rounded-lg px-6" onClick={applySearch}>
                   Search
                 </Button>
-                {searchFilter.hasApplied ? (
+                {hasFilters ? (
                   <Button variant="secondary" className="min-h-10 min-w-[5.5rem] rounded-lg px-4" onClick={clearSearch}>
                     Clear
                   </Button>
@@ -3101,13 +3224,24 @@ function PayStatementsTab() {
               </div>
             </div>
             <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-              {searchFilter.hasApplied ? (
+              {hasFilters ? (
                 <p className="text-xs text-slate-500">
-                  Showing results for{" "}
-                  <strong className="font-medium text-slate-700">&quot;{searchFilter.applied}&quot;</strong>
+                  Showing results
+                  {searchFilter.hasApplied ? (
+                    <>
+                      {" "}for{" "}
+                      <strong className="font-medium text-slate-700">&quot;{searchFilter.applied}&quot;</strong>
+                    </>
+                  ) : null}
+                  {selectedBatch ? (
+                    <>
+                      {searchFilter.hasApplied ? " in " : " for "}
+                      <strong className="font-medium text-slate-700">{selectedBatch.batchCode}</strong>
+                    </>
+                  ) : null}
                 </p>
               ) : (
-                <span className="text-xs text-slate-400">Type a name or code — suggestions appear as you type</span>
+                <span className="text-xs text-slate-400">Type a name or code, or choose a batch</span>
               )}
               <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
                 {totalCount} pay slip{totalCount !== 1 ? "s" : ""}
@@ -3124,8 +3258,8 @@ function PayStatementsTab() {
           <div className="px-6 py-14">
             <EmptyState
               text={
-                searchFilter.hasApplied
-                  ? `No pay slips found for "${searchFilter.applied}".`
+                hasFilters
+                  ? `No pay slips found${searchFilter.hasApplied ? ` for "${searchFilter.applied}"` : ""}${selectedBatch ? ` in ${selectedBatch.batchCode}` : ""}.`
                   : "No pay slips generated yet. Open Payroll Run and calculate a salary batch."
               }
             />
@@ -3236,6 +3370,7 @@ function SettingsTab() {
       etfEmployerRate: Number(fd.get("etfEmployerRate")) / 100,
       otHourlyDivisor: Number(fd.get("otHourlyDivisor")) || 208,
       otMultiplier: Number(fd.get("otMultiplier")) || 1.5,
+      apitTaxMode: String(fd.get("apitTaxMode") || settings?.apitTaxMode || "Exact"),
     };
     try {
       const result = await apiFetch<Settings>("/api/payroll/settings", { method: "PUT", body: JSON.stringify(payload) });
@@ -3276,6 +3411,14 @@ function SettingsTab() {
             <label className={labelCls}>OT Multiplier</label>
             <input name="otMultiplier" type="number" step="0.01" className={inputCls}
               defaultValue={settings?.otMultiplier ?? 1.5} />
+          </div>
+          <div>
+            <label className={labelCls}>APIT tax mode</label>
+            <select name="apitTaxMode" className={inputCls} defaultValue={settings?.apitTaxMode ?? "Exact"}>
+              <option value="Monthly">Monthly</option>
+              <option value="Annual">Annualy</option>
+              <option value="Exact">Expact</option>
+            </select>
           </div>
           {msg ? (
             <InlinePageAlert

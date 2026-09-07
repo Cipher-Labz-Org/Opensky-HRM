@@ -137,6 +137,31 @@ public class PayrollController : ControllerBase
         return Ok(await _payrollService.GetEmployeeCompensationAsync(employeeId));
     }
 
+    [HttpGet("compensation/{employeeId:guid}/apit-summary")]
+    public async Task<IActionResult> GetApitSummary(
+        Guid employeeId, [FromQuery] string? taxMode = null, [FromQuery] int? month = null)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Read"))
+            return Forbid();
+        return Ok(await _payrollService.GetEmployeeApitSummaryAsync(employeeId, taxMode, month));
+    }
+
+    [HttpPut("compensation/{employeeId:guid}/apit-tax-mode")]
+    public async Task<IActionResult> UpdateApitTaxMode(
+        Guid employeeId, [FromBody] UpdateEmployeeApitTaxModeDto dto)
+    {
+        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
+            return Forbid();
+        try
+        {
+            return Ok(await _payrollService.UpdateEmployeeApitTaxModeAsync(employeeId, dto.ApitTaxMode));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("compensation/{employeeId:guid}")]
     public async Task<IActionResult> CreateCompensation(Guid employeeId, [FromBody] CreateEmployeeCompensationDto dto)
     {
@@ -325,8 +350,8 @@ public class PayrollController : ControllerBase
             recalculated,
             errors,
             message = recalculated > 0
-                ? $"Updated pay slips for {recalculated} payroll run(s) from Employee Salary."
-                : "No open salary batches to update.",
+                ? $"Updated pay slips for {recalculated} payroll run(s) from Employee Salary, including APIT from each salary."
+                : "No salary batches to update.",
         });
     }
 
@@ -446,12 +471,13 @@ public class PayrollController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] Guid? employeeId = null,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] Guid? batchId = null)
     {
         if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
             return Forbid();
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        return Ok(await _payrollService.GetStatementsAsync(page, pageSize, employeeId, search, allowedIds));
+        return Ok(await _payrollService.GetStatementsAsync(page, pageSize, employeeId, search, allowedIds, batchId));
     }
 
     [HttpGet("statements/{id:guid}")]

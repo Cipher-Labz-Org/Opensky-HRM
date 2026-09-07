@@ -441,6 +441,7 @@ public class PayrollBatchApprovalTests
             DateOfBirth = new DateTime(1990, 1, 1),
             JoinDate = new DateTime(2020, 1, 1),
             DepartmentId = dept.Id,
+            ApitTaxMode = "Monthly",
         };
         var batch = new PayrollBatch
         {
@@ -489,6 +490,73 @@ public class PayrollBatchApprovalTests
         Assert.Single(slips);
         Assert.Contains(slips[0].Lines, l => l.ComponentCode == "ADVANCE" && l.Amount == 5_000m);
         Assert.Equal(41_000m, slips[0].NetPay);
+    }
+
+    [Fact]
+    public async Task CalculateBatchAsync_BonusWithholdsTable02Apit()
+    {
+        var (db, svc, engine) = CreateSut();
+        var dept = new Department { Id = Guid.NewGuid(), Name = "HR", Code = "HR" };
+        var employee = new Employee
+        {
+            Id = Guid.NewGuid(),
+            EmployeeCode = "EMP-BONUS",
+            FirstName = "Nimal",
+            LastName = "Silva",
+            DateOfBirth = new DateTime(1990, 1, 1),
+            JoinDate = new DateTime(2020, 1, 1),
+            DepartmentId = dept.Id,
+            ApitTaxMode = "Monthly",
+        };
+        var batch = new PayrollBatch
+        {
+            Id = Guid.NewGuid(),
+            BatchCode = "BNS-2026-09-001",
+            Month = 9,
+            Year = 2026,
+            EffectiveFrom = new DateTime(2026, 9, 1),
+            EffectiveTo = new DateTime(2026, 9, 30),
+            ProcessType = PayrollProcessType.Bonus,
+            Status = BatchStatus.Draft,
+            SelectedEmployeeIds = System.Text.Json.JsonSerializer.Serialize(new List<Guid> { employee.Id }),
+        };
+        db.Departments.Add(dept);
+        db.Employees.Add(employee);
+        db.PayrollBatches.Add(batch);
+        await db.SaveChangesAsync();
+
+        await OpenSkyHRM.Persistence.Seeders.PayrollComponentSeeder.EnsureAsync(db);
+        var basic = await db.CompensationComponents.SingleAsync(c => c.Code == "BASIC");
+        var bonus = await db.CompensationComponents.SingleAsync(c => c.Code == "BONUS");
+        db.EmployeeCompensations.AddRange(
+            new EmployeeCompensation
+            {
+                EmployeeId = employee.Id,
+                ComponentId = basic.Id,
+                Amount = 150_000m,
+                EffectiveFrom = new DateTime(2020, 1, 1),
+                IsActive = true,
+            },
+            new EmployeeCompensation
+            {
+                EmployeeId = employee.Id,
+                ComponentId = bonus.Id,
+                Amount = 200_000m,
+                EffectiveFrom = new DateTime(2026, 9, 1),
+                IsActive = true,
+                BatchId = batch.Id,
+            });
+        await db.SaveChangesAsync();
+
+        await engine.CalculateBatchAsync(batch.Id);
+
+        var slips = await svc.GetStatementsByBatchAsync(batch.Id);
+        Assert.Single(slips);
+        Assert.Equal(200_000m, slips[0].GrossPay);
+        Assert.Contains(slips[0].Lines, l => l.ComponentCode == "BONUS" && l.Amount == 200_000m);
+        Assert.Contains(slips[0].Lines, l => l.ComponentCode == "APIT" && l.Amount == 12_000m);
+        Assert.DoesNotContain(slips[0].Lines, l => l.ComponentCode == "EPF_EE");
+        Assert.Equal(188_000m, slips[0].NetPay);
     }
 
     [Fact]
@@ -543,6 +611,110 @@ public class PayrollBatchApprovalTests
         Assert.Single(slips);
         Assert.Contains(slips[0].Lines, l => l.ComponentCode == "EPF_EE" && l.Amount == 8_000m);
         Assert.Contains(slips[0].Lines, l => l.ComponentCode == "ETF_ER" && l.Amount == 3_000m);
+    }
+
+    [Fact]
+    public async Task ApproveBatchAsync_RebuildsAnnualApitYearBalance()
+    {
+        var (db, svc, engine) = CreateSut();
+        var dept = new Department { Id = Guid.NewGuid(), Name = "HR", Code = "HR" };
+        var employee = new Employee
+        {
+            Id = Guid.NewGuid(),
+            EmployeeCode = "EMP-ANNUAL",
+            FirstName = "Nimal",
+            LastName = "Silva",
+            DateOfBirth = new DateTime(1990, 1, 1),
+            JoinDate = new DateTime(2020, 1, 1),
+            DepartmentId = dept.Id,
+            ApitTaxMode = "Annual",
+        };
+        var march = new PayrollBatch
+        {
+            Id = Guid.NewGuid(),
+            BatchCode = "SAL-2026-03-001",
+            Month = 3,
+            Year = 2026,
+            EffectiveFrom = new DateTime(2026, 3, 1),
+            EffectiveTo = new DateTime(2026, 3, 31),
+            ProcessType = PayrollProcessType.Salary,
+            Status = BatchStatus.Draft,
+            SelectedEmployeeIds = System.Text.Json.JsonSerializer.Serialize(new List<Guid> { employee.Id }),
+        };
+        db.Departments.Add(dept);
+        db.Employees.Add(employee);
+        db.PayrollBatches.Add(march);
+        await db.SaveChangesAsync();
+
+        await OpenSkyHRM.Persistence.Seeders.PayrollComponentSeeder.EnsureAsync(db);
+        var basic = await db.CompensationComponents.SingleAsync(c => c.Code == "BASIC");
+        db.EmployeeCompensations.Add(new EmployeeCompensation
+        {
+            EmployeeId = employee.Id,
+            ComponentId = basic.Id,
+            Amount = 200_000m,
+            EffectiveFrom = new DateTime(2020, 1, 1),
+            IsActive = true,
+        });
+        await db.SaveChangesAsync();
+
+        await engine.CalculateBatchAsync(march.Id);
+        await svc.ApproveBatchAsync(march.Id, "hr.manager");
+
+        var marchBalance = await db.EmployeeApitYearBalances.SingleAsync(b =>
+            b.EmployeeId == employee.Id && b.TaxYearStartYear == 2026);
+        Assert.Equal(200_000m, marchBalance.CumulativeTaxable);
+        Assert.Equal(0m, marchBalance.CumulativeApit);
+
+        db.PayStatements.Add(new PayStatement
+        {
+            BatchId = march.Id,
+            EmployeeId = employee.Id,
+            Month = 4,
+            Year = 2026,
+            Status = PayStatementStatus.Finalized,
+            ApitTaxable = 1_600_000m,
+            TotalEarnings = 1_600_000m,
+        });
+        await db.SaveChangesAsync();
+        await engine.RebuildEmployeeApitYearBalancesAsync([employee.Id], 2026);
+
+        var prior = await db.EmployeeApitYearBalances.SingleAsync(b =>
+            b.EmployeeId == employee.Id && b.TaxYearStartYear == 2026);
+        Assert.Equal(1_800_000m, prior.CumulativeTaxable);
+        Assert.Equal(0m, prior.CumulativeApit);
+
+        var december = new PayrollBatch
+        {
+            Id = Guid.NewGuid(),
+            BatchCode = "SAL-2026-12-001",
+            Month = 12,
+            Year = 2026,
+            EffectiveFrom = new DateTime(2026, 12, 1),
+            EffectiveTo = new DateTime(2026, 12, 31),
+            ProcessType = PayrollProcessType.Salary,
+            Status = BatchStatus.Draft,
+            SelectedEmployeeIds = System.Text.Json.JsonSerializer.Serialize(new List<Guid> { employee.Id }),
+        };
+        db.PayrollBatches.Add(december);
+        await db.SaveChangesAsync();
+
+        await engine.CalculateBatchAsync(december.Id);
+        var slips = await svc.GetStatementsByBatchAsync(december.Id);
+        Assert.Contains(slips[0].Lines, l => l.ComponentCode == "APIT" && l.Amount == 12_000m);
+
+        await svc.ApproveBatchAsync(december.Id, "hr.manager");
+        var after = await db.EmployeeApitYearBalances.SingleAsync(b =>
+            b.EmployeeId == employee.Id && b.TaxYearStartYear == 2026);
+        Assert.Equal(2_000_000m, after.CumulativeTaxable);
+        Assert.Equal(12_000m, after.CumulativeApit);
+
+        var summary = await svc.GetEmployeeApitSummaryAsync(employee.Id, null, 12);
+        Assert.Equal("Annual", summary.ApitTaxMode);
+        Assert.Equal(2_000_000m, summary.CumulativeTaxable);
+        Assert.Equal(12_000m, summary.AnnualApit);
+        Assert.Equal(12_000m, summary.CumulativeApit);
+        Assert.Equal(12_000m, summary.DisplayApit);
     }
 
     [Fact]

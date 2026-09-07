@@ -15,6 +15,8 @@ public class PayStatement : AuditableEntity
     public decimal GrossPay { get; set; }
     public decimal NetPay { get; set; }
     public decimal EmployerCost { get; set; }
+    /// <summary>Monthly APIT base (regular + lump) stored so year-to-date totals can be rebuilt.</summary>
+    public decimal ApitTaxable { get; set; }
     public string Currency { get; set; } = "LKR";
     public PayStatementStatus Status { get; set; } = PayStatementStatus.Draft;
 

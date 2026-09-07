@@ -1812,6 +1812,10 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
+                    b.Property<string>("ApitTaxMode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<Guid?>("BusinessUnitId")
                         .HasColumnType("uuid");
 
@@ -2085,6 +2089,48 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.HasIndex("ShiftPatternId");
 
                     b.ToTable("Employees", (string)null);
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeApitYearBalance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("CumulativeApit")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("CumulativeTaxable")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("TaxYearStartYear")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId", "TaxYearStartYear")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = FALSE");
+
+                    b.ToTable("EmployeeApitYearBalances", (string)null);
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeAttachment", b =>
@@ -4366,6 +4412,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("ApitTaxable")
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<decimal>("BasicPay")
                         .HasColumnType("numeric(18,2)");
 
@@ -6612,6 +6661,17 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Navigation("Position");
 
                     b.Navigation("ShiftPattern");
+                });
+
+            modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeApitYearBalance", b =>
+                {
+                    b.HasOne("OpenSkyHRM.Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
                 });
 
             modelBuilder.Entity("OpenSkyHRM.Domain.Entities.EmployeeAttachment", b =>

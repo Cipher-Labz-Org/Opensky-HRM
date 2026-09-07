@@ -88,7 +88,7 @@ public static class PayrollComponentSeeder
             IsStatutory: true, IsEmployerContribution: true,
             FormulaExpression: "ETF_EARNINGS * ETF_RATE", DependsOnComponentCode: "ETF_EARNINGS"),
         new("APIT", "APIT", ComponentType.StatutoryDeduction, ComponentCategory.Statutory, 905,
-            "Advance Personal Income Tax — IRD Table 01 on taxable earnings",
+            "Advance Personal Income Tax — Table 01 when monthly salary is over LKR 150,000; otherwise annual tax on yearly salary only",
             IsStatutory: true,
             FormulaExpression: "APIT_AMOUNT", DependsOnComponentCode: "TAXABLE_EARNINGS"),
     ];
@@ -100,6 +100,7 @@ public static class PayrollComponentSeeder
         ("Payroll_ETF_EmployerRate", "0.03", "ETF employer contribution rate"),
         ("Payroll_OT_HourlyDivisor", "208", "Hourly rate divisor for OT (BASIC / divisor × multiplier × hours)"),
         ("Payroll_OT_Multiplier", "1.5", "OT pay multiplier (e.g. 1.5 for time-and-a-half)"),
+        ("Payroll_APIT_TaxMode", "Exact", "APIT tax mode: Monthly, Annual, or Exact (all environments)"),
     ];
 
     /// <summary>

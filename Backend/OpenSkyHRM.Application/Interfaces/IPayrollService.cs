@@ -14,6 +14,8 @@ public interface IPayrollService
 
     // Employee Compensation
     Task<List<EmployeeCompensationDto>> GetEmployeeCompensationAsync(Guid employeeId);
+    Task<EmployeeApitSummaryDto> GetEmployeeApitSummaryAsync(Guid employeeId, string? taxMode, int? calendarMonth);
+    Task<EmployeeApitSummaryDto> UpdateEmployeeApitTaxModeAsync(Guid employeeId, string taxMode);
     Task<EmployeeCompensationDto> CreateEmployeeCompensationAsync(Guid employeeId, CreateEmployeeCompensationDto dto);
     Task<EmployeeCompensationDto?> UpdateEmployeeCompensationAsync(Guid id, UpdateEmployeeCompensationDto dto);
     Task<bool> DeleteEmployeeCompensationAsync(Guid id);
@@ -35,7 +37,7 @@ public interface IPayrollService
     Task<bool> DeleteBatchAsync(Guid id);
 
     // Pay Statements
-    Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, string? search = null, IReadOnlyList<Guid>? allowedEmployeeIds = null);
+    Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, string? search = null, IReadOnlyList<Guid>? allowedEmployeeIds = null, Guid? batchId = null);
     Task<PayStatementDto?> GetStatementByIdAsync(Guid id);
     Task<List<PayStatementDto>> GetStatementsByBatchAsync(Guid batchId);
     Task<List<PayStatementDto>> GetStatementsByEmployeeAsync(Guid employeeId);

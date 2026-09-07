@@ -315,6 +315,8 @@ if (dbAvailable)
 
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        // Schema first so live tenants have APIT/EPF columns even if a later migration fails.
+        await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await db.Database.MigrateAsync();
         await BankAccountSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, app.Configuration);
