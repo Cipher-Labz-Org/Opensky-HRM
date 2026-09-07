@@ -51,6 +51,9 @@ public class EmployeeCompensationDto
     public string ComponentCode { get; set; } = string.Empty;
     public string ComponentType { get; set; } = string.Empty;
     public string ComponentCategory { get; set; } = string.Empty;
+    public bool IsTaxable { get; set; }
+    public bool IsEpfApplicable { get; set; }
+    public bool IsEtfApplicable { get; set; }
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "LKR";
     public DateTime EffectiveFrom { get; set; }
@@ -180,6 +183,28 @@ public class PayrollSettingsDto
     public decimal EtfEmployerRate { get; set; }
     public decimal OtHourlyDivisor { get; set; } = 208m;
     public decimal OtMultiplier { get; set; } = 1.5m;
+    /// <summary>Monthly (Table 01), Annual (12× monthly), or Exact (cumulative from 1 March).</summary>
+    public string ApitTaxMode { get; set; } = "Exact";
+}
+
+public class EmployeeApitSummaryDto
+{
+    public decimal MonthlySalary { get; set; }
+    public decimal YearlySalary { get; set; }
+    public decimal MonthlyApit { get; set; }
+    public decimal AnnualApit { get; set; }
+    public decimal DisplayApit { get; set; }
+    public string ApitTaxMode { get; set; } = "Exact";
+    public bool BelowMonthlyRelief { get; set; }
+    public int TaxYearMonthNumber { get; set; }
+    public decimal CumulativeTaxable { get; set; }
+    public decimal CumulativeApit { get; set; }
+    public int ConfirmedMonths { get; set; }
+}
+
+public class UpdateEmployeeApitTaxModeDto
+{
+    public string ApitTaxMode { get; set; } = "Monthly";
 }
 
 public class PayrollAttendanceImportPreviewDto

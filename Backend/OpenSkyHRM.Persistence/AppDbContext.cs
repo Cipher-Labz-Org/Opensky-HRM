@@ -82,6 +82,7 @@ public class AppDbContext : DbContext
     public DbSet<PayStatement> PayStatements => Set<PayStatement>();
     public DbSet<PayStatementLine> PayStatementLines => Set<PayStatementLine>();
     public DbSet<PayrollFormula> PayrollFormulas => Set<PayrollFormula>();
+    public DbSet<EmployeeApitYearBalance> EmployeeApitYearBalances => Set<EmployeeApitYearBalance>();
 
     // Performance & Learning
     public DbSet<Goal> Goals => Set<Goal>();

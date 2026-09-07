@@ -10,10 +10,87 @@ public static class PayrollSeeder
         PayrollComponentSeeder.EnsureAsync(context);
 
     /// <summary>
-    /// Seeds fixed salary assignments for demo employees and a draft payroll batch so the
-    /// Payroll Run flow can be exercised without manual data entry (development DBs only).
+    /// Seeds fixed salary assignments for demo employees (development DBs only).
     /// </summary>
     public static async Task SeedDemoDataAsync(AppDbContext context)
+    {
+        await SeedDemoCompensationsAsync(context);
+        await EnsureStarterBatchAsync(context);
+    }
+
+    /// <summary>
+    /// Ensures a draft salary batch exists when the tenant has none. Runs in all environments
+    /// so production sites (e.g. Stage Cafe) recover after customer reset or first go-live.
+    /// </summary>
+    public static async Task EnsureStarterBatchAsync(AppDbContext context, CancellationToken cancellationToken = default)
+    {
+        if (await context.PayrollBatches.AnyAsync(cancellationToken))
+            return;
+
+        var employees = await context.Employees
+            .AsNoTracking()
+            .Where(e => e.Status != "Terminated")
+            .OrderBy(e => e.EmployeeCode)
+            .Select(e => new { e.Id, e.EmployeeCode })
+            .ToListAsync(cancellationToken);
+
+        if (employees.Count == 0)
+            return;
+
+        var employeeIdsWithSalary = await context.EmployeeCompensations
+            .AsNoTracking()
+            .Where(ec => ec.IsActive && ec.BatchId == null)
+            .Select(ec => ec.EmployeeId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var salarySet = employeeIdsWithSalary.ToHashSet();
+        var selectedIds = employees
+            .Where(e => salarySet.Contains(e.Id))
+            .Select(e => e.Id)
+            .ToList();
+
+        // No fixed salary yet — still create a batch with all active staff so Payroll Run is usable.
+        if (selectedIds.Count == 0)
+            selectedIds = employees.Select(e => e.Id).ToList();
+
+        var now = DateTime.UtcNow;
+        var year = now.Year;
+        var month = now.Month;
+        var effectiveFrom = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var effectiveTo = effectiveFrom.AddMonths(1).AddDays(-1);
+
+        var existingCodes = await context.PayrollBatches
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(b => b.Year == year && b.Month == month && b.ProcessType == PayrollProcessType.Salary)
+            .Select(b => b.BatchCode)
+            .ToListAsync(cancellationToken);
+
+        var sequence = existingCodes.Count + 1;
+        while (existingCodes.Contains($"SAL-{year}-{month:D2}-{sequence:D3}", StringComparer.OrdinalIgnoreCase))
+            sequence++;
+
+        context.PayrollBatches.Add(new PayrollBatch
+        {
+            BatchCode = $"SAL-{year}-{month:D2}-{sequence:D3}",
+            Month = month,
+            Year = year,
+            EffectiveFrom = effectiveFrom,
+            EffectiveTo = effectiveTo,
+            ProcessType = PayrollProcessType.Salary,
+            Status = BatchStatus.Draft,
+            Notes = selectedIds.Count == employees.Count
+                ? "Auto-created starter batch — assign salary on Employee Salary, then Calculate"
+                : "Auto-created starter batch — includes employees with fixed salary; add others on Employee Salary, then Calculate",
+            SelectedEmployeeIds = System.Text.Json.JsonSerializer.Serialize(selectedIds),
+            EmployeeCount = selectedIds.Count,
+        });
+
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task SeedDemoCompensationsAsync(AppDbContext context)
     {
         if (await context.EmployeeCompensations.AnyAsync())
             return;
@@ -91,23 +168,7 @@ public static class PayrollSeeder
             return;
 
         context.EmployeeCompensations.AddRange(assignments);
-
-        if (await context.PayrollBatches.AnyAsync())
-            return;
-
-        var now = DateTime.UtcNow;
-        var employeeIds = targetEmployees.Select(e => e.Id).ToList();
-
-        context.PayrollBatches.Add(new PayrollBatch
-        {
-            BatchCode = $"PR-{now.Year}-{now.Month:D2}-001",
-            Month = now.Month,
-            Year = now.Year,
-            Status = BatchStatus.Draft,
-            Notes = "Demo batch — select Calculate to generate pay slips",
-            SelectedEmployeeIds = System.Text.Json.JsonSerializer.Serialize(employeeIds),
-            EmployeeCount = employeeIds.Count,
-        });
+        await context.SaveChangesAsync();
     }
 
     /// <summary>
@@ -163,6 +224,9 @@ public static class PayrollSeeder
                     comp.DependsOnComponentCode = "ETF_EARNINGS";
             }
         }
+
+        if (context.ChangeTracker.HasChanges())
+            await context.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>

@@ -18,6 +18,7 @@ public class PayStatementConfiguration : IEntityTypeConfiguration<PayStatement>
         builder.Property(p => p.GrossPay).HasColumnType("numeric(18,2)");
         builder.Property(p => p.NetPay).HasColumnType("numeric(18,2)");
         builder.Property(p => p.EmployerCost).HasColumnType("numeric(18,2)");
+        builder.Property(p => p.ApitTaxable).HasColumnType("numeric(18,2)");
         builder.Property(p => p.Currency).HasMaxLength(10).HasDefaultValue("LKR");
         builder.Property(p => p.Status).HasConversion<string>().HasMaxLength(20);
 

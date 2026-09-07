@@ -150,6 +150,196 @@ public class PayrollCalculationEngineTests
 
         Assert.Equal(0m, amount);
     }
+
+    [Theory]
+    [InlineData(200_000, 0, 3_000)]
+    [InlineData(200_000, 50_000, 8_000)]
+    [InlineData(0, 200_000, 3_000)]
+    public void CalculateApit_AddsTable02OnLumpSum(decimal regular, decimal lump, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.CalculateApit(regular, lump));
+    }
+
+    [Theory]
+    [InlineData(3, 1)]
+    [InlineData(4, 2)]
+    [InlineData(9, 7)]
+    [InlineData(1, 11)]
+    [InlineData(2, 12)]
+    public void ApitTaxYearMonthNumber_StartsInMarch(int calendarMonth, int expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.ApitTaxYearMonthNumber(calendarMonth));
+    }
+
+    [Theory]
+    [InlineData(560_000, 3, 107_600)]
+    [InlineData(560_000, 4, 215_200)]
+    [InlineData(560_000, 5, 322_800)]
+    public void CalculateCumulativeApit_GrowsEachMonthFromMarch(
+        decimal monthlySalary, int calendarMonth, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.CalculateCumulativeApit(monthlySalary, 0, calendarMonth));
+    }
+
+    [Theory]
+    [InlineData("Monthly", 4, 107_600)]
+    [InlineData("Annual", 4, 0)]
+    [InlineData("Exact", 3, 161_600)]
+    [InlineData("Exact", 4, 161_600)]
+    [InlineData("expact", 4, 161_600)]
+    public void CalculateApitByMode_MonthlyAnnualExact(string mode, int calendarMonth, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.CalculateApitByMode(560_000m, 0, calendarMonth, mode));
+    }
+
+    [Theory]
+    [InlineData(83_333, 4_999.98)]
+    [InlineData(100_000, 8_000)]
+    [InlineData(150_000, 18_500)]
+    [InlineData(200_000, 32_500)]
+    [InlineData(250_000, 50_000)]
+    [InlineData(560_000, 161_600)]
+    public void CalculateApitTable41_UsesNonResidentMonthlySlabs(decimal monthly, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.CalculateApitTable41(monthly));
+    }
+
+    [Fact]
+    public void CalculateExactApit_RegularOnlyMatchesTable41()
+    {
+        Assert.Equal(8_000m, PayrollCalculationEngine.CalculateExactApit(100_000m));
+        Assert.Equal(32_500m, PayrollCalculationEngine.CalculateExactApit(200_000m));
+    }
+
+    [Fact]
+    public void CalculateExactApit_AddsTable42OnLumpSum()
+    {
+        Assert.Equal(44_000m, PayrollCalculationEngine.CalculateExactApit(100_000m, 200_000m));
+    }
+
+    [Theory]
+    [InlineData(75_000, 100_000, 0)]
+    [InlineData(150_000, 200_000, 12_000)]
+    [InlineData(560_000, 100_000, 36_000)]
+    public void CalculateApitTable02_UsesExpectedYearlyIncome(decimal monthly, decimal bonus, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.CalculateApitTable02(monthly, bonus));
+    }
+
+    [Fact]
+    public void CalculateBonusApitByMode_MonthlyUsesTable02_ExactUsesTable42()
+    {
+        var prior = new PayrollCalculationEngine.ConfirmedApitYtd(0, 0, 0, 0);
+        Assert.Equal(12_000m, PayrollCalculationEngine.CalculateBonusApitByMode(150_000m, 200_000m, "Monthly", prior));
+        Assert.Equal(36_000m, PayrollCalculationEngine.CalculateBonusApitByMode(100_000m, 200_000m, "Exact", prior));
+        Assert.Equal(0m, PayrollCalculationEngine.CalculateBonusApitByMode(75_000m, 100_000m, "Annual", prior));
+    }
+
+    [Theory]
+    [InlineData(560_000, 0, 80_000, 50_000, 560_000)]
+    [InlineData(0, 0, 80_000, 50_000, 80_000)]
+    [InlineData(0, 200_000, 80_000, 50_000, 200_000)]
+    public void ResolveApitRegularBase_UsesSalaryForEveryEmployee(
+        decimal regularEarnings, decimal taxableRegular, decimal epfBase, decimal basicPay, decimal expected)
+    {
+        Assert.Equal(
+            expected,
+            PayrollCalculationEngine.ResolveApitRegularBase(regularEarnings, taxableRegular, epfBase, basicPay));
+    }
+
+    [Theory]
+    [InlineData(75_000, 0)]
+    [InlineData(13_000, 0)]
+    [InlineData(10_000, 0)]
+    [InlineData(160_000, 600)]
+    [InlineData(560_000, 107_600)]
+    public void CalculateMonthlyApitWithAnnualFallback_NoMonthlyTaxUnder150000(
+        decimal monthlySalary, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.CalculateMonthlyApitWithAnnualFallback(monthlySalary));
+    }
+
+    [Theory]
+    [InlineData(1_800_000, 0)]
+    [InlineData(2_000_000, 12_000)]
+    [InlineData(2_800_000, 60_000)]
+    [InlineData(4_400_000, 456_000)]
+    public void CalculateApitTableAnnual_UsesIrdAnnualSlabs(decimal yearlyProfits, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.CalculateApitTableAnnual(yearlyProfits));
+    }
+
+    [Fact]
+    public void CalculateAnnualApitIncrement_WithholdsDeltaOnly()
+    {
+        Assert.Equal(12_000m, PayrollCalculationEngine.CalculateAnnualApitIncrement(1_800_000m, 200_000m));
+        Assert.Equal(12_000m, PayrollCalculationEngine.CalculateAnnualApitIncrement(2_000_000m, 200_000m));
+        Assert.Equal(0m, PayrollCalculationEngine.CalculateAnnualApitIncrement(0m, 200_000m));
+    }
+
+    [Theory]
+    [InlineData(75_000, 0)]
+    [InlineData(13_000, 0)]
+    [InlineData(560_000, 0)]
+    [InlineData(2_000_000, 12_000)]
+    public void CalculateAnnualApit_UsesAnnualTableOnTheGivenBase(decimal taxable, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.CalculateAnnualApit(taxable));
+    }
+
+    [Theory]
+    [InlineData(3, 2026, 2026)]
+    [InlineData(2, 2026, 2025)]
+    [InlineData(1, 2027, 2026)]
+    public void ApitTaxYearStartYear_UsesMarch(int calendarMonth, int calendarYear, int expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.ApitTaxYearStartYear(calendarMonth, calendarYear));
+    }
+
+    [Fact]
+    public void CalculateApitByMode_AnnualUsesConfirmedPriorYtd()
+    {
+        Assert.Equal(
+            12_000m,
+            PayrollCalculationEngine.CalculateApitByMode(200_000m, 0, 12, "Annual", 1_800_000m));
+        Assert.Equal(
+            0m,
+            PayrollCalculationEngine.CalculateApitByMode(200_000m, 0, 4, "Annual"));
+    }
+
+    [Theory]
+    [InlineData(200_000, 80_000, 50_000, 200_000)]
+    [InlineData(0, 80_000, 50_000, 80_000)]
+    [InlineData(0, 0, 50_000, 50_000)]
+    public void ResolveTaxableBase_FallsBackToEpfThenBasic(
+        decimal taxableRegular, decimal epfBase, decimal basicPay, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.ResolveTaxableBase(taxableRegular, epfBase, basicPay));
+    }
+
+    [Theory]
+    [InlineData(100_000, 0, 80_000, 100_000, 100_000)]
+    [InlineData(0, 0, 80_000, 80_000, 80_000)]
+    [InlineData(100_000, 50_000, 80_000, 100_000, 50_000)]
+    public void ResolveStatutoryBases_UsesEpfBaseForEtfWhenEtfUnset(
+        decimal epfEarnings, decimal etfEarnings, decimal basicPay,
+        decimal expectedEpfBase, decimal expectedEtfBase)
+    {
+        var (epfBase, etfBase) = PayrollCalculationEngine.ResolveStatutoryBases(
+            epfEarnings, etfEarnings, basicPay);
+
+        Assert.Equal(expectedEpfBase, epfBase);
+        Assert.Equal(expectedEtfBase, etfBase);
+    }
+
+    [Theory]
+    [InlineData(0.08, 0.08)]
+    [InlineData(8, 0.08)]
+    [InlineData(12, 0.12)]
+    public void NormalizePayrollRate_AcceptsDecimalOrWholePercent(decimal input, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.NormalizePayrollRate(input));
+    }
 }
 
 public class PayrollPoyaAttendanceTests

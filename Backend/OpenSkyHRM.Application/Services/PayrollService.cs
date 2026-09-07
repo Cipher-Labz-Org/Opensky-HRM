@@ -108,10 +108,87 @@ public class PayrollService : IPayrollService
                 ComponentName = ec.Component.Name, ComponentCode = ec.Component.Code,
                 ComponentType = ec.Component.Type.ToString(),
                 ComponentCategory = ec.Component.Category.ToString(),
+                IsTaxable = ec.Component.IsTaxable,
+                IsEpfApplicable = ec.Component.IsEpfApplicable,
+                IsEtfApplicable = ec.Component.IsEtfApplicable,
                 Amount = ec.Amount, Currency = ec.Currency,
                 EffectiveFrom = ec.EffectiveFrom, EffectiveTo = ec.EffectiveTo,
                 IsActive = ec.IsActive, BatchId = ec.BatchId,
             }).ToListAsync();
+    }
+
+    public async Task<EmployeeApitSummaryDto> GetEmployeeApitSummaryAsync(
+        Guid employeeId, string? taxMode, int? calendarMonth)
+    {
+        var lines = await GetEmployeeCompensationAsync(employeeId);
+        var monthlySalary = lines
+            .Where(l => l.IsActive && l.BatchId == null
+                && string.Equals(l.ComponentType, "Earning", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(l.ComponentCategory, "OneTime", StringComparison.OrdinalIgnoreCase))
+            .Sum(l => l.Amount);
+
+        var settings = await GetPayrollSettingsAsync();
+        string? employeeTaxMode = null;
+        try
+        {
+            var employee = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == employeeId);
+            employeeTaxMode = employee?.ApitTaxMode;
+        }
+        catch (Exception)
+        {
+            // Live tenant may not have Employees.ApitTaxMode until schema repair / migration finishes.
+        }
+        var mode = PayrollCalculationEngine.NormalizeApitTaxMode(
+            taxMode ?? employeeTaxMode ?? settings.ApitTaxMode);
+        var today = DateTime.Today;
+        var month = calendarMonth is >= 1 and <= 12 ? calendarMonth.Value : today.Month;
+        var taxYearStartYear = PayrollCalculationEngine.ApitTaxYearStartYear(today.Month, today.Year);
+        decimal cumulativeTaxable = 0m;
+        decimal? storedCumulativeApit = null;
+        try
+        {
+            var balance = await _db.EmployeeApitYearBalances.AsNoTracking()
+                .FirstOrDefaultAsync(b => b.EmployeeId == employeeId && b.TaxYearStartYear == taxYearStartYear);
+            cumulativeTaxable = balance?.CumulativeTaxable ?? 0m;
+            storedCumulativeApit = balance?.CumulativeApit;
+        }
+        catch (Exception)
+        {
+            // Live tenant may not have the table until schema repair / migration finishes.
+        }
+        var cumulativeApit = storedCumulativeApit
+            ?? PayrollCalculationEngine.CalculateApitTableAnnual(cumulativeTaxable);
+        var monthlyApit = PayrollCalculationEngine.CalculateApit(monthlySalary);
+        var annualApit = PayrollCalculationEngine.CalculateApitTableAnnual(cumulativeTaxable);
+        var yearlySalary = Math.Round(monthlySalary * 12m, 2);
+        var confirmedMonths = monthlySalary > 0 && cumulativeTaxable > 0
+            ? Math.Clamp((int)Math.Round(cumulativeTaxable / monthlySalary, MidpointRounding.AwayFromZero), 0, 11)
+            : 0;
+
+        return new EmployeeApitSummaryDto
+        {
+            MonthlySalary = monthlySalary,
+            YearlySalary = yearlySalary,
+            MonthlyApit = monthlyApit,
+            AnnualApit = annualApit,
+            DisplayApit = PayrollCalculationEngine.CalculateApitByMode(
+                monthlySalary, 0, month, mode, cumulativeTaxable, confirmedMonths),
+            ApitTaxMode = mode,
+            BelowMonthlyRelief = monthlySalary > 0 && monthlySalary <= 150_000m,
+            TaxYearMonthNumber = PayrollCalculationEngine.ApitTaxYearMonthNumber(month),
+            CumulativeTaxable = cumulativeTaxable,
+            CumulativeApit = cumulativeApit,
+            ConfirmedMonths = confirmedMonths,
+        };
+    }
+
+    public async Task<EmployeeApitSummaryDto> UpdateEmployeeApitTaxModeAsync(Guid employeeId, string taxMode)
+    {
+        var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId)
+            ?? throw new InvalidOperationException("Employee not found.");
+        employee.ApitTaxMode = PayrollCalculationEngine.NormalizeApitTaxMode(taxMode);
+        await _db.SaveChangesAsync();
+        return await GetEmployeeApitSummaryAsync(employeeId, employee.ApitTaxMode, DateTime.Today.Month);
     }
 
     public async Task<EmployeeCompensationDto> CreateEmployeeCompensationAsync(Guid employeeId, CreateEmployeeCompensationDto dto)
@@ -140,6 +217,9 @@ public class PayrollService : IPayrollService
             ComponentName = entity.Component.Name, ComponentCode = entity.Component.Code,
             ComponentType = entity.Component.Type.ToString(),
             ComponentCategory = entity.Component.Category.ToString(),
+            IsTaxable = entity.Component.IsTaxable,
+            IsEpfApplicable = entity.Component.IsEpfApplicable,
+            IsEtfApplicable = entity.Component.IsEtfApplicable,
             Amount = entity.Amount, Currency = entity.Currency,
             EffectiveFrom = entity.EffectiveFrom, EffectiveTo = entity.EffectiveTo,
             IsActive = entity.IsActive, BatchId = entity.BatchId,
@@ -168,6 +248,9 @@ public class PayrollService : IPayrollService
             ComponentName = entity.Component.Name, ComponentCode = entity.Component.Code,
             ComponentType = entity.Component.Type.ToString(),
             ComponentCategory = entity.Component.Category.ToString(),
+            IsTaxable = entity.Component.IsTaxable,
+            IsEpfApplicable = entity.Component.IsEpfApplicable,
+            IsEtfApplicable = entity.Component.IsEtfApplicable,
             Amount = entity.Amount, Currency = entity.Currency,
             EffectiveFrom = entity.EffectiveFrom, EffectiveTo = entity.EffectiveTo,
             IsActive = entity.IsActive, BatchId = entity.BatchId,
@@ -288,6 +371,15 @@ public class PayrollService : IPayrollService
 
     public async Task<PagedResult<PayrollBatchDto>> GetBatchesAsync(int page = 1, int pageSize = 20)
     {
+        try
+        {
+            await PayrollSeeder.EnsureStarterBatchAsync(_db);
+        }
+        catch
+        {
+            // Never block batch listing if auto-seed fails on a legacy tenant DB.
+        }
+
         var query = _db.PayrollBatches.AsNoTracking().AsQueryable();
         var total = await query.CountAsync();
         var rows = await query.OrderByDescending(b => b.Year).ThenByDescending(b => b.Month)
@@ -395,6 +487,7 @@ public class PayrollService : IPayrollService
         foreach (var stmt in batch.PayStatements)
             stmt.Status = PayStatementStatus.Finalized;
         await _db.SaveChangesAsync();
+        await RebuildApitBalancesForBatchAsync(batch);
         return MapBatchDto(batch);
     }
 
@@ -425,6 +518,7 @@ public class PayrollService : IPayrollService
         foreach (var stmt in batch.PayStatements)
             stmt.Status = PayStatementStatus.Finalized;
         await _db.SaveChangesAsync();
+        await RebuildApitBalancesForBatchAsync(batch);
         return MapBatchDto(batch);
     }
 
@@ -439,19 +533,36 @@ public class PayrollService : IPayrollService
 
     // ── Pay Statements ───────────────────────────────────────────────
 
-    public async Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, IReadOnlyList<Guid>? allowedEmployeeIds = null)
+    public async Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, string? search = null, IReadOnlyList<Guid>? allowedEmployeeIds = null, Guid? batchId = null)
     {
         var query = _db.PayStatements
             .Include(p => p.Employee).ThenInclude(e => e.Department)
             .AsQueryable();
+        if (batchId.HasValue) query = query.Where(p => p.BatchId == batchId.Value);
         if (employeeId.HasValue) query = query.Where(p => p.EmployeeId == employeeId.Value);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(p =>
+                p.Employee.FirstName.ToLower().Contains(term) ||
+                p.Employee.LastName.ToLower().Contains(term) ||
+                p.Employee.EmployeeCode.ToLower().Contains(term) ||
+                (p.Employee.FirstName + " " + p.Employee.LastName).ToLower().Contains(term));
+        }
         if (allowedEmployeeIds != null) query = query.Where(p => allowedEmployeeIds.Contains(p.EmployeeId));
 
         query = await RestrictToCanonicalStatementsAsync(query);
 
         var total = await query.CountAsync();
-        var items = await query.OrderByDescending(p => p.Year).ThenByDescending(p => p.Month)
-            .Skip((page - 1) * pageSize).Take(pageSize)
+
+        // Sort by employee code (ascending, numeric-aware) then newest period first.
+        // Paginate in SQL to avoid loading all rows into memory.
+        var items = await query
+            .OrderBy(p => p.Employee.EmployeeCode)
+            .ThenByDescending(p => p.Year)
+            .ThenByDescending(p => p.Month)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(p => new PayStatementDto
             {
                 Id = p.Id, BatchId = p.BatchId, EmployeeId = p.EmployeeId,
@@ -462,7 +573,17 @@ public class PayrollService : IPayrollService
                 TotalEarnings = p.TotalEarnings, TotalDeductions = p.TotalDeductions,
                 GrossPay = p.GrossPay, NetPay = p.NetPay, EmployerCost = p.EmployerCost,
                 Status = p.Status.ToString(),
-            }).ToListAsync();
+            })
+            .ToListAsync();
+
+        // Apply numeric-aware re-sort on the page slice for codes like EMP-001, EMP-002
+        items = items
+            .OrderBy(p => EmployeeCodeSort.NumericKey(p.EmployeeCode))
+            .ThenBy(p => p.EmployeeCode, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(p => p.Year)
+            .ThenByDescending(p => p.Month)
+            .ToList();
+
         return new PagedResult<PayStatementDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
 
@@ -481,9 +602,13 @@ public class PayrollService : IPayrollService
             .Include(p => p.Employee).ThenInclude(e => e.Department)
             .Include(p => p.Lines)
             .Where(p => p.BatchId == batchId)
-            .OrderBy(p => p.Employee.LastName).ThenBy(p => p.Employee.FirstName)
             .ToListAsync();
-        return statements.Select(p => MapPayStatementDto(p, includeLines: true)).ToList();
+
+        return statements
+            .OrderBy(p => EmployeeCodeSort.NumericKey(p.Employee.EmployeeCode))
+            .ThenBy(p => p.Employee.EmployeeCode, StringComparer.OrdinalIgnoreCase)
+            .Select(p => MapPayStatementDto(p, includeLines: true))
+            .ToList();
     }
 
     public async Task<List<PayStatementDto>> GetStatementsByEmployeeAsync(Guid employeeId)
@@ -512,13 +637,27 @@ public class PayrollService : IPayrollService
 
     public async Task<PayrollSettingsDto> GetPayrollSettingsAsync()
     {
+        try
+        {
+            await PayrollComponentSeeder.EnsureDefaultSettingsAsync(_db);
+        }
+        catch
+        {
+            // Fall back to hard-coded defaults below if settings table is unavailable.
+        }
+
         return new PayrollSettingsDto
         {
-            EpfEmployeeRate = decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployeeRate"), out var ee) ? ee : 0.08m,
-            EpfEmployerRate = decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployerRate"), out var er) ? er : 0.12m,
-            EtfEmployerRate = decimal.TryParse(await _settings.GetAsync("Payroll_ETF_EmployerRate"), out var etf) ? etf : 0.03m,
+            EpfEmployeeRate = PayrollCalculationEngine.NormalizePayrollRate(
+                decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployeeRate"), out var ee) ? ee : 0.08m),
+            EpfEmployerRate = PayrollCalculationEngine.NormalizePayrollRate(
+                decimal.TryParse(await _settings.GetAsync("Payroll_EPF_EmployerRate"), out var er) ? er : 0.12m),
+            EtfEmployerRate = PayrollCalculationEngine.NormalizePayrollRate(
+                decimal.TryParse(await _settings.GetAsync("Payroll_ETF_EmployerRate"), out var etf) ? etf : 0.03m),
             OtHourlyDivisor = decimal.TryParse(await _settings.GetAsync("Payroll_OT_HourlyDivisor"), out var div) ? div : 208m,
             OtMultiplier = decimal.TryParse(await _settings.GetAsync("Payroll_OT_Multiplier"), out var mul) ? mul : 1.5m,
+            ApitTaxMode = PayrollCalculationEngine.NormalizeApitTaxMode(
+                await _settings.GetAsync("Payroll_APIT_TaxMode")),
         };
     }
 
@@ -529,6 +668,12 @@ public class PayrollService : IPayrollService
         await _settings.SetAsync("Payroll_ETF_EmployerRate", dto.EtfEmployerRate.ToString());
         await _settings.SetAsync("Payroll_OT_HourlyDivisor", dto.OtHourlyDivisor.ToString());
         await _settings.SetAsync("Payroll_OT_Multiplier", dto.OtMultiplier.ToString());
+        if (!string.IsNullOrWhiteSpace(dto.ApitTaxMode))
+            await _settings.SetAsync("Payroll_APIT_TaxMode", PayrollCalculationEngine.NormalizeApitTaxMode(dto.ApitTaxMode));
+        dto.ApitTaxMode = PayrollCalculationEngine.NormalizeApitTaxMode(
+            string.IsNullOrWhiteSpace(dto.ApitTaxMode)
+                ? await _settings.GetAsync("Payroll_APIT_TaxMode")
+                : dto.ApitTaxMode);
         return dto;
     }
 
@@ -566,6 +711,22 @@ public class PayrollService : IPayrollService
             throw new InvalidOperationException("Effective end date must be on or after the start date.");
 
         return (effectiveFrom, effectiveTo);
+    }
+
+    private async Task RebuildApitBalancesForBatchAsync(PayrollBatch batch)
+    {
+        if (batch.ProcessType is not (PayrollProcessType.Salary or PayrollProcessType.Bonus))
+            return;
+
+        var employeeIds = batch.PayStatements
+            .Select(s => s.EmployeeId)
+            .Distinct()
+            .ToList();
+        if (employeeIds.Count == 0)
+            return;
+
+        await new PayrollCalculationEngine(_db, _settings).RebuildEmployeeApitYearBalancesAsync(
+            employeeIds, PayrollCalculationEngine.ApitTaxYearStartYear(batch.Month, batch.Year));
     }
 
     private static PayStatementDto MapPayStatementDto(PayStatement p, bool includeLines)

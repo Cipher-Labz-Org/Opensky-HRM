@@ -1,7 +1,7 @@
 "use client";
 
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
-import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
@@ -63,7 +63,14 @@ interface Revision {
 
 interface Employee { id: string; firstName: string; lastName: string; employeeCode: string; }
 interface EligibleEmployee { id: string; firstName: string; lastName: string; employeeCode: string; department: string; grade: string; location: string; }
-interface Settings { epfEmployeeRate: number; epfEmployerRate: number; etfEmployerRate: number; otHourlyDivisor: number; otMultiplier: number; }
+interface Settings {
+  epfEmployeeRate: number;
+  epfEmployerRate: number;
+  etfEmployerRate: number;
+  otHourlyDivisor: number;
+  otMultiplier: number;
+  apitTaxMode?: string;
+}
 
 interface AttendanceImportLine {
   employeeId: string; employeeName: string; employeeCode?: string;
@@ -73,13 +80,42 @@ interface AttendanceImportLine {
   basicPay: number; warning?: string;
 }
 
+interface PagedResult<T> { items?: T[]; Items?: T[]; totalCount?: number; TotalCount?: number; }
+
+const DEFAULT_PAYROLL_SETTINGS: Settings = {
+  epfEmployeeRate: 0.08,
+  epfEmployerRate: 0.12,
+  etfEmployerRate: 0.03,
+  otHourlyDivisor: 208,
+  otMultiplier: 1.5,
+  apitTaxMode: "Exact",
+};
+
+function pagedItems<T>(result: PagedResult<T> | null | undefined): T[] {
+  if (!result) return [];
+  return result.items ?? result.Items ?? [];
+}
+
+function sortBatchesNewestFirst(items: Batch[]): Batch[] {
+  return items.slice().sort((a, b) => {
+    if (a.year !== b.year) return b.year - a.year;
+    if (a.month !== b.month) return b.month - a.month;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+}
+
+function batchNeedsCalculation(batch: Batch): boolean {
+  return batch.status === "Draft" || batch.status === "Calculated"
+    ? batch.totalGross === 0 && batch.totalNet === 0
+    : false;
+}
+
 interface AttendanceImportPreview {
   batchId: string; batchCode: string; effectiveFrom: string; effectiveTo?: string;
   lines: AttendanceImportLine[];
   employeesWithApprovedOt: number; employeesMissingOtApproval: number; employeesWithNopay: number;
   employeesWithPoya: number;
 }
-interface PagedResult<T> { items: T[]; totalCount: number; page: number; pageSize: number; }
 
 const TABS = ["Dashboard", "Components", "Employee Salary", "Variable Entry", "Payroll Run", "Pay Slips", "Settings"] as const;
 type Tab = typeof TABS[number];
@@ -139,12 +175,14 @@ const YES_NO_TF_OPTS: FormSelectOption[] = [
 
 const EPF_ETF_OPTS: FormSelectOption[] = [
   { value: "no", label: "No" },
-  { value: "epf", label: "EPF" },
-  { value: "etf", label: "ETF" },
+  { value: "both", label: "EPF & ETF" },
+  { value: "epf", label: "EPF only" },
+  { value: "etf", label: "ETF only" },
 ];
 
 function epfEtfKindFromFlags(c?: Pick<Component, "isEpfApplicable" | "isEtfApplicable"> | null): string {
   if (!c) return "no";
+  if (c.isEpfApplicable && c.isEtfApplicable) return "both";
   if (c.isEpfApplicable) return "epf";
   if (c.isEtfApplicable) return "etf";
   return "no";
@@ -152,14 +190,21 @@ function epfEtfKindFromFlags(c?: Pick<Component, "isEpfApplicable" | "isEtfAppli
 
 function flagsFromEpfEtfKind(kind: string): { isEpfApplicable: boolean; isEtfApplicable: boolean } {
   return {
-    isEpfApplicable: kind === "epf",
-    isEtfApplicable: kind === "etf",
+    isEpfApplicable: kind === "epf" || kind === "both",
+    isEtfApplicable: kind === "etf" || kind === "both",
   };
 }
 
 function epfEtfKindLabel(c: Pick<Component, "isEpfApplicable" | "isEtfApplicable">): string {
   const kind = epfEtfKindFromFlags(c);
+  if (kind === "both") return "EPF & ETF";
   return EPF_ETF_OPTS.find((o) => o.value === kind)?.label ?? "No";
+}
+
+function resolveStatutoryBases(epfEarnings: number, etfEarnings: number, basicPay: number) {
+  const epfBase = epfEarnings > 0 ? epfEarnings : basicPay;
+  const etfBase = etfEarnings > 0 ? etfEarnings : epfEarnings > 0 ? epfEarnings : basicPay;
+  return { epfBase, etfBase };
 }
 
 const ACTIVE_STATUS_OPTS: FormSelectOption[] = [
@@ -172,6 +217,7 @@ const DEFAULT_FIXED_SALARY_EFFECTIVE_FROM = "2020-01-01";
 const fmt = (n: number) => n.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 async function printStatement(stmt: Statement): Promise<void> {
+  if (!isApprovedPaySlip(stmt.status)) return;
   const detail =
     stmt.lines && stmt.lines.length > 0
       ? stmt
@@ -184,6 +230,96 @@ function formatPayrollAmount(n: number): string {
 }
 const roundMoney = (n: number) => Math.round(n * 100) / 100;
 
+function employeeCodeNumericKey(code?: string): number {
+  const trimmed = (code ?? "").trim();
+  if (!trimmed) return Number.MAX_SAFE_INTEGER;
+  if (/^\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
+  const digits = trimmed.replace(/\D/g, "");
+  return digits ? Number.parseInt(digits, 10) : Number.MAX_SAFE_INTEGER;
+}
+
+function compareEmployeeCode(a?: string, b?: string): number {
+  const diff = employeeCodeNumericKey(a) - employeeCodeNumericKey(b);
+  if (diff !== 0) return diff;
+  return (a ?? "").localeCompare(b ?? "", undefined, { sensitivity: "base" });
+}
+
+function isApprovedPaySlip(status: string) {
+  return status === "Approved" || status === "Finalized";
+}
+
+function FormulaInfoTip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex shrink-0 align-middle">
+      <span
+        tabIndex={0}
+        role="button"
+        aria-label={text}
+        title={text}
+        className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-orange-400 bg-transparent text-[10px] font-bold leading-none text-orange-500 outline-none transition hover:border-orange-500 hover:text-orange-600 focus-visible:ring-2 focus-visible:ring-orange-300"
+      >
+        ?
+      </span>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-30 hidden w-64 -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-[11px] font-normal leading-snug text-slate-600 shadow-lg group-hover:block group-focus-within:block"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function PayStatementBadge({ status }: { status: string }) {
+  const display = status === "Finalized" ? "Approved" : status;
+  const styleKey = display === "Approved" ? "Approved" : display;
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${badgeCls[styleKey] || "bg-slate-100 text-slate-600"}`}>
+      {display}
+    </span>
+  );
+}
+
+function PaySlipActionLinks({
+  statement,
+  viewingId,
+  printingId,
+  onView,
+  onPrint,
+}: {
+  statement: Statement;
+  viewingId: string | null;
+  printingId: string | null;
+  onView: () => void;
+  onPrint: () => void;
+}) {
+  if (!isApprovedPaySlip(statement.status)) {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+  const busyView = viewingId === statement.id;
+  const busyPrint = printingId === statement.id;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <button
+        type="button"
+        onClick={onView}
+        disabled={busyView}
+        className="text-xs font-medium text-[#256aa3] hover:underline disabled:opacity-50"
+      >
+        {busyView ? "Opening…" : "Payslip"}
+      </button>
+      <button
+        type="button"
+        onClick={onPrint}
+        disabled={busyPrint}
+        className="text-xs font-medium text-[#256aa3] hover:underline disabled:opacity-50"
+      >
+        {busyPrint ? "Printing…" : "Print"}
+      </button>
+    </div>
+  );
+}
+
 function calcApitTable01(taxableEarnings: number): number {
   if (taxableEarnings <= 150000) return 0;
   if (taxableEarnings <= 233333) return roundMoney(taxableEarnings * 0.06 - 9000);
@@ -193,22 +329,124 @@ function calcApitTable01(taxableEarnings: number): number {
   return Math.max(0, roundMoney(taxableEarnings * 0.36 - 94000));
 }
 
+function resolveTaxableBase(taxableRegular: number, epfBase: number, basicPay: number): number {
+  if (taxableRegular > 0) return taxableRegular;
+  if (epfBase > 0) return epfBase;
+  return basicPay;
+}
+
+function calcApit(regularTaxable: number, lumpTaxable: number): number {
+  const table01 = calcApitTable01(regularTaxable);
+  if (lumpTaxable <= 0) return table01;
+  const table02 = Math.max(0, calcApitTable01(regularTaxable + lumpTaxable) - table01);
+  return roundMoney(table01 + table02);
+}
+
+/** Tax year starts 1 March: March = 1 … February = 12. */
+function apitTaxYearMonthNumber(calendarMonth: number): number {
+  return calendarMonth >= 3 ? calendarMonth - 2 : calendarMonth + 10;
+}
+
+function calcCumulativeApit(regularTaxable: number, lumpTaxable: number, calendarMonth: number): number {
+  return roundMoney(calcApit(regularTaxable, lumpTaxable) * apitTaxYearMonthNumber(calendarMonth));
+}
+
+function normalizeApitTaxMode(mode?: string): "Monthly" | "Annual" | "Exact" {
+  const value = (mode ?? "").trim().toLowerCase();
+  if (value === "monthly") return "Monthly";
+  if (value === "annual" || value === "annualy" || value === "annually") return "Annual";
+  return "Exact";
+}
+
+function calcApitTableAnnual(yearlyProfits: number): number {
+  if (yearlyProfits <= 1800000) return 0;
+  if (yearlyProfits <= 2800000) return roundMoney(yearlyProfits * 0.06 - 108000);
+  if (yearlyProfits <= 3300000) return roundMoney(yearlyProfits * 0.18 - 444000);
+  if (yearlyProfits <= 3800000) return roundMoney(yearlyProfits * 0.24 - 642000);
+  if (yearlyProfits <= 4300000) return roundMoney(yearlyProfits * 0.30 - 870000);
+  return Math.max(0, roundMoney(yearlyProfits * 0.36 - 1128000));
+}
+
+function calcLowSalaryAnnualApit(monthlySalary: number): number {
+  if (monthlySalary <= 0) return 0;
+  const yearly = monthlySalary * 12;
+  if (yearly < 150000) return 0;
+  return roundMoney(yearly * 0.06);
+}
+
+function calcMonthlyApitWithAnnualFallback(regularTaxable: number, lumpTaxable: number): number {
+  return calcApit(regularTaxable, lumpTaxable);
+}
+
+function calcAnnualApitIncrement(priorCumulativeTaxable: number, thisMonthTaxable: number): number {
+  const prior = Math.max(0, priorCumulativeTaxable);
+  const added = Math.max(0, thisMonthTaxable);
+  return Math.max(0, roundMoney(calcApitTableAnnual(prior + added) - calcApitTableAnnual(prior)));
+}
+
+function calcAnnualApitAmount(regularTaxable: number, lumpTaxable: number): number {
+  return calcAnnualApitIncrement(0, regularTaxable + lumpTaxable);
+}
+
+function calcApitTable41(monthlyProfits: number): number {
+  if (monthlyProfits <= 0) return 0;
+  if (monthlyProfits <= 83333) return roundMoney(monthlyProfits * 0.06);
+  if (monthlyProfits <= 125000) return roundMoney(monthlyProfits * 0.18 - 10000);
+  if (monthlyProfits <= 166667) return roundMoney(monthlyProfits * 0.24 - 17500);
+  if (monthlyProfits <= 208333) return roundMoney(monthlyProfits * 0.30 - 27500);
+  return Math.max(0, roundMoney(monthlyProfits * 0.36 - 40000));
+}
+
+function calcApitTable42Gross(d: number): number {
+  if (d <= 0) return 0;
+  if (d <= 1000000) return roundMoney(d * 0.06);
+  if (d <= 1500000) return roundMoney(d * 0.18 - 120000);
+  if (d <= 2000000) return roundMoney(d * 0.24 - 210000);
+  if (d <= 2500000) return roundMoney(d * 0.30 - 330000);
+  return Math.max(0, roundMoney(d * 0.36 - 480000));
+}
+
+function calcExactApit(regularTaxable: number, lumpTaxable: number): number {
+  const remainingMonths = 12;
+  const expected = regularTaxable * remainingMonths + Math.max(0, lumpTaxable);
+  const aggregated = remainingMonths * calcApitTable41(regularTaxable);
+  const lumpTax = Math.max(0, roundMoney(calcApitTable42Gross(expected) - aggregated));
+  return roundMoney(calcApitTable41(regularTaxable) + lumpTax);
+}
+
+function calcApitByMode(
+  regularTaxable: number,
+  lumpTaxable: number,
+  calendarMonth: number,
+  mode?: string
+): number {
+  const monthly = calcMonthlyApitWithAnnualFallback(regularTaxable, lumpTaxable);
+  switch (normalizeApitTaxMode(mode)) {
+    case "Monthly":
+      return monthly;
+    case "Annual":
+      return calcAnnualApitAmount(regularTaxable, lumpTaxable);
+    default:
+      return calcExactApit(regularTaxable, lumpTaxable);
+  }
+}
+
 function calcStatutoryAmount(
   def: Component,
-  epfEarnings: number,
-  etfEarnings: number,
-  taxableEarnings: number,
+  epfBase: number,
+  etfBase: number,
+  apitAmount: number,
   settings: Settings | null
 ): number {
   switch (def.code.toUpperCase()) {
     case "EPF_EE":
-      return settings && epfEarnings > 0 ? roundMoney(epfEarnings * settings.epfEmployeeRate) : 0;
+      return settings && epfBase > 0 ? roundMoney(epfBase * settings.epfEmployeeRate) : 0;
     case "EPF_ER":
-      return settings && epfEarnings > 0 ? roundMoney(epfEarnings * settings.epfEmployerRate) : 0;
+      return settings && epfBase > 0 ? roundMoney(epfBase * settings.epfEmployerRate) : 0;
     case "ETF_ER":
-      return settings && etfEarnings > 0 ? roundMoney(etfEarnings * settings.etfEmployerRate) : 0;
+      return settings && etfBase > 0 ? roundMoney(etfBase * settings.etfEmployerRate) : 0;
     case "APIT":
-      return calcApitTable01(taxableEarnings);
+      return apitAmount;
     default:
       return 0;
   }
@@ -285,33 +523,39 @@ function payrollBatchStatusColor(status: string): string {
 
 function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_PAYROLL_SETTINGS);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const [batchesError, setBatchesError] = useState("");
+  const [settingsError, setSettingsError] = useState("");
 
-  const load = useCallback(() => {
+  const loadDashboard = useCallback(() => {
     setLoading(true);
-    setLoadError("");
-    Promise.all([
-      apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=8"),
-      apiFetch<Settings>("/api/payroll/settings"),
-    ])
-      .then(([b, s]) => {
-        const items = (b.items ?? []).slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        setBatches(items);
-        setSettings(s);
-      })
+    setBatchesError("");
+    setSettingsError("");
+
+    const batchesReq = apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=20")
+      .then((b) => setBatches(sortBatchesNewestFirst(pagedItems(b))))
       .catch((err) => {
         setBatches([]);
-        setSettings(null);
-        setLoadError(err instanceof Error ? err.message : "Could not load payroll dashboard.");
-      })
-      .finally(() => setLoading(false));
+        setBatchesError(err instanceof Error ? err.message : "Could not load payroll batches.");
+      });
+
+    const settingsReq = apiFetch<Settings>("/api/payroll/settings")
+      .then((s) => setSettings(s))
+      .catch((err) => {
+        setSettings(DEFAULT_PAYROLL_SETTINGS);
+        setSettingsError(err instanceof Error ? err.message : "Could not load payroll settings.");
+      });
+
+    Promise.all([batchesReq, settingsReq]).finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
 
   const latest = batches[0] ?? null;
+  const latestUncalculated = latest != null && batchNeedsCalculation(latest);
 
   const latestBreakdown = useMemo(() => {
     if (!latest) return [];
@@ -359,13 +603,37 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
   const kpis = useMemo(() => {
     if (!latest) {
       return [
-        { label: "Total gross (latest run)", value: "—", sub: "No batches yet — start a payroll run" },
+        { label: "Total gross (latest run)", value: "—", sub: batchesError || "No batches yet — open Payroll Run or create a batch" },
         { label: "Total deductions", value: "—", sub: "—" },
         { label: "Total net pay", value: "—", sub: "—" },
         { label: "Employees in run", value: "—", sub: "—" },
       ];
     }
     const period = `${MONTHS[latest.month - 1]} ${latest.year}`;
+    if (latestUncalculated) {
+      return [
+        {
+          label: "Latest batch",
+          value: latest.batchCode,
+          sub: `${period} · ${formatInt(latest.employeeCount)} employees · Draft — run Calculate on Payroll Run`,
+        },
+        {
+          label: "Total gross (latest run)",
+          value: "Pending",
+          sub: "Calculate the batch to populate gross, deductions, and net pay",
+        },
+        {
+          label: "Total net pay",
+          value: "Pending",
+          sub: "EPF/ETF are applied when you calculate a salary batch",
+        },
+        {
+          label: "Employees in run",
+          value: formatInt(latest.employeeCount),
+          sub: `${formatInt(batches.length)} batch${batches.length === 1 ? "" : "es"} on dashboard`,
+        },
+      ];
+    }
     return [
       {
         label: "Total gross (latest run)",
@@ -388,7 +656,7 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
         sub: `${formatInt(batches.length)} recent batch${batches.length === 1 ? "" : "es"} loaded`,
       },
     ];
-  }, [latest, batches.length]);
+  }, [latest, latestUncalculated, batches.length, batchesError]);
 
   const quickLinks: { tab: Tab; title: string; sub: string }[] = [
     { tab: "Components", title: "Components", sub: "Earnings, deductions, and formulas" },
@@ -411,10 +679,22 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
 
   return (
     <>
-      {loadError ? (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <InlinePageAlert message={loadError} className="min-w-0 flex-1" />
-          <Button variant="secondary" onClick={load}>Retry</Button>
+      {batchesError || settingsError ? (
+        <div className="mb-4 space-y-2">
+          {batchesError ? (
+            <InlinePageAlert message={batchesError} className="rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800" />
+          ) : null}
+          {settingsError ? (
+            <InlinePageAlert
+              message={`${settingsError} Showing default EPF/ETF rates (8% / 12% / 3%).`}
+              className="rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            />
+          ) : null}
+          <div className="flex justify-end">
+            <Button variant="secondary" className="text-xs" onClick={loadDashboard}>
+              Retry
+            </Button>
+          </div>
         </div>
       ) : null}
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -425,6 +705,9 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
           >
             <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{kpi.label}</div>
             <div className="mt-2 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">{kpi.value}</div>
+            {kpi.sub && kpi.sub !== "—" ? (
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">{kpi.sub}</p>
+            ) : null}
           </div>
         ))}
       </div>
@@ -435,7 +718,11 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
             <h3 className="text-base font-semibold text-slate-800">Latest run mix</h3>
           </div>
           {!latest || latestBreakdown.every((x) => x.value === 0) ? (
-            <p className="py-8 text-center text-sm text-slate-500">No batch totals to chart yet.</p>
+            <p className="py-8 text-center text-sm text-slate-500">
+              {latestUncalculated
+                ? `${latest.batchCode} is ready — open Payroll Run and click Calculate.`
+                : "No batch totals to chart yet."}
+            </p>
           ) : (
             <HorizontalCompareBars items={latestBreakdown} />
           )}
@@ -445,8 +732,12 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Net pay trend</h3>
           </div>
-          {netTrendBars.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-500">No batches to plot.</p>
+          {netTrendBars.length === 0 || netTrendBars.every((b) => b.count === 0) ? (
+            <p className="py-8 text-center text-sm text-slate-500">
+              {batches.length > 0
+                ? "Net pay trend appears after you calculate a batch."
+                : "No batches to plot."}
+            </p>
           ) : (
             <>
               <WeeklyActivityBars data={netTrendBars} />
@@ -469,25 +760,24 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-base font-semibold text-slate-800">EPF / ETF rates</h3>
+          {settingsError ? (
+            <span className="text-xs text-amber-700">Defaults shown</span>
+          ) : null}
         </div>
-        {settings ? (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
-              <div className="text-xs font-medium text-slate-500">EPF (Employee)</div>
-              <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployeeRate * 100).toFixed(0)}%</div>
-            </div>
-            <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
-              <div className="text-xs font-medium text-slate-500">EPF (Employer)</div>
-              <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployerRate * 100).toFixed(0)}%</div>
-            </div>
-            <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
-              <div className="text-xs font-medium text-slate-500">ETF (Employer)</div>
-              <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.etfEmployerRate * 100).toFixed(0)}%</div>
-            </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
+            <div className="text-xs font-medium text-slate-500">EPF (Employee)</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployeeRate * 100).toFixed(0)}%</div>
           </div>
-        ) : (
-          <p className="py-6 text-center text-sm text-slate-500">Settings could not be loaded.</p>
-        )}
+          <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
+            <div className="text-xs font-medium text-slate-500">EPF (Employer)</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployerRate * 100).toFixed(0)}%</div>
+          </div>
+          <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
+            <div className="text-xs font-medium text-slate-500">ETF (Employer)</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.etfEmployerRate * 100).toFixed(0)}%</div>
+          </div>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
@@ -743,8 +1033,9 @@ function EmployeeSalaryTab() {
     apiFetch<Component[]>("/api/payroll/components").then(setComponents).catch(() => {});
     apiFetch<Settings>("/api/payroll/settings").then(setPayrollSettings).catch(() => {});
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=50").then(d => {
-      setBatches(d.items);
-      const draft = d.items.find(b => b.status === "Draft" || b.status === "Calculated");
+      const items = sortBatchesNewestFirst(pagedItems(d));
+      setBatches(items);
+      const draft = items.find(b => b.status === "Draft" || b.status === "Calculated");
       if (draft) setSelectedBatchId(draft.id);
     }).catch(() => {});
     setListLoading(true);
@@ -1095,17 +1386,19 @@ function SalaryComponentsEditor({
     return { isEmpty, target: isEmpty ? 0 : Math.round((parsed ?? 0) * 100) / 100 };
   }
 
-  async function persistComponent(def: Component, draft: string): Promise<boolean> {
+  async function persistComponent(def: Component, draft: string): Promise<{ wrote: boolean; recalculatedBatches?: number }> {
     const line = lineForComponent(def.id);
     const { isEmpty, target } = parseDraftAmount(draft);
 
-    if (!line && isEmpty) return false;
-    if (line && !isEmpty && closeEnough(Number(line.amount), target)) return false;
+    if (!line && isEmpty) return { wrote: false };
+    if (line && !isEmpty && closeEnough(Number(line.amount), target)) return { wrote: false };
 
+    let recalculatedBatches = 0;
     if (isEmpty && line) {
-      await apiFetch(`/api/payroll/compensation/line/${line.id}`, { method: "DELETE" });
+      const res = await apiFetch<{ recalculatedBatches?: number }>(`/api/payroll/compensation/line/${line.id}`, { method: "DELETE" });
+      recalculatedBatches = res.recalculatedBatches ?? 0;
     } else if (!isEmpty && line) {
-      await apiFetch(`/api/payroll/compensation/line/${line.id}`, {
+      const res = await apiFetch<{ recalculatedBatches?: number }>(`/api/payroll/compensation/line/${line.id}`, {
         method: "PUT",
         body: JSON.stringify({
           amount: target,
@@ -1115,6 +1408,7 @@ function SalaryComponentsEditor({
           isActive: true,
         }),
       });
+      recalculatedBatches = res.recalculatedBatches ?? 0;
     } else if (!isEmpty && !line) {
       const payload: Record<string, unknown> = {
         componentId: def.id,
@@ -1123,12 +1417,21 @@ function SalaryComponentsEditor({
         effectiveFrom: mode === "Fixed" ? DEFAULT_FIXED_SALARY_EFFECTIVE_FROM : new Date().toISOString(),
       };
       if (mode === "Variable" && batchId) payload.batchId = batchId;
-      await apiFetch(`/api/payroll/compensation/${employeeId}`, {
+      const res = await apiFetch<{ recalculatedBatches?: number }>(`/api/payroll/compensation/${employeeId}`, {
         method: "POST",
         body: JSON.stringify(payload),
       });
+      recalculatedBatches = res.recalculatedBatches ?? 0;
     }
-    return true;
+    return { wrote: true, recalculatedBatches };
+  }
+
+  function saveSuccessMessage(recalculatedBatches: number) {
+    if (mode !== "Fixed") return "Salary saved.";
+    if (recalculatedBatches > 0) {
+      return `Salary saved. ${recalculatedBatches} payroll run${recalculatedBatches === 1 ? "" : "s"} recalculated — check Pay Slips.`;
+    }
+    return "Salary saved. Open Payroll Run and click Calculate (or Recalculate) to refresh pay slips.";
   }
 
   async function commitComponent(def: Component) {
@@ -1140,9 +1443,12 @@ function SalaryComponentsEditor({
     setSaveOk(null);
     setSavingCompId(def.id);
     try {
-      const wrote = await persistComponent(def, draft);
+      const { wrote, recalculatedBatches = 0 } = await persistComponent(def, draft);
       clearDraft(def.id);
-      if (wrote) await onReload();
+      if (wrote) {
+        await onReload();
+        setSaveOk(saveSuccessMessage(recalculatedBatches));
+      }
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "Could not save");
     } finally {
@@ -1164,15 +1470,17 @@ function SalaryComponentsEditor({
     try {
       const snapshot = { ...draftByComp };
       let wroteAny = false;
+      let recalculatedBatches = 0;
       for (const def of dirty) {
         const draft = snapshot[def.id];
         if (draft === undefined) continue;
-        const wrote = await persistComponent(def, draft);
+        const { wrote, recalculatedBatches: n = 0 } = await persistComponent(def, draft);
         if (wrote) wroteAny = true;
+        if (n > recalculatedBatches) recalculatedBatches = n;
       }
       setDraftByComp({});
       if (wroteAny) await onReload();
-      setSaveOk("Salary saved.");
+      setSaveOk(wroteAny ? saveSuccessMessage(recalculatedBatches) : "Salary is already saved.");
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "Could not save");
     } finally {
@@ -1218,13 +1526,32 @@ function SalaryComponentsEditor({
   const etfEarnings = earningsDefs
     .filter((d) => d.isEtfApplicable)
     .reduce((s, d) => s + numericAmount(d.id), 0);
-  const taxableEarnings = earningsDefs
-    .filter((d) => d.isTaxable)
+  const taxableRegularMarked = earningsDefs
+    .filter((d) => d.isTaxable && d.category !== "OneTime")
     .reduce((s, d) => s + numericAmount(d.id), 0);
-  const hasStatutoryBase = epfEarnings > 0 || etfEarnings > 0 || taxableEarnings > 0;
+  const taxableLump = earningsDefs
+    .filter((d) => d.isTaxable && d.category === "OneTime")
+    .reduce((s, d) => s + numericAmount(d.id), 0);
+  const basicSalaryAmount = earningsDefs
+    .filter((d) => d.code.toUpperCase() === "BASIC" || d.code.toUpperCase().startsWith("BASIC"))
+    .reduce((s, d) => s + numericAmount(d.id), 0);
+  const { epfBase, etfBase } = resolveStatutoryBases(epfEarnings, etfEarnings, basicSalaryAmount);
+  const monthlySalaryForApit = earningsDefs
+    .filter((d) => d.category !== "OneTime")
+    .reduce((s, d) => s + numericAmount(d.id), 0);
+  const taxableEarnings = monthlySalaryForApit > 0
+    ? monthlySalaryForApit
+    : resolveTaxableBase(taxableRegularMarked, epfBase, basicSalaryAmount);
+  const apitAmount = calcApitByMode(
+    taxableEarnings,
+    taxableLump,
+    new Date().getMonth() + 1,
+    payrollSettings?.apitTaxMode
+  );
+  const hasStatutoryBase = epfBase > 0 || etfBase > 0 || taxableEarnings > 0 || taxableLump > 0;
 
   function statutoryAmount(def: Component): number {
-    return calcStatutoryAmount(def, epfEarnings, etfEarnings, taxableEarnings, payrollSettings);
+    return calcStatutoryAmount(def, epfBase, etfBase, apitAmount, payrollSettings);
   }
 
   function displayAmount(def: Component): number {
@@ -1232,9 +1559,6 @@ function SalaryComponentsEditor({
     return numericAmount(def.id);
   }
 
-  const basicSalaryAmount = earningsDefs
-    .filter((d) => d.code.toUpperCase() === "BASIC" || d.code.toUpperCase().startsWith("BASIC"))
-    .reduce((s, d) => s + numericAmount(d.id), 0);
   const poyaDayRate = basicSalaryAmount > 0 ? Math.round((basicSalaryAmount / 30) * 100) / 100 : 0;
 
   const totalEarnings = earningsDefs.reduce((s, d) => s + numericAmount(d.id), 0);
@@ -1292,16 +1616,20 @@ function SalaryComponentsEditor({
               className="border-b border-slate-100 transition-colors last:border-b-0 hover:bg-slate-50/60"
             >
               <td className="py-3 pl-4 pr-2 align-top">
-                <div className="font-medium leading-snug text-slate-900">
-                  {def.name}{" "}
-                  <span className="font-normal text-slate-400">({def.code})</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="font-medium leading-snug text-slate-900">
+                    {def.name}{" "}
+                    <span className="font-normal text-slate-400">({def.code})</span>
+                  </div>
+                  {isPoya(def) ? (
+                    <FormulaInfoTip
+                      text={`Auto on Payroll Run: Basic ÷ 30 × Poya days worked${
+                        poyaDayRate > 0 ? ` (LKR ${fmt(poyaDayRate)} per day)` : ""
+                      }. Leave blank to use attendance, or enter 0.5–15 days / a larger LKR amount.`}
+                    />
+                  ) : null}
                 </div>
-                {isPoya(def) ? (
-                  <p className="mt-1 text-[11px] leading-snug text-slate-500">
-                    Auto on Payroll Run: Basic ÷ 30 × Poya days worked
-                    {poyaDayRate > 0 ? ` (LKR ${fmt(poyaDayRate)} per day)` : ""}. Leave blank to use attendance, or enter 0.5–15 days / a larger LKR amount.
-                  </p>
-                ) : variant === "deduction" ? (
+                {variant === "deduction" && !isPoya(def) ? (
                   <span className="mt-1.5 inline-block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                     {def.type.toUpperCase()}
                   </span>
@@ -1313,10 +1641,10 @@ function SalaryComponentsEditor({
                     className="flex h-10 min-w-[7rem] items-center justify-end gap-2 rounded-lg border border-slate-200/70 bg-slate-50 px-3 font-mono text-sm tabular-nums text-slate-700 md:min-w-[8.75rem]"
                     title={
                       def.code.toUpperCase() === "APIT"
-                        ? `APIT (IRD Table 01) from taxable earnings (LKR ${fmt(taxableEarnings)})`
+                        ? `APIT Table 01 on taxable LKR ${fmt(taxableEarnings)}${taxableLump > 0 ? ` + Table 02 lump LKR ${fmt(taxableLump)}` : ""}`
                         : def.code.toUpperCase().startsWith("ETF")
-                          ? `Auto-calculated from ETF-applicable earnings (LKR ${fmt(etfEarnings)})`
-                          : `Auto-calculated from EPF-applicable earnings (LKR ${fmt(epfEarnings)})`
+                          ? `Auto-calculated from ETF-applicable earnings (LKR ${fmt(etfBase)})`
+                          : `Auto-calculated from EPF-applicable earnings (LKR ${fmt(epfBase)})`
                     }
                   >
                     <span className="rounded bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
@@ -1361,11 +1689,16 @@ function SalaryComponentsEditor({
           {saveButton("shrink-0")}
         </div>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
-          Enter amounts in LKR, then click Save. EPF/ETF use the EPF &amp; ETF mark; APIT uses Taxable earnings.
+          Enter amounts in LKR, then click Save. EPF/ETF use the EPF &amp; ETF mark; APIT uses Taxable earnings (IRD Table 01 + Table 02 for lump sums).
+          {dirtyCount > 0 ? (
+            <span className="mt-1 block text-sm font-medium text-amber-700">
+              You have unsaved changes — pay slips will not match until you click Save.
+            </span>
+          ) : null}
           {hasStatutoryBase && payrollSettings ? (
             <span className="mt-1 block text-xs text-slate-400">
-              {employeeName} EPF base: LKR {fmt(epfEarnings)} · ETF base: LKR {fmt(etfEarnings)} · APIT
-              taxable: LKR {fmt(taxableEarnings)}
+              {employeeName} EPF base: LKR {fmt(epfBase)} · ETF base: LKR {fmt(etfBase)} · APIT
+              taxable: LKR {fmt(taxableEarnings)}{taxableLump > 0 ? ` + lump LKR ${fmt(taxableLump)}` : ""} · APIT: LKR {fmt(apitAmount)}
             </span>
           ) : (
             <span className="mt-1 block text-xs text-amber-600">
@@ -1777,19 +2110,18 @@ function VariableEntryTab() {
 function PayrollRunTab() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
   const [batchStatements, setBatchStatements] = useState<Statement[]>([]);
   const [importBatch, setImportBatch] = useState<Batch | null>(null);
 
-  const [loadError, setLoadError] = useState("");
-
   const load = useCallback(() => {
     setLoading(true);
     setLoadError("");
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=50")
-      .then(d => setBatches(d.items ?? []))
+      .then(d => setBatches(sortBatchesNewestFirst(pagedItems(d))))
       .catch((err) => {
         setBatches([]);
         setLoadError(err instanceof Error ? err.message : "Could not load payroll batches.");
@@ -1799,8 +2131,9 @@ function PayrollRunTab() {
 
   async function refreshBatches() {
     const d = await apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=50");
-    setBatches(d.items);
-    return d.items;
+    const items = sortBatchesNewestFirst(pagedItems(d));
+    setBatches(items);
+    return items;
   }
 
   useEffect(() => { load(); }, [load]);
@@ -1810,7 +2143,7 @@ function PayrollRunTab() {
     setActionLoading(batchId);
     try {
       if (action === "calculate") {
-        if (!(await appConfirm("Run payroll calculation for this batch? Totals will be computed (or refreshed) from current compensation data, including Poya day pay (Basic ÷ 30 × days worked) and EPF/ETF for salary runs."))) {
+        if (!(await appConfirm("Rebuild pay slips for every employee in this batch from the Employee Salary tab? Includes Basic, allowances, deductions, Poya pay, and EPF/ETF."))) {
           setActionLoading(null);
           return;
         }
@@ -1832,7 +2165,7 @@ function PayrollRunTab() {
         }
         await apiFetch(`/api/payroll/batches/${batchId}/return`, { method: "PUT" });
       } else if (action === "approve") {
-        if (!(await appConfirm("Approve this salary batch? Payslips will be locked as Finalized."))) {
+        if (!(await appConfirm("Approve this salary batch? Pay slips will lock using the last Calculate totals — save Employee Salary and run Calculate (or Sync from Employee Salary) first so EPF and allowances match."))) {
           setActionLoading(null);
           return;
         }
@@ -1877,11 +2210,12 @@ function PayrollRunTab() {
       </div>
 
       {loadError ? (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <InlinePageAlert message={loadError} className="min-w-0 flex-1" />
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <InlinePageAlert message={loadError} className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800" />
           <Button variant="secondary" onClick={load}>Retry</Button>
         </div>
-      ) : batches.length === 0 ? <EmptyState text="No payroll batches yet. Create one to start." /> : (
+      ) : null}
+      {batches.length === 0 ? <EmptyState text="No payroll batches yet. Create one to start." /> : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500">
@@ -1912,8 +2246,18 @@ function PayrollRunTab() {
                         && (b.processType === "Salary" || b.processType === "OtherTransactions") && (
                         <ActionBtn label="Import OT/No-pay" onClick={() => setImportBatch(b)} loading={false} />
                       )}
-                      {b.status === "Draft" && <ActionBtn label="Calculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />}
-                      {b.status === "Calculated" && <ActionBtn label="Recalculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />}
+                      {b.status === "Draft" && b.processType === "Salary" && (
+                        <ActionBtn label="Calculate from Employee Salary" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />
+                      )}
+                      {b.status === "Draft" && b.processType !== "Salary" && (
+                        <ActionBtn label="Calculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />
+                      )}
+                      {b.status === "Calculated" && b.processType === "Salary" && (
+                        <ActionBtn label="Sync from Employee Salary" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />
+                      )}
+                      {b.status === "Calculated" && b.processType !== "Salary" && (
+                        <ActionBtn label="Recalculate" onClick={() => handleAction(b.id, "calculate")} loading={actionLoading === b.id} />
+                      )}
                       {b.status === "Calculated" && <ActionBtn label="Review" onClick={() => handleAction(b.id, "review")} loading={actionLoading === b.id} />}
                       {(b.status === "Calculated" || b.status === "Reviewed") && <ActionBtn label="Approve" onClick={() => handleAction(b.id, "approve")} loading={actionLoading === b.id} />}
                       {b.status === "Reviewed" && (
@@ -2336,25 +2680,37 @@ function BatchDetailModal({
 }) {
   const [selectedStmt, setSelectedStmt] = useState<Statement | null>(null);
   const [stmtDetail, setStmtDetail] = useState<Statement | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
   const canApproveSalary = batch.status === "Calculated" || batch.status === "Reviewed";
+  const sortedStatements = useMemo(
+    () => [...statements].sort((a, b) => compareEmployeeCode(a.employeeCode, b.employeeCode)),
+    [statements],
+  );
 
   async function viewPayslip(stmt: Statement) {
+    if (!isApprovedPaySlip(stmt.status)) return;
+    setViewingId(stmt.id);
     setSelectedStmt(stmt);
-    if (stmt.lines && stmt.lines.length > 0) {
-      setStmtDetail(stmt);
-      return;
+    try {
+      if (stmt.lines && stmt.lines.length > 0) {
+        setStmtDetail(stmt);
+        return;
+      }
+      const detail = await apiFetch<Statement>(`/api/payroll/statements/${stmt.id}`);
+      setStmtDetail(detail);
+    } finally {
+      setViewingId(null);
     }
-    const detail = await apiFetch<Statement>(`/api/payroll/statements/${stmt.id}`);
-    setStmtDetail(detail);
   }
 
   async function handlePrint(stmt: Statement) {
+    if (!isApprovedPaySlip(stmt.status)) return;
     setPrintingId(stmt.id);
     try {
       await printStatement(stmt);
-    } catch (err) {
-      await appAlert(err instanceof Error ? err.message : "Could not print payslip");
+    } catch {
+      void appAlert("Could not open payslip for printing.");
     } finally {
       setPrintingId(null);
     }
@@ -2380,7 +2736,12 @@ function BatchDetailModal({
       </div>
       {(batch.status === "Calculated" || batch.status === "Reviewed" || batch.status === "Approved") && (
         <div className="mb-4 flex flex-wrap gap-2">
-          {batch.status === "Calculated" && <ActionBtn label="Recalculate" onClick={() => onAction("calculate")} loading={actionLoading} />}
+          {batch.status === "Calculated" && batch.processType === "Salary" && (
+            <ActionBtn label="Sync from Employee Salary" onClick={() => onAction("calculate")} loading={actionLoading} />
+          )}
+          {batch.status === "Calculated" && batch.processType !== "Salary" && (
+            <ActionBtn label="Recalculate" onClick={() => onAction("calculate")} loading={actionLoading} />
+          )}
           {batch.status === "Calculated" && <ActionBtn label="Review" onClick={() => onAction("review")} loading={actionLoading} />}
           {canApproveSalary && <ActionBtn label="Approve salary" onClick={() => onAction("approve")} loading={actionLoading} />}
           {batch.status === "Reviewed" && (
@@ -2406,33 +2767,54 @@ function BatchDetailModal({
       </div>
 
       {statements.length === 0 ? <EmptyState text="No pay slips in this batch." /> : (
-        <div className="max-h-[400px] overflow-y-auto">
-          <table className="w-full text-left text-sm">
-            <thead><tr className="border-b text-xs text-slate-400">
-              <th className="pb-2 font-medium">Employee</th><th className="pb-2 font-medium text-right">Gross</th>
-              <th className="pb-2 font-medium text-right">Deductions</th><th className="pb-2 font-medium text-right">Net</th>
-              <th className="pb-2 font-medium">Actions</th>
-            </tr></thead>
+        <div className="max-h-[400px] overflow-x-auto overflow-y-auto rounded-lg border border-slate-100">
+          <table className="w-full min-w-[720px] table-fixed border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/90">
+                <th className="w-[34%] px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Employee
+                </th>
+                <th className="w-[17%] px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Gross
+                </th>
+                <th className="w-[17%] px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Deductions
+                </th>
+                <th className="w-[17%] px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Net
+                </th>
+                <th className="w-[15%] px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Actions
+                </th>
+              </tr>
+            </thead>
             <tbody>
-              {statements.map(s => (
-                <tr key={s.id} className="border-b border-slate-50">
-                  <td className="py-2.5"><span className="font-medium text-slate-700">{s.employeeName}</span> <span className="text-xs text-slate-400">{s.employeeCode}</span></td>
-                  <td className="py-2.5 text-right font-mono">LKR {fmt(s.grossPay)}</td>
-                  <td className="py-2.5 text-right font-mono text-red-600">LKR {fmt(s.totalDeductions)}</td>
-                  <td className="py-2.5 text-right font-mono font-semibold">LKR {fmt(s.netPay)}</td>
-                  <td className="py-2.5">
-                    <div className="flex items-center gap-3">
-                      <button type="button" onClick={() => viewPayslip(s)} className="text-xs text-blue-600 hover:underline">Payslip</button>
-                      {canApproveSalary && (
-                        <button type="button" onClick={() => onAction("approve")} disabled={actionLoading} className="text-xs font-medium text-green-700 hover:underline disabled:opacity-40">
-                          Approve salary
-                        </button>
-                      )}
-                      <button type="button" onClick={() => void handlePrint(s)} disabled={printingId === s.id} className="text-xs text-blue-600 hover:underline disabled:opacity-40">
-                        {printingId === s.id ? "Printing…" : "Print"}
-                      </button>
-                    </div>
+              {sortedStatements.map(s => (
+                <tr key={s.id} className="border-b border-slate-100 last:border-b-0">
+                  <td className="align-middle px-3 py-3">
+                    <div className="font-medium leading-snug text-slate-700">{s.employeeName}</div>
+                    {s.employeeCode ? (
+                      <div className="mt-0.5 text-xs text-slate-400">{s.employeeCode}</div>
+                    ) : null}
                   </td>
+                  <td className="align-middle whitespace-nowrap px-3 py-3 text-right font-mono text-sm tabular-nums text-slate-700">
+                    LKR {fmt(s.grossPay)}
+                  </td>
+                  <td className="align-middle whitespace-nowrap px-3 py-3 text-right font-mono text-sm tabular-nums text-red-600">
+                    LKR {fmt(s.totalDeductions)}
+                  </td>
+                  <td className="align-middle whitespace-nowrap px-3 py-3 text-right font-mono text-sm font-semibold tabular-nums text-slate-800">
+                    LKR {fmt(s.netPay)}
+                  </td>
+                      <td className="align-middle px-3 py-3">
+                        <PaySlipActionLinks
+                          statement={s}
+                          viewingId={viewingId}
+                          printingId={printingId}
+                          onView={() => void viewPayslip(s)}
+                          onPrint={() => void handlePrint(s)}
+                        />
+                      </td>
                 </tr>
               ))}
             </tbody>
@@ -2486,6 +2868,24 @@ function PayslipModal({
     <Modal open onClose={onClose} title={`Payslip — ${statement.employeeName}`} wide>
       <div className="mb-4 text-sm text-slate-500">
         {MONTHS[statement.month - 1]} {statement.year} &middot; {statement.employeeCode} &middot; {statement.department || ""}
+      </div>
+      <div className="mb-5 grid gap-3 sm:grid-cols-4 text-sm">
+        <div className="rounded-lg bg-slate-50 p-3">
+          <div className="text-xs text-slate-400">Gross</div>
+          <div className="font-semibold tabular-nums">LKR {fmt(statement.grossPay)}</div>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <div className="text-xs text-slate-400">Deductions</div>
+          <div className="font-semibold tabular-nums text-red-600">LKR {fmt(statement.totalDeductions)}</div>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <div className="text-xs text-slate-400">Net</div>
+          <div className="font-semibold tabular-nums">LKR {fmt(statement.netPay)}</div>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <div className="text-xs text-slate-400">Employer Cost</div>
+          <div className="font-semibold tabular-nums">LKR {fmt(statement.employerCost)}</div>
+        </div>
       </div>
       <div className="grid gap-6 sm:grid-cols-2">
         <div>
@@ -2544,9 +2944,11 @@ function PayslipModal({
             {approveLoading ? "Approving…" : "Approve salary"}
           </Button>
         )}
-        <Button onClick={() => void handlePrint()} disabled={printing}>
-          {printing ? "Preparing…" : "Print"}
-        </Button>
+        {isApprovedPaySlip(statement.status) ? (
+          <Button onClick={() => void handlePrint()} disabled={printing}>
+            {printing ? "Preparing…" : "Print"}
+          </Button>
+        ) : null}
       </div>
     </Modal>
   );
@@ -2554,89 +2956,396 @@ function PayslipModal({
 
 /* ═══════════════════════ PAY STATEMENTS ═══════════════════════ */
 
+type PaySlipSearchHit = {
+  id: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  employeeCode: string;
+  departmentName?: string | null;
+};
+
+function paySlipHitName(hit: PaySlipSearchHit): string {
+  const fromParts = `${hit.firstName ?? ""} ${hit.lastName ?? ""}`.trim();
+  return (hit.fullName ?? "").trim() || fromParts || hit.employeeCode || "Unknown";
+}
+
 function PayStatementsTab() {
   const [statements, setStatements] = useState<Statement[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [viewStmt, setViewStmt] = useState<Statement | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
+  const searchFilter = useApplyFilter();
   const pageSize = 20;
+  const searchWrapRef = useRef<HTMLDivElement>(null);
+  const suggestDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [suggestions, setSuggestions] = useState<PaySlipSearchHit[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [batchId, setBatchId] = useState("");
+
+  const selectedBatch = batches.find((b) => b.id === batchId);
+  const hasFilters = searchFilter.hasApplied || Boolean(batchId);
 
   const load = useCallback(() => {
     setLoading(true);
-    apiFetch<PagedResult<Statement>>(`/api/payroll/statements?page=${page}&pageSize=${pageSize}`)
-      .then(d => { setStatements(d.items); setTotalCount(d.totalCount); })
-      .catch(() => {}).finally(() => setLoading(false));
-  }, [page]);
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+    });
+    if (searchFilter.applied.trim()) params.set("search", searchFilter.applied.trim());
+    if (batchId) params.set("batchId", batchId);
+    apiFetch<PagedResult<Statement>>(`/api/payroll/statements?${params.toString()}`)
+      .then(d => {
+        setStatements(pagedItems(d));
+        setTotalCount(d.totalCount ?? d.TotalCount ?? 0);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [page, searchFilter.applied, batchId]);
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200")
+      .then((d) => setBatches(sortBatchesNewestFirst(pagedItems(d))))
+      .catch(() => setBatches([]));
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (!searchWrapRef.current?.contains(e.target as Node)) setSuggestOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const fetchSuggestions = useCallback(async (raw: string) => {
+    const q = raw.trim();
+    if (q.length === 0) {
+      setSuggestions([]);
+      setSuggestOpen(false);
+      setSuggestLoading(false);
+      return;
+    }
+    setSuggestLoading(true);
+    setSuggestOpen(true);
+    try {
+      const params = new URLSearchParams({ pageSize: "8", excludeTerminated: "true", search: q });
+      let res: { items?: PaySlipSearchHit[] };
+      try {
+        res = await apiFetch<{ items: PaySlipSearchHit[] }>(`/api/employees/lookup?${params}`);
+      } catch {
+        res = await apiFetch<{ items: PaySlipSearchHit[] }>(`/api/employees?${params}`);
+      }
+      setSuggestions(res.items ?? []);
+    } catch {
+      setSuggestions([]);
+    } finally {
+      setSuggestLoading(false);
+    }
+  }, []);
+
+  function queueSuggestions(raw: string) {
+    if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
+    suggestDebounceRef.current = setTimeout(() => void fetchSuggestions(raw), 280);
+  }
+
+  function applySearch() {
+    searchFilter.apply();
+    setSuggestOpen(false);
+    setSuggestions([]);
+    setPage(1);
+  }
+
+  function pickSuggestion(hit: PaySlipSearchHit) {
+    searchFilter.setApplied(paySlipHitName(hit));
+    searchFilter.setInput("");
+    setSuggestOpen(false);
+    setSuggestions([]);
+    setPage(1);
+  }
+
+  function clearSearch() {
+    searchFilter.clear();
+    setBatchId("");
+    setSuggestOpen(false);
+    setSuggestions([]);
+    setPage(1);
+  }
+
   async function viewPayslip(stmt: Statement) {
-    const detail = await apiFetch<Statement>(`/api/payroll/statements/${stmt.id}`);
-    setViewStmt(detail);
+    if (!isApprovedPaySlip(stmt.status)) return;
+    setViewingId(stmt.id);
+    try {
+      const detail = await apiFetch<Statement>(`/api/payroll/statements/${stmt.id}`);
+      setViewStmt(detail);
+    } catch {
+      void appAlert("Could not load payslip.");
+    } finally {
+      setViewingId(null);
+    }
   }
 
   async function handlePrint(stmt: Statement) {
+    if (!isApprovedPaySlip(stmt.status)) return;
     setPrintingId(stmt.id);
     try {
       await printStatement(stmt);
-    } catch (err) {
-      await appAlert(err instanceof Error ? err.message : "Could not print payslip");
+    } catch {
+      void appAlert("Could not open payslip for printing.");
     } finally {
       setPrintingId(null);
     }
   }
 
-  if (loading) return <Loading />;
-
-  const totalPages = Math.ceil(totalCount / pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const displayStatements = useMemo(
+    () => [...statements].sort((a, b) => compareEmployeeCode(a.employeeCode, b.employeeCode)),
+    [statements],
+  );
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-slate-800">Pay Slips</h2>
-
-      {statements.length === 0 ? <EmptyState text="No pay slips generated yet." /> : (
-        <>
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-left text-sm">
-              <thead><tr className="border-b bg-slate-50 text-xs text-slate-500">
-                <th className="px-4 py-3 font-medium">Employee</th><th className="px-4 py-3 font-medium">Period</th>
-                <th className="px-4 py-3 font-medium text-right">Gross</th><th className="px-4 py-3 font-medium text-right">Deductions</th>
-                <th className="px-4 py-3 font-medium text-right">Net Pay</th><th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Actions</th>
-              </tr></thead>
-              <tbody>
-                {statements.map(s => (
-                  <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="px-4 py-3"><span className="font-medium text-slate-700">{s.employeeName}</span><br/><span className="text-xs text-slate-400">{s.employeeCode}</span></td>
-                    <td className="px-4 py-3 text-slate-600">{MONTHS[s.month - 1]} {s.year}</td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-700">LKR {fmt(s.grossPay)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-red-600">LKR {fmt(s.totalDeductions)}</td>
-                    <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">LKR {fmt(s.netPay)}</td>
-                    <td className="px-4 py-3"><Badge status={s.status} /></td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <button type="button" onClick={() => viewPayslip(s)} className="text-xs text-blue-600 hover:underline">Payslip</button>
-                        <button type="button" onClick={() => void handlePrint(s)} disabled={printingId === s.id} className="text-xs text-blue-600 hover:underline disabled:opacity-40">
-                          {printingId === s.id ? "Printing…" : "Print"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)]">
+        <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white px-6 py-5">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-slate-900">Pay Slips</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-500">
+              View and print employee payslips after payroll is approved. Payslip and Print appear only when status is Approved.
+            </p>
           </div>
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2">
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="rounded border px-3 py-1 text-sm disabled:opacity-40">Prev</button>
-              <span className="text-sm text-slate-500">Page {page} of {totalPages}</span>
-              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="rounded border px-3 py-1 text-sm disabled:opacity-40">Next</button>
+
+          <div className="mt-5">
+            <div className="flex w-full flex-col gap-2 lg:flex-row lg:items-end">
+              <div className="min-w-0 flex-1">
+                <label htmlFor="payslip-employee-search" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Search employee
+                </label>
+                <div ref={searchWrapRef} className="relative min-w-0">
+                  <input
+                    id="payslip-employee-search"
+                    type="text"
+                    autoComplete="off"
+                    aria-autocomplete="list"
+                    aria-expanded={suggestOpen}
+                    className={
+                      inputCls +
+                      " min-h-10 w-full min-w-0 !mb-0 rounded-lg border-slate-200/90 bg-white py-2.5 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400"
+                    }
+                    placeholder="Name or employee code…"
+                    value={searchFilter.input}
+                    onChange={(e) => {
+                      searchFilter.setInput(e.target.value);
+                      queueSuggestions(e.target.value);
+                    }}
+                    onFocus={() => {
+                      if (searchFilter.input.trim()) void fetchSuggestions(searchFilter.input);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") applySearch();
+                      if (e.key === "Escape") setSuggestOpen(false);
+                    }}
+                  />
+                  {suggestOpen ? (
+                    <ul
+                      role="listbox"
+                      className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                    >
+                      {suggestLoading && suggestions.length === 0 ? (
+                        <li className="px-3 py-2.5 text-sm text-slate-400">Loading suggestions…</li>
+                      ) : null}
+                      {!suggestLoading && suggestions.length === 0 ? (
+                        <li className="px-3 py-2.5 text-sm text-slate-400">No matching employees</li>
+                      ) : null}
+                      {suggestions.map((hit) => (
+                        <li key={hit.id} role="presentation">
+                          <button
+                            type="button"
+                            role="option"
+                            className="flex w-full flex-col items-start gap-0.5 px-3 py-2.5 text-left text-sm hover:bg-[#e3eef8]"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => pickSuggestion(hit)}
+                          >
+                            <span className="font-medium text-slate-800">{paySlipHitName(hit)}</span>
+                            <span className="text-[11px] text-slate-500">
+                              {[hit.employeeCode ? hit.employeeCode : null, hit.departmentName?.trim() || null]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              </div>
+              <div className="w-full min-w-0 lg:w-[22rem]">
+                <label htmlFor="payslip-batch-filter" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Search batch
+                </label>
+                <select
+                  id="payslip-batch-filter"
+                  className={
+                    inputCls +
+                    " min-h-10 w-full !mb-0 rounded-lg border-slate-200/90 bg-white py-2.5 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                  }
+                  value={batchId}
+                  onChange={(e) => {
+                    setBatchId(e.target.value);
+                    setPage(1);
+                  }}
+                >
+                  <option value="">All batches</option>
+                  {batches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.batchCode} · {MONTHS[b.month - 1]} {b.year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex shrink-0 items-stretch gap-2">
+                <Button className="min-h-10 min-w-[6.5rem] rounded-lg px-6" onClick={applySearch}>
+                  Search
+                </Button>
+                {hasFilters ? (
+                  <Button variant="secondary" className="min-h-10 min-w-[5.5rem] rounded-lg px-4" onClick={clearSearch}>
+                    Clear
+                  </Button>
+                ) : null}
+              </div>
             </div>
-          )}
-        </>
-      )}
+            <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+              {hasFilters ? (
+                <p className="text-xs text-slate-500">
+                  Showing results
+                  {searchFilter.hasApplied ? (
+                    <>
+                      {" "}for{" "}
+                      <strong className="font-medium text-slate-700">&quot;{searchFilter.applied}&quot;</strong>
+                    </>
+                  ) : null}
+                  {selectedBatch ? (
+                    <>
+                      {searchFilter.hasApplied ? " in " : " for "}
+                      <strong className="font-medium text-slate-700">{selectedBatch.batchCode}</strong>
+                    </>
+                  ) : null}
+                </p>
+              ) : (
+                <span className="text-xs text-slate-400">Type a name or code, or choose a batch</span>
+              )}
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
+                {totalCount} pay slip{totalCount !== 1 ? "s" : ""}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="py-16">
+            <Loading />
+          </div>
+        ) : statements.length === 0 ? (
+          <div className="px-6 py-14">
+            <EmptyState
+              text={
+                hasFilters
+                  ? `No pay slips found${searchFilter.hasApplied ? ` for "${searchFilter.applied}"` : ""}${selectedBatch ? ` in ${selectedBatch.batchCode}` : ""}.`
+                  : "No pay slips generated yet. Open Payroll Run and calculate a salary batch."
+              }
+            />
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[880px] table-fixed border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/90">
+                    <th className="w-[26%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Employee
+                    </th>
+                    <th className="w-[14%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Period
+                    </th>
+                    <th className="w-[14%] px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Gross
+                    </th>
+                    <th className="w-[14%] px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Deductions
+                    </th>
+                    <th className="w-[14%] px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Net Pay
+                    </th>
+                    <th className="w-[10%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Status
+                    </th>
+                    <th className="w-[8%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayStatements.map((s) => (
+                    <tr key={s.id} className="border-b border-slate-100 transition-colors last:border-b-0 hover:bg-slate-50/60">
+                      <td className="align-middle px-4 py-3.5">
+                        <div className="font-medium leading-snug text-slate-800">{s.employeeName}</div>
+                        {s.employeeCode ? (
+                          <div className="mt-0.5 text-xs text-slate-400">{s.employeeCode}</div>
+                        ) : null}
+                      </td>
+                      <td className="align-middle whitespace-nowrap px-4 py-3.5 text-slate-600">
+                        {MONTHS[s.month - 1]} {s.year}
+                      </td>
+                      <td className="align-middle whitespace-nowrap px-4 py-3.5 text-right font-mono text-sm tabular-nums text-slate-700">
+                        LKR {fmt(s.grossPay)}
+                      </td>
+                      <td className="align-middle whitespace-nowrap px-4 py-3.5 text-right font-mono text-sm tabular-nums text-red-600">
+                        LKR {fmt(s.totalDeductions)}
+                      </td>
+                      <td className="align-middle whitespace-nowrap px-4 py-3.5 text-right font-mono text-sm font-semibold tabular-nums text-slate-900">
+                        LKR {fmt(s.netPay)}
+                      </td>
+                      <td className="align-middle px-4 py-3.5">
+                        <PayStatementBadge status={s.status} />
+                      </td>
+                      <td className="align-middle px-4 py-3.5">
+                        <PaySlipActionLinks
+                          statement={s}
+                          viewingId={viewingId}
+                          printingId={printingId}
+                          onView={() => void viewPayslip(s)}
+                          onPrint={() => void handlePrint(s)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <TablePagination
+              className="border-t border-slate-100 px-6 py-3"
+              page={page}
+              totalPages={totalPages}
+              totalCount={totalCount}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              alwaysShow={totalCount > 0}
+            />
+          </>
+        )}
+      </div>
 
       {viewStmt && viewStmt.lines && <PayslipModal statement={viewStmt} onClose={() => setViewStmt(null)} />}
     </div>
@@ -2664,6 +3373,7 @@ function SettingsTab() {
       etfEmployerRate: Number(fd.get("etfEmployerRate")) / 100,
       otHourlyDivisor: Number(fd.get("otHourlyDivisor")) || 208,
       otMultiplier: Number(fd.get("otMultiplier")) || 1.5,
+      apitTaxMode: String(fd.get("apitTaxMode") || settings?.apitTaxMode || "Exact"),
     };
     try {
       const result = await apiFetch<Settings>("/api/payroll/settings", { method: "PUT", body: JSON.stringify(payload) });
@@ -2704,6 +3414,14 @@ function SettingsTab() {
             <label className={labelCls}>OT Multiplier</label>
             <input name="otMultiplier" type="number" step="0.01" className={inputCls}
               defaultValue={settings?.otMultiplier ?? 1.5} />
+          </div>
+          <div>
+            <label className={labelCls}>APIT tax mode</label>
+            <select name="apitTaxMode" className={inputCls} defaultValue={settings?.apitTaxMode ?? "Exact"}>
+              <option value="Monthly">Monthly</option>
+              <option value="Annual">Annualy</option>
+              <option value="Exact">Expact</option>
+            </select>
           </div>
           {msg ? (
             <InlinePageAlert

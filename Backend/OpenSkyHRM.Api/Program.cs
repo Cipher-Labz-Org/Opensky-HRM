@@ -315,6 +315,8 @@ if (dbAvailable)
 
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        // Schema first so live tenants have APIT/EPF columns even if a later migration fails.
+        await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await db.Database.MigrateAsync();
         await BankAccountSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, app.Configuration);
@@ -432,9 +434,10 @@ if (dbAvailable)
         var payrollDb = payrollScope.ServiceProvider.GetRequiredService<AppDbContext>();
         await PayrollComponentSeeder.EnsureAsync(payrollDb);
         await PayrollSeeder.EnsureStatutoryFormulasAsync(payrollDb);
+        await PayrollSeeder.EnsureStarterBatchAsync(payrollDb);
         if (app.Environment.IsDevelopment())
             await PayrollSeeder.EnsureDemoSalary100kAsync(payrollDb);
-        Console.WriteLine("INFO: Payroll compensation components ensured.");
+        Console.WriteLine("INFO: Payroll compensation components and starter batch ensured.");
     }
     catch (Exception ex)
     {

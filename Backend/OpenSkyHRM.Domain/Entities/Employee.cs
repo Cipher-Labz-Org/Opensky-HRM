@@ -83,6 +83,11 @@ public class Employee : AuditableEntity
     public Guid? ShiftPatternId { get; set; }
     public ShiftPattern? ShiftPattern { get; set; }
 
+    /// <summary>
+    /// Per-employee APIT mode: Monthly, Annual, or Exact. Null uses the company default.
+    /// </summary>
+    public string? ApitTaxMode { get; set; }
+
     public Guid? ManagerId { get; set; }
     public Employee? Manager { get; set; }
     public ICollection<Employee> DirectReports { get; set; } = new List<Employee>();

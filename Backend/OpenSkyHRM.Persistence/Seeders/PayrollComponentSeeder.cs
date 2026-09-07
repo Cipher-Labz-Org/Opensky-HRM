@@ -69,7 +69,7 @@ public static class PayrollComponentSeeder
         new("No-Pay Deduction", "NOPAY", ComponentType.Deduction, ComponentCategory.Variable, 310,
             "Deduction for no-pay leave days",
             FormulaExpression: "BASIC / 30 * NOPAY_DAYS", DependsOnComponentCode: "BASIC"),
-        new("Salary Advance", "ADVANCE", ComponentType.Deduction, ComponentCategory.Variable, 320,
+        new("Salary Advance", "ADVANCE", ComponentType.Deduction, ComponentCategory.Fixed, 320,
             "Salary advance recovery"),
         new("Insurance Premium", "INSURANCE", ComponentType.Deduction, ComponentCategory.Fixed, 330,
             "Employee insurance premium deduction"),
@@ -88,7 +88,7 @@ public static class PayrollComponentSeeder
             IsStatutory: true, IsEmployerContribution: true,
             FormulaExpression: "ETF_EARNINGS * ETF_RATE", DependsOnComponentCode: "ETF_EARNINGS"),
         new("APIT", "APIT", ComponentType.StatutoryDeduction, ComponentCategory.Statutory, 905,
-            "Advance Personal Income Tax — IRD Table 01 on taxable earnings",
+            "Advance Personal Income Tax — Table 01 when monthly salary is over LKR 150,000; otherwise annual tax on yearly salary only",
             IsStatutory: true,
             FormulaExpression: "APIT_AMOUNT", DependsOnComponentCode: "TAXABLE_EARNINGS"),
     ];
@@ -100,6 +100,7 @@ public static class PayrollComponentSeeder
         ("Payroll_ETF_EmployerRate", "0.03", "ETF employer contribution rate"),
         ("Payroll_OT_HourlyDivisor", "208", "Hourly rate divisor for OT (BASIC / divisor × multiplier × hours)"),
         ("Payroll_OT_Multiplier", "1.5", "OT pay multiplier (e.g. 1.5 for time-and-a-half)"),
+        ("Payroll_APIT_TaxMode", "Exact", "APIT tax mode: Monthly, Annual, or Exact (all environments)"),
     ];
 
     /// <summary>
@@ -123,6 +124,8 @@ public static class PayrollComponentSeeder
                     match.IsDeleted = false;
                     match.IsActive = true;
                 }
+
+                SyncCatalogMetadata(match, definition);
                 continue;
             }
 
@@ -141,6 +144,13 @@ public static class PayrollComponentSeeder
             component.IsEtfApplicable = true;
         }
 
+        await EnsureDefaultSettingsAsync(context, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>Idempotent EPF/ETF/OT rate rows in SystemSettings (all environments).</summary>
+    public static async Task EnsureDefaultSettingsAsync(AppDbContext context, CancellationToken cancellationToken = default)
+    {
         foreach (var (key, value, description) in DefaultSystemSettings)
         {
             if (await context.SystemSettings.FindAsync([key], cancellationToken) is not null)
@@ -154,7 +164,37 @@ public static class PayrollComponentSeeder
             });
         }
 
-        await context.SaveChangesAsync(cancellationToken);
+        if (context.ChangeTracker.HasChanges())
+            await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static void SyncCatalogMetadata(CompensationComponent match, PayrollComponentDefinition definition)
+    {
+        if (definition.Category == ComponentCategory.Statutory)
+        {
+            match.IsStatutory = definition.IsStatutory;
+            match.IsEmployerContribution = definition.IsEmployerContribution;
+            if (!string.IsNullOrEmpty(definition.FormulaExpression))
+                match.FormulaExpression = definition.FormulaExpression;
+            if (!string.IsNullOrEmpty(definition.DependsOnComponentCode))
+                match.DependsOnComponentCode = definition.DependsOnComponentCode;
+            return;
+        }
+
+        if (match.Category != definition.Category)
+            match.Category = definition.Category;
+
+        if (definition.Type != ComponentType.Earning)
+            return;
+
+        // Repair EPF/ETF flags: ensure catalog components match the definition.
+        // This covers rows left with EPF-only (old single-select UI cleared ETF),
+        // and rows where both flags were never set (migration didn't run or schema
+        // repair only partially applied on live).
+        if (definition.IsEpfApplicable && !match.IsEpfApplicable)
+            match.IsEpfApplicable = true;
+        if (definition.IsEtfApplicable && !match.IsEtfApplicable)
+            match.IsEtfApplicable = true;
     }
 
     private static CompensationComponent? FindExisting(
