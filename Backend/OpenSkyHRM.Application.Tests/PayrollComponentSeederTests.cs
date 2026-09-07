@@ -53,6 +53,10 @@ public class PayrollComponentSeederTests
         Assert.Contains("OT", codes);
         Assert.Contains("EPF_EE", codes);
         Assert.Contains("APIT", codes);
+
+        var taxMode = await db.SystemSettings.FindAsync("Payroll_APIT_TaxMode");
+        Assert.NotNull(taxMode);
+        Assert.Equal("Exact", taxMode.Value);
     }
 
     [Fact]

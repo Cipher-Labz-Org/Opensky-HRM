@@ -57,11 +57,12 @@ public static class DocumentTemplateSeeder
             return;
         }
 
-        var needsUpgrade =
+        // Only replace the old seeded layout. Missing version-2 must not wipe
+        // letters HR edited on live (those often have neither the old classes nor the marker).
+        var isLegacySeededLayout =
             existing.HtmlContent.Contains("details-table", StringComparison.OrdinalIgnoreCase) ||
-            existing.HtmlContent.Contains("class=\"header\"", StringComparison.OrdinalIgnoreCase) ||
-            !existing.HtmlContent.Contains("data-letter-version=\"2\"", StringComparison.Ordinal);
-        if (!refreshLegacyOnly || needsUpgrade)
+            existing.HtmlContent.Contains("class=\"header\"", StringComparison.OrdinalIgnoreCase);
+        if (!refreshLegacyOnly || isLegacySeededLayout)
             existing.HtmlContent = html;
     }
 
