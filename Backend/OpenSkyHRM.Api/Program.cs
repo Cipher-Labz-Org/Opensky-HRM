@@ -164,6 +164,10 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Description = "Enterprise HRIS REST API"
     });
+    // Unique schema ids for generic/nested types; first action wins if two methods share a path.
+    options.CustomSchemaIds(type =>
+        (type.FullName ?? type.Name).Replace("+", ".", StringComparison.Ordinal));
+    options.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
 });
 
 // --- Test DB connectivity before registering Hangfire ---
@@ -283,7 +287,8 @@ app.UseExceptionHandler(errorApp =>
 
         context.Response.StatusCode = 500;
         context.Response.ContentType = "application/json";
-        var message = app.Environment.IsDevelopment() && ex != null
+        var swaggerRequest = context.Request.Path.StartsWithSegments("/swagger");
+        var message = (app.Environment.IsDevelopment() || swaggerRequest) && ex != null
             ? ex.Message
             : "An internal server error occurred.";
         await context.Response.WriteAsJsonAsync(new { message, database = dbAvailable });
