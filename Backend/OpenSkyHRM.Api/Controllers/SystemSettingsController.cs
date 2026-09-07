@@ -229,7 +229,7 @@ public class SystemSettingsController : ControllerBase
         {
             return StatusCode(500, new
             {
-                message = "Could not upload company logo. Check FileStorage settings (S3 bucket, CompanyFolder, AWS credentials) on this server.",
+                message = DescribeLogoUploadFailure(ex),
                 error = "Logo upload failed.",
                 detail = ex.Message,
             });
@@ -274,6 +274,31 @@ public class SystemSettingsController : ControllerBase
     {
         await _service.SetAsync("CompanyLogoUrl", "");
         return Ok(new { logoUrl = "" });
+    }
+
+    private static string DescribeLogoUploadFailure(Exception ex)
+    {
+        if (ex is Amazon.S3.AmazonS3Exception s3)
+        {
+            if (string.Equals(s3.ErrorCode, "InvalidAccessKeyId", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(s3.ErrorCode, "SignatureDoesNotMatch", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(s3.ErrorCode, "AccessDenied", StringComparison.OrdinalIgnoreCase)
+                || s3.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                return "Could not upload company logo. AWS rejected the S3 credentials or bucket permission. Check FileStorage AccessKeyId, SecretAccessKey, BucketName, and CompanyFolder, then restart IIS.";
+            }
+
+            if (string.Equals(s3.ErrorCode, "NoSuchBucket", StringComparison.OrdinalIgnoreCase))
+                return "Could not upload company logo. The configured S3 bucket was not found.";
+        }
+
+        if (ex.Message.Contains("IIS", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("Access to the path", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Could not upload company logo. The IIS app pool cannot write to wwwroot\\uploads. Grant Modify on that folder.";
+        }
+
+        return "Could not upload company logo. Check FileStorage settings (S3 bucket, CompanyFolder, AWS credentials) on this server.";
     }
 }
 

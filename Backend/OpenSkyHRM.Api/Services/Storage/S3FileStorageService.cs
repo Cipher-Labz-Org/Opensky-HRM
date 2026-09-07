@@ -10,12 +10,17 @@ namespace OpenSkyHRM.Api.Services.Storage;
 public sealed class S3FileStorageService : IFileStorageService, IDisposable
 {
     private readonly FileStorageOptions _options;
+    private readonly IWebHostEnvironment _env;
     private readonly IAmazonS3 _s3;
     private readonly ILogger<S3FileStorageService> _logger;
 
-    public S3FileStorageService(IOptions<FileStorageOptions> options, ILogger<S3FileStorageService> logger)
+    public S3FileStorageService(
+        IOptions<FileStorageOptions> options,
+        IWebHostEnvironment env,
+        ILogger<S3FileStorageService> logger)
     {
         _options = options.Value;
+        _env = env;
         _logger = logger;
 
         if (string.IsNullOrWhiteSpace(_options.BucketName))
@@ -59,20 +64,34 @@ public sealed class S3FileStorageService : IFileStorageService, IDisposable
         await content.CopyToAsync(memory, cancellationToken);
         memory.Position = 0;
 
-        var request = new PutObjectRequest
+        try
         {
-            BucketName = _options.BucketName,
-            Key = key,
-            InputStream = memory,
-            ContentType = contentType ?? GuessContentType(logicalPath),
-        };
-
-        await _s3.PutObjectAsync(request, cancellationToken);
-        _logger.LogInformation(
-            "Saved file: logical={LogicalPath} s3://{Bucket}/{Key}",
-            logicalPath,
-            _options.BucketName,
-            key);
+            var request = new PutObjectRequest
+            {
+                BucketName = _options.BucketName,
+                Key = key,
+                InputStream = memory,
+                ContentType = contentType ?? GuessContentType(logicalPath),
+                AutoCloseStream = false,
+            };
+            request.Headers.ContentLength = memory.Length;
+            await _s3.PutObjectAsync(request, cancellationToken);
+            _logger.LogInformation(
+                "Saved file: logical={LogicalPath} s3://{Bucket}/{Key}",
+                logicalPath,
+                _options.BucketName,
+                key);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "S3 put failed for s3://{Bucket}/{Key}; saving on this server instead.",
+                _options.BucketName,
+                key);
+            memory.Position = 0;
+            await SaveLocalAsync(logicalPath, memory, cancellationToken);
+        }
     }
 
     public async Task<StoredFileReadResult?> OpenReadAsync(
@@ -95,13 +114,15 @@ public sealed class S3FileStorageService : IFileStorageService, IDisposable
                     ContentType = response.Headers.ContentType ?? GuessContentType(logicalPath),
                 };
             }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            catch (AmazonS3Exception ex) when (
+                ex.StatusCode == System.Net.HttpStatusCode.NotFound
+                || ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
-                // try legacy key layout
+                // try next key / local disk
             }
         }
 
-        return null;
+        return OpenLocalRead(logicalPath);
     }
 
     public async Task<bool> ExistsAsync(string logicalPath, CancellationToken cancellationToken = default)
@@ -113,13 +134,15 @@ public sealed class S3FileStorageService : IFileStorageService, IDisposable
                 await _s3.GetObjectMetadataAsync(_options.BucketName, key, cancellationToken);
                 return true;
             }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            catch (AmazonS3Exception ex) when (
+                ex.StatusCode == System.Net.HttpStatusCode.NotFound
+                || ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
-                // try legacy key layout
+                // try next key / local disk
             }
         }
 
-        return false;
+        return LocalReadPaths(logicalPath).Any(File.Exists);
     }
 
     public async Task DeleteAsync(string logicalPath, CancellationToken cancellationToken = default)
@@ -139,6 +162,57 @@ public sealed class S3FileStorageService : IFileStorageService, IDisposable
     }
 
     public void Dispose() => _s3.Dispose();
+
+    private async Task SaveLocalAsync(string logicalPath, Stream content, CancellationToken cancellationToken)
+    {
+        var physicalPath = FileStoragePathHelper.ToPhysicalPath(_env.ContentRootPath, _options, logicalPath);
+        var directory = Path.GetDirectoryName(physicalPath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        await using var fileStream = new FileStream(
+            physicalPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 81920,
+            useAsync: true);
+        await content.CopyToAsync(fileStream, cancellationToken);
+        _logger.LogInformation(
+            "Saved file locally after S3 failure: logical={LogicalPath} physical={PhysicalPath}",
+            logicalPath,
+            physicalPath);
+    }
+
+    private StoredFileReadResult? OpenLocalRead(string logicalPath)
+    {
+        foreach (var physicalPath in LocalReadPaths(logicalPath))
+        {
+            if (!File.Exists(physicalPath)) continue;
+            Stream stream = new FileStream(
+                physicalPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 81920,
+                useAsync: true);
+            return new StoredFileReadResult
+            {
+                Stream = stream,
+                ContentType = GuessContentType(logicalPath),
+            };
+        }
+
+        return null;
+    }
+
+    private IEnumerable<string> LocalReadPaths(string logicalPath)
+    {
+        yield return FileStoragePathHelper.ToPhysicalPath(_env.ContentRootPath, _options, logicalPath);
+        yield return FileStoragePathHelper.ToIntermediatePhysicalPath(_env.ContentRootPath, _options, logicalPath);
+        if (FileStoragePathHelper.ShouldAllowLegacyFallback(_options))
+            yield return FileStoragePathHelper.ToLegacyPhysicalPath(_env.ContentRootPath, logicalPath);
+    }
 
     private IEnumerable<string> ResolveReadKeys(string logicalPath)
     {
