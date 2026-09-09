@@ -121,10 +121,15 @@ public class PayrollService : IPayrollService
         Guid employeeId, string? taxMode, int? calendarMonth)
     {
         var lines = await GetEmployeeCompensationAsync(employeeId);
+        var today = DateTime.Today;
         var monthlySalary = lines
             .Where(l => l.IsActive && l.BatchId == null
-                && string.Equals(l.ComponentType, "Earning", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(l.ComponentCategory, "OneTime", StringComparison.OrdinalIgnoreCase))
+                && !string.Equals(l.ComponentCategory, "OneTime", StringComparison.OrdinalIgnoreCase)
+                && (string.Equals(l.ComponentType, "Earning", StringComparison.OrdinalIgnoreCase)
+                    || PayrollCalculationEngine.IsBasicComponentCode(l.ComponentCode)))
+            .GroupBy(l => l.ComponentId)
+            .Select(g => g.OrderByDescending(l => l.EffectiveFrom).First())
+            .Where(l => l.Amount > 0 && (l.EffectiveTo == null || l.EffectiveTo.Value.Date >= today))
             .Sum(l => l.Amount);
 
         var settings = await GetPayrollSettingsAsync();
@@ -140,7 +145,6 @@ public class PayrollService : IPayrollService
         }
         var mode = PayrollCalculationEngine.NormalizeApitTaxMode(
             taxMode ?? employeeTaxMode ?? settings.ApitTaxMode);
-        var today = DateTime.Today;
         var month = calendarMonth is >= 1 and <= 12 ? calendarMonth.Value : today.Month;
         var taxYearStartYear = PayrollCalculationEngine.ApitTaxYearStartYear(today.Month, today.Year);
         decimal cumulativeTaxable = 0m;
@@ -382,7 +386,10 @@ public class PayrollService : IPayrollService
 
         var query = _db.PayrollBatches.AsNoTracking().AsQueryable();
         var total = await query.CountAsync();
-        var rows = await query.OrderByDescending(b => b.Year).ThenByDescending(b => b.Month)
+        var rows = await query
+            .OrderByDescending(b => b.CreatedAt)
+            .ThenByDescending(b => b.Year)
+            .ThenByDescending(b => b.Month)
             .Skip((page - 1) * pageSize).Take(pageSize)
             .ToListAsync();
         var items = rows.Select(MapBatchDto).ToList();

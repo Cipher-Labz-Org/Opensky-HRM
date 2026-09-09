@@ -78,6 +78,25 @@ public class PayrollCalculationEngineTests
         Assert.Equal(40_000m, selected[0].Amount);
     }
 
+    [Theory]
+    [InlineData("BASIC")]
+    [InlineData("basic")]
+    [InlineData("BASIC1")]
+    [InlineData("Basic Salary")]
+    public void IsBasicComponentCode_MatchesLiveBasicAliases(string code)
+    {
+        Assert.True(PayrollCalculationEngine.IsBasicComponentCode(code));
+    }
+
+    [Theory]
+    [InlineData("APIT", "APIT")]
+    [InlineData("apit", "Tax")]
+    [InlineData("PAYE", "APIT")]
+    public void IsApitLine_MatchesLiveCodeOrName(string code, string name)
+    {
+        Assert.True(PayrollCalculationEngine.IsApitLine(code, name));
+    }
+
     [Fact]
     public void ResolveBasicPay_UsesBasic1WhenBasicMissing()
     {
@@ -108,6 +127,7 @@ public class PayrollCalculationEngineTests
     [Theory]
     [InlineData(30_000, 0)]
     [InlineData(150_000, 0)]
+    [InlineData(190_000, 2_400)]
     [InlineData(200_000, 3_000)]
     [InlineData(250_000, 8_000)]
     [InlineData(300_000, 18_500)]
@@ -192,6 +212,12 @@ public class PayrollCalculationEngineTests
         Assert.Equal(expected, PayrollCalculationEngine.CalculateApitByMode(560_000m, 0, calendarMonth, mode));
     }
 
+    [Fact]
+    public void CalculateApitByMode_Monthly190000_UsesTable01()
+    {
+        Assert.Equal(2_400m, PayrollCalculationEngine.CalculateApitByMode(190_000m, 0, 4, "Monthly"));
+    }
+
     [Theory]
     [InlineData(83_333, 4_999.98)]
     [InlineData(100_000, 8_000)]
@@ -226,13 +252,161 @@ public class PayrollCalculationEngineTests
         Assert.Equal(expected, PayrollCalculationEngine.CalculateApitTable02(monthly, bonus));
     }
 
+    [Theory]
+    [InlineData(4, 1)]
+    [InlineData(5, 2)]
+    [InlineData(12, 9)]
+    [InlineData(1, 10)]
+    [InlineData(3, 12)]
+    public void ApitTable02MonthIndex_StartsInApril(int calendarMonth, int expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.ApitTable02MonthIndex(calendarMonth));
+    }
+
+    /// <summary>
+    /// Official IRD Tax Table No. 02 worked examples (Y/A lump-sum / bonus).
+    /// </summary>
+    [Theory]
+    [InlineData(170_000, 1, 600_000, 0, 0, 1_200, 36_000)]
+    [InlineData(170_000, 9, 800_000, 600_000, 36_000, 1_200, 133_200)]
+    [InlineData(300_000, 2, 600_000, 0, 0, 18_500, 168_000)]
+    [InlineData(300_000, 10, 700_000, 600_000, 168_000, 18_500, 246_000)]
+    public void CalculateLumpSumTax_MatchesOfficialTable02Examples(
+        decimal monthlyPay,
+        int currentMonthIndex,
+        decimal lumpSumNow,
+        decimal priorLumpSums,
+        decimal priorLumpSumTaxDeducted,
+        decimal monthlyTaxPerMonth,
+        decimal expected)
+    {
+        Assert.Equal(
+            expected,
+            PayrollCalculationEngine.CalculateLumpSumTax(
+                monthlyPay,
+                currentMonthIndex,
+                lumpSumNow,
+                priorLumpSums,
+                priorLumpSumTaxDeducted,
+                monthlyTaxPerMonth));
+
+        var scheduled = Enumerable.Repeat(monthlyPay, 12).ToArray();
+        var paidRegular = new decimal?[12];
+        var paidTax = new decimal?[12];
+        var projection = PayrollCalculationEngine.BuildTable02YearProjection(
+            currentMonthIndex, paidRegular, paidTax, scheduled,
+            priorLumpSums, priorLumpSumTaxDeducted);
+        Assert.Equal(
+            expected,
+            PayrollCalculationEngine.CalculateLumpSumTaxOnEgar(
+                projection.A, projection.B, lumpSumNow, projection.PriorLumpSums,
+                projection.TaxOnA, projection.TaxOnB, projection.PriorLumpSumTax));
+    }
+
     [Fact]
-    public void CalculateBonusApitByMode_MonthlyUsesTable02_ExactUsesTable42()
+    public void BuildTable02YearProjection_UsesPaidSlipsAndProjectedRemainder()
+    {
+        var paidRegular = new decimal?[] { 150_000m, 150_000m, 150_000m, null, null, null, null, null, null, null, null, null };
+        var paidTax = new decimal?[] { 0m, 0m, 0m, null, null, null, null, null, null, null, null, null };
+        var scheduled = new[]
+        {
+            150_000m, 150_000m, 150_000m, 200_000m, 200_000m, 200_000m,
+            200_000m, 200_000m, 200_000m, 200_000m, 200_000m, 200_000m,
+        };
+
+        var projection = PayrollCalculationEngine.BuildTable02YearProjection(
+            4, paidRegular, paidTax, scheduled);
+
+        Assert.Equal(650_000m, projection.A);
+        Assert.Equal(1_600_000m, projection.B);
+        Assert.Equal(3_000m, projection.TaxOnA);
+        Assert.Equal(24_000m, projection.TaxOnB);
+        Assert.Equal(
+            42_000m,
+            PayrollCalculationEngine.CalculateLumpSumTaxOnEgar(
+                projection.A, projection.B, 600_000m, 0, projection.TaxOnA, projection.TaxOnB, 0));
+    }
+
+    [Fact]
+    public void ApitTable02CalendarForFiscalMonth_UsesAprilToMarch()
+    {
+        Assert.Equal((4, 2026), PayrollCalculationEngine.ApitTable02CalendarForFiscalMonth(1, 2026));
+        Assert.Equal((12, 2026), PayrollCalculationEngine.ApitTable02CalendarForFiscalMonth(9, 2026));
+        Assert.Equal((1, 2027), PayrollCalculationEngine.ApitTable02CalendarForFiscalMonth(10, 2026));
+        Assert.Equal((3, 2027), PayrollCalculationEngine.ApitTable02CalendarForFiscalMonth(12, 2026));
+    }
+
+    [Fact]
+    public void CalculateBonusApitByMode_MonthlyAndAnnualUseTable02_ExactUsesTable42()
     {
         var prior = new PayrollCalculationEngine.ConfirmedApitYtd(0, 0, 0, 0);
         Assert.Equal(12_000m, PayrollCalculationEngine.CalculateBonusApitByMode(150_000m, 200_000m, "Monthly", prior));
         Assert.Equal(36_000m, PayrollCalculationEngine.CalculateBonusApitByMode(100_000m, 200_000m, "Exact", prior));
         Assert.Equal(0m, PayrollCalculationEngine.CalculateBonusApitByMode(75_000m, 100_000m, "Annual", prior));
+        Assert.Equal(
+            36_000m,
+            PayrollCalculationEngine.CalculateBonusApitByMode(170_000m, 600_000m, "Monthly", prior, calendarMonth: 4));
+        Assert.Equal(
+            36_000m,
+            PayrollCalculationEngine.CalculateBonusApitByMode(170_000m, 600_000m, "Annual", prior, calendarMonth: 4));
+    }
+
+    [Fact]
+    public void ResolveMonthlySalaryForLumpSum_UsesLatestPositiveWhenPeriodRowIsZero()
+    {
+        var componentId = Guid.NewGuid();
+        var assignments = new List<EmployeeCompensation>
+        {
+            new()
+            {
+                ComponentId = componentId,
+                Amount = 0,
+                EffectiveFrom = new DateTime(2020, 1, 1),
+                IsActive = true,
+            },
+            new()
+            {
+                ComponentId = componentId,
+                Amount = 170_000m,
+                EffectiveFrom = new DateTime(2026, 9, 1),
+                IsActive = true,
+            },
+        };
+
+        var monthly = PayrollCalculationEngine.ResolveMonthlySalaryForLumpSum(
+            assignments, new DateTime(2026, 4, 1), new DateTime(2026, 4, 30));
+
+        Assert.Equal(170_000m, monthly);
+    }
+
+    [Fact]
+    public void ResolveMonthlySalaryForLumpSum_DoesNotAddEndedBasicOnTopOfCurrentBasic1()
+    {
+        var endedBasic = Guid.NewGuid();
+        var currentBasic = Guid.NewGuid();
+        var assignments = new List<EmployeeCompensation>
+        {
+            new()
+            {
+                ComponentId = endedBasic,
+                Amount = 560_000m,
+                EffectiveFrom = new DateTime(2020, 1, 1),
+                EffectiveTo = new DateTime(2026, 3, 31),
+                IsActive = true,
+            },
+            new()
+            {
+                ComponentId = currentBasic,
+                Amount = 170_000m,
+                EffectiveFrom = new DateTime(2026, 4, 1),
+                IsActive = true,
+            },
+        };
+
+        var monthly = PayrollCalculationEngine.ResolveMonthlySalaryForLumpSum(
+            assignments, new DateTime(2026, 4, 1), new DateTime(2026, 4, 30));
+
+        Assert.Equal(170_000m, monthly);
     }
 
     [Theory]
