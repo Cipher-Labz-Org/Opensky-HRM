@@ -9,7 +9,7 @@ import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } f
 import { API_BASE_URL } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, SectionErrorBoundary, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { printPayslip } from "@/lib/payslip-print";
@@ -94,6 +94,10 @@ const DEFAULT_PAYROLL_SETTINGS: Settings = {
 function pagedItems<T>(result: PagedResult<T> | null | undefined): T[] {
   if (!result) return [];
   return result.items ?? result.Items ?? [];
+}
+
+function textIncludes(value: string | null | undefined, q: string) {
+  return (value ?? "").toLowerCase().includes(q);
 }
 
 function sortBatchesNewestFirst(items: Batch[]): Batch[] {
@@ -616,13 +620,15 @@ export default function PayrollPage() {
         ))}
       </div>
 
-      {tab === "Dashboard" && <DashboardTab onOpenTab={setTab} />}
-      {tab === "Components" && <ComponentsTab />}
-      {tab === "Employee Salary" && <EmployeeSalaryTab />}
-      {tab === "Variable Entry" && <VariableEntryTab />}
-      {tab === "Payroll Run" && <PayrollRunTab />}
-      {tab === "Pay Slips" && <PayStatementsTab />}
-      {tab === "Settings" && <SettingsTab />}
+      <SectionErrorBoundary key={tab} title={tab}>
+        {tab === "Dashboard" && <DashboardTab onOpenTab={setTab} />}
+        {tab === "Components" && <ComponentsTab />}
+        {tab === "Employee Salary" && <EmployeeSalaryTab />}
+        {tab === "Variable Entry" && <VariableEntryTab />}
+        {tab === "Payroll Run" && <PayrollRunTab />}
+        {tab === "Pay Slips" && <PayStatementsTab />}
+        {tab === "Settings" && <SettingsTab />}
+      </SectionErrorBoundary>
     </>
   );
 }
@@ -630,7 +636,7 @@ export default function PayrollPage() {
 /* ═══════════════════════════ DASHBOARD ═══════════════════════════ */
 
 function payrollBatchStatusColor(status: string): string {
-  const u = status.toLowerCase();
+  const u = (status ?? "").toLowerCase();
   if (u.includes("draft")) return "#94a3b8";
   if (u.includes("calculat")) return "#3b82f6";
   if (u.includes("review")) return "#6366f1";
@@ -1131,18 +1137,17 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
 interface SalaryEmployee { id: string; firstName: string; lastName: string; employeeCode: string; department: string; grade: string; location: string; }
 
 function salaryEmployeeDisplayName(e: Pick<SalaryEmployee, "firstName" | "lastName">) {
-  return `${e.firstName} ${e.lastName}`.trim();
+  return `${e.firstName ?? ""} ${e.lastName ?? ""}`.trim();
 }
 
 function salaryEmployeeMatchesQuery(e: SalaryEmployee, raw: string) {
   const q = raw.trim().toLowerCase();
   if (!q) return true;
-  const full = salaryEmployeeDisplayName(e).toLowerCase();
   return (
-    full.includes(q) ||
-    e.firstName.toLowerCase().includes(q) ||
-    e.lastName.toLowerCase().includes(q) ||
-    e.employeeCode.toLowerCase().includes(q)
+    salaryEmployeeDisplayName(e).toLowerCase().includes(q) ||
+    textIncludes(e.firstName, q) ||
+    textIncludes(e.lastName, q) ||
+    textIncludes(e.employeeCode, q)
   );
 }
 
@@ -2265,8 +2270,8 @@ function VariableEntryTab() {
   const filtered = entries.filter(e => {
     if (!searchFilter.applied) return true;
     const s = searchFilter.applied.toLowerCase();
-    return e.employeeName.toLowerCase().includes(s) || e.employeeCode.toLowerCase().includes(s)
-      || e.componentName.toLowerCase().includes(s) || e.department.toLowerCase().includes(s);
+    return textIncludes(e.employeeName, s) || textIncludes(e.employeeCode, s)
+      || textIncludes(e.componentName, s) || textIncludes(e.department, s);
   });
 
   const total = filtered.reduce((s, e) => s + (editedAmounts[e.id] !== undefined ? (parseFloat(editedAmounts[e.id]) || 0) : e.amount), 0);
@@ -2756,8 +2761,8 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
     if (filterLocation && e.location !== filterLocation) return false;
     if (!searchFilter.applied) return true;
     const q = searchFilter.applied.toLowerCase();
-    return e.firstName.toLowerCase().includes(q) || e.lastName.toLowerCase().includes(q)
-      || e.employeeCode.toLowerCase().includes(q) || e.department.toLowerCase().includes(q);
+    return textIncludes(e.firstName, q) || textIncludes(e.lastName, q)
+      || textIncludes(e.employeeCode, q) || textIncludes(e.department, q);
   });
 
   const allFilteredSelected = filtered.length > 0 && filtered.every(e => selected.has(e.id));
