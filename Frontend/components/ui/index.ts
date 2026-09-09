@@ -31,4 +31,5 @@ export { FlashMessageBanner, type FlashMessage } from "./FlashMessageBanner";
 export { ToastPopup } from "./ToastPopup";
 export { FormErrorAlert } from "./FormErrorAlert";
 export { InlinePageAlert } from "./InlinePageAlert";
+export { SectionErrorBoundary } from "./SectionErrorBoundary";
 export { FieldValidationHint } from "./FieldValidationHint";

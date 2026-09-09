@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, type FormEvent } fro
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, PassportNumberInput, TinInput, EpfInput, EtfInput, EmailInput, CountryAutocompleteInput, NationalityAutocompleteInput, OptionsAutocompleteInput, ListAutocompleteInput, AddressTextInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, FlashMessageBanner, FormErrorAlert, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, PersonNameInput, PhoneInput, NicInput, DrivingLicenseInput, PassportNumberInput, TinInput, EpfInput, EtfInput, EmailInput, CountryAutocompleteInput, NationalityAutocompleteInput, OptionsAutocompleteInput, ListAutocompleteInput, AddressTextInput, SectionRecordHeaderActions, AddressRegionFields, TablePagination, FlashMessageBanner, FormErrorAlert, SectionErrorBoundary, type FormSelectOption } from "@/components/ui";
 import { EmployeeAddressSections } from "@/components/workforce/EmployeeAddressSections";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { isValidPhone, isValidNic, isValidDrivingLicense, isValidPassportNumber, isValidTin, isValidEpfNumber, isValidEtfNumber, isValidEmailInput, isValidEmailFormat, isValidAddressText, sanitizeTinInput, sanitizeEpfInput, sanitizeEtfInput, sanitizePassportNumberInput, sanitizePhoneInput, validateEmployeeAddressFieldsIfChanged, PHONE_VALIDATION_MESSAGE, NIC_VALIDATION_MESSAGE, DRIVING_LICENSE_VALIDATION_MESSAGE, PASSPORT_NUMBER_VALIDATION_MESSAGE, TIN_VALIDATION_MESSAGE, EPF_VALIDATION_MESSAGE, ETF_VALIDATION_MESSAGE, EMAIL_INPUT_VALIDATION_MESSAGE, EMAIL_FORMAT_VALIDATION_MESSAGE } from "@/lib/input-validation";
@@ -7034,7 +7034,11 @@ export default function EmployeeDetailPage() {
         </div>
       )}
 
-      {pageTab === "payroll" && id && <EmployeePayrollTab employeeId={id} />}
+      {pageTab === "payroll" && id && (
+        <SectionErrorBoundary title="Payroll">
+          <EmployeePayrollTab employeeId={id} />
+        </SectionErrorBoundary>
+      )}
     </>
   );
 }
