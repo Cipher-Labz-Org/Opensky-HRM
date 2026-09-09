@@ -1,6 +1,6 @@
 # OpenSky HRM
 
-Enterprise HRIS (Human Resource Information System) with a **Next.js** frontend and a **.NET 8** REST API backed by **PostgreSQL**
+Enterprise HRIS (Human Resource Information System) with a **Next.js** frontend and a **.NET 8** REST API backed by **PostgreSQL**.
 
 ---
 
