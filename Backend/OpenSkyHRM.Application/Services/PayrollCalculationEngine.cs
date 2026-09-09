@@ -150,6 +150,9 @@ public class PayrollCalculationEngine
         var monthlySalaryByEmployee = batch.ProcessType == PayrollProcessType.Bonus
             ? await LoadMonthlySalaryAsync(employeeIdSet, periodStart, periodEnd)
             : new Dictionary<Guid, decimal>();
+        var table02ByEmployee = batch.ProcessType == PayrollProcessType.Bonus
+            ? await LoadTable02ContextAsync(employeeIdSet, activeEmployees, batch)
+            : new Dictionary<Guid, Table02YearProjection>();
 
         foreach (var employee in activeEmployees)
         {
@@ -176,11 +179,12 @@ public class PayrollCalculationEngine
                 string.IsNullOrWhiteSpace(employee.ApitTaxMode) ? rates.ApitTaxMode : employee.ApitTaxMode);
             priorYtdByEmployee.TryGetValue(employee.Id, out var priorYtd);
             monthlySalaryByEmployee.TryGetValue(employee.Id, out var monthlySalary);
+            table02ByEmployee.TryGetValue(employee.Id, out var table02);
 
             var statement = CalculateEmployeePayStatement(
                 batch, employee, empComp, relevantComponents, rates, includeStatutory, snapshot, poyaDays,
                 employeeMode, priorYtd.TotalTaxable, priorYtd.SalaryMonths,
-                includeApit, monthlySalary, priorYtd);
+                includeApit, monthlySalary, priorYtd, table02);
             newStatements.Add(statement);
         }
 
@@ -334,7 +338,8 @@ public class PayrollCalculationEngine
         int confirmedMonths = 0,
         bool includeApit = false,
         decimal bonusRegularSalary = 0,
-        ConfirmedApitYtd priorYtd = default)
+        ConfirmedApitYtd priorYtd = default,
+        Table02YearProjection? table02 = null)
     {
         var resolvedValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
@@ -466,7 +471,7 @@ public class PayrollCalculationEngine
             : Math.Round(regularSalary + taxableLump, 2);
         var taxMode = NormalizeApitTaxMode(employeeTaxMode ?? rates.ApitTaxMode);
         decimal apitAmount = isBonusBatch
-            ? CalculateBonusApitByMode(regularSalary, taxableLump, taxMode, priorYtd)
+            ? CalculateBonusApitByMode(regularSalary, taxableLump, taxMode, priorYtd, batch.Month, table02)
             : CalculateApitByMode(
                 regularSalary, taxableLump, batch.Month, taxMode, priorCumulativeTaxable, confirmedMonths);
         resolvedValues["APIT_AMOUNT"] = apitAmount;
@@ -500,6 +505,8 @@ public class PayrollCalculationEngine
                         _ => 0
                     };
                 }
+                if (IsApitComponent(comp) && amount == 0 && apitAmount > 0)
+                    amount = apitAmount;
 
                 resolvedValues[comp.Code] = amount;
 
@@ -661,9 +668,17 @@ public class PayrollCalculationEngine
         return totalEarnings;
     }
 
-    private static bool IsBasicComponentCode(string code) =>
-        code.Equals("BASIC", StringComparison.OrdinalIgnoreCase)
-        || code.StartsWith("BASIC", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsBasicComponentCode(string? code) =>
+        !string.IsNullOrWhiteSpace(code)
+        && (code.Equals("BASIC", StringComparison.OrdinalIgnoreCase)
+            || code.StartsWith("BASIC", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Live tenants store APIT under "APIT", "Apit", or the display name. Postgres is case-sensitive.
+    /// </summary>
+    internal static bool IsApitLine(string? code, string? name) =>
+        string.Equals(code, "APIT", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(name, "APIT", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// IRD annual APIT table (Y/A 2025/26) on the year's total profits — not monthly tax × 12.
@@ -894,50 +909,211 @@ public class PayrollCalculationEngine
             || string.Equals(comp.Name, "APIT", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// IRD Table 02 — tax on this lump-sum (bonus) for resident employees.
-    /// D = already-paid regular + remaining months × monthly + prior lumps + this lump.
-    /// Tax = annual table(D) minus Table 01 already counted for the year minus prior lump tax.
+    /// IRD Tax Table No. 02 month index: April = 1 … March = 12.
+    /// </summary>
+    internal static int ApitTable02MonthIndex(int calendarMonth)
+    {
+        if (calendarMonth is < 1 or > 12)
+            throw new ArgumentOutOfRangeException(nameof(calendarMonth));
+        return calendarMonth >= 4 ? calendarMonth - 3 : calendarMonth + 9;
+    }
+
+    /// <summary>
+    /// Calendar year that contains 1 April of the Table 02 year of assessment.
+    /// </summary>
+    internal static int ApitTable02TaxYearStartYear(int calendarMonth, int calendarYear)
+    {
+        if (calendarMonth is < 1 or > 12)
+            throw new ArgumentOutOfRangeException(nameof(calendarMonth));
+        return calendarMonth >= 4 ? calendarYear : calendarYear - 1;
+    }
+
+    /// <summary>
+    /// Calendar month/year for a Table 02 fiscal month (1 = April of <paramref name="yaStartYear"/>).
+    /// </summary>
+    internal static (int Month, int Year) ApitTable02CalendarForFiscalMonth(int fiscalMonth, int yaStartYear)
+    {
+        if (fiscalMonth is < 1 or > 12)
+            throw new ArgumentOutOfRangeException(nameof(fiscalMonth));
+        return fiscalMonth <= 9
+            ? (fiscalMonth + 3, yaStartYear)
+            : (fiscalMonth - 9, yaStartYear + 1);
+    }
+
+    internal static bool IsEmployedInTable02FiscalMonth(
+        DateTime joinDate, DateTime? terminationDate, int fiscalMonth, int yaStartYear)
+    {
+        var (month, year) = ApitTable02CalendarForFiscalMonth(fiscalMonth, yaStartYear);
+        var start = new DateTime(year, month, 1);
+        var end = start.AddMonths(1).AddDays(-1);
+        if (joinDate.Date > end)
+            return false;
+        return terminationDate is not { } left || left.Date >= start;
+    }
+
+    /// <summary>
+    /// Table 02 year projection: A (paid/estimated through current fiscal month),
+    /// B (payable after that), and Table 01 tax on each.
+    /// </summary>
+    internal readonly record struct Table02YearProjection(
+        decimal A, decimal B, decimal TaxOnA, decimal TaxOnB,
+        decimal PriorLumpSums, decimal PriorLumpSumTax);
+
+    /// <summary>
+    /// Builds A/B and taxOnA/taxOnB from paid slips plus scheduled remaining months.
+    /// Fiscal indexes are 0-based April=0 … March=11.
+    /// </summary>
+    internal static Table02YearProjection BuildTable02YearProjection(
+        int currentMonthIndex,
+        IReadOnlyList<decimal?> paidRegularByFiscalMonth,
+        IReadOnlyList<decimal?> paidTaxByFiscalMonth,
+        IReadOnlyList<decimal> scheduledRegularByFiscalMonth,
+        decimal priorLumpSums = 0,
+        decimal priorLumpSumTax = 0,
+        int employedFromFiscal = 1,
+        int employedToFiscal = 12)
+    {
+        var monthIndex = Math.Clamp(currentMonthIndex, 1, 12);
+        var from = Math.Clamp(employedFromFiscal, 1, 12);
+        var to = Math.Clamp(employedToFiscal, 1, 12);
+        decimal a = 0, b = 0, taxOnA = 0, taxOnB = 0;
+        for (var m = 1; m <= 12; m++)
+        {
+            if (m < from || m > to)
+                continue;
+            var idx = m - 1;
+            var scheduled = idx < scheduledRegularByFiscalMonth.Count
+                ? Math.Max(0, scheduledRegularByFiscalMonth[idx]) : 0;
+            if (m <= monthIndex)
+            {
+                var paid = idx < paidRegularByFiscalMonth.Count ? paidRegularByFiscalMonth[idx] : null;
+                var regular = paid ?? scheduled;
+                a += regular;
+                var paidTax = idx < paidTaxByFiscalMonth.Count ? paidTaxByFiscalMonth[idx] : null;
+                taxOnA += paidTax ?? CalculateApitTable01(regular);
+            }
+            else
+            {
+                b += scheduled;
+                taxOnB += CalculateApitTable01(scheduled);
+            }
+        }
+
+        return new Table02YearProjection(
+            a, b, taxOnA, taxOnB, Math.Max(0, priorLumpSums), Math.Max(0, priorLumpSumTax));
+    }
+
+    /// <summary>
+    /// IRD Table 02 on explicit EGAR parts. Subtracts taxOnA + taxOnB + prior lump tax.
+    /// </summary>
+    internal static decimal CalculateLumpSumTaxOnEgar(
+        decimal a,
+        decimal b,
+        decimal lumpSumNow,
+        decimal priorLumpSums,
+        decimal taxOnA,
+        decimal taxOnB,
+        decimal priorLumpSumTaxDeducted)
+    {
+        var lump = Math.Max(0, lumpSumNow);
+        if (lump <= 0)
+            return 0;
+
+        var c = Math.Max(0, priorLumpSums) + lump;
+        var d = Math.Max(0, a) + Math.Max(0, b) + c;
+        var alreadyDeducted = Math.Max(0, taxOnA) + Math.Max(0, taxOnB) + Math.Max(0, priorLumpSumTaxDeducted);
+
+        decimal tax;
+        if (d <= 1_800_000m)
+            tax = 0;
+        else if (d <= 2_800_000m)
+            tax = d * 0.06m - (108_000m + alreadyDeducted);
+        else if (d <= 3_300_000m)
+            tax = d * 0.18m - (444_000m + alreadyDeducted);
+        else if (d <= 3_800_000m)
+            tax = d * 0.24m - (642_000m + alreadyDeducted);
+        else if (d <= 4_300_000m)
+            tax = d * 0.30m - (870_000m + alreadyDeducted);
+        else
+            tax = d * 0.36m - (1_128_000m + alreadyDeducted);
+
+        return Math.Max(0, Math.Round(tax, 2));
+    }
+
+    /// <summary>
+    /// Official PDF helper: constant monthly pay. A = monthly × fiscal month (April=1),
+    /// B = monthly × remaining, taxOnA/taxOnB = Table 01 monthly tax × those months.
+    /// </summary>
+    internal static decimal CalculateLumpSumTax(
+        decimal monthlyPay,
+        int currentMonthIndex,
+        decimal lumpSumNow,
+        decimal priorLumpSums = 0,
+        decimal priorLumpSumTaxDeducted = 0,
+        decimal monthlyTaxPerMonth = 0)
+    {
+        var monthly = Math.Max(0, monthlyPay);
+        var monthIndex = Math.Clamp(currentMonthIndex, 1, 12);
+        var remainingMonths = 12 - monthIndex;
+        return CalculateLumpSumTaxOnEgar(
+            monthly * monthIndex,
+            monthly * remainingMonths,
+            lumpSumNow,
+            priorLumpSums,
+            monthlyTaxPerMonth * monthIndex,
+            monthlyTaxPerMonth * remainingMonths,
+            priorLumpSumTaxDeducted);
+    }
+
+    /// <summary>
+    /// IRD Table 02 using Table 01 monthly tax when the caller does not supply it.
     /// </summary>
     internal static decimal CalculateApitTable02(
         decimal regularMonthly,
         decimal thisLump,
-        decimal alreadyPaidRegular = 0,
-        int paidMonths = 0,
         decimal priorLumps = 0,
-        decimal priorLumpTax = 0)
+        decimal priorLumpTax = 0,
+        int currentMonthIndex = 1)
     {
         var monthly = Math.Max(0, regularMonthly);
-        var lump = Math.Max(0, thisLump);
-        if (lump <= 0)
-            return 0;
-
-        if (paidMonths <= 0 && alreadyPaidRegular > 0 && monthly > 0)
-            paidMonths = (int)Math.Round(alreadyPaidRegular / monthly, MidpointRounding.AwayFromZero);
-        paidMonths = Math.Clamp(paidMonths, 0, 11);
-        var remainingMonths = 12 - paidMonths;
-        var expected = alreadyPaidRegular + monthly * remainingMonths + Math.Max(0, priorLumps) + lump;
-        var averagePaid = paidMonths > 0 ? alreadyPaidRegular / paidMonths : 0m;
-        var aggregatedTable01 = Math.Round(
-            paidMonths * CalculateApitTable01(averagePaid)
-            + remainingMonths * CalculateApitTable01(monthly), 2);
-        return Math.Max(0, Math.Round(
-            CalculateApitTableAnnual(expected) - aggregatedTable01 - Math.Max(0, priorLumpTax), 2));
+        return CalculateLumpSumTax(
+            monthly,
+            currentMonthIndex,
+            thisLump,
+            priorLumps,
+            priorLumpTax,
+            CalculateApitTable01(monthly));
     }
 
     internal static decimal CalculateBonusApitByMode(
-        decimal regularMonthly, decimal thisLump, string? mode, ConfirmedApitYtd prior)
+        decimal regularMonthly, decimal thisLump, string? mode, ConfirmedApitYtd prior,
+        int calendarMonth = 4,
+        Table02YearProjection? projection = null)
     {
         var lump = Math.Max(0, thisLump);
-        return NormalizeApitTaxMode(mode) switch
+        // Resident bonus / lump-sum always uses IRD Table 02 (EGAR). Annual mode is for
+        // monthly salary withholding; applying it to a bonus alone withholds 0.
+        if (NormalizeApitTaxMode(mode) == ApitTaxModeExact)
         {
-            ApitTaxModeAnnual => CalculateAnnualApitIncrement(prior.TotalTaxable, lump),
-            ApitTaxModeExact => Math.Max(0, Math.Round(
+            return Math.Max(0, Math.Round(
                 CalculateExactApit(regularMonthly, lump, prior.TotalTaxable, prior.SalaryMonths)
-                - CalculateApitTable41(regularMonthly), 2)),
-            _ => CalculateApitTable02(
-                regularMonthly, lump, prior.RegularTaxable, prior.SalaryMonths,
-                prior.LumpTaxable, prior.LumpApit),
-        };
+                - CalculateApitTable41(regularMonthly), 2));
+        }
+
+        if (projection is { } year)
+        {
+            return CalculateLumpSumTaxOnEgar(
+                year.A, year.B, lump, year.PriorLumpSums,
+                year.TaxOnA, year.TaxOnB, year.PriorLumpSumTax);
+        }
+
+        return CalculateLumpSumTax(
+            Math.Max(0, regularMonthly),
+            ApitTable02MonthIndex(calendarMonth),
+            lump,
+            prior.LumpTaxable,
+            prior.LumpApit,
+            CalculateApitTable01(Math.Max(0, regularMonthly)));
     }
 
     internal async Task<Dictionary<Guid, ConfirmedApitYtd>> LoadConfirmedApitYtdAsync(
@@ -948,11 +1124,12 @@ public class PayrollCalculationEngine
             return result;
 
         var taxYearStartYear = ApitTaxYearStartYear(calendarMonth, calendarYear);
+        var table02TaxYearStartYear = ApitTable02TaxYearStartYear(calendarMonth, calendarYear);
         var rows = await _db.PayStatements
             .AsNoTracking()
             .Where(s => employeeIds.Contains(s.EmployeeId)
-                && s.Status == PayStatementStatus.Finalized
                 && s.BatchId != exceptBatchId
+                && s.Batch.Status != BatchStatus.Cancelled
                 && (s.Batch.ProcessType == PayrollProcessType.Salary
                     || s.Batch.ProcessType == PayrollProcessType.Bonus))
             .Select(s => new
@@ -960,23 +1137,24 @@ public class PayrollCalculationEngine
                 s.EmployeeId,
                 s.Month,
                 s.Year,
+                s.Status,
                 s.ApitTaxable,
                 s.TotalEarnings,
                 s.Batch.ProcessType,
                 ApitAmount = s.Lines
-                    .Where(l => l.ComponentCode == "APIT")
+                    .Where(l => l.ComponentCode.ToLower() == "apit" || l.ComponentName.ToLower() == "apit")
                     .Sum(l => (decimal?)l.Amount) ?? 0m,
             })
             .ToListAsync();
 
         foreach (var row in rows)
         {
-            if (!IsInApitTaxYear(row.Month, row.Year, taxYearStartYear))
-                continue;
             var current = result.GetValueOrDefault(row.EmployeeId);
             var taxable = StatementApitTaxable(row.ApitTaxable, row.TotalEarnings);
             if (row.ProcessType == PayrollProcessType.Bonus)
             {
+                if (ApitTable02TaxYearStartYear(row.Month, row.Year) != table02TaxYearStartYear)
+                    continue;
                 result[row.EmployeeId] = current with
                 {
                     LumpTaxable = current.LumpTaxable + taxable,
@@ -985,12 +1163,129 @@ public class PayrollCalculationEngine
             }
             else
             {
+                if (row.Status != PayStatementStatus.Finalized)
+                    continue;
+                if (!IsInApitTaxYear(row.Month, row.Year, taxYearStartYear))
+                    continue;
                 result[row.EmployeeId] = current with
                 {
                     RegularTaxable = current.RegularTaxable + taxable,
                     SalaryMonths = current.SalaryMonths + 1,
                 };
             }
+        }
+
+        return result;
+    }
+
+    private async Task<Dictionary<Guid, Table02YearProjection>> LoadTable02ContextAsync(
+        IReadOnlyCollection<Guid> employeeIds,
+        IReadOnlyCollection<Employee> employees,
+        PayrollBatch batch)
+    {
+        var empty = new Table02YearProjection(0, 0, 0, 0, 0, 0);
+        var result = employeeIds.ToDictionary(id => id, _ => empty);
+        if (employeeIds.Count == 0)
+            return result;
+
+        var yaStartYear = ApitTable02TaxYearStartYear(batch.Month, batch.Year);
+        var currentFiscal = ApitTable02MonthIndex(batch.Month);
+
+        var compensations = await _db.EmployeeCompensations
+            .Include(ec => ec.Component)
+            .Where(ec => ec.IsActive && ec.BatchId == null && employeeIds.Contains(ec.EmployeeId)
+                && ec.Component.Category != ComponentCategory.OneTime
+                && (ec.Component.Type == ComponentType.Earning
+                    || ec.Component.Code.ToLower().StartsWith("basic")))
+            .ToListAsync();
+        var compsByEmployee = compensations
+            .GroupBy(ec => ec.EmployeeId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var rows = await _db.PayStatements
+            .AsNoTracking()
+            .Where(s => employeeIds.Contains(s.EmployeeId)
+                && s.BatchId != batch.Id
+                && s.Batch.Status != BatchStatus.Cancelled
+                && (s.Batch.ProcessType == PayrollProcessType.Salary
+                    || s.Batch.ProcessType == PayrollProcessType.Bonus))
+            .Select(s => new
+            {
+                s.EmployeeId,
+                s.Month,
+                s.Year,
+                s.Status,
+                s.ApitTaxable,
+                s.TotalEarnings,
+                s.Batch.ProcessType,
+                HasApitLine = s.Lines.Any(l =>
+                    l.ComponentCode.ToLower() == "apit" || l.ComponentName.ToLower() == "apit"),
+                ApitAmount = s.Lines
+                    .Where(l => l.ComponentCode.ToLower() == "apit" || l.ComponentName.ToLower() == "apit")
+                    .Sum(l => (decimal?)l.Amount) ?? 0m,
+            })
+            .ToListAsync();
+
+        var salaryByEmpFiscal = new Dictionary<(Guid EmployeeId, int Fiscal), (decimal Regular, decimal? Tax)>();
+        var lumpsByEmployee = employeeIds.ToDictionary(id => id, _ => (Sum: 0m, Tax: 0m));
+
+        foreach (var row in rows)
+        {
+            if (ApitTable02TaxYearStartYear(row.Month, row.Year) != yaStartYear)
+                continue;
+            var fiscal = ApitTable02MonthIndex(row.Month);
+            var taxable = StatementApitTaxable(row.ApitTaxable, row.TotalEarnings);
+            if (row.ProcessType == PayrollProcessType.Bonus)
+            {
+                if (taxable <= 0 && row.ApitAmount <= 0)
+                    continue;
+                var current = lumpsByEmployee.GetValueOrDefault(row.EmployeeId);
+                lumpsByEmployee[row.EmployeeId] = (current.Sum + taxable, current.Tax + row.ApitAmount);
+                continue;
+            }
+
+            if (row.Status != PayStatementStatus.Finalized)
+                continue;
+
+            var key = (row.EmployeeId, fiscal);
+            salaryByEmpFiscal[key] = (taxable, row.HasApitLine ? row.ApitAmount : null);
+        }
+
+        foreach (var employee in employees)
+        {
+            var empComps = compsByEmployee.GetValueOrDefault(employee.Id) ?? [];
+            var paidRegular = new decimal?[12];
+            var paidTax = new decimal?[12];
+            var scheduled = new decimal[12];
+            var employedFrom = 13;
+            var employedTo = 0;
+            for (var m = 1; m <= 12; m++)
+            {
+                if (!IsEmployedInTable02FiscalMonth(employee.JoinDate, employee.TerminationDate, m, yaStartYear))
+                    continue;
+                employedFrom = Math.Min(employedFrom, m);
+                employedTo = Math.Max(employedTo, m);
+                var (calMonth, calYear) = ApitTable02CalendarForFiscalMonth(m, yaStartYear);
+                var start = new DateTime(calYear, calMonth, 1);
+                var end = start.AddMonths(1).AddDays(-1);
+                scheduled[m - 1] = ResolveMonthlySalaryForLumpSum(empComps, start, end);
+                if (salaryByEmpFiscal.TryGetValue((employee.Id, m), out var paid))
+                {
+                    paidRegular[m - 1] = paid.Regular;
+                    paidTax[m - 1] = paid.Tax;
+                }
+            }
+
+            if (employedFrom > employedTo)
+            {
+                employedFrom = 1;
+                employedTo = 12;
+            }
+
+            var lumps = lumpsByEmployee.GetValueOrDefault(employee.Id);
+            result[employee.Id] = BuildTable02YearProjection(
+                currentFiscal, paidRegular, paidTax, scheduled,
+                lumps.Sum, lumps.Tax, employedFrom, employedTo);
         }
 
         return result;
@@ -1005,13 +1300,68 @@ public class PayrollCalculationEngine
         var fixedCompensations = await _db.EmployeeCompensations
             .Include(ec => ec.Component)
             .Where(ec => ec.IsActive && ec.BatchId == null && employeeIds.Contains(ec.EmployeeId)
-                && ec.Component.Type == ComponentType.Earning
-                && ec.Component.Category != ComponentCategory.OneTime)
+                && ec.Component.Category != ComponentCategory.OneTime
+                && (ec.Component.Type == ComponentType.Earning
+                    || ec.Component.Code.ToLower().StartsWith("basic")))
             .ToListAsync();
 
-        return SelectAssignmentsForPeriod(fixedCompensations, periodStart, periodEnd)
+        return fixedCompensations
             .GroupBy(ec => ec.EmployeeId)
-            .ToDictionary(g => g.Key, g => g.Sum(ec => ec.Amount));
+            .ToDictionary(
+                g => g.Key,
+                g => ResolveMonthlySalaryForLumpSum(g, periodStart, periodEnd));
+    }
+
+    /// <summary>
+    /// Table 02 EGAR uses current regular monthly pay. Prefer a positive amount that
+    /// overlaps the bonus month; otherwise the latest positive Fixed earning so a new
+    /// BASIC/BASIC1 row starting after the bonus period is still used.
+    /// </summary>
+    internal static decimal ResolveMonthlySalaryForLumpSum(
+        IEnumerable<EmployeeCompensation> assignments,
+        DateTime periodStart,
+        DateTime periodEnd)
+    {
+        return assignments
+            .GroupBy(ec => ec.ComponentId)
+            .Select(g => PickAssignmentForLumpSumSalary(g, periodStart, periodEnd))
+            .Where(ec => ec is { Amount: > 0 })
+            .Sum(ec => ec!.Amount);
+    }
+
+    private static EmployeeCompensation? PickAssignmentForLumpSumSalary(
+        IEnumerable<EmployeeCompensation> assignments,
+        DateTime periodStart,
+        DateTime periodEnd)
+    {
+        var rows = assignments.ToList();
+        if (rows.Count == 0)
+            return null;
+
+        bool Overlaps(EmployeeCompensation ec) =>
+            ec.EffectiveFrom.Date <= periodEnd
+            && (ec.EffectiveTo == null || ec.EffectiveTo.Value.Date >= periodStart);
+
+        var overlappingPositive = rows
+            .Where(ec => Overlaps(ec) && ec.Amount > 0)
+            .OrderByDescending(ec => ec.EffectiveFrom)
+            .FirstOrDefault();
+        if (overlappingPositive != null)
+            return overlappingPositive;
+
+        // Still-open rows only. An ended BASIC on live must not add on top of a newer BASIC1.
+        var latestOpenPositive = rows
+            .Where(ec => ec.Amount > 0
+                && (ec.EffectiveTo == null || ec.EffectiveTo.Value.Date >= periodStart))
+            .OrderByDescending(ec => ec.EffectiveFrom)
+            .FirstOrDefault();
+        if (latestOpenPositive != null)
+            return latestOpenPositive;
+
+        return rows
+            .Where(Overlaps)
+            .OrderByDescending(ec => ec.EffectiveFrom)
+            .FirstOrDefault();
     }
 
     public async Task RebuildEmployeeApitYearBalancesAsync(

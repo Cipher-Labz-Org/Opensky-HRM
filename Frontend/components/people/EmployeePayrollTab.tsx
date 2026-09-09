@@ -17,6 +17,8 @@ interface CompensationLine {
   amount: number;
   isActive: boolean;
   batchId?: string | null;
+  effectiveFrom?: string;
+  effectiveTo?: string;
 }
 
 const fmt = (n: number) =>
@@ -70,7 +72,7 @@ type ApitTaxMode = "Monthly" | "Annual" | "Exact";
 
 const TAX_MODES: { value: ApitTaxMode; label: string }[] = [
   { value: "Monthly", label: "Monthly" },
-  { value: "Annual", label: "Annualy" },
+  { value: "Annual", label: "Annual" },
   { value: "Exact", label: "Expact" },
 ];
 
@@ -167,12 +169,22 @@ interface ApitSummary {
   confirmedMonths?: number;
 }
 
+function isBasicSalaryCode(code?: string) {
+  const value = (code ?? "").toUpperCase();
+  return value === "BASIC" || value.startsWith("BASIC");
+}
+
 function isEarning(line: CompensationLine) {
-  return line.componentType === "Earning";
+  return line.componentType === "Earning" || isBasicSalaryCode(line.componentCode);
 }
 
 function isCurrentSalaryLine(line: CompensationLine) {
-  return line.isActive && !line.batchId && isEarning(line);
+  if (!line.isActive || line.batchId) return false;
+  if (line.componentCategory === "OneTime") return false;
+  if (!isEarning(line)) return false;
+  if (!line.effectiveTo) return true;
+  const end = Date.parse(line.effectiveTo);
+  return !Number.isFinite(end) || end >= Date.now();
 }
 
 export function EmployeePayrollTab({ employeeId }: { employeeId: string }) {
@@ -180,7 +192,7 @@ export function EmployeePayrollTab({ employeeId }: { employeeId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [taxMonth] = useState(() => new Date().getMonth() + 1);
-  const [taxMode, setTaxMode] = useState<ApitTaxMode>("Monthly");
+  const [taxMode, setTaxMode] = useState<ApitTaxMode>("Annual");
   const [serverSummary, setServerSummary] = useState<ApitSummary | null>(null);
   const [savingMode, setSavingMode] = useState(false);
 
@@ -194,7 +206,9 @@ export function EmployeePayrollTab({ employeeId }: { employeeId: string }) {
         setLines(Array.isArray(data) ? data : []);
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load salary.");
+        if (cancelled) return;
+        setLines([]);
+        setError(err instanceof Error ? err.message : "Could not load salary.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -242,7 +256,7 @@ export function EmployeePayrollTab({ employeeId }: { employeeId: string }) {
     const taxYearStart = apitTaxYearStartYear(new Date());
     const selected = TAX_YEAR_MONTHS.find((m) => m.calendarMonth === taxMonth);
     const apitLabel =
-      taxMode === "Annual" ? "Annual APIT" : taxMode === "Exact" ? "Exact APIT" : "Monthly APIT";
+      taxMode === "Annual" ? "Annual APIT" : taxMode === "Exact" ? "Expact APIT" : "Cumulative taxable";
 
     return {
       salary,
@@ -293,22 +307,19 @@ export function EmployeePayrollTab({ employeeId }: { employeeId: string }) {
     );
   }
 
-  if (error) {
-    return (
-      <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-        {error}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
+      {error ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {error} Payroll totals are shown as LKR 0.00 until salary can be loaded.
+        </div>
+      ) : null}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="text-base font-bold tracking-tight text-slate-800">Payroll</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Monthly salary and APIT from the employee&apos;s salary. Choose Monthly, Annualy, or Expact. Tax year starts 1 March.
+              Monthly salary and APIT from the employee&apos;s salary. Choose Monthly, Annual, or Expact. Tax year starts 1 March.
             </p>
           </div>
           <Link
@@ -319,80 +330,75 @@ export function EmployeePayrollTab({ employeeId }: { employeeId: string }) {
           </Link>
         </div>
 
-        {summary.salary.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-slate-500">
-            No monthly salary is assigned for this employee. Add amounts on the Payroll → Employee Salary tab, then return here.
-          </p>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex flex-col gap-1 text-sm text-slate-600">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Tax mode
-                  </span>
-                  <select
-                    value={taxMode}
-                    disabled={savingMode}
-                    onChange={(e) => void changeTaxMode(e.target.value as ApitTaxMode)}
-                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                  >
-                    {TAX_MODES.map((mode) => (
-                      <option key={mode.value} value={mode.value}>
-                        {mode.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </div>
-            <div className="grid gap-3 px-5 py-5 sm:grid-cols-2">
-              <Stat label="Monthly salary" value={money(summary.monthlySalary)} />
-              {taxMode === "Monthly" ? (
-                <Stat label="Monthly APIT" value={money(summary.apit)} emphasize="tax" />
-              ) : null}
-              {taxMode === "Annual" ? (
-                <>
-                  <Stat label="Cumulative taxable" value={money(summary.cumulativeTaxable)} />
-                  <Stat label="Annual APIT" value={money(summary.annualApit)} emphasize="tax" />
-                </>
-              ) : null}
-              {taxMode === "Exact" ? (
-                <Stat label="Exact APIT" value={money(summary.apit)} emphasize="tax" />
-              ) : null}
-            </div>
-            <p className="px-5 pb-3 text-xs text-slate-500">
-              {taxMode === "Monthly"
-                ? "Monthly mode uses IRD Table 01 on this month’s salary."
-                : taxMode === "Annual"
-                  ? "Annualy uses the IRD cumulative table on confirmed year-to-date taxable. The total updates after that month’s payroll is confirmed. Tax year starts 1 March."
-                  : "Expact uses IRD Table 4.1 on monthly salary for non-resident, non-citizen staff. Lump sums use Table 4.2 on expected yearly income (already paid + still payable + this month’s lump)."}
-            </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Tax mode
+              </span>
+              <select
+                value={taxMode}
+                disabled={savingMode}
+                onChange={(e) => void changeTaxMode(e.target.value as ApitTaxMode)}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              >
+                {TAX_MODES.map((mode) => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="grid gap-3 px-5 py-5 sm:grid-cols-2">
+          <Stat label="Monthly salary" value={money(summary.monthlySalary)} />
+          {taxMode === "Exact" ? (
+            <Stat label="Expact APIT" value={money(summary.apit)} emphasize="tax" />
+          ) : (
+            <Stat label="Cumulative taxable" value={money(summary.cumulativeTaxable)} />
+          )}
+        </div>
+        <p className="px-5 pb-3 text-xs text-slate-500">
+          {summary.salary.length === 0
+            ? "No salary components are assigned yet. Totals stay at LKR 0.00 until amounts are added on Payroll → Employee Salary."
+            : taxMode === "Monthly"
+              ? "Monthly mode shows this month’s salary and confirmed year-to-date cumulative taxable. Tax year starts 1 March."
+              : taxMode === "Annual"
+                ? "Annual shows confirmed year-to-date cumulative taxable. The total updates after that month’s payroll is confirmed. Tax year starts 1 March."
+                : "Expact uses IRD Table 4.1 on monthly salary for non-resident, non-citizen staff. Lump sums use Table 4.2 on expected yearly income (already paid + still payable + this month’s lump)."}
+        </p>
 
-            <div className="overflow-x-auto border-t border-slate-100">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="px-5 py-2.5">Component</th>
-                    <th className="px-4 py-2.5">Code</th>
-                    <th className="px-4 py-2.5 text-right">Amount</th>
+        <div className="overflow-x-auto border-t border-slate-100">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-5 py-2.5">Component</th>
+                <th className="px-4 py-2.5">Code</th>
+                <th className="px-4 py-2.5 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.salary.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-5 py-6 text-center text-sm text-slate-400">
+                    No salary components yet
+                  </td>
+                </tr>
+              ) : (
+                summary.salary.map((line) => (
+                  <tr key={line.id} className="border-b border-slate-50 last:border-0">
+                    <td className="px-5 py-2.5 font-medium text-slate-700">{line.componentName}</td>
+                    <td className="px-4 py-2.5 text-slate-500">{line.componentCode}</td>
+                    <td className="px-4 py-2.5 text-right font-mono tabular-nums text-slate-800">
+                      {money(Number(line.amount || 0))}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {summary.salary.map((line) => (
-                    <tr key={line.id} className="border-b border-slate-50 last:border-0">
-                      <td className="px-5 py-2.5 font-medium text-slate-700">{line.componentName}</td>
-                      <td className="px-4 py-2.5 text-slate-500">{line.componentCode}</td>
-                      <td className="px-4 py-2.5 text-right font-mono tabular-nums text-slate-800">
-                        {money(Number(line.amount || 0))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
