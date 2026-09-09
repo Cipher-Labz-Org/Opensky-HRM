@@ -384,14 +384,15 @@ public class PayrollService : IPayrollService
             // Never block batch listing if auto-seed fails on a legacy tenant DB.
         }
 
-        var query = _db.PayrollBatches.AsQueryable();
+        var query = _db.PayrollBatches.AsNoTracking().AsQueryable();
         var total = await query.CountAsync();
-        var items = await query
+        var rows = await query
             .OrderByDescending(b => b.CreatedAt)
             .ThenByDescending(b => b.Year)
             .ThenByDescending(b => b.Month)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(b => MapBatchDto(b)).ToListAsync();
+            .ToListAsync();
+        var items = rows.Select(MapBatchDto).ToList();
         return new PagedResult<PayrollBatchDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
     }
 
