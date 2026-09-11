@@ -105,8 +105,8 @@ public static class PayrollComponentSeeder
 
     /// <summary>
     /// Ensures the full default payroll component catalog and rate settings exist (idempotent).
-    /// Restores soft-deleted default codes — unique Code still occupies the row after UI delete,
-    /// so a filtered lookup would try to insert duplicates and leave Payroll Components empty.
+    /// Existing rows (including user-deleted catalog codes) are matched by Code so a second
+    /// insert is not attempted. Deleted rows stay deleted.
     /// </summary>
     public static async Task EnsureAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {
@@ -119,13 +119,8 @@ public static class PayrollComponentSeeder
             var match = FindExisting(existing, definition);
             if (match is not null)
             {
-                if (match.IsDeleted)
-                {
-                    match.IsDeleted = false;
-                    match.IsActive = true;
-                }
-
-                SyncCatalogMetadata(match, definition);
+                if (!match.IsDeleted)
+                    SyncCatalogMetadata(match, definition);
                 continue;
             }
 

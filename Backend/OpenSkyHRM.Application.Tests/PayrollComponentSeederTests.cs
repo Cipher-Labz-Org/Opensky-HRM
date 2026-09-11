@@ -67,23 +67,24 @@ public class PayrollComponentSeederTests
     }
 
     [Fact]
-    public async Task GetComponentsAsync_RestoresSoftDeletedCatalog()
+    public async Task GetComponentsAsync_DoesNotRestoreUserDeletedCatalog()
     {
         var (db, svc) = CreateSut();
         await PayrollComponentSeeder.EnsureAsync(db);
 
-        foreach (var component in db.CompensationComponents)
-            component.IsDeleted = true;
-        await db.SaveChangesAsync();
+        var ta = await db.CompensationComponents.SingleAsync(c => c.Code == "TA");
+        Assert.True(await svc.DeleteComponentAsync(ta.Id));
+
         db.ChangeTracker.Clear();
-
-        Assert.Empty(await db.CompensationComponents.ToListAsync());
-
         var list = await svc.GetComponentsAsync();
 
+        Assert.DoesNotContain(list, c => c.Code == "TA");
         Assert.Contains(list, c => c.Code == "BASIC");
-        Assert.Contains(list, c => c.Code == "POYA");
-        Assert.True(list.Count >= 15);
+
+        db.ChangeTracker.Clear();
+        var hidden = await db.CompensationComponents.IgnoreQueryFilters()
+            .SingleAsync(c => c.Code == "TA");
+        Assert.True(hidden.IsDeleted);
     }
 
     [Fact]

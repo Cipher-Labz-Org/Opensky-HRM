@@ -1022,9 +1022,13 @@ function ComponentsTab() {
 
   function handleEdit(c: Component) { setEditing(c); setShowForm(true); }
   async function handleDelete(id: string) {
-    if (!(await appConfirm("Delete this component?"))) return;
-    await apiFetch(`/api/payroll/components/${id}`, { method: "DELETE" });
-    load();
+    if (!(await appConfirm("Delete this component? It will be hidden from payroll and will not come back on refresh."))) return;
+    try {
+      await apiFetch(`/api/payroll/components/${id}`, { method: "DELETE" });
+      load();
+    } catch (err: unknown) {
+      await appAlert(err instanceof Error ? err.message : "Could not delete this component.");
+    }
   }
 
   const componentsPager = useClientPagination(components);
