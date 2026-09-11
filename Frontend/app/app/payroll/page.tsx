@@ -2924,15 +2924,18 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
       || textIncludes(e.employeeCode, q) || textIncludes(e.department, q);
   });
 
-  const allFilteredSelected = filtered.length > 0 && filtered.every(e => selected.has(e.id));
+  const selectableFiltered = filtered.filter((e) => !e.alreadyInBatch);
+  const allFilteredSelected = selectableFiltered.length > 0 && selectableFiltered.every((e) => selected.has(e.id));
 
   function toggleAll() {
     const next = new Set(selected);
-    if (allFilteredSelected) { filtered.forEach(e => next.delete(e.id)); } else { filtered.forEach(e => next.add(e.id)); }
+    if (allFilteredSelected) { selectableFiltered.forEach((e) => next.delete(e.id)); } else { selectableFiltered.forEach((e) => next.add(e.id)); }
     setSelected(next);
   }
 
   function toggle(id: string) {
+    const emp = employees.find((e) => e.id === id);
+    if (emp?.alreadyInBatch) return;
     const next = new Set(selected);
     if (next.has(id)) next.delete(id); else next.add(id);
     setSelected(next);
@@ -3020,7 +3023,7 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
       {step === 2 && (
         <div className="space-y-3">
           <p className="text-xs text-slate-500">
-            All active employees are listed, including those without salary yet. Staff already in another {formatProcessType(processType)} batch for {MONTHS[month - 1]} {year} are hidden so they do not get a second payslip.
+            All active employees are listed, including those without salary yet. Staff already in another {formatProcessType(processType)} batch for {MONTHS[month - 1]} {year} stay on the list as Already calculated so they are not selected twice.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -3084,8 +3087,12 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
                         : "No employees match the current filters"}
                     </td></tr>
                   ) : filtered.map(e => (
-                    <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer" onClick={() => toggle(e.id)}>
-                      <td className="px-3 py-2"><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} className="rounded" /></td>
+                    <tr
+                      key={e.id}
+                      className={`border-b border-slate-50 ${e.alreadyInBatch ? "cursor-not-allowed bg-slate-50/80 opacity-70" : "cursor-pointer hover:bg-slate-50/50"}`}
+                      onClick={() => toggle(e.id)}
+                    >
+                      <td className="px-3 py-2"><input type="checkbox" checked={selected.has(e.id)} disabled={e.alreadyInBatch} onChange={() => toggle(e.id)} className="rounded" /></td>
                       <td className="px-3 py-2 font-medium text-slate-700">{e.firstName} {e.lastName}</td>
                       <td className="px-3 py-2 text-slate-500">{e.employeeCode}</td>
                       <td className="px-3 py-2 text-slate-500">{e.department}</td>
