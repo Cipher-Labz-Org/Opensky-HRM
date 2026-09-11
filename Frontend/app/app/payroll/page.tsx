@@ -2651,7 +2651,10 @@ function PayrollRunTab() {
       </div>
 
       {loadError ? (
-        <InlinePageAlert message={loadError} className="mb-4 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800" />
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <InlinePageAlert message={loadError} className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800" />
+          <Button variant="secondary" onClick={load}>Retry</Button>
+        </div>
       ) : null}
       {batches.length === 0 ? <EmptyState text="No payroll batches yet. Create one to start." /> : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">

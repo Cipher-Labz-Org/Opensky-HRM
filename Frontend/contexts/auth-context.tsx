@@ -253,7 +253,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const backend = tenantBackendUrl() || API_BASE_URL || getApiBaseUrl();
       throw new Error(
         backend
-          ? `Cannot reach the HR API at ${backend}. Open ${backend}/health in a browser — if that fails, fix IIS (Load User Profile = True on pool MBKH) and recycle the app pool.`
+          ? `Cannot reach the HR API at ${backend}. Open ${backend}/health — HTTP 500.30 means that IIS site failed to start. Recycle that site's app pool (not another company's), keep that tenant's own appsettings.json, and set Load User Profile = True.`
           : "Cannot reach the HR API. On Vercel set API_URL and NEXT_PUBLIC_API_URL to your backend URL and redeploy."
       );
     } finally {

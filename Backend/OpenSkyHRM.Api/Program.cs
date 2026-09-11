@@ -84,10 +84,19 @@ static async Task EnsureDatabaseExistsAsync(string? connectionString)
 // the app fails to start (CryptographicException). A stable file location keeps
 // keys working regardless of the hosting identity.
 var dataProtectionKeysPath = Path.Combine(builder.Environment.ContentRootPath, "keys");
-Directory.CreateDirectory(dataProtectionKeysPath);
-builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
-    .SetApplicationName("OpenSkyHRM");
+try
+{
+    Directory.CreateDirectory(dataProtectionKeysPath);
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
+        .SetApplicationName("OpenSkyHRM");
+}
+catch (Exception ex)
+{
+    // IIS 500.30 if the pool cannot create ./keys (ACL / locked folder). App can still serve /health and login.
+    Console.WriteLine($"WARNING: Data protection key folder is not writable ({ex.Message}). Using ephemeral keys.");
+    builder.Services.AddDataProtection().SetApplicationName("OpenSkyHRM");
+}
 builder.Services.AddSingleton<IApiKeyProtector, ApiKeyProtector>();
 
 // --- Layer DI Registration ---
@@ -164,6 +173,10 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Description = "Enterprise HRIS REST API"
     });
+    // Unique schema ids for generic/nested types; first action wins if two methods share a path.
+    options.CustomSchemaIds(type =>
+        (type.FullName ?? type.Name).Replace("+", ".", StringComparison.Ordinal));
+    options.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
 });
 
 // --- Test DB connectivity before registering Hangfire ---
@@ -283,7 +296,8 @@ app.UseExceptionHandler(errorApp =>
 
         context.Response.StatusCode = 500;
         context.Response.ContentType = "application/json";
-        var message = app.Environment.IsDevelopment() && ex != null
+        var swaggerRequest = context.Request.Path.StartsWithSegments("/swagger");
+        var message = (app.Environment.IsDevelopment() || swaggerRequest) && ex != null
             ? ex.Message
             : "An internal server error occurred.";
         await context.Response.WriteAsJsonAsync(new { message, database = dbAvailable });
@@ -493,7 +507,14 @@ if (dbAvailable)
 
 // --- Middleware Pipeline ---
 var fileStorageSettings = app.Configuration.GetSection(FileStorageOptions.SectionName).Get<FileStorageOptions>() ?? new FileStorageOptions();
-FileStoragePathHelper.EnsureCompanyFolders(app.Environment.ContentRootPath, fileStorageSettings);
+try
+{
+    FileStoragePathHelper.EnsureCompanyFolders(app.Environment.ContentRootPath, fileStorageSettings);
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"WARNING: Could not create company upload folders: {ex.Message}");
+}
 app.Logger.LogInformation(
     "Company storage folders ready under wwwroot/uploads/{Root}/{Company}/",
     FileStoragePathHelper.SanitizeSegment(fileStorageSettings.RootFolder),

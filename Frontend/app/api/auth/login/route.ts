@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       {
         message: timedOut
           ? `HR API at ${base} did not respond within ${upstreamTimeoutMs / 1000}s.`
-          : `Cannot reach the HR API at ${base}. Check ${base}/health — on the server set IIS pool MBKH → Load User Profile = True, then recycle.`,
+          : `Cannot reach the HR API at ${base}. Check ${base}/health — HTTP 500.30 means that IIS site failed to start. Recycle that tenant's app pool, do not overwrite its appsettings.json, and set Load User Profile = True.`,
       },
       { status: 503 },
     );

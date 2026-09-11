@@ -79,7 +79,7 @@ public partial class AttendanceController
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(10_000_000)]
     [RequestFormLimits(MultipartBodyLengthLimit = 10_000_000)]
-    public async Task<IActionResult> ImportFromExcel([FromForm] IFormFile file)
+    public async Task<IActionResult> ImportFromExcel(IFormFile file)
     {
         if (file is null || file.Length == 0)
             return BadRequest(new { message = "No file uploaded." });
