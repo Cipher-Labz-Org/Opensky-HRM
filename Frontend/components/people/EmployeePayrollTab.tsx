@@ -175,7 +175,11 @@ function isBasicSalaryCode(code?: string) {
 }
 
 function isEarning(line: CompensationLine) {
-  return line.componentType === "Earning" || isBasicSalaryCode(line.componentCode);
+  return (
+    line.componentType === "Earning" ||
+    line.componentType === "Income" ||
+    isBasicSalaryCode(line.componentCode)
+  );
 }
 
 function isCurrentSalaryLine(line: CompensationLine) {

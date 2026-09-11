@@ -89,6 +89,157 @@ public class PayrollCalculationEngineTests
     }
 
     [Theory]
+    [InlineData(ComponentType.Earning)]
+    public void IsEarningComponentType_IncludesIncomeOnly(ComponentType type)
+    {
+        Assert.True(PayrollCalculationEngine.IsEarningComponentType(type));
+        Assert.True(PayrollCalculationEngine.IsEarningComponentType(type.ToString()));
+        Assert.True(PayrollCalculationEngine.IsEarningComponentType("Income"));
+    }
+
+    [Theory]
+    [InlineData(ComponentType.Deduction)]
+    [InlineData(ComponentType.StatutoryDeduction)]
+    [InlineData(ComponentType.StatutoryContribution)]
+    [InlineData(ComponentType.Day)]
+    [InlineData(ComponentType.Hours)]
+    [InlineData(ComponentType.Rate)]
+    public void IsEarningComponentType_ExcludesDeductionsRateAndQuantity(ComponentType type)
+    {
+        Assert.False(PayrollCalculationEngine.IsEarningComponentType(type));
+        Assert.False(PayrollCalculationEngine.IsEarningComponentType(type.ToString()));
+    }
+
+    [Fact]
+    public void HourlyRateAndWorkedHours_AreInputsNotEarnings()
+    {
+        var hourly = new CompensationComponent { Code = "HOURLY_RATE", Type = ComponentType.Hours };
+        var hours = new CompensationComponent { Code = "WORKED_HOURS", Type = ComponentType.Hours };
+        var pay = new CompensationComponent { Code = "TOTAL_PAYMENT", Type = ComponentType.Hours };
+
+        Assert.True(PayrollCalculationEngine.IsRateOrQuantityComponent(hourly));
+        Assert.True(PayrollCalculationEngine.IsRateOrQuantityComponent(hours));
+        Assert.False(PayrollCalculationEngine.IsRateOrQuantityComponent(pay));
+        Assert.False(PayrollCalculationEngine.CountsAsEarning(hourly));
+        Assert.True(PayrollCalculationEngine.CountsAsEarning(pay));
+        Assert.Equal("HOURLY_RATE * WORKED_HOURS", PayrollCalculationEngine.DefaultHoursPayFormula(pay));
+    }
+
+    [Fact]
+    public void EvaluateFormula_HourlyRateTimesWorkedHours()
+    {
+        var amount = PayrollCalculationEngine.EvaluateFormula(
+            "HOURLY_RATE * WORKED_HOURS",
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["HOURLY_RATE"] = 222m,
+                ["WORKED_HOURS"] = 8.30m,
+            },
+            new PayrollRates());
+
+        Assert.Equal(1842.60m, amount);
+    }
+
+    [Fact]
+    public void EvaluateFormula_Basic1DividedByWorkingDays()
+    {
+        var amount = PayrollCalculationEngine.EvaluateFormula(
+            "BASIC1 / WORKING_DAYS",
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["BASIC1"] = 52_000m,
+                ["WORKING_DAYS"] = 26m,
+            },
+            new PayrollRates());
+
+        Assert.Equal(2000m, amount);
+    }
+
+    [Fact]
+    public void EvaluateFormula_Basic1FallsBackToBasic()
+    {
+        var amount = PayrollCalculationEngine.EvaluateFormula(
+            "BASIC1 / WORKING_DAYS",
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["BASIC"] = 52_000m,
+                ["WORKING_DAYS"] = 26m,
+            },
+            new PayrollRates());
+
+        Assert.Equal(2000m, amount);
+    }
+
+    [Fact]
+    public void EvaluateFormula_WorkingDaysZeroIsZero()
+    {
+        var amount = PayrollCalculationEngine.EvaluateFormula(
+            "BASIC1 / WORKING_DAYS",
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["BASIC1"] = 52_000m,
+                ["WORKING_DAYS"] = 0m,
+            },
+            new PayrollRates());
+
+        Assert.Equal(0m, amount);
+    }
+
+    [Fact]
+    public void SeedAssignmentValues_LetsPerDayFormulaSeeInputsRegardlessOfSortOrder()
+    {
+        var basicId = Guid.NewGuid();
+        var daysId = Guid.NewGuid();
+        var perDayId = Guid.NewGuid();
+        var components = new List<CompensationComponent>
+        {
+            new()
+            {
+                Id = perDayId,
+                Code = "PER_DAY",
+                Name = "Per Day Salary",
+                Category = ComponentCategory.Fixed,
+                Type = ComponentType.Rate,
+                FormulaExpression = "BASIC1 / WORKING_DAYS",
+                SortOrder = 1,
+            },
+            new()
+            {
+                Id = basicId,
+                Code = "BASIC1",
+                Name = "Basic Salary",
+                Category = ComponentCategory.Fixed,
+                Type = ComponentType.Earning,
+                SortOrder = 2,
+            },
+            new()
+            {
+                Id = daysId,
+                Code = "WORKING_DAYS",
+                Name = "Working Days",
+                Category = ComponentCategory.Fixed,
+                Type = ComponentType.Day,
+                SortOrder = 3,
+            },
+        };
+        var empComp = new List<EmployeeCompensation>
+        {
+            new() { ComponentId = basicId, Amount = 52_000m, Component = components[1] },
+            new() { ComponentId = daysId, Amount = 26m, Component = components[2] },
+        };
+
+        var values = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        PayrollCalculationEngine.SeedAssignmentValues(values, components, empComp);
+
+        var perDay = PayrollCalculationEngine.EvaluateFormula(
+            "BASIC1 / WORKING_DAYS", values, new PayrollRates());
+
+        Assert.Equal(2000m, perDay);
+        Assert.Equal(52_000m, values["BASIC1"]);
+        Assert.Equal(26m, values["WORKING_DAYS"]);
+    }
+
+    [Theory]
     [InlineData("APIT", "APIT")]
     [InlineData("apit", "Tax")]
     [InlineData("PAYE", "APIT")]

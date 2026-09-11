@@ -13,6 +13,7 @@ import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormE
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { printPayslip } from "@/lib/payslip-print";
+import { evaluatePayrollFormula } from "@/lib/payroll-formula";
 
 interface Component {
   id: string; name: string; code: string; type: string; category: string;
@@ -62,7 +63,16 @@ interface Revision {
 }
 
 interface Employee { id: string; firstName: string; lastName: string; employeeCode: string; }
-interface EligibleEmployee { id: string; firstName: string; lastName: string; employeeCode: string; department: string; grade: string; location: string; }
+interface EligibleEmployee {
+  id: string;
+  firstName: string;
+  lastName: string;
+  employeeCode: string;
+  department: string;
+  grade: string;
+  location: string;
+  alreadyInBatch?: boolean;
+}
 interface Settings {
   epfEmployeeRate: number;
   epfEmployerRate: number;
@@ -163,11 +173,19 @@ function formatBatchLabel(b: Batch): string {
 }
 
 const PAYROLL_COMPONENT_TYPE_OPTS: FormSelectOption[] = [
-  { value: "Earning", label: "Earning" },
+  { value: "Earning", label: "Income" },
+  { value: "Rate", label: "Rate" },
+  { value: "Hours", label: "Hours" },
+  { value: "Day", label: "Days" },
   { value: "Deduction", label: "Deduction" },
   { value: "StatutoryDeduction", label: "Statutory Deduction" },
   { value: "StatutoryContribution", label: "Statutory Contribution" },
 ];
+
+function formatComponentType(type?: string | null) {
+  if (!type) return "—";
+  return PAYROLL_COMPONENT_TYPE_OPTS.find((o) => o.value === type)?.label ?? type;
+}
 
 const PAYROLL_COMPONENT_CATEGORY_OPTS: FormSelectOption[] = [
   { value: "Fixed", label: "Fixed" },
@@ -443,6 +461,19 @@ function isBasicSalaryCode(code?: string) {
   return value === "BASIC" || value.startsWith("BASIC");
 }
 
+function isEarningComponentType(type?: string | null) {
+  return type === "Earning" || type === "Income";
+}
+
+function isRateOrQuantityType(type?: string | null) {
+  return type === "Rate" || type === "Hours" || type === "Day" || type === "Days";
+}
+
+function isIncomePayCode(code?: string | null) {
+  const value = (code ?? "").toUpperCase();
+  return value === "TOTAL_PAYMENT" || value === "TOTAL_PAY";
+}
+
 function isEndedSalaryRow(row: EmpComp) {
   if (!row.effectiveTo) return false;
   const end = Date.parse(row.effectiveTo);
@@ -454,7 +485,7 @@ function latestPositiveFixedSalary(assignments: EmpComp[]): number {
   for (const row of assignments) {
     if (row.isActive === false || row.batchId) continue;
     if (row.componentCategory === "OneTime" || row.componentCategory === "Statutory") continue;
-    const isEarning = !row.componentType || row.componentType === "Earning" || isBasicSalaryCode(row.componentCode);
+    const isEarning = !row.componentType || isEarningComponentType(row.componentType) || isBasicSalaryCode(row.componentCode);
     if (!isEarning) continue;
     if (!(row.amount > 0) || isEndedSalaryRow(row)) continue;
     const prev = byComp.get(row.componentId);
@@ -1031,7 +1062,7 @@ function ComponentsTab() {
                 <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50/50">
                   <td className="px-4 py-3 font-medium text-slate-700">{c.name}</td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.code}</td>
-                  <td className="px-4 py-3 text-slate-600">{c.type}</td>
+                  <td className="px-4 py-3 text-slate-600">{formatComponentType(c.type)}</td>
                   <td className="px-4 py-3 text-slate-600">{c.category}</td>
                   <td className="px-4 py-3">{c.isTaxable ? <span className="text-amber-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
                   <td className="px-4 py-3">{epfEtfKindLabel(c) === "No" ? <span className="text-slate-400">No</span> : <span className="text-sky-600">{epfEtfKindLabel(c)}</span>}</td>
@@ -1095,8 +1126,10 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className={labelCls}>Name *</label><input name="name" required className={inputCls} defaultValue={editing?.name} /></div>
           <div><label className={labelCls}>Code *</label><input name="code" required className={inputCls} defaultValue={editing?.code} placeholder="e.g. BASIC" /></div>
-          <div><label className={labelCls}>Type *</label>
-            <FormSelect name="type" defaultValue={editing?.type || "Earning"} options={PAYROLL_COMPONENT_TYPE_OPTS} placeholder="Type" />
+          <div>
+            <label className={labelCls}>Type *</label>
+            <FormSelect name="type" defaultValue={editing?.type || "Earning"} options={PAYROLL_COMPONENT_TYPE_OPTS} placeholder="Income, Rate, Hours or Days" />
+            <p className="mt-1 text-xs text-slate-500">Income = pay. Rate = hourly/daily rate. Hours / Days = quantity. Not added to earnings except Income.</p>
           </div>
           <div><label className={labelCls}>Category *</label>
             <FormSelect name="category" defaultValue={editing?.category || "Fixed"} options={PAYROLL_COMPONENT_CATEGORY_OPTS} placeholder="Category" />
@@ -1115,7 +1148,11 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
           </div>
           <div><label className={labelCls}>Sort Order</label><input name="sortOrder" type="number" className={inputCls} defaultValue={editing?.sortOrder ?? 0} /></div>
         </div>
-        <div><label className={labelCls}>Formula Expression</label><input name="formulaExpression" className={inputCls} defaultValue={editing?.formulaExpression ?? ""} placeholder="e.g. EPF_EARNINGS * EPF_EE_RATE or APIT_AMOUNT" /></div>
+        <div>
+          <label className={labelCls}>Formula Expression</label>
+          <input name="formulaExpression" className={inputCls} defaultValue={editing?.formulaExpression ?? ""} placeholder="e.g. BASIC1 / WORKING_DAYS" />
+          <p className="mt-1 text-xs text-slate-500">Use exact component codes (BASIC1, WORKING_DAYS). Employee Salary auto-fills the result.</p>
+        </div>
         <div><label className={labelCls}>Depends On Component Code</label><input name="dependsOnComponentCode" className={inputCls} defaultValue={editing?.dependsOnComponentCode ?? ""} /></div>
         <div><label className={labelCls}>Description</label><textarea name="description" className={inputCls} rows={2} defaultValue={editing?.description ?? ""} /></div>
         {editing && (
@@ -1639,6 +1676,78 @@ function SalaryComponentsEditor({
     return relevantLines.find((a) => a.componentId === componentId);
   }
 
+  function parseAmountText(raw?: string | null): number {
+    const t = (raw ?? "").trim();
+    if (t === "" || t === "—" || t === "-") return 0;
+    const n = Number.parseFloat(t.replace(/,/g, ""));
+    return Number.isNaN(n) ? 0 : n;
+  }
+
+  function isAutoHoursPay(def: Component) {
+    return (
+      isIncomePayCode(def.code) ||
+      /HOURLY_RATE\s*\*\s*WORKED_HOURS/i.test(def.formulaExpression ?? "")
+    );
+  }
+
+  function isAutoFormula(def: Component) {
+    if (isStatutory(def) || isPoya(def)) return false;
+    if (isAutoHoursPay(def)) return true;
+    return Boolean(def.formulaExpression?.trim());
+  }
+
+  function rawAmountForCode(code: string): number {
+    const key = code.toUpperCase();
+    const def = componentsLibrary.find((c) => c.code.toUpperCase() === key);
+    if (def) {
+      if (draftByComp[def.id] !== undefined) return parseAmountText(draftByComp[def.id]);
+      const onTab = lineForComponent(def.id);
+      if (onTab) return Number(onTab.amount) || 0;
+    }
+    const rows = assignmentsAll
+      .filter(
+        (a) =>
+          a.isActive !== false &&
+          (a.componentCode ?? "").toUpperCase() === key
+      )
+      .sort((a, b) => new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime());
+    return Number(rows[0]?.amount) || 0;
+  }
+
+  function amountForCode(code: string): number {
+    const key = code.toUpperCase();
+    const direct = rawAmountForCode(key);
+    if (direct > 0) return direct;
+    if (key === "BASIC" || key.startsWith("BASIC")) {
+      const basic = rawAmountForCode("BASIC");
+      if (basic > 0) return basic;
+      for (const c of componentsLibrary) {
+        if (c.code.toUpperCase().startsWith("BASIC")) {
+          const alias = rawAmountForCode(c.code.toUpperCase());
+          if (alias > 0) return alias;
+        }
+      }
+    }
+    return direct;
+  }
+
+  function formulaAmount(def: Component, visiting = new Set<string>()): number {
+    const key = def.code.toUpperCase();
+    if (visiting.has(key)) return 0;
+    visiting.add(key);
+    const expr =
+      (def.formulaExpression ?? "").trim() ||
+      (isIncomePayCode(def.code) ? "HOURLY_RATE * WORKED_HOURS" : "");
+    if (!expr) return 0;
+    return evaluatePayrollFormula(expr, (code) => {
+      const ref = code.toUpperCase();
+      if (ref === key) return 0;
+      const other = componentsLibrary.find((c) => c.code.toUpperCase() === ref);
+      if (other && isAutoFormula(other)) return formulaAmount(other, visiting);
+      return amountForCode(code);
+    });
+  }
+
   function closeEnough(a: number, b: number) {
     return Math.abs(a - b) < 0.005;
   }
@@ -1720,10 +1829,20 @@ function SalaryComponentsEditor({
     setSavingCompId(def.id);
     try {
       const { wrote, recalculatedBatches = 0 } = await persistComponent(def, draft);
+      let batches = recalculatedBatches;
+      let didWrite = wrote;
+      if (!isAutoFormula(def)) {
+        for (const pay of manualDefinitions.filter(isAutoFormula)) {
+          const computed = formulaAmount(pay);
+          const extra = await persistComponent(pay, computed > 0 ? String(computed) : "");
+          if (extra.wrote) didWrite = true;
+          if ((extra.recalculatedBatches ?? 0) > batches) batches = extra.recalculatedBatches ?? 0;
+        }
+      }
       clearDraft(def.id);
-      if (wrote) {
+      if (didWrite) {
         await onReload();
-        setSaveOk(saveSuccessMessage(recalculatedBatches));
+        setSaveOk(saveSuccessMessage(batches));
       }
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "Could not save");
@@ -1734,10 +1853,11 @@ function SalaryComponentsEditor({
 
   async function saveAll() {
     if (savingAll || loading) return;
-    const dirty = manualDefinitions.filter((d) => draftByComp[d.id] !== undefined);
+    const dirty = manualDefinitions.filter((d) => draftByComp[d.id] !== undefined && !isAutoFormula(d));
+    const autoPay = manualDefinitions.filter(isAutoFormula);
     setSaveError(null);
     setSaveOk(null);
-    if (dirty.length === 0) {
+    if (dirty.length === 0 && autoPay.length === 0) {
       setSaveOk("Salary is already saved.");
       return;
     }
@@ -1751,6 +1871,15 @@ function SalaryComponentsEditor({
         const draft = snapshot[def.id];
         if (draft === undefined) continue;
         const { wrote, recalculatedBatches: n = 0 } = await persistComponent(def, draft);
+        if (wrote) wroteAny = true;
+        if (n > recalculatedBatches) recalculatedBatches = n;
+      }
+      for (const def of autoPay) {
+        const computed = formulaAmount(def);
+        const { wrote, recalculatedBatches: n = 0 } = await persistComponent(
+          def,
+          computed > 0 ? String(computed) : ""
+        );
         if (wrote) wroteAny = true;
         if (n > recalculatedBatches) recalculatedBatches = n;
       }
@@ -1780,8 +1909,21 @@ function SalaryComponentsEditor({
     );
   }
 
-  const earningsDefs = manualDefinitions.filter((d) => d.type === "Earning");
-  const manualDeductionDefs = manualDefinitions.filter((d) => d.type !== "Earning");
+  const earningsDefs = manualDefinitions.filter(
+    (d) =>
+      isEarningComponentType(d.type) ||
+      isIncomePayCode(d.code) ||
+      isRateOrQuantityType(d.type)
+  );
+  const incomeDefs = earningsDefs.filter(
+    (d) => isEarningComponentType(d.type) || isIncomePayCode(d.code)
+  );
+  const manualDeductionDefs = manualDefinitions.filter(
+    (d) =>
+      !isEarningComponentType(d.type) &&
+      !isIncomePayCode(d.code) &&
+      !isRateOrQuantityType(d.type)
+  );
   const statutoryDefs = definitions.filter((d) => isStatutory(d));
 
   function numericAmount(componentId: string): number {
@@ -1796,25 +1938,29 @@ function SalaryComponentsEditor({
     return line?.amount ?? 0;
   }
 
-  const epfEarnings = earningsDefs
+  function payAmount(def: Component) {
+    return isAutoFormula(def) ? formulaAmount(def) : numericAmount(def.id);
+  }
+
+  const epfEarnings = incomeDefs
     .filter((d) => d.isEpfApplicable)
-    .reduce((s, d) => s + numericAmount(d.id), 0);
-  const etfEarnings = earningsDefs
+    .reduce((s, d) => s + payAmount(d), 0);
+  const etfEarnings = incomeDefs
     .filter((d) => d.isEtfApplicable)
-    .reduce((s, d) => s + numericAmount(d.id), 0);
-  const taxableRegularMarked = earningsDefs
+    .reduce((s, d) => s + payAmount(d), 0);
+  const taxableRegularMarked = incomeDefs
     .filter((d) => d.isTaxable && d.category !== "OneTime")
-    .reduce((s, d) => s + numericAmount(d.id), 0);
-  const taxableLump = earningsDefs
+    .reduce((s, d) => s + payAmount(d), 0);
+  const taxableLump = incomeDefs
     .filter((d) => d.isTaxable && d.category === "OneTime")
-    .reduce((s, d) => s + numericAmount(d.id), 0);
-  const basicSalaryAmount = earningsDefs
+    .reduce((s, d) => s + payAmount(d), 0);
+  const basicSalaryAmount = incomeDefs
     .filter((d) => d.code.toUpperCase() === "BASIC" || d.code.toUpperCase().startsWith("BASIC"))
-    .reduce((s, d) => s + numericAmount(d.id), 0);
+    .reduce((s, d) => s + payAmount(d), 0);
   const { epfBase, etfBase } = resolveStatutoryBases(epfEarnings, etfEarnings, basicSalaryAmount);
-  const monthlySalaryForApit = earningsDefs
+  const monthlySalaryForApit = incomeDefs
     .filter((d) => d.category !== "OneTime")
-    .reduce((s, d) => s + numericAmount(d.id), 0);
+    .reduce((s, d) => s + payAmount(d), 0);
   const fixedMonthlySalary = latestPositiveFixedSalary(assignmentsAll);
   const taxableEarnings = monthlySalaryForApit > 0
     ? monthlySalaryForApit
@@ -1842,12 +1988,13 @@ function SalaryComponentsEditor({
 
   function displayAmount(def: Component): number {
     if (isStatutory(def)) return statutoryAmount(def);
+    if (isAutoFormula(def)) return formulaAmount(def);
     return numericAmount(def.id);
   }
 
   const poyaDayRate = basicSalaryAmount > 0 ? Math.round((basicSalaryAmount / 30) * 100) / 100 : 0;
 
-  const totalEarnings = earningsDefs.reduce((s, d) => s + numericAmount(d.id), 0);
+  const totalEarnings = incomeDefs.reduce((s, d) => s + displayAmount(d), 0);
   const manualDeductions = manualDeductionDefs.reduce((s, d) => s + numericAmount(d.id), 0);
   const employeeStatutoryDeductions =
     hasStatutoryBase
@@ -1913,6 +2060,10 @@ function SalaryComponentsEditor({
                         poyaDayRate > 0 ? ` (LKR ${fmt(poyaDayRate)} per day)` : ""
                       }. Leave blank to use attendance, or enter 0.5–15 days / a larger LKR amount.`}
                     />
+                  ) : isAutoFormula(def) && def.formulaExpression ? (
+                    <FormulaInfoTip
+                      text={`Auto from formula ${def.formulaExpression}. Uses the other component codes on this page (for example BASIC1 ÷ WORKING_DAYS).`}
+                    />
                   ) : null}
                 </div>
                 {variant === "deduction" && !isPoya(def) ? (
@@ -1922,11 +2073,13 @@ function SalaryComponentsEditor({
                 ) : null}
               </td>
               <td className="py-3 pl-2 pr-4 align-top">
-                {isStatutory(def) ? (
+                {isStatutory(def) || isAutoFormula(def) ? (
                   <div
                     className="flex h-10 min-w-[7rem] items-center justify-end gap-2 rounded-lg border border-slate-200/70 bg-slate-50 px-3 font-mono text-sm tabular-nums text-slate-700 md:min-w-[8.75rem]"
                     title={
-                      def.code.toUpperCase() === "APIT"
+                      isAutoFormula(def)
+                        ? `${def.formulaExpression || "HOURLY_RATE * WORKED_HOURS"} = ${formulaAmount(def)}`
+                        : def.code.toUpperCase() === "APIT"
                         ? batchUsesOneTime
                           ? `APIT Table 02 on bonus LKR ${fmt(taxableLump)} (EGAR from monthly LKR ${fmt(bonusMonthlyPay)})`
                           : `APIT Table 01 on taxable LKR ${fmt(taxableEarnings)}${taxableLump > 0 ? ` + Table 02 lump LKR ${fmt(taxableLump)}` : ""}`
@@ -1938,7 +2091,7 @@ function SalaryComponentsEditor({
                     <span className="rounded bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                       Auto
                     </span>
-                    <span>{statutoryDisplay(def)}</span>
+                    <span>{isAutoFormula(def) ? (formulaAmount(def) > 0 ? fmt(formulaAmount(def)) : "—") : statutoryDisplay(def)}</span>
                   </div>
                 ) : (
                   <input
@@ -2029,7 +2182,7 @@ function SalaryComponentsEditor({
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <span className="text-sm font-semibold text-emerald-950">Earnings (income)</span>
                 <span className="text-xs font-medium text-emerald-900/85">
-                  {earningsDefs.length} component{earningsDefs.length !== 1 ? "s" : ""} • Subtotal LKR{" "}
+                  {incomeDefs.length} component{incomeDefs.length !== 1 ? "s" : ""} • Subtotal LKR{" "}
                   {fmt(totalEarnings)}
                 </span>
               </div>
@@ -2728,7 +2881,10 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
     apiFetch<EligibleEmployee[]>(
       `/api/payroll/eligible-employees?month=${month}&year=${year}&processType=${encodeURIComponent(processType)}`,
     )
-      .then(emps => { setEmployees(emps); setSelected(new Set(emps.map(e => e.id))); })
+      .then(emps => {
+        setEmployees(emps);
+        setSelected(new Set(emps.filter((e) => !e.alreadyInBatch).map((e) => e.id)));
+      })
       .catch(() => setError("Failed to load employees"))
       .finally(() => setEmpLoading(false));
   }, [step, month, year, processType]);
@@ -2861,7 +3017,7 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
       {step === 2 && (
         <div className="space-y-3">
           <p className="text-xs text-slate-500">
-            Employees already in another {formatProcessType(processType)} batch for {MONTHS[month - 1]} {year} are hidden so they do not get a second payslip. Select only staff who are not yet in this month’s run (for example a newly added employee).
+            All active employees are listed, including those without salary yet. Staff already in another {formatProcessType(processType)} batch for {MONTHS[month - 1]} {year} are hidden so they do not get a second payslip.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -2914,13 +3070,14 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
                     <th className="px-3 py-2.5 font-medium">Department</th>
                     <th className="px-3 py-2.5 font-medium">Grade</th>
                     <th className="px-3 py-2.5 font-medium">Location</th>
+                    <th className="px-3 py-2.5 font-medium">Salary batch</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
-                    <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">
+                    <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400">
                       {employees.length === 0
-                        ? `No employees left for this ${formatProcessType(processType)} run. Everyone with salary is already in a ${MONTHS[month - 1]} ${year} batch.`
+                        ? "No active employees found."
                         : "No employees match the current filters"}
                     </td></tr>
                   ) : filtered.map(e => (
@@ -2931,6 +3088,7 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
                       <td className="px-3 py-2 text-slate-500">{e.department}</td>
                       <td className="px-3 py-2 text-slate-500">{e.grade}</td>
                       <td className="px-3 py-2 text-slate-500">{e.location}</td>
+                      <td className="px-3 py-2 text-slate-500">{e.alreadyInBatch ? "Already calculated" : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3142,7 +3300,7 @@ function PayslipModal({
   onApprove?: () => void;
 }) {
   const [printing, setPrinting] = useState(false);
-  const earnings = statement.lines?.filter(l => l.type === "Earning" && !l.isEmployerContribution) || [];
+  const earnings = statement.lines?.filter(l => (isEarningComponentType(l.type) || isIncomePayCode(l.componentCode)) && !l.isEmployerContribution) || [];
   const deductions = statement.lines?.filter(l => (l.type === "Deduction" || l.type === "StatutoryDeduction") && !l.isEmployerContribution) || [];
   const employerItems = statement.lines?.filter(l => l.isEmployerContribution) || [];
 

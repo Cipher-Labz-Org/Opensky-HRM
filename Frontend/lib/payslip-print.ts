@@ -24,6 +24,7 @@ const MONTHS = [
 export type PayslipPrintLine = {
   id: string;
   componentName: string;
+  componentCode?: string;
   type: string;
   amount: number;
   isEmployerContribution: boolean;
@@ -77,7 +78,12 @@ export function buildPayslipPrintHtml(
   logoSrc: string | null,
 ): string {
   const earnings =
-    statement.lines?.filter((l) => l.type === "Earning" && !l.isEmployerContribution) ?? [];
+    statement.lines?.filter(
+      (l) =>
+        (l.type === "Earning" || l.type === "Income" || l.componentCode === "TOTAL_PAYMENT" || l.componentCode === "TOTAL_PAY") &&
+        l.type !== "Rate" &&
+        !l.isEmployerContribution,
+    ) ?? [];
   const deductions =
     statement.lines?.filter(
       (l) => (l.type === "Deduction" || l.type === "StatutoryDeduction") && !l.isEmployerContribution,

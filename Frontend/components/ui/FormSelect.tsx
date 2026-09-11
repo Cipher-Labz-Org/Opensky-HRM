@@ -41,10 +41,10 @@ const triggerSlate =
   "[&[data-placeholder]]:text-slate-500";
 
 const contentBlue =
-  "z-[10050] max-h-[min(280px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-slate-200/90 bg-white py-1 shadow-lg shadow-slate-900/10 ring-1 ring-slate-200/60";
+  "z-[10050] max-h-[min(320px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-slate-200/90 bg-white py-1 shadow-lg shadow-slate-900/10 ring-1 ring-slate-200/60";
 
 const contentSlate =
-  "z-[10050] max-h-[min(280px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/15";
+  "z-[10050] max-h-[min(320px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/15";
 
 const itemBlue =
   "relative flex cursor-pointer select-none items-center rounded-md py-2 pl-3 pr-8 text-sm text-slate-700 outline-none " +
@@ -167,7 +167,7 @@ export function FormSelect({
           align="start"
           collisionPadding={12}
         >
-          <SelectPrimitive.Viewport className="p-1">
+          <SelectPrimitive.Viewport className="max-h-[min(300px,var(--radix-select-content-available-height))] overflow-y-auto p-1">
             {hasEmptyOption ? (
               <SelectPrimitive.Item value={EMPTY} className={itemClass}>
                 <SelectPrimitive.ItemText>{emptyOptionLabel}</SelectPrimitive.ItemText>
