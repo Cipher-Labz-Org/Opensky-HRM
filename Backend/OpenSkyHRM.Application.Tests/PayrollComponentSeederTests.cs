@@ -54,6 +54,13 @@ public class PayrollComponentSeederTests
         Assert.Contains("EPF_EE", codes);
         Assert.Contains("APIT", codes);
 
+        var ta = await db.CompensationComponents.SingleAsync(c => c.Code == "TA");
+        Assert.False(ta.IsEpfApplicable);
+        Assert.False(ta.IsEtfApplicable);
+        var basic = await db.CompensationComponents.SingleAsync(c => c.Code == "BASIC");
+        Assert.True(basic.IsEpfApplicable);
+        Assert.True(basic.IsEtfApplicable);
+
         var taxMode = await db.SystemSettings.FindAsync("Payroll_APIT_TaxMode");
         Assert.NotNull(taxMode);
         Assert.Equal("Exact", taxMode.Value);

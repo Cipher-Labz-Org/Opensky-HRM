@@ -201,9 +201,7 @@ const YES_NO_TF_OPTS: FormSelectOption[] = [
 
 const EPF_ETF_OPTS: FormSelectOption[] = [
   { value: "no", label: "No" },
-  { value: "both", label: "EPF & ETF" },
-  { value: "epf", label: "EPF only" },
-  { value: "etf", label: "ETF only" },
+  { value: "both", label: "Yes" },
 ];
 
 function epfEtfKindFromFlags(c?: Pick<Component, "isEpfApplicable" | "isEtfApplicable"> | null): string {
@@ -222,9 +220,7 @@ function flagsFromEpfEtfKind(kind: string): { isEpfApplicable: boolean; isEtfApp
 }
 
 function epfEtfKindLabel(c: Pick<Component, "isEpfApplicable" | "isEtfApplicable">): string {
-  const kind = epfEtfKindFromFlags(c);
-  if (kind === "both") return "EPF & ETF";
-  return EPF_ETF_OPTS.find((o) => o.value === kind)?.label ?? "No";
+  return epfEtfKindFromFlags(c) === "no" ? "No" : "Yes";
 }
 
 function resolveStatutoryBases(epfEarnings: number, etfEarnings: number, basicPay: number) {
@@ -1091,6 +1087,8 @@ function ComponentsTab() {
 function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component | null; onClose: () => void; onSaved: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [compType, setCompType] = useState(editing?.type || "Earning");
+  const showEpfEtf = compType === "Earning";
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1099,7 +1097,7 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
     const payload = {
       name: fd.get("name"), code: fd.get("code"), type: fd.get("type"), category: fd.get("category"),
       isTaxable: fd.get("isTaxable") === "true",
-      ...flagsFromEpfEtfKind(String(fd.get("epfEtfKind") || "no")),
+      ...flagsFromEpfEtfKind(showEpfEtf ? String(fd.get("epfEtfKind") || "no") : "no"),
       isStatutory: fd.get("isStatutory") === "true",
       description: fd.get("description") || null, formulaExpression: fd.get("formulaExpression") || null,
       dependsOnComponentCode: fd.get("dependsOnComponentCode") || null,
@@ -1128,7 +1126,7 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
           <div><label className={labelCls}>Code *</label><input name="code" required className={inputCls} defaultValue={editing?.code} placeholder="e.g. BASIC" /></div>
           <div>
             <label className={labelCls}>Type *</label>
-            <FormSelect name="type" defaultValue={editing?.type || "Earning"} options={PAYROLL_COMPONENT_TYPE_OPTS} placeholder="Income, Rate, Hours or Days" />
+            <FormSelect name="type" defaultValue={editing?.type || "Earning"} options={PAYROLL_COMPONENT_TYPE_OPTS} placeholder="Income, Rate, Hours or Days" onValueChange={setCompType} />
             <p className="mt-1 text-xs text-slate-500">Income = pay. Rate = hourly/daily rate. Hours / Days = quantity. Not added to earnings except Income.</p>
           </div>
           <div><label className={labelCls}>Category *</label>
@@ -1137,9 +1135,12 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
           <div><label className={labelCls}>Taxable</label>
             <FormSelect name="isTaxable" defaultValue={String(editing?.isTaxable ?? false)} options={YES_NO_TF_OPTS} placeholder="—" />
           </div>
+          {showEpfEtf ? (
           <div><label className={labelCls}>EPF & ETF</label>
             <FormSelect name="epfEtfKind" defaultValue={epfEtfKindFromFlags(editing)} options={EPF_ETF_OPTS} placeholder="—" />
+            <p className="mt-1 text-xs text-slate-500">Yes only if this income is part of the EPF/ETF wage. Transport and similar allowances are usually No.</p>
           </div>
+          ) : null}
           <div><label className={labelCls}>Statutory</label>
             <FormSelect name="isStatutory" defaultValue={String(editing?.isStatutory ?? false)} options={YES_NO_TF_OPTS} placeholder="—" />
           </div>

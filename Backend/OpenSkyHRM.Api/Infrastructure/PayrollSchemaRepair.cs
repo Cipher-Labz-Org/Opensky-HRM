@@ -29,6 +29,11 @@ public static class PayrollSchemaRepair
                 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEpfApplicable" boolean NOT NULL DEFAULT FALSE;
                 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEtfApplicable" boolean NOT NULL DEFAULT FALSE;
 
+                -- Transport allowance is taxable pay, not EPF/ETF wage.
+                UPDATE "CompensationComponents"
+                SET "IsEpfApplicable" = FALSE, "IsEtfApplicable" = FALSE
+                WHERE UPPER("Code") = 'TA';
+
                 ALTER TABLE "Employees" ADD COLUMN IF NOT EXISTS "ApitTaxMode" character varying(20);
                 ALTER TABLE "PayStatements" ADD COLUMN IF NOT EXISTS "ApitTaxable" numeric(18,2) NOT NULL DEFAULT 0;
 

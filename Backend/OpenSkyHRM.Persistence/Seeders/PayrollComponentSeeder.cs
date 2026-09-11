@@ -32,7 +32,7 @@ public static class PayrollComponentSeeder
         new("Basic Salary", "BASIC", ComponentType.Earning, ComponentCategory.Fixed, 10,
             "Monthly basic salary", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
         new("Transport Allowance", "TA", ComponentType.Earning, ComponentCategory.Fixed, 20,
-            "Monthly transport / travel allowance", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
+            "Monthly transport / travel allowance", IsTaxable: true),
         new("Meal Allowance", "MEAL", ComponentType.Earning, ComponentCategory.Fixed, 30,
             "Daily meal / food allowance"),
         new("Housing Allowance", "HOUSING", ComponentType.Earning, ComponentCategory.Fixed, 40,
