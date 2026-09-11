@@ -12,7 +12,7 @@
     <PackageReference Include="Hangfire.Core" Version="1.8.23" />
     <PackageReference Include="Hangfire.PostgreSql" Version="1.21.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.*">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
@@ -27,6 +27,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>93e97f3f-42ae-4d3a-9d1e-303b8fdb8708</UserSecretsId>
   </PropertyGroup>
+
+  <!-- Empty logs/ so IIS stdout logging does not 500.30 when the folder is missing. -->
+  <ItemGroup>
+    <None Include="logs\.gitkeep" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="PASTE-TO-SITE.bat" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="EnsureIisFoldersOnPublish" AfterTargets="Publish">
+    <MakeDir Directories="$(PublishDir)logs" />
+    <MakeDir Directories="$(PublishDir)keys" />
+  </Target>
 
   <!-- Example and dev settings stay in source for provisioning; never copy to IIS publish output. -->
   <ItemGroup>
