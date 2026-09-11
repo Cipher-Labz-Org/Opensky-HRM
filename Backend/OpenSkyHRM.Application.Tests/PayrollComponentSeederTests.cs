@@ -78,4 +78,40 @@ public class PayrollComponentSeederTests
         Assert.Contains(list, c => c.Code == "POYA");
         Assert.True(list.Count >= 15);
     }
+
+    [Fact]
+    public async Task GetComponentsAsync_PreservesUserDisabledEpfEtf()
+    {
+        var (db, svc) = CreateSut();
+        await PayrollComponentSeeder.EnsureAsync(db);
+
+        var ta = await db.CompensationComponents.SingleAsync(c => c.Code == "TA");
+        var updated = await svc.UpdateComponentAsync(ta.Id, new OpenSkyHRM.Application.DTOs.Payroll.UpdateComponentDto
+        {
+            Name = ta.Name,
+            Code = ta.Code,
+            Type = ta.Type.ToString(),
+            Category = ta.Category.ToString(),
+            IsTaxable = ta.IsTaxable,
+            IsEpfApplicable = false,
+            IsEtfApplicable = false,
+            IsStatutory = ta.IsStatutory,
+            Description = ta.Description,
+            FormulaExpression = ta.FormulaExpression,
+            DependsOnComponentCode = ta.DependsOnComponentCode,
+            SortOrder = ta.SortOrder,
+            IsEmployerContribution = ta.IsEmployerContribution,
+            IsActive = ta.IsActive,
+        });
+
+        Assert.NotNull(updated);
+        Assert.False(updated.IsEpfApplicable);
+        Assert.False(updated.IsEtfApplicable);
+
+        db.ChangeTracker.Clear();
+        var list = await svc.GetComponentsAsync();
+        var reloaded = Assert.Single(list, c => c.Code == "TA");
+        Assert.False(reloaded.IsEpfApplicable);
+        Assert.False(reloaded.IsEtfApplicable);
+    }
 }

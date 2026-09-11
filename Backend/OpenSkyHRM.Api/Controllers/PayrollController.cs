@@ -297,26 +297,20 @@ public class PayrollController : ControllerBase
         [FromQuery] int? year = null,
         [FromQuery] string? processType = null)
     {
-        var employeesWithComp = await _db.EmployeeCompensations
-            .Where(ec => ec.IsActive && (ec.EffectiveTo == null || ec.EffectiveTo >= DateTime.UtcNow))
-            .Select(ec => ec.EmployeeId)
-            .Distinct()
-            .ToListAsync();
-
         var employees = await _db.Employees
             .Include(e => e.Department)
             .Include(e => e.Grade)
             .Include(e => e.Location)
-            .Where(e => e.Status != "Terminated" && employeesWithComp.Contains(e.Id))
+            .Where(e => e.Status != "Terminated")
             .OrderBy(e => e.FirstName).ThenBy(e => e.LastName)
             .ToListAsync();
 
+        var alreadyInPeriod = new HashSet<Guid>();
         if (month is > 0 and <= 12
             && year is >= 2000
             && Enum.TryParse<PayrollProcessType>(processType, ignoreCase: true, out var parsedType))
         {
-            var alreadyInPeriod = await PayrollPeriodOccupancy.GetEmployeeIdsAsync(_db, year.Value, month.Value, parsedType);
-            employees = employees.Where(e => !alreadyInPeriod.Contains(e.Id)).ToList();
+            alreadyInPeriod = await PayrollPeriodOccupancy.GetEmployeeIdsAsync(_db, year.Value, month.Value, parsedType);
         }
 
         return Ok(employees.Select(e => new {
@@ -327,6 +321,7 @@ public class PayrollController : ControllerBase
             department = e.Department?.Name ?? "",
             grade = e.Grade?.Name ?? "",
             location = e.Location?.Name ?? "",
+            alreadyInBatch = alreadyInPeriod.Contains(e.Id),
         }));
     }
 

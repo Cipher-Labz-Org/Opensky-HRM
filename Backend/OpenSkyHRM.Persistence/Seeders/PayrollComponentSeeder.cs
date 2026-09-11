@@ -140,8 +140,6 @@ public static class PayrollComponentSeeder
             component.FormulaExpression = PayrollPoyaComponent.FormulaExpression;
             component.DependsOnComponentCode = PayrollPoyaComponent.DependsOnComponentCode;
             component.IsTaxable = true;
-            component.IsEpfApplicable = true;
-            component.IsEtfApplicable = true;
         }
 
         await EnsureDefaultSettingsAsync(context, cancellationToken);
@@ -183,18 +181,6 @@ public static class PayrollComponentSeeder
 
         if (match.Category != definition.Category)
             match.Category = definition.Category;
-
-        if (definition.Type != ComponentType.Earning)
-            return;
-
-        // Repair EPF/ETF flags: ensure catalog components match the definition.
-        // This covers rows left with EPF-only (old single-select UI cleared ETF),
-        // and rows where both flags were never set (migration didn't run or schema
-        // repair only partially applied on live).
-        if (definition.IsEpfApplicable && !match.IsEpfApplicable)
-            match.IsEpfApplicable = true;
-        if (definition.IsEtfApplicable && !match.IsEtfApplicable)
-            match.IsEtfApplicable = true;
     }
 
     private static CompensationComponent? FindExisting(

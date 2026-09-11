@@ -42,7 +42,7 @@ public class PayrollService : IPayrollService
         {
             Name = dto.Name,
             Code = dto.Code.ToUpperInvariant(),
-            Type = Enum.Parse<ComponentType>(dto.Type),
+            Type = ParseComponentType(dto.Type),
             Category = Enum.Parse<ComponentCategory>(dto.Category),
             IsTaxable = dto.IsTaxable,
             IsEpfApplicable = dto.IsEpfApplicable,
@@ -66,7 +66,7 @@ public class PayrollService : IPayrollService
 
         entity.Name = dto.Name;
         entity.Code = dto.Code.ToUpperInvariant();
-        entity.Type = Enum.Parse<ComponentType>(dto.Type);
+        entity.Type = ParseComponentType(dto.Type);
         entity.Category = Enum.Parse<ComponentCategory>(dto.Category);
         entity.IsTaxable = dto.IsTaxable;
         entity.IsEpfApplicable = dto.IsEpfApplicable;
@@ -125,7 +125,7 @@ public class PayrollService : IPayrollService
         var monthlySalary = lines
             .Where(l => l.IsActive && l.BatchId == null
                 && !string.Equals(l.ComponentCategory, "OneTime", StringComparison.OrdinalIgnoreCase)
-                && (string.Equals(l.ComponentType, "Earning", StringComparison.OrdinalIgnoreCase)
+                && (PayrollCalculationEngine.IsEarningComponentType(l.ComponentType)
                     || PayrollCalculationEngine.IsBasicComponentCode(l.ComponentCode)))
             .GroupBy(l => l.ComponentId)
             .Select(g => g.OrderByDescending(l => l.EffectiveFrom).First())
@@ -758,6 +758,15 @@ public class PayrollService : IPayrollService
                 }).ToList()
                 : new List<PayStatementLineDto>(),
         };
+    }
+
+    private static ComponentType ParseComponentType(string type)
+    {
+        if (string.Equals(type, "Days", StringComparison.OrdinalIgnoreCase))
+            return ComponentType.Day;
+        if (string.Equals(type, "Income", StringComparison.OrdinalIgnoreCase))
+            return ComponentType.Earning;
+        return Enum.Parse<ComponentType>(type, ignoreCase: true);
     }
 
     private static PayrollBatchDto MapBatchDto(PayrollBatch b)

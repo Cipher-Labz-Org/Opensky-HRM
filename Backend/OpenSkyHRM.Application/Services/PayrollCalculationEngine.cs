@@ -355,6 +355,10 @@ public class PayrollCalculationEngine
             PayrollPoyaComponent.IsMatch(ec.Component?.Code, ec.Component?.Name));
         resolvedValues["POYA_DAYS"] = PayrollPoyaComponent.ResolveDays(poyaAssignment?.Amount, poyaDaysWorked);
 
+        // Load typed amounts first so formulas like BASIC1 / WORKING_DAYS work
+        // even when the formula component is listed before its inputs.
+        SeedAssignmentValues(resolvedValues, allComponents, empComp);
+
         var lines = new List<PayStatementLine>();
         decimal taxableRegular = 0;
         decimal taxableLump = 0;
@@ -381,18 +385,17 @@ public class PayrollCalculationEngine
                         : comp.FormulaExpression,
                     resolvedValues, rates);
             }
-            else if (assignment != null && comp.Category == ComponentCategory.Fixed)
-            {
-                // Fixed salary lines always use saved Employee Salary amounts (not formulas).
-                amount = assignment.Amount;
-            }
             else if (!string.IsNullOrEmpty(comp.FormulaExpression))
             {
                 amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates);
             }
+            else if (assignment != null)
+            {
+                amount = assignment.Amount;
+            }
             else
             {
-                amount = assignment!.Amount;
+                continue;
             }
 
             resolvedValues[comp.Code] = amount;
@@ -444,7 +447,7 @@ public class PayrollCalculationEngine
         }
 
         decimal totalEarnings = lines
-            .Where(l => l.Type == ComponentType.Earning.ToString() && !l.IsEmployerContribution)
+            .Where(l => CountsAsEarningLine(l.Type, l.ComponentCode, l.IsEmployerContribution))
             .Sum(l => l.Amount);
         decimal totalNonStatDeductions = lines
             .Where(l => l.Type == ComponentType.Deduction.ToString() && !l.IsEmployerContribution)
@@ -577,8 +580,34 @@ public class PayrollCalculationEngine
     }
 
     /// <summary>
-    /// Resolves basic pay from BASIC or BASIC* component codes (e.g. BASIC1).
+    /// Copies saved employee amounts into the formula dictionary before any
+    /// formula is evaluated, so later components can reference earlier codes
+    /// regardless of SortOrder (e.g. PER_DAY = BASIC1 / WORKING_DAYS).
     /// </summary>
+    internal static void SeedAssignmentValues(
+        Dictionary<string, decimal> resolvedValues,
+        IEnumerable<CompensationComponent> components,
+        IEnumerable<EmployeeCompensation> empComp)
+    {
+        foreach (var comp in components)
+        {
+            if (comp.Category == ComponentCategory.Statutory)
+                continue;
+
+            var assignment = empComp.FirstOrDefault(ec => ec.ComponentId == comp.Id);
+            if (assignment is null)
+                continue;
+
+            if (PayrollPoyaComponent.IsMatch(comp.Code, comp.Name)
+                && !PayrollPoyaComponent.IsLumpSumPay(assignment.Amount))
+                continue;
+
+            resolvedValues[comp.Code] = assignment.Amount;
+            if (IsBasicComponentCode(comp.Code))
+                resolvedValues["BASIC"] = assignment.Amount;
+        }
+    }
+
     /// <summary>
     /// EPF/ETF statutory bases. When ETF-applicable earnings are unset, reuse the EPF base
     /// (then basic pay) so employer ETF is not dropped after a component is marked EPF-only.
@@ -624,7 +653,7 @@ public class PayrollCalculationEngine
         ref decimal epfEarnings,
         ref decimal etfEarnings)
     {
-        if (comp.Type != ComponentType.Earning || comp.IsEmployerContribution)
+        if (!CountsAsEarning(comp))
             return;
 
         if (comp.IsTaxable)
@@ -667,6 +696,50 @@ public class PayrollCalculationEngine
 
         return totalEarnings;
     }
+
+    internal static bool IsEarningComponentType(ComponentType type) =>
+        type is ComponentType.Earning;
+
+    internal static bool IsEarningComponentType(string? type) =>
+        string.Equals(type, nameof(ComponentType.Earning), StringComparison.OrdinalIgnoreCase)
+        || string.Equals(type, "Income", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsRateOrQuantityType(ComponentType type) =>
+        type is ComponentType.Rate or ComponentType.Day or ComponentType.Hours;
+
+    internal static bool IsIncomePayCode(string? code) =>
+        !string.IsNullOrWhiteSpace(code)
+        && (code.Equals("TOTAL_PAYMENT", StringComparison.OrdinalIgnoreCase)
+            || code.Equals("TOTAL_PAY", StringComparison.OrdinalIgnoreCase));
+
+    internal static bool IsKnownRateOrHoursCode(string? code) =>
+        !string.IsNullOrWhiteSpace(code)
+        && (code.Equals("HOURLY_RATE", StringComparison.OrdinalIgnoreCase)
+            || code.Equals("PER_HOUR", StringComparison.OrdinalIgnoreCase)
+            || code.Equals("WORKED_HOURS", StringComparison.OrdinalIgnoreCase)
+            || code.Equals("NO_OF_WORKED_HOURS", StringComparison.OrdinalIgnoreCase));
+
+    internal static bool IsRateOrQuantityComponent(CompensationComponent? comp)
+    {
+        if (comp == null || IsIncomePayCode(comp.Code))
+            return false;
+        return IsRateOrQuantityType(comp.Type) || IsKnownRateOrHoursCode(comp.Code);
+    }
+
+    internal static bool CountsAsEarning(CompensationComponent comp) =>
+        CountsAsEarningLine(comp.Type.ToString(), comp.Code, comp.IsEmployerContribution);
+
+    internal static bool CountsAsEarningLine(string? type, string? code, bool isEmployerContribution) =>
+        !isEmployerContribution
+        && (IsIncomePayCode(code)
+            || (IsEarningComponentType(type) && !IsKnownRateOrHoursCode(code)));
+
+    internal static string DefaultHoursPayFormula(CompensationComponent comp) =>
+        !string.IsNullOrWhiteSpace(comp.FormulaExpression)
+            ? comp.FormulaExpression
+            : IsIncomePayCode(comp.Code)
+                ? "HOURLY_RATE * WORKED_HOURS"
+                : "";
 
     internal static bool IsBasicComponentCode(string? code) =>
         !string.IsNullOrWhiteSpace(code)
@@ -1432,9 +1505,22 @@ public class PayrollCalculationEngine
 
         var resolved = Regex.Replace(expression, @"[A-Z_][A-Z0-9_]*", match =>
         {
-            return merged.TryGetValue(match.Value, out var val)
-                ? val.ToString(CultureInfo.InvariantCulture)
-                : "0";
+            var token = match.Value;
+            if (merged.TryGetValue(token, out var val))
+                return val.ToString(CultureInfo.InvariantCulture);
+
+            if (IsBasicComponentCode(token))
+            {
+                if (merged.TryGetValue("BASIC", out val) && val > 0)
+                    return val.ToString(CultureInfo.InvariantCulture);
+
+                var alias = merged.FirstOrDefault(kv =>
+                    IsBasicComponentCode(kv.Key) && kv.Value > 0);
+                if (!string.IsNullOrEmpty(alias.Key))
+                    return alias.Value.ToString(CultureInfo.InvariantCulture);
+            }
+
+            return "0";
         }, RegexOptions.IgnoreCase);
 
         return EvaluateArithmetic(resolved);

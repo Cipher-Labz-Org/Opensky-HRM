@@ -5,7 +5,10 @@ public enum ComponentType
     Earning,
     Deduction,
     StatutoryDeduction,
-    StatutoryContribution
+    StatutoryContribution,
+    Day,
+    Hours,
+    Rate
 }
 
 public enum ComponentCategory

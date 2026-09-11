@@ -20,7 +20,9 @@ public static class PayrollPeriodOccupancy
         Guid? exceptBatchId = null)
     {
         var batchQuery = db.PayrollBatches.AsNoTracking()
-            .Where(b => b.Year == year && b.Month == month && b.ProcessType == processType);
+            .Where(b => b.Year == year && b.Month == month && b.ProcessType == processType
+                && b.Status != BatchStatus.Draft
+                && b.Status != BatchStatus.Cancelled);
         if (exceptBatchId.HasValue)
             batchQuery = batchQuery.Where(b => b.Id != exceptBatchId.Value);
 
@@ -37,6 +39,7 @@ public static class PayrollPeriodOccupancy
             .Join(
                 db.PayrollBatches.Where(b =>
                     b.ProcessType == processType
+                    && b.Status != BatchStatus.Cancelled
                     && (!exceptBatchId.HasValue || b.Id != exceptBatchId.Value)),
                 s => s.BatchId,
                 b => b.Id,
