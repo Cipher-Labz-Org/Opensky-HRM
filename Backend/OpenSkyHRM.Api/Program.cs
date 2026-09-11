@@ -25,6 +25,22 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Hangfire or other hosted services must not take the IIS worker down (HTTP 500.30).
+builder.Services.Configure<HostOptions>(options =>
+{
+    options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+});
+
+try
+{
+    Directory.CreateDirectory(Path.Combine(builder.Environment.ContentRootPath, "logs"));
+    Directory.CreateDirectory(Path.Combine(builder.Environment.ContentRootPath, "keys"));
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"WARNING: Could not create logs/keys folders: {ex.Message}");
+}
+
 // Optional per-machine overrides (e.g. local MailHog SMTP). File is gitignored — copy from appsettings.Local.example.json.
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 // Optional shared S3 credentials for IIS (copy appsettings.S3.example.json → appsettings.S3.json on each site).
