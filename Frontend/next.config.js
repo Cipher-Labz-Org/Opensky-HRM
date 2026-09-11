@@ -1,10 +1,16 @@
 /** @type {import('next').NextConfig} */
 
+function isLocalhostApiUrl(url) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(url || "");
+}
+
 function apiUpstreamBase() {
-  const url =
-    process.env.API_URL?.trim() ||
-    process.env.NEXT_PUBLIC_API_URL?.trim() ||
-    "http://127.0.0.1:5000";
+  let url = process.env.API_URL?.trim() || process.env.NEXT_PUBLIC_API_URL?.trim() || "";
+  // Never bake a loopback rewrite into the Vercel production bundle.
+  if (process.env.VERCEL && (!url || isLocalhostApiUrl(url))) {
+    return "";
+  }
+  if (!url) url = "http://127.0.0.1:5000";
   return url.replace(/\/$/, "");
 }
 
@@ -19,6 +25,9 @@ const nextConfig = {
   },
   async rewrites() {
     const base = apiUpstreamBase();
+    if (!base) {
+      return { afterFiles: [], fallback: [] };
+    }
 
     return {
       // Tenant domains (mbkh.openskyhrm.com, gamma.openskyhrm.com) call their IIS

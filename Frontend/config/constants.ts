@@ -8,7 +8,7 @@ import { getBackendUrlForHostname, tenantBackendRequiresBrowserProxy } from "./t
 export const APP_NAME = "OpenSky HRM";
 export const SUPPORT_EMAIL = "support@openskyhrm.com";
 export const DEFAULT_THEME = "light";
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+const envApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
 const defaultLocalApi = "http://127.0.0.1:5000";
 
 /** True when NEXT_PUBLIC_API_URL points at localhost (direct browser → API is fine). */
@@ -16,6 +16,9 @@ function isLocalApiUrl(url: string | undefined): boolean {
   if (!url) return true;
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(url);
 }
+
+const rawApiUrl =
+  process.env.VERCEL === "1" && isLocalApiUrl(envApiUrl) ? undefined : envApiUrl;
 
 /**
  * Local dev: same-origin `/hrm-backend` proxy (see next.config.js). Omit NEXT_PUBLIC_API_URL in .env.local.

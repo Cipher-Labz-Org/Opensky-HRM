@@ -44,3 +44,8 @@ Backend/OpenSkyHRM.Api/appsettings.Local.json
 Backend/OpenSkyHRM.Api/appsettings.S3.json
 
 .vercel
+
+# Never ship local Next env to Vercel (localhost API_URL breaks production builds).
+Frontend/.env.local
+Frontend/.env.development.local
+Frontend/.env.production.local

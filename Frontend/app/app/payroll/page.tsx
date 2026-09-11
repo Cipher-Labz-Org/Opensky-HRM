@@ -6,7 +6,7 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
-import { API_BASE_URL } from "@/config/constants";
+import { getApiBaseUrl } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, SectionErrorBoundary, type FormSelectOption } from "@/components/ui";
@@ -2237,7 +2237,7 @@ function ImportCompensationModal({ category, batchId, onClose, onImported }: { c
 
   async function downloadTemplate() {
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-    const res = await fetch(`${API_BASE_URL}/api/payroll/compensation/import-template?category=${category}`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/payroll/compensation/import-template?category=${category}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) { setError("Failed to download template"); return; }
@@ -2257,7 +2257,7 @@ function ImportCompensationModal({ category, batchId, onClose, onImported }: { c
       const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
       const batchParam = batchId ? `&batchId=${batchId}` : "";
       const res = await fetch(
-        `${API_BASE_URL}/api/payroll/compensation/import?effectiveFrom=${effectiveFrom}${batchParam}`,
+        `${getApiBaseUrl()}/api/payroll/compensation/import?effectiveFrom=${effectiveFrom}${batchParam}`,
         { method: "POST", body: fd, headers: token ? { Authorization: `Bearer ${token}` } : {} }
       );
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.message || "Import failed"); }
