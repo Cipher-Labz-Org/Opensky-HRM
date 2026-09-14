@@ -42,6 +42,7 @@ export const ROUTES = {
   reports: "/app/reports",
   orgStructure: "/app/org-structure",
   analytics: "/app/analytics",
+  companyProfile: "/app/company-profile",
   settings: "/app/settings",
   billing: "/app/billing",
   billingCustomerReset: "/app/billing/customer-reset",

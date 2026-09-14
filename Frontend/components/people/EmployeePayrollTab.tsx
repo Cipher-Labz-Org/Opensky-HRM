@@ -25,7 +25,6 @@ const fmt = (n: number) =>
   n.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const money = (n: number) => `LKR ${fmt(n)}`;
 const roundMoney = (n: number) => Math.round(n * 100) / 100;
-
 function calcApitTableAnnual(yearlyProfits: number): number {
   if (yearlyProfits <= 1800000) return 0;
   if (yearlyProfits <= 2800000) return roundMoney(yearlyProfits * 0.06 - 108000);

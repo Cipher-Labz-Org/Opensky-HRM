@@ -102,6 +102,7 @@ public class LicensingServiceTests
         Assert.Contains("EmployeeActions", codes);
         Assert.Contains("Approvals", codes);
         Assert.Contains("Reports", codes);
+        Assert.Contains("CompanyProfile", codes);
         Assert.Contains("EmailTemplates", codes);
         Assert.Contains("EmailDeliveryLog", codes);
         Assert.Contains("UserManagement", codes);
@@ -129,6 +130,7 @@ public class LicensingServiceTests
         Assert.Contains("People", codes);
         Assert.Contains("EmployeeBio", codes);
         Assert.Contains("Settings", codes);
+        Assert.Contains("CompanyProfile", codes);
         Assert.Contains("EmailTemplates", codes);
         Assert.Contains("Help", codes);
         Assert.DoesNotContain("Payroll", codes);

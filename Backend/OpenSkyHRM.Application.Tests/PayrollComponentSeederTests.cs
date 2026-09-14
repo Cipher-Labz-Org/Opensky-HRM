@@ -88,6 +88,34 @@ public class PayrollComponentSeederTests
     }
 
     [Fact]
+    public async Task DeleteComponentAsync_RemovesRelatedSalaryAssignments()
+    {
+        var (db, svc) = CreateSut();
+        await PayrollComponentSeeder.EnsureAsync(db);
+
+        var basic = await db.CompensationComponents.SingleAsync(c => c.Code == "BASIC");
+        var employeeId = Guid.NewGuid();
+        db.EmployeeCompensations.Add(new OpenSkyHRM.Domain.Entities.EmployeeCompensation
+        {
+            EmployeeId = employeeId,
+            ComponentId = basic.Id,
+            Amount = 100_000m,
+            Currency = "LKR",
+            EffectiveFrom = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            IsActive = true,
+        });
+        await db.SaveChangesAsync();
+
+        Assert.True(await svc.DeleteComponentAsync(basic.Id));
+        db.ChangeTracker.Clear();
+
+        Assert.Empty(await db.EmployeeCompensations.Where(ec => ec.ComponentId == basic.Id).ToListAsync());
+        Assert.True(await db.EmployeeCompensations.IgnoreQueryFilters()
+            .AnyAsync(ec => ec.ComponentId == basic.Id && ec.IsDeleted));
+        Assert.DoesNotContain(await svc.GetComponentsAsync(), c => c.Code == "BASIC");
+    }
+
+    [Fact]
     public async Task GetComponentsAsync_PreservesUserDisabledEpfEtf()
     {
         var (db, svc) = CreateSut();

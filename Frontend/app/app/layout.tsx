@@ -63,6 +63,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
       { href: ROUTES.reports, label: "Reports", module: "Analytics" },
       { href: ROUTES.orgStructure, label: "Org Structure", module: "OrgStructure" },
       { href: ROUTES.analytics, label: "Analytics", module: "Analytics" },
+      { href: ROUTES.companyProfile, label: "Company Profile", module: "Settings" },
       { href: ROUTES.settings, label: "Policy & Settings", module: "Settings" },
       { href: ROUTES.billing, label: "Billing", module: "Billing" },
     ],

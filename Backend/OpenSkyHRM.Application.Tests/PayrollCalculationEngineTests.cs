@@ -156,6 +156,60 @@ public class PayrollCalculationEngineTests
     }
 
     [Fact]
+    public void EvaluateFormula_RoundsDailyAndHourlyRatesToTwoDecimals()
+    {
+        var perDay = PayrollCalculationEngine.EvaluateFormula(
+            "PACKAGE / 22",
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["PACKAGE"] = 40_500m,
+            },
+            new PayrollRates());
+        var perHour = PayrollCalculationEngine.EvaluateFormula(
+            "PACKAGE / 22 / 8.30",
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["PACKAGE"] = 40_500m,
+            },
+            new PayrollRates());
+
+        Assert.Equal(1840.91m, perDay);
+        Assert.Equal(221.80m, perHour);
+    }
+
+    [Fact]
+    public void EvaluateFormula_RoundResultRoundsToNearestRupee()
+    {
+        var amount = PayrollCalculationEngine.EvaluateFormula(
+            "PACKAGE / 22",
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["PACKAGE"] = 40_500m,
+            },
+            new PayrollRates(),
+            roundResult: true);
+
+        Assert.Equal(1841m, amount);
+    }
+
+    [Theory]
+    [InlineData(1840.91, false, 1840.91)]
+    [InlineData(1840.91, true, 1841)]
+    [InlineData(1840.40, true, 1840)]
+    public void ApplyComponentRounding_HonorsRoundFlag(decimal value, bool roundResult, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.ApplyComponentRounding(value, roundResult));
+    }
+
+    [Fact]
+    public void CalculateOtAmount_RoundsHourlyRateToTwoDecimalsBeforeHours()
+    {
+        var amount = PayrollCalculationEngine.CalculateOtAmount(100_000m, 208m, 1.5m, 10m);
+
+        Assert.Equal(7211.55m, amount);
+    }
+
+    [Fact]
     public void EvaluateFormula_Basic1FallsBackToBasic()
     {
         var amount = PayrollCalculationEngine.EvaluateFormula(
@@ -237,6 +291,173 @@ public class PayrollCalculationEngineTests
         Assert.Equal(2000m, perDay);
         Assert.Equal(52_000m, values["BASIC1"]);
         Assert.Equal(26m, values["WORKING_DAYS"]);
+    }
+
+    /// <summary>
+    /// Live catalogs leave SortOrder at 0, so PACKAGE -> PER_DAY -> HOURLY_RATEE -> NOPAY_EXE
+    /// used to evaluate in catalog order and the payslip drifted from Employee Salary.
+    /// </summary>
+    [Fact]
+    public void OrderComponentsForEvaluation_ChainedFormulasMatchEmployeeSalary()
+    {
+        CompensationComponent Plain(string code) => new()
+        {
+            Id = Guid.NewGuid(), Code = code, Name = code,
+            Category = ComponentCategory.Fixed, Type = ComponentType.Earning, SortOrder = 0,
+        };
+        CompensationComponent Formula(string code, string expression) => new()
+        {
+            Id = Guid.NewGuid(), Code = code, Name = code,
+            Category = ComponentCategory.Fixed, Type = ComponentType.Earning, SortOrder = 0,
+            FormulaExpression = expression, RoundResult = true,
+        };
+
+        // Deliberately listed dependents-first, the order the live catalog returned.
+        var components = new List<CompensationComponent>
+        {
+            Formula("NOPAY_EXE", "BASIC + TA - HOURLY_RATEE * HOURS_PER_MONTH"),
+            Formula("HOURLY_RATEE", "PER_DAY / PER_DAY_WORK"),
+            Formula("PER_DAY", "PACKAGE / WORKING_DAYS"),
+            new()
+            {
+                Id = Guid.NewGuid(), Code = "PACKAGE", Name = "Package",
+                Category = ComponentCategory.Fixed, Type = ComponentType.Earning, SortOrder = 0,
+                FormulaExpression = "BASIC + TA",
+            },
+            Plain("BASIC"), Plain("TA"), Plain("WORKING_DAYS"),
+            Plain("PER_DAY_WORK"), Plain("HOURS_PER_MONTH"),
+        };
+
+        var ordered = PayrollCalculationEngine.OrderComponentsForEvaluation(components);
+
+        var position = ordered
+            .Select((c, i) => (c.Code, i))
+            .ToDictionary(x => x.Code, x => x.i);
+        Assert.True(position["PACKAGE"] < position["PER_DAY"]);
+        Assert.True(position["PER_DAY"] < position["HOURLY_RATEE"]);
+        Assert.True(position["HOURLY_RATEE"] < position["NOPAY_EXE"]);
+        Assert.Equal(components.Count, ordered.Count);
+
+        var values = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["BASIC"] = 30_000m,
+            ["TA"] = 10_500m,
+            ["WORKING_DAYS"] = 22m,
+            ["PER_DAY_WORK"] = 8.30m,
+            ["HOURS_PER_MONTH"] = 23.11m,
+        };
+        foreach (var comp in ordered.Where(c => !string.IsNullOrEmpty(c.FormulaExpression)))
+        {
+            values[comp.Code] = PayrollCalculationEngine.EvaluateFormula(
+                comp.FormulaExpression!, values, new PayrollRates(), comp.RoundResult);
+        }
+
+        Assert.Equal(1_841m, values["PER_DAY"]);
+        Assert.Equal(222m, values["HOURLY_RATEE"]);
+        Assert.Equal(35_370m, values["NOPAY_EXE"]);
+    }
+
+    /// <summary>
+    /// "Round result" used to reach only formula components, so turning it on for a plain
+    /// allowance such as Hospital Allowance silently did nothing on the payslip.
+    /// </summary>
+    [Theory]
+    [InlineData(true, 2439)]
+    [InlineData(false, 2438.99)]
+    public void ApplyComponentRounding_RoundsEnteredAmountsNotJustFormulaResults(
+        bool roundResult, decimal expected)
+    {
+        Assert.Equal(expected, PayrollCalculationEngine.ApplyComponentRounding(2438.99m, roundResult));
+    }
+
+    [Fact]
+    public void ApplyComponentRounding_IsIdempotentSoReRoundingDoesNotDrift()
+    {
+        var once = PayrollCalculationEngine.ApplyComponentRounding(1_840.91m, true);
+        Assert.Equal(1_841m, once);
+        Assert.Equal(once, PayrollCalculationEngine.ApplyComponentRounding(once, true));
+    }
+
+    /// <summary>
+    /// Variable amounts are saved against one batch, so the next batch starts empty. Hours Per Month
+    /// feeds the No-Pay formula, so losing it turned the deduction into the whole package; OT and
+    /// commission must stay month-specific.
+    /// </summary>
+    [Fact]
+    public void FormulaInputComponentCodes_SelectsOnlyManualInputsOtherFormulasRead()
+    {
+        CompensationComponent Variable(string code, string? expression = null) => new()
+        {
+            Id = Guid.NewGuid(), Code = code, Name = code,
+            Category = ComponentCategory.Variable, Type = ComponentType.Earning,
+            FormulaExpression = expression,
+        };
+
+        var components = new List<CompensationComponent>
+        {
+            Variable("HOURS_PER_MONTH"),
+            Variable("OT"),
+            Variable("COMMISSION"),
+            Variable("INCENTIVE"),
+            Variable("NOPAY_EXE", "BASIC + TA - HOURLY_RATEE * HOURS_PER_MONTH"),
+            new()
+            {
+                Id = Guid.NewGuid(), Code = "BASIC", Name = "Basic",
+                Category = ComponentCategory.Fixed, Type = ComponentType.Earning,
+            },
+        };
+
+        var codes = PayrollCalculationEngine.FormulaInputComponentCodes(
+            components, ComponentCategory.Variable);
+
+        Assert.Equal(["HOURS_PER_MONTH"], codes);
+    }
+
+    [Fact]
+    public void FormulaInputComponentCodes_IgnoresCategoriesOtherThanRequested()
+    {
+        var components = new List<CompensationComponent>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(), Code = "WORKING_DAYS", Name = "Working Days",
+                Category = ComponentCategory.Fixed, Type = ComponentType.Earning,
+            },
+            new()
+            {
+                Id = Guid.NewGuid(), Code = "PER_DAY", Name = "Per Day",
+                Category = ComponentCategory.Fixed, Type = ComponentType.Earning,
+                FormulaExpression = "PACKAGE / WORKING_DAYS",
+            },
+        };
+
+        Assert.Empty(PayrollCalculationEngine.FormulaInputComponentCodes(
+            components, ComponentCategory.Variable));
+        Assert.Equal(
+            ["WORKING_DAYS"],
+            PayrollCalculationEngine.FormulaInputComponentCodes(
+                components, ComponentCategory.Fixed));
+    }
+
+    [Fact]
+    public void OrderComponentsForEvaluation_KeepsCyclicFormulasWithoutLooping()
+    {
+        var a = new CompensationComponent
+        {
+            Id = Guid.NewGuid(), Code = "A", Name = "A",
+            Category = ComponentCategory.Fixed, FormulaExpression = "B + 1",
+        };
+        var b = new CompensationComponent
+        {
+            Id = Guid.NewGuid(), Code = "B", Name = "B",
+            Category = ComponentCategory.Fixed, FormulaExpression = "A + 1",
+        };
+
+        var ordered = PayrollCalculationEngine.OrderComponentsForEvaluation([a, b]);
+
+        Assert.Equal(2, ordered.Count);
+        Assert.Contains(a, ordered);
+        Assert.Contains(b, ordered);
     }
 
     [Theory]

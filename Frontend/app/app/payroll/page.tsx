@@ -13,14 +13,15 @@ import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormE
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { printPayslip } from "@/lib/payslip-print";
-import { evaluatePayrollFormula } from "@/lib/payroll-formula";
+import { evaluatePayrollFormula, formulaInputComponentCodes } from "@/lib/payroll-formula";
+import { setComponentRoundResult, shouldRoundComponent } from "@/lib/payroll-component-round";
 
 interface Component {
   id: string; name: string; code: string; type: string; category: string;
   isTaxable: boolean; isEpfApplicable: boolean; isEtfApplicable: boolean;
   isStatutory: boolean; isActive: boolean;
   description?: string; formulaExpression?: string; dependsOnComponentCode?: string;
-  sortOrder: number; isEmployerContribution: boolean;
+  sortOrder: number; isEmployerContribution: boolean; roundResult?: boolean;
 }
 
 interface EmpComp {
@@ -199,6 +200,10 @@ const YES_NO_TF_OPTS: FormSelectOption[] = [
   { value: "true", label: "Yes" },
 ];
 
+function componentRoundsResult(c?: Pick<Component, "id" | "roundResult"> | null): boolean {
+  return shouldRoundComponent(c?.id, c?.roundResult);
+}
+
 const EPF_ETF_OPTS: FormSelectOption[] = [
   { value: "no", label: "No" },
   { value: "both", label: "Yes" },
@@ -251,7 +256,6 @@ function formatPayrollAmount(n: number): string {
   return `LKR ${fmt(n)}`;
 }
 const roundMoney = (n: number) => Math.round(n * 100) / 100;
-
 function employeeCodeNumericKey(code?: string): number {
   const trimmed = (code ?? "").trim();
   if (!trimmed) return Number.MAX_SAFE_INTEGER;
@@ -919,15 +923,15 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
             <div className="text-xs font-medium text-slate-500">EPF (Employee)</div>
-            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployeeRate * 100).toFixed(0)}%</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployeeRate * 100).toFixed(2)}%</div>
           </div>
           <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
             <div className="text-xs font-medium text-slate-500">EPF (Employer)</div>
-            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployerRate * 100).toFixed(0)}%</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.epfEmployerRate * 100).toFixed(2)}%</div>
           </div>
           <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 text-center">
             <div className="text-xs font-medium text-slate-500">ETF (Employer)</div>
-            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.etfEmployerRate * 100).toFixed(0)}%</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{(settings.etfEmployerRate * 100).toFixed(2)}%</div>
           </div>
         </div>
       </div>
@@ -1005,12 +1009,17 @@ function ComponentsTab() {
   const [loadError, setLoadError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Component | null>(null);
+  const [deletingId, setDeletingId] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
     setLoadError("");
     apiFetch<Component[]>("/api/payroll/components")
-      .then(setComponents)
+      .then((rows) =>
+        setComponents(
+          rows.map((c) => ({ ...c, roundResult: shouldRoundComponent(c.id, c.roundResult) }))
+        )
+      )
       .catch((err) => {
         setComponents([]);
         setLoadError(err instanceof Error ? err.message : "Could not load compensation components.");
@@ -1022,12 +1031,16 @@ function ComponentsTab() {
 
   function handleEdit(c: Component) { setEditing(c); setShowForm(true); }
   async function handleDelete(id: string) {
-    if (!(await appConfirm("Delete this component? It will be hidden from payroll and will not come back on refresh."))) return;
+    if (!(await appConfirm("Delete this component? Salary lines that use it will also be removed, and it will not come back on refresh."))) return;
+    setDeletingId(id);
     try {
       await apiFetch(`/api/payroll/components/${id}`, { method: "DELETE" });
+      setComponents((prev) => prev.filter((c) => c.id !== id));
       load();
     } catch (err: unknown) {
       await appAlert(err instanceof Error ? err.message : "Could not delete this component.");
+    } finally {
+      setDeletingId("");
     }
   }
 
@@ -1072,7 +1085,14 @@ function ComponentsTab() {
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
                       <button onClick={() => handleEdit(c)} className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50">Edit</button>
-                      <button onClick={() => handleDelete(c.id)} className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50">Delete</button>
+                      <button
+                        type="button"
+                        disabled={deletingId === c.id}
+                        onClick={() => void handleDelete(c.id)}
+                        className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deletingId === c.id ? "Deleting…" : "Delete"}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1093,6 +1113,7 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
   const [error, setError] = useState("");
   const [compType, setCompType] = useState(editing?.type || "Earning");
   const showEpfEtf = compType === "Earning";
+  const [roundResult, setRoundResult] = useState(() => componentRoundsResult(editing));
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1107,14 +1128,14 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
       dependsOnComponentCode: fd.get("dependsOnComponentCode") || null,
       sortOrder: Number(fd.get("sortOrder") || 0),
       isEmployerContribution: fd.get("isEmployerContribution") === "true",
+      roundResult,
       isActive: editing ? fd.get("isActive") === "true" : true,
     };
     try {
-      if (editing) {
-        await apiFetch(`/api/payroll/components/${editing.id}`, { method: "PUT", body: JSON.stringify(payload) });
-      } else {
-        await apiFetch("/api/payroll/components", { method: "POST", body: JSON.stringify(payload) });
-      }
+      const saved = editing
+        ? await apiFetch<Component>(`/api/payroll/components/${editing.id}`, { method: "PUT", body: JSON.stringify(payload) })
+        : await apiFetch<Component>("/api/payroll/components", { method: "POST", body: JSON.stringify(payload) });
+      setComponentRoundResult(saved?.id ?? editing?.id ?? "", roundResult);
       onSaved(); onClose();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed");
@@ -1157,6 +1178,39 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
           <label className={labelCls}>Formula Expression</label>
           <input name="formulaExpression" className={inputCls} defaultValue={editing?.formulaExpression ?? ""} placeholder="e.g. BASIC1 / WORKING_DAYS" />
           <p className="mt-1 text-xs text-slate-500">Use exact component codes (BASIC1, WORKING_DAYS). Employee Salary auto-fills the result.</p>
+        </div>
+        <div>
+          <label className={labelCls}>Round result</label>
+          <div className="flex rounded-xl border border-slate-200 bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setRoundResult(false)}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                !roundResult
+                  ? "bg-[#d7e8fa] text-[#1a5f94] shadow-sm"
+                  : "text-slate-600 hover:bg-slate-200/80 hover:text-slate-800"
+              }`}
+            >
+              Do not round
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoundResult(true)}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                roundResult
+                  ? "bg-[#d7e8fa] text-[#1a5f94] shadow-sm"
+                  : "text-slate-600 hover:bg-slate-200/80 hover:text-slate-800"
+              }`}
+            >
+              Round
+            </button>
+          </div>
+          <input type="hidden" name="roundResult" value={roundResult ? "round" : "keep"} />
+          <p className="mt-1 text-xs text-slate-500">
+            {roundResult
+              ? "Amounts are rounded to the nearest rupee, whether entered or from a formula (example: 1,840.91 → 1,841)."
+              : "Amounts keep cents (example: 1,840.91)."}
+          </p>
         </div>
         <div><label className={labelCls}>Depends On Component Code</label><input name="dependsOnComponentCode" className={inputCls} defaultValue={editing?.dependsOnComponentCode ?? ""} /></div>
         <div><label className={labelCls}>Description</label><textarea name="description" className={inputCls} rows={2} defaultValue={editing?.description ?? ""} /></div>
@@ -1215,7 +1269,13 @@ function EmployeeSalaryTab() {
   const [payrollSettings, setPayrollSettings] = useState<Settings | null>(null);
 
   useEffect(() => {
-    apiFetch<Component[]>("/api/payroll/components").then(setComponents).catch(() => {});
+    apiFetch<Component[]>("/api/payroll/components")
+      .then((rows) =>
+        setComponents(
+          rows.map((c) => ({ ...c, roundResult: shouldRoundComponent(c.id, c.roundResult) }))
+        )
+      )
+      .catch(() => {});
     apiFetch<Settings>("/api/payroll/settings").then(setPayrollSettings).catch(() => {});
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200").then(d => {
       const items = sortBatchesNewestFirst(pagedItems(d));
@@ -1609,6 +1669,11 @@ function SalaryComponentsEditor({
 }) {
   const batchUsesOneTime = mode === "Variable" && processType === "Bonus";
 
+  const isStatutory = (def: Component) => def.category === "Statutory" || def.isStatutory;
+  const isPoya = (def: Component) => {
+    const code = def.code.toUpperCase();
+    return code === "POYA" || code === "PD002" || code.startsWith("POYA") || /poya/i.test(def.name);
+  };
   const definitions = useMemo(() => {
     const list =
       mode === "Fixed"
@@ -1623,19 +1688,13 @@ function SalaryComponentsEditor({
     return [...list].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
   }, [componentsLibrary, mode, batchUsesOneTime]);
 
-  const isStatutory = (def: Component) => def.category === "Statutory" || def.isStatutory;
-  const isPoya = (def: Component) => {
-    const code = def.code.toUpperCase();
-    return code === "POYA" || code === "PD002" || code.startsWith("POYA") || /poya/i.test(def.name);
-  };
-
   const manualDefinitions = useMemo(
     () => definitions.filter((d) => !isStatutory(d)),
     [definitions]
   );
 
   const relevantLines = useMemo(() => {
-    return assignmentsAll.filter((a) => {
+    const lines = assignmentsAll.filter((a) => {
       if (a.isActive === false) return false;
       if (mode === "Fixed") {
         return (
@@ -1648,7 +1707,27 @@ function SalaryComponentsEditor({
       }
       return Boolean(batchId && a.componentCategory === "Variable" && a.batchId === batchId);
     });
-  }, [assignmentsAll, mode, batchId, batchUsesOneTime]);
+
+    // Codes another formula reads carry over from the employee's last batch, matching what
+    // the engine calculates, so the field is not blank on a batch that has no entry yet.
+    if (mode !== "Variable" || batchUsesOneTime || !batchId) return lines;
+
+    const carryForward = formulaInputComponentCodes(componentsLibrary, "Variable");
+    if (carryForward.size === 0) return lines;
+
+    const entered = new Set(lines.map((a) => a.componentId));
+    const carried = new Map<string, EmpComp>();
+    for (const a of assignmentsAll) {
+      if (a.isActive === false || !a.batchId || a.batchId === batchId) continue;
+      if (a.componentCategory !== "Variable" || entered.has(a.componentId)) continue;
+      if (!carryForward.has(a.componentCode.toUpperCase())) continue;
+
+      const previous = carried.get(a.componentId);
+      if (!previous || a.effectiveFrom > previous.effectiveFrom) carried.set(a.componentId, a);
+    }
+
+    return [...lines, ...carried.values()];
+  }, [assignmentsAll, componentsLibrary, mode, batchId, batchUsesOneTime]);
 
   const [draftByComp, setDraftByComp] = useState<Record<string, string>>({});
   const [savingCompId, setSavingCompId] = useState<string | null>(null);
@@ -1685,7 +1764,7 @@ function SalaryComponentsEditor({
     const t = (raw ?? "").trim();
     if (t === "" || t === "—" || t === "-") return 0;
     const n = Number.parseFloat(t.replace(/,/g, ""));
-    return Number.isNaN(n) ? 0 : n;
+    return Number.isNaN(n) ? 0 : roundMoney(n);
   }
 
   function isAutoHoursPay(def: Component) {
@@ -1750,7 +1829,7 @@ function SalaryComponentsEditor({
       const other = componentsLibrary.find((c) => c.code.toUpperCase() === ref);
       if (other && isAutoFormula(other)) return formulaAmount(other, visiting);
       return amountForCode(code);
-    });
+    }, { roundResult: shouldRoundComponent(def.id, def.roundResult) });
   }
 
   function closeEnough(a: number, b: number) {
@@ -1765,7 +1844,7 @@ function SalaryComponentsEditor({
     });
   }
 
-  function parseDraftAmount(draft: string): { isEmpty: boolean; target: number } {
+  function parseDraftAmount(draft: string, roundToRupee = false): { isEmpty: boolean; target: number } {
     const trimmed = draft.trim();
     const parsed =
       trimmed === "" || trimmed === "-" || trimmed === "\u2014"
@@ -1773,12 +1852,14 @@ function SalaryComponentsEditor({
         : Number.parseFloat(trimmed.replace(/,/g, ""));
     const isEmpty =
       trimmed === "" || parsed === null || Number.isNaN(parsed) || parsed === 0;
-    return { isEmpty, target: isEmpty ? 0 : Math.round((parsed ?? 0) * 100) / 100 };
+    if (isEmpty) return { isEmpty, target: 0 };
+    const value = parsed ?? 0;
+    return { isEmpty, target: roundToRupee ? Math.round(value) : Math.round(value * 100) / 100 };
   }
 
   async function persistComponent(def: Component, draft: string): Promise<{ wrote: boolean; recalculatedBatches?: number }> {
     const line = lineForComponent(def.id);
-    const { isEmpty, target } = parseDraftAmount(draft);
+    const { isEmpty, target } = parseDraftAmount(draft, shouldRoundComponent(def.id, def.roundResult));
 
     if (!line && isEmpty) return { wrote: false };
     if (line && !isEmpty && closeEnough(Number(line.amount), target)) return { wrote: false };
@@ -1817,10 +1898,10 @@ function SalaryComponentsEditor({
   }
 
   function saveSuccessMessage(recalculatedBatches: number) {
-    if (mode !== "Fixed") return "Salary saved.";
     if (recalculatedBatches > 0) {
       return `Salary saved. ${recalculatedBatches} payroll run${recalculatedBatches === 1 ? "" : "s"} recalculated — check Pay Slips.`;
     }
+    if (mode !== "Fixed") return "Salary saved. Open Payroll Run and click Sync from Employee Salary to refresh pay slips.";
     return "Salary saved. Open Payroll Run and click Calculate (or Recalculate) to refresh pay slips.";
   }
 
@@ -2018,11 +2099,13 @@ function SalaryComponentsEditor({
     hasStatutoryBase ? [...manualDeductionDefs, ...statutoryDefs] : manualDeductionDefs;
   const deductionDisplayTotal = visibleDeductionDefs.reduce((s, d) => s + displayAmount(d), 0);
 
-  function inputDisplay(defId: string): string {
-    if (draftByComp[defId] !== undefined) return draftByComp[defId];
-    const line = lineForComponent(defId);
+  function inputDisplay(def: Component): string {
+    if (draftByComp[def.id] !== undefined) return draftByComp[def.id];
+    const line = lineForComponent(def.id);
     if (!line || Number(line.amount) === 0) return "";
-    return String(line.amount);
+    if (shouldRoundComponent(def.id, def.roundResult))
+      return String(Math.round(Number(line.amount)));
+    return roundMoney(Number(line.amount)).toFixed(2);
   }
 
   function statutoryDisplay(def: Component): string {
@@ -2067,7 +2150,9 @@ function SalaryComponentsEditor({
                     />
                   ) : isAutoFormula(def) && def.formulaExpression ? (
                     <FormulaInfoTip
-                      text={`Auto from formula ${def.formulaExpression}. Uses the other component codes on this page (for example BASIC1 ÷ WORKING_DAYS).`}
+                      text={`Auto from formula ${def.formulaExpression}. Uses the other component codes on this page (for example BASIC1 ÷ WORKING_DAYS).${
+                        shouldRoundComponent(def.id, def.roundResult) ? " Result is rounded to the nearest rupee." : ""
+                      }`}
                     />
                   ) : null}
                 </div>
@@ -2083,7 +2168,7 @@ function SalaryComponentsEditor({
                     className="flex h-10 min-w-[7rem] items-center justify-end gap-2 rounded-lg border border-slate-200/70 bg-slate-50 px-3 font-mono text-sm tabular-nums text-slate-700 md:min-w-[8.75rem]"
                     title={
                       isAutoFormula(def)
-                        ? `${def.formulaExpression || "HOURLY_RATE * WORKED_HOURS"} = ${formulaAmount(def)}`
+                        ? `${def.formulaExpression || "HOURLY_RATE * WORKED_HOURS"} = ${formulaAmount(def).toFixed(2)}`
                         : def.code.toUpperCase() === "APIT"
                         ? batchUsesOneTime
                           ? `APIT Table 02 on bonus LKR ${fmt(taxableLump)} (EGAR from monthly LKR ${fmt(bonusMonthlyPay)})`
@@ -2096,7 +2181,15 @@ function SalaryComponentsEditor({
                     <span className="rounded bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                       Auto
                     </span>
-                    <span>{isAutoFormula(def) ? (formulaAmount(def) > 0 ? fmt(formulaAmount(def)) : "—") : statutoryDisplay(def)}</span>
+                    <span>
+                      {isAutoFormula(def)
+                        ? formulaAmount(def) > 0
+                          ? shouldRoundComponent(def.id, def.roundResult)
+                            ? formulaAmount(def).toLocaleString("en-LK", { maximumFractionDigits: 0 })
+                            : fmt(formulaAmount(def))
+                          : "—"
+                        : statutoryDisplay(def)}
+                    </span>
                   </div>
                 ) : (
                   <input
@@ -2104,7 +2197,7 @@ function SalaryComponentsEditor({
                     inputMode="decimal"
                     disabled={isBusy}
                     className={salaryAmtInputCls}
-                    value={inputDisplay(def.id)}
+                    value={inputDisplay(def)}
                     onChange={(e) =>
                       setDraftByComp((prev) => ({ ...prev, [def.id]: e.target.value }))
                     }
@@ -2413,7 +2506,7 @@ function VariableEntryTab() {
     setSaving(true); setMsg(null);
     try {
       const updates = Object.entries(editedAmounts).map(([id, val]) => ({
-        id, amount: parseFloat(val) || 0,
+        id, amount: roundMoney(parseFloat(val) || 0),
       }));
       await apiFetch("/api/payroll/compensation/variable/bulk", {
         method: "PUT",
@@ -2527,7 +2620,7 @@ function VariableEntryTab() {
                       {!selectedCompId && <td className="px-4 py-2 text-slate-500">{e.componentName} <span className="text-slate-400">({e.componentCode})</span></td>}
                       <td className="px-4 py-2 text-right">
                         <input type="number" step="0.01" className="w-32 rounded border border-slate-200 px-2 py-1 text-right text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
-                          value={isDirty ? edited : e.amount}
+                          value={isDirty ? edited : roundMoney(Number(e.amount)).toFixed(2)}
                           onChange={ev => handleAmountChange(e.id, ev.target.value)}
                         />
                       </td>

@@ -19,6 +19,7 @@ public class RolePermissionCatalogTests
         Assert.Contains("EmployeeActions", codes);
         Assert.Contains("Approvals", codes);
         Assert.Contains("Reports", codes);
+        Assert.Contains("CompanyProfile", codes);
         Assert.Contains("EmailTemplates", codes);
         Assert.Contains("EmailDeliveryLog", codes);
         Assert.Contains("UserManagement", codes);
@@ -35,6 +36,7 @@ public class RolePermissionCatalogTests
             .ToList();
 
         Assert.Contains("EmployeeBio", codes);
+        Assert.Contains("CompanyProfile", codes);
         Assert.Contains("EmailTemplates", codes);
         Assert.Contains("Help", codes);
         Assert.DoesNotContain("Approvals", codes);
@@ -50,6 +52,7 @@ public class RolePermissionCatalogTests
         Assert.Contains("EmployeeBio", children);
         Assert.Contains("EmployeeActions", children);
         Assert.Contains("Reports", children);
+        Assert.Contains("CompanyProfile", children);
         Assert.Contains("EmailTemplates", children);
         Assert.Contains("EmailDeliveryLog", children);
         Assert.Contains("UserManagement", children);

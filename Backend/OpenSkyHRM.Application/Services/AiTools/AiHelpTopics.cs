@@ -16,6 +16,7 @@ public static class AiHelpTopics
         new("performance", "Performance", "Goals, review cycles, and appraisals.", "Performance"),
         new("learning", "Learning & Skills", "Courses, certifications, and training assignments.", "Learning"),
         new("analytics", "Analytics & Reports", "Executive dashboards and operational reports.", "Analytics"),
+        new("company-profile", "Company Profile", "Company logo, legal details, and mobile app connection.", "CompanyProfile"),
         new("settings", "Policy & Settings", "Company policies, integrations, and system configuration.", "Settings"),
         new("org-structure", "Org Structure", "Departments, locations, grades, and job titles.", "OrgStructure"),
     ];
