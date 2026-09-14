@@ -77,6 +77,9 @@ export function isNavItemVisible(href: string, ctx: NavVisibilityContext): boole
     case ROUTES.orgStructure:
       return ctx.hasPermission("OrgStructure", "Read");
 
+    case ROUTES.companyProfile:
+      return ctx.hasPermission("CompanyProfile", "Read");
+
     case ROUTES.settings:
       return ctx.hasPermission("Settings", "Read");
 

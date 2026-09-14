@@ -23,6 +23,7 @@ const ROUTE_PREFIX_TO_MODULE: { prefix: string; module: string }[] = [
   { prefix: "/app/reports", module: "Analytics" },
   { prefix: "/app/org-structure", module: "OrgStructure" },
   { prefix: "/app/analytics", module: "Analytics" },
+  { prefix: "/app/company-profile", module: "Settings" },
   { prefix: "/app/settings", module: "Settings" },
   { prefix: "/app/billing", module: "Billing" },
   { prefix: "/app/dashboard", module: "Dashboard" },

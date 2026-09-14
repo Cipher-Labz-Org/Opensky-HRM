@@ -120,7 +120,7 @@ public class PayrollController : ControllerBase
         foreach (var entity in entities)
         {
             var upd = request.Updates.FirstOrDefault(u => u.Id == entity.Id);
-            if (upd != null) entity.Amount = upd.Amount;
+            if (upd != null) entity.Amount = Math.Round(upd.Amount, 2);
         }
 
         await _db.SaveChangesAsync();
@@ -168,9 +168,9 @@ public class PayrollController : ControllerBase
         if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update"))
             return Forbid();
         var result = await _payrollService.CreateEmployeeCompensationAsync(employeeId, dto);
-        var recalculated = dto.BatchId is null
-            ? await _engine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(employeeId)
-            : 0;
+        var recalculated = dto.BatchId is Guid batchId
+            ? await _engine.TryRecalculateOpenBatchAsync(batchId)
+            : await _engine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(employeeId);
         return Created(string.Empty, new { result, recalculatedBatches = recalculated });
     }
 
@@ -179,9 +179,9 @@ public class PayrollController : ControllerBase
     {
         var result = await _payrollService.UpdateEmployeeCompensationAsync(id, dto);
         if (result is null) return NotFound();
-        var recalculated = result.BatchId is null
-            ? await _engine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(result.EmployeeId)
-            : 0;
+        var recalculated = result.BatchId is Guid batchId
+            ? await _engine.TryRecalculateOpenBatchAsync(batchId)
+            : await _engine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(result.EmployeeId);
         return Ok(new { result, recalculatedBatches = recalculated });
     }
 
@@ -193,9 +193,9 @@ public class PayrollController : ControllerBase
         if (line is null) return NotFound();
         var ok = await _payrollService.DeleteEmployeeCompensationAsync(id);
         if (!ok) return NotFound();
-        var recalculated = line.BatchId is null
-            ? await _engine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(line.EmployeeId)
-            : 0;
+        var recalculated = line.BatchId is Guid batchId
+            ? await _engine.TryRecalculateOpenBatchAsync(batchId)
+            : await _engine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(line.EmployeeId);
         return Ok(new { recalculatedBatches = recalculated });
     }
 

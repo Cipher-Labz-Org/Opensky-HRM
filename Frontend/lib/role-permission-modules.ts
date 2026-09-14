@@ -28,6 +28,7 @@ export const ROLE_PERMISSION_MODULES: RolePermissionModule[] = [
   { module: "Reports", label: "Reports", sort: 110, licenseAnyOf: ["Analytics"] },
   { module: "OrgStructure", label: "Org Structure", sort: 120, licenseAnyOf: ["OrgStructure"] },
   { module: "Analytics", label: "Analytics", sort: 130, licenseAnyOf: ["Analytics"] },
+  { module: "CompanyProfile", label: "Company Profile", sort: 135, licenseAnyOf: ["Settings"] },
   { module: "Settings", label: "Policy & Settings", sort: 140, licenseAnyOf: ["Settings"] },
   { module: "Billing", label: "Billing", sort: 150, licenseAnyOf: ["Billing"] },
   { module: "AiAssistant", label: "OpenSky AI", sort: 155, licenseAnyOf: ["AiAssistant"] },

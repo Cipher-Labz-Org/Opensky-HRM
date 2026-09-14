@@ -28,6 +28,7 @@ public static class PayrollSchemaRepair
                 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "SortOrder" integer NOT NULL DEFAULT 0;
                 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEpfApplicable" boolean NOT NULL DEFAULT FALSE;
                 ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEtfApplicable" boolean NOT NULL DEFAULT FALSE;
+                ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "RoundResult" boolean NOT NULL DEFAULT FALSE;
 
                 -- Transport allowance is taxable pay, not EPF/ETF wage.
                 UPDATE "CompensationComponents"

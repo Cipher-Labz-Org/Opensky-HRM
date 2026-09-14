@@ -136,7 +136,6 @@ public static class PayrollComponentSeeder
             component.DependsOnComponentCode = PayrollPoyaComponent.DependsOnComponentCode;
             component.IsTaxable = true;
         }
-
         await EnsureDefaultSettingsAsync(context, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }

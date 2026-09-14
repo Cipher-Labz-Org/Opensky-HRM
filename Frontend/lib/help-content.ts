@@ -267,6 +267,17 @@ export const HELP_CONTENT_BY_SLUG: Record<string, HelpContentDoc> = {
       ],
     },
   ]),
+  "company-profile": doc([
+    {
+      id: "cprof-overview",
+      title: "Overview",
+      tabLabel: "Overview",
+      paragraphs: [
+        "Company Profile is where administrators set the organization logo, legal details, default currency, and the mobile app connection QR.",
+        "The logo appears in the sign-in circle. Changes may require elevated permissions.",
+      ],
+    },
+  ]),
   settings: doc([
     {
       id: "set-overview",
@@ -274,6 +285,7 @@ export const HELP_CONTENT_BY_SLUG: Record<string, HelpContentDoc> = {
       tabLabel: "Overview",
       paragraphs: [
         "Policy & Settings is where administrators configure leave types, attendance rules, entitlements, and other tenant-wide options.",
+        "Company logo and legal details live under Company Profile.",
         "Changes may require elevated permissions.",
       ],
     },

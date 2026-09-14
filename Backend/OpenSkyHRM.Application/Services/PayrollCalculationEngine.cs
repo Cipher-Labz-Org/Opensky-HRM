@@ -95,7 +95,34 @@ public class PayrollCalculationEngine
                         && ec.Component.Category == ComponentCategory.Variable)
                     .ToListAsync();
 
-                allCompensations = SelectAssignmentsForPeriod(fixedCompensations, periodStart, periodEnd)
+                var selectedFixed = SelectAssignmentsForPeriod(fixedCompensations, periodStart, periodEnd);
+
+                // Variable entries are stored per batch, so a new batch starts with none. Codes that
+                // another formula reads (NOPAY_EXE needs HOURS_PER_MONTH) would then evaluate against
+                // zero and overstate the deduction, so reuse the employee's last saved entry until
+                // it is overridden for this batch. Month-specific pay such as OT stays unset.
+                var carryForwardCodes = FormulaInputComponentCodes(components, ComponentCategory.Variable);
+                if (carryForwardCodes.Count > 0)
+                {
+                    var alreadyResolved = selectedFixed
+                        .Concat(variableCompensations)
+                        .Select(ec => (ec.EmployeeId, ec.ComponentId))
+                        .ToHashSet();
+
+                    var priorEntries = await _db.EmployeeCompensations
+                        .Include(ec => ec.Component)
+                        .Where(ec => ec.IsActive && ec.BatchId != null && ec.BatchId != batchId
+                            && employeeIdSet.Contains(ec.EmployeeId)
+                            && ec.Component.Category == ComponentCategory.Variable
+                            && carryForwardCodes.Contains(ec.Component.Code))
+                        .ToListAsync();
+
+                    variableCompensations.AddRange(
+                        SelectAssignmentsForPeriod(priorEntries, periodStart, periodEnd)
+                            .Where(ec => !alreadyResolved.Contains((ec.EmployeeId, ec.ComponentId))));
+                }
+
+                allCompensations = selectedFixed
                     .Concat(variableCompensations)
                     .ToList();
                 relevantComponents = components
@@ -291,6 +318,30 @@ public class PayrollCalculationEngine
     }
 
     /// <summary>
+    /// After a Variable Entry / Employee Salary Variable save, refresh that batch's slips.
+    /// </summary>
+    public async Task<int> TryRecalculateOpenBatchAsync(Guid batchId)
+    {
+        var batch = await _db.PayrollBatches.FirstOrDefaultAsync(b => b.Id == batchId);
+        if (batch is null)
+            return 0;
+        if (batch.Status is not (BatchStatus.Calculated or BatchStatus.Draft or BatchStatus.Reviewed))
+            return 0;
+        if (!await _db.PayStatements.AnyAsync(s => s.BatchId == batchId))
+            return 0;
+
+        try
+        {
+            await CalculateBatchAsync(batchId);
+            return 1;
+        }
+        catch (InvalidOperationException)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
     /// Rebuilds every open salary batch from saved Employee Salary data (all employees in each batch).
     /// </summary>
     public async Task<(int Recalculated, IReadOnlyList<string> Errors)> TryRecalculateAllOpenSalaryBatchesAsync()
@@ -366,7 +417,8 @@ public class PayrollCalculationEngine
         decimal etfEarnings = 0;
 
         // Phase 1: Resolve fixed/variable earnings from employee compensation assignments
-        foreach (var comp in allComponents.Where(c => c.Category != ComponentCategory.Statutory))
+        foreach (var comp in OrderComponentsForEvaluation(
+                     allComponents.Where(c => c.Category != ComponentCategory.Statutory)))
         {
             var isPoya = PayrollPoyaComponent.IsMatch(comp.Code, comp.Name);
             var assignment = empComp.FirstOrDefault(ec => ec.ComponentId == comp.Id);
@@ -383,11 +435,11 @@ public class PayrollCalculationEngine
                     string.IsNullOrEmpty(comp.FormulaExpression)
                         ? PayrollPoyaComponent.FormulaExpression
                         : comp.FormulaExpression,
-                    resolvedValues, rates);
+                    resolvedValues, rates, comp.RoundResult);
             }
             else if (!string.IsNullOrEmpty(comp.FormulaExpression))
             {
-                amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates);
+                amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates, comp.RoundResult);
             }
             else if (assignment != null)
             {
@@ -397,6 +449,10 @@ public class PayrollCalculationEngine
             {
                 continue;
             }
+
+            // "Round result" is a property of the component, not of how the amount was produced,
+            // so a manually entered allowance rounds the same way a formula result does.
+            amount = ApplyComponentRounding(amount, comp.RoundResult);
 
             resolvedValues[comp.Code] = amount;
             if (IsBasicComponentCode(comp.Code))
@@ -427,7 +483,7 @@ public class PayrollCalculationEngine
             if (isPoya)
                 continue;
 
-            var amount = assignment.Amount;
+            var amount = ApplyComponentRounding(assignment.Amount, comp.RoundResult);
             resolvedValues[comp.Code] = amount;
             if (IsBasicComponentCode(comp.Code))
                 resolvedValues["BASIC"] = amount;
@@ -495,7 +551,7 @@ public class PayrollCalculationEngine
                 decimal amount;
                 if (!string.IsNullOrEmpty(comp.FormulaExpression))
                 {
-                    amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates);
+                    amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates, comp.RoundResult);
                 }
                 else
                 {
@@ -671,6 +727,22 @@ public class PayrollCalculationEngine
     }
 
     internal static decimal NormalizePayrollRate(decimal rate) => rate > 1m ? rate / 100m : rate;
+
+    public static decimal RoundPayrollAmount(decimal value) =>
+        Math.Round(value, 2, MidpointRounding.AwayFromZero);
+
+    public static decimal ApplyComponentRounding(decimal value, bool roundResult) =>
+        roundResult
+            ? Math.Round(value, 0, MidpointRounding.AwayFromZero)
+            : RoundPayrollAmount(value);
+
+    internal static decimal CalculateOtAmount(decimal basic, decimal divisor, decimal multiplier, decimal hours)
+    {
+        if (basic <= 0 || divisor <= 0 || hours <= 0)
+            return 0;
+        var hourlyRate = RoundPayrollAmount(basic / divisor);
+        return RoundPayrollAmount(hourlyRate * multiplier * hours);
+    }
 
     internal static decimal ResolveBasicPay(
         Dictionary<string, decimal> resolvedValues,
@@ -1490,11 +1562,99 @@ public class PayrollCalculationEngine
         await _db.SaveChangesAsync();
     }
 
+    private const string FormulaTokenPattern = @"[A-Z_][A-Z0-9_]*";
+
+    /// <summary>
+    /// Codes in <paramref name="category"/> that are manually entered yet referenced by another
+    /// component's formula, so a missing amount silently changes the dependent result rather than
+    /// just dropping a line. Components that carry their own formula are excluded because they are
+    /// recomputed anyway.
+    /// </summary>
+    internal static HashSet<string> FormulaInputComponentCodes(
+        IEnumerable<CompensationComponent> components,
+        ComponentCategory category)
+    {
+        var all = components.ToList();
+        var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var comp in all)
+        {
+            if (string.IsNullOrWhiteSpace(comp.FormulaExpression))
+                continue;
+
+            foreach (Match token in Regex.Matches(comp.FormulaExpression, FormulaTokenPattern))
+                referenced.Add(token.Value);
+        }
+
+        return all
+            .Where(c => c.Category == category
+                && !string.IsNullOrWhiteSpace(c.Code)
+                && string.IsNullOrWhiteSpace(c.FormulaExpression)
+                && referenced.Contains(c.Code))
+            .Select(c => c.Code)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Orders components so every formula input is evaluated before the formula that uses it.
+    /// Catalogs commonly leave SortOrder at 0, which left chained formulas
+    /// (PACKAGE → PER_DAY → HOURLY_RATEE → NOPAY_EXE) resolving in arbitrary order against
+    /// stale saved amounts, so payslips disagreed with the Employee Salary preview.
+    /// Components in a dependency cycle keep their catalog order.
+    /// </summary>
+    internal static List<CompensationComponent> OrderComponentsForEvaluation(
+        IEnumerable<CompensationComponent> components)
+    {
+        var source = components
+            .OrderBy(c => c.SortOrder)
+            .ThenBy(c => c.Code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var byCode = new Dictionary<string, CompensationComponent>(StringComparer.OrdinalIgnoreCase);
+        foreach (var comp in source)
+        {
+            if (!string.IsNullOrWhiteSpace(comp.Code))
+                byCode.TryAdd(comp.Code, comp);
+        }
+
+        var ordered = new List<CompensationComponent>(source.Count);
+        var visited = new HashSet<CompensationComponent>();
+        var visiting = new HashSet<CompensationComponent>();
+
+        void Visit(CompensationComponent comp)
+        {
+            if (visited.Contains(comp) || !visiting.Add(comp))
+                return;
+
+            if (!string.IsNullOrWhiteSpace(comp.FormulaExpression))
+            {
+                foreach (Match token in Regex.Matches(comp.FormulaExpression, FormulaTokenPattern))
+                {
+                    if (byCode.TryGetValue(token.Value, out var dependency) && dependency != comp)
+                        Visit(dependency);
+                }
+            }
+
+            visiting.Remove(comp);
+            visited.Add(comp);
+            ordered.Add(comp);
+        }
+
+        foreach (var comp in source)
+            Visit(comp);
+
+        return ordered;
+    }
+
     /// <summary>
     /// Simple expression evaluator: supports component code references, arithmetic (+, -, *, /),
     /// and built-in rate variables (EPF_EE_RATE, EPF_ER_RATE, ETF_RATE).
     /// </summary>
-    internal static decimal EvaluateFormula(string expression, Dictionary<string, decimal> values, PayrollRates rates)
+    internal static decimal EvaluateFormula(
+        string expression,
+        Dictionary<string, decimal> values,
+        PayrollRates rates,
+        bool roundResult = false)
     {
         var merged = new Dictionary<string, decimal>(values, StringComparer.OrdinalIgnoreCase)
         {
@@ -1503,7 +1663,7 @@ public class PayrollCalculationEngine
             ["ETF_RATE"] = rates.EtfEmployerRate,
         };
 
-        var resolved = Regex.Replace(expression, @"[A-Z_][A-Z0-9_]*", match =>
+        var resolved = Regex.Replace(expression, FormulaTokenPattern, match =>
         {
             var token = match.Value;
             if (merged.TryGetValue(token, out var val))
@@ -1523,7 +1683,7 @@ public class PayrollCalculationEngine
             return "0";
         }, RegexOptions.IgnoreCase);
 
-        return EvaluateArithmetic(resolved);
+        return ApplyComponentRounding(EvaluateArithmetic(resolved), roundResult);
     }
 
     /// <summary>

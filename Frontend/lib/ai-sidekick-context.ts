@@ -19,6 +19,7 @@ const ROUTE_PREFIXES: { prefix: string; moduleCode: string; moduleLabel: string 
   { prefix: ROUTES.learning, moduleCode: "Learning", moduleLabel: "Learning & Skills" },
   { prefix: ROUTES.analytics, moduleCode: "Analytics", moduleLabel: "Analytics" },
   { prefix: ROUTES.reports, moduleCode: "Analytics", moduleLabel: "Reports" },
+  { prefix: ROUTES.companyProfile, moduleCode: "CompanyProfile", moduleLabel: "Company Profile" },
   { prefix: ROUTES.settings, moduleCode: "Settings", moduleLabel: "Policy & Settings" },
   { prefix: ROUTES.orgStructure, moduleCode: "OrgStructure", moduleLabel: "Org Structure" },
   { prefix: ROUTES.employeeTasks, moduleCode: "EmployeeTasks", moduleLabel: "Employee Tasks" },

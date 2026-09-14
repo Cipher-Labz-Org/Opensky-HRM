@@ -14,7 +14,7 @@ public static class SecurityRolesSeeder
     {
         "Dashboard", "People", "EmployeeBio", "Recruitment", "EmployeeTasks", "EmployeeActions",
         "Onboarding", "Offboarding", "Leave", "Approvals", "Attendance", "Payroll", "Performance",
-        "Learning", "Reports", "OrgStructure", "Analytics", "Settings", "Billing", "AiAssistant",
+        "Learning", "Reports", "OrgStructure", "Analytics", "CompanyProfile", "Settings", "Billing", "AiAssistant",
         "EmailTemplates", "EmailDeliveryLog", "Administration", "UserManagement", "Help"
     };
 
@@ -22,7 +22,7 @@ public static class SecurityRolesSeeder
     {
         "Dashboard", "People", "EmployeeBio", "Recruitment", "EmployeeTasks", "EmployeeActions",
         "Onboarding", "Offboarding", "Leave", "Approvals", "Attendance", "Payroll", "Performance",
-        "Learning", "Reports", "OrgStructure", "Analytics", "Settings", "EmailTemplates",
+        "Learning", "Reports", "OrgStructure", "Analytics", "CompanyProfile", "Settings", "EmailTemplates",
         "EmailDeliveryLog", "Administration", "UserManagement", "Help"
     };
 

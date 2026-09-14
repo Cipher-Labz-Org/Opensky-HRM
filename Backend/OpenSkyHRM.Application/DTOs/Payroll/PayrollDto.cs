@@ -17,6 +17,7 @@ public class CompensationComponentDto
     public string? DependsOnComponentCode { get; set; }
     public int SortOrder { get; set; }
     public bool IsEmployerContribution { get; set; }
+    public bool RoundResult { get; set; }
 }
 
 public class CreateComponentDto
@@ -34,6 +35,7 @@ public class CreateComponentDto
     public string? DependsOnComponentCode { get; set; }
     public int SortOrder { get; set; }
     public bool IsEmployerContribution { get; set; }
+    public bool RoundResult { get; set; }
 }
 
 public class UpdateComponentDto : CreateComponentDto

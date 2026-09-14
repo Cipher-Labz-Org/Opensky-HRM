@@ -19,6 +19,8 @@ public class CompensationComponent : AuditableEntity
     public string? DependsOnComponentCode { get; set; }
     public int SortOrder { get; set; }
     public bool IsEmployerContribution { get; set; }
+    /// <summary>When true, the amount is rounded to the nearest rupee, whether entered or from a formula.</summary>
+    public bool RoundResult { get; set; }
 
     public ICollection<EmployeeCompensation> EmployeeCompensations { get; set; } = new List<EmployeeCompensation>();
     public ICollection<PayrollFormula> Formulas { get; set; } = new List<PayrollFormula>();

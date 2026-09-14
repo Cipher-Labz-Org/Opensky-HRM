@@ -26,8 +26,11 @@ public class PayrollService : IPayrollService
     public async Task<List<CompensationComponentDto>> GetComponentsAsync()
     {
         await PayrollComponentSeeder.EnsureAsync(_db);
-        return await _db.CompensationComponents.OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
-            .Select(c => MapComponentDto(c)).ToListAsync();
+        var rows = await _db.CompensationComponents
+            .OrderBy(c => c.SortOrder)
+            .ThenBy(c => c.Name)
+            .ToListAsync();
+        return rows.Select(MapComponentDto).ToList();
     }
 
     public async Task<CompensationComponentDto?> GetComponentByIdAsync(Guid id)
@@ -53,9 +56,11 @@ public class PayrollService : IPayrollService
             DependsOnComponentCode = dto.DependsOnComponentCode,
             SortOrder = dto.SortOrder,
             IsEmployerContribution = dto.IsEmployerContribution,
+            RoundResult = dto.RoundResult,
         };
         _db.CompensationComponents.Add(entity);
         await _db.SaveChangesAsync();
+        await PersistRoundResultAsync(entity.Id, dto.RoundResult);
         return MapComponentDto(entity);
     }
 
@@ -78,8 +83,11 @@ public class PayrollService : IPayrollService
         entity.DependsOnComponentCode = dto.DependsOnComponentCode;
         entity.SortOrder = dto.SortOrder;
         entity.IsEmployerContribution = dto.IsEmployerContribution;
+        entity.RoundResult = dto.RoundResult;
 
         await _db.SaveChangesAsync();
+        await PersistRoundResultAsync(entity.Id, dto.RoundResult);
+        entity.RoundResult = dto.RoundResult;
         return MapComponentDto(entity);
     }
 
@@ -87,6 +95,19 @@ public class PayrollService : IPayrollService
     {
         var entity = await _db.CompensationComponents.FindAsync(id);
         if (entity is null) return false;
+
+        var assignments = await _db.EmployeeCompensations
+            .Where(ec => ec.ComponentId == id)
+            .ToListAsync();
+        foreach (var assignment in assignments)
+            assignment.IsDeleted = true;
+
+        var formulas = await _db.PayrollFormulas
+            .Where(f => f.ComponentId == id)
+            .ToListAsync();
+        foreach (var formula in formulas)
+            formula.IsDeleted = true;
+
         entity.IsDeleted = true;
         await _db.SaveChangesAsync();
         return true;
@@ -111,7 +132,7 @@ public class PayrollService : IPayrollService
                 IsTaxable = ec.Component.IsTaxable,
                 IsEpfApplicable = ec.Component.IsEpfApplicable,
                 IsEtfApplicable = ec.Component.IsEtfApplicable,
-                Amount = ec.Amount, Currency = ec.Currency,
+                Amount = Math.Round(ec.Amount, 2), Currency = ec.Currency,
                 EffectiveFrom = ec.EffectiveFrom, EffectiveTo = ec.EffectiveTo,
                 IsActive = ec.IsActive, BatchId = ec.BatchId,
             }).ToListAsync();
@@ -201,7 +222,7 @@ public class PayrollService : IPayrollService
         {
             EmployeeId = employeeId,
             ComponentId = dto.ComponentId,
-            Amount = dto.Amount,
+            Amount = PayrollCalculationEngine.RoundPayrollAmount(dto.Amount),
             Currency = dto.Currency,
             EffectiveFrom = dto.EffectiveFrom,
             EffectiveTo = dto.EffectiveTo,
@@ -237,7 +258,7 @@ public class PayrollService : IPayrollService
             .FirstOrDefaultAsync(ec => ec.Id == id);
         if (entity is null) return null;
 
-        entity.Amount = dto.Amount;
+        entity.Amount = PayrollCalculationEngine.RoundPayrollAmount(dto.Amount);
         entity.Currency = dto.Currency;
         entity.EffectiveFrom = dto.EffectiveFrom;
         entity.EffectiveTo = dto.EffectiveTo;
@@ -696,6 +717,19 @@ public class PayrollService : IPayrollService
         return query.Where(p => keepIds.Contains(p.Id));
     }
 
+    private async Task PersistRoundResultAsync(Guid id, bool roundResult)
+    {
+        try
+        {
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $@"UPDATE ""CompensationComponents"" SET ""RoundResult"" = {roundResult} WHERE ""Id"" = {id}");
+        }
+        catch (Exception)
+        {
+            // Column is added by PayrollSchemaRepair; ignore if the tenant DB is still upgrading.
+        }
+    }
+
     private static CompensationComponentDto MapComponentDto(CompensationComponent c) => new()
     {
         Id = c.Id, Name = c.Name, Code = c.Code,
@@ -705,6 +739,7 @@ public class PayrollService : IPayrollService
         Description = c.Description, FormulaExpression = c.FormulaExpression,
         DependsOnComponentCode = c.DependsOnComponentCode,
         SortOrder = c.SortOrder, IsEmployerContribution = c.IsEmployerContribution,
+        RoundResult = c.RoundResult,
     };
 
     private static (DateTime EffectiveFrom, DateTime? EffectiveTo) ResolveBatchEffectiveDates(CreatePayrollBatchDto dto)

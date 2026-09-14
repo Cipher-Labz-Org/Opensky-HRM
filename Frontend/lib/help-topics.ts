@@ -125,6 +125,13 @@ export const HELP_TOPICS: HelpTopic[] = [
     licenseModule: "Analytics",
   },
   {
+    slug: "company-profile",
+    title: "Company Profile",
+    description: "Company logo, legal details, and mobile app connection.",
+    moduleHref: ROUTES.companyProfile,
+    licenseModule: "Settings",
+  },
+  {
     slug: "settings",
     title: "Policy & Settings",
     description: "Policies, entitlements, and system configuration.",
@@ -221,6 +228,7 @@ const HELP_ROUTE_BY_PREFIX: Array<{ prefix: string; helpRoute: string }> = [
   { prefix: ROUTES.orgStructure, helpRoute: helpTopicHref("org-structure") },
   { prefix: ROUTES.analytics, helpRoute: helpTopicHref("analytics") },
   { prefix: ROUTES.reports, helpRoute: helpTopicHref("reports") },
+  { prefix: ROUTES.companyProfile, helpRoute: helpTopicHref("company-profile") },
   { prefix: ROUTES.settings, helpRoute: helpTopicHref("settings") },
   { prefix: ROUTES.administration, helpRoute: helpTopicHref("administration") },
   { prefix: ROUTES.userManagement, helpRoute: helpTopicHref("user-management") },

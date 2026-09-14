@@ -85,7 +85,8 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
 
             decimal otAmount = 0m;
             if (otApproved && approvedHours > 0 && basic > 0 && otSettings.Divisor > 0)
-                otAmount = Math.Round((basic / otSettings.Divisor) * otSettings.Multiplier * approvedHours, 2);
+                otAmount = PayrollCalculationEngine.CalculateOtAmount(
+                    basic, otSettings.Divisor, otSettings.Multiplier, approvedHours);
 
             string? warning = null;
             if ((att?.OvertimeHours ?? 0) > 0 && !otApproved)
@@ -177,6 +178,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
         Guid batchId, Guid employeeId, Guid componentId, decimal amount,
         DateTime periodFrom, DateTime periodTo)
     {
+        amount = PayrollCalculationEngine.RoundPayrollAmount(amount);
         var existing = await _db.EmployeeCompensations
             .FirstOrDefaultAsync(ec => ec.BatchId == batchId && ec.EmployeeId == employeeId && ec.ComponentId == componentId);
 

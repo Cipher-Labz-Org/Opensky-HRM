@@ -21,6 +21,7 @@ Backend/_publish-test/
 Backend/.tmp-api-build/
 
 # Local data-protection keys, uploads, and debug artifacts
+*.log
 Backend/keys/
 Backend/OpenSkyHRM.Api/keys/
 Backend/OpenSkyHRM.Api/wwwroot/uploads/
