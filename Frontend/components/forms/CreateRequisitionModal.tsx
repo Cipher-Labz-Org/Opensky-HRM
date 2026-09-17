@@ -149,11 +149,13 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
   function getCreateValidationError(fd: FormData): string | null {
     const title = String(fd.get("title") ?? "").trim();
     const departmentId = String(fd.get("departmentId") ?? "").trim();
+    const locationId = String(fd.get("locationId") ?? "").trim();
     const missing: string[] = [];
     if (!title) missing.push("Title");
     if (!departmentId) missing.push("Department");
+    if (!locationId) missing.push("Location");
     if (missing.length > 0) {
-      return `To create a requisition, please provide: ${missing.join(" and ")}.`;
+      return `To create a requisition, please provide: ${missing.join(", ")}.`;
     }
 
     const email = applicationNotificationEmail.trim();
@@ -198,6 +200,8 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
       return;
     }
     setSubmitting(true);
+    const locId = String(fd.get("locationId") ?? "").trim();
+    const locationName = locations.find((l) => l.id === locId)?.name?.trim() ?? "";
     const payload = {
       title: fd.get("title"),
       code: autoCodeRef.current || generateRequisitionCode(),
@@ -215,7 +219,8 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
       departmentId: fd.get("departmentId"),
       jobTitleId: jobTitleId || null,
       hiringManagerId: null,
-      locationId: fd.get("locationId") || null,
+      locationId: locId || null,
+      workLocation: locationName || null,
       applicationNotificationEmail: applicationNotificationEmail.trim() || null,
     };
     try {
@@ -335,8 +340,8 @@ export function CreateRequisitionModal({ open, onClose, onCreated }: Props) {
               placeholder="Select…"
             />
           </div>
-          <div><label className={labelClass}>Location</label>
-            <FormSelect name="locationId" defaultValue="" options={locationFormOpts} placeholder="Select…" />
+          <div><label className={labelClass}>Location *</label>
+            <FormSelect name="locationId" required defaultValue="" options={locationFormOpts} placeholder="Select…" />
           </div>
         </div>
         <div>

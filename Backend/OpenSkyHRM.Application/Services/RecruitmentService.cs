@@ -157,6 +157,7 @@ public class RecruitmentService : IRecruitmentService
         InputValidators.ValidateEmailInput(dto.ApplicationNotificationEmail, "Application notification email", required: false);
         ValidateRequisitionRequiredFields(dto);
         ValidateRequisitionExperience(dto.ExperienceMin, dto.ExperienceMax);
+        var workLocation = await ResolveRequiredWorkLocationAsync(dto);
         var salaryCurrency = await ResolveSalaryCurrencyAsync(dto.SalaryCurrency);
         var req = new Requisition
         {
@@ -168,7 +169,7 @@ public class RecruitmentService : IRecruitmentService
             DepartmentId = dto.DepartmentId, JobTitleId = dto.JobTitleId,
             HiringManagerId = dto.HiringManagerId,
             LocationId = null,
-            WorkLocation = NormalizeWorkLocation(dto.WorkLocation),
+            WorkLocation = workLocation,
             PositionId = dto.PositionId,
             ApplicationNotificationEmail = string.IsNullOrWhiteSpace(dto.ApplicationNotificationEmail)
                 ? null
@@ -186,6 +187,7 @@ public class RecruitmentService : IRecruitmentService
             ?? throw new InvalidOperationException("Requisition not found");
         InputValidators.ValidateEmailInput(dto.ApplicationNotificationEmail, "Application notification email", required: false);
         ValidateRequisitionRequiredFields(dto);
+        var workLocation = await ResolveRequiredWorkLocationAsync(dto);
         req.Title = dto.Title; req.Code = dto.Code; req.Description = dto.Description;
         req.Vacancies = dto.Vacancies; req.TargetDate = dto.TargetDate; req.Priority = dto.Priority;
         req.EmploymentType = dto.EmploymentType; req.ExperienceMin = dto.ExperienceMin;
@@ -194,7 +196,7 @@ public class RecruitmentService : IRecruitmentService
         req.Skills = dto.Skills; req.DepartmentId = dto.DepartmentId; req.JobTitleId = dto.JobTitleId;
         req.HiringManagerId = dto.HiringManagerId;
         req.LocationId = null;
-        req.WorkLocation = NormalizeWorkLocation(dto.WorkLocation);
+        req.WorkLocation = workLocation;
         req.PositionId = dto.PositionId;
         req.ApplicationNotificationEmail = string.IsNullOrWhiteSpace(dto.ApplicationNotificationEmail)
             ? null
@@ -1451,6 +1453,30 @@ public class RecruitmentService : IRecruitmentService
     private static string? NormalizeWorkLocation(string? workLocation) =>
         string.IsNullOrWhiteSpace(workLocation) ? null : workLocation.Trim();
 
+    /// <summary>
+    /// Accepts free-text <see cref="CreateRequisitionDto.WorkLocation"/> or an org location id.
+    /// Create/edit UI historically sent only <c>locationId</c> from the locations dropdown.
+    /// </summary>
+    private async Task<string> ResolveRequiredWorkLocationAsync(CreateRequisitionDto dto)
+    {
+        var workLocation = NormalizeWorkLocation(dto.WorkLocation);
+        if (workLocation != null)
+            return workLocation;
+
+        if (dto.LocationId is Guid locId && locId != Guid.Empty)
+        {
+            var name = await _db.Locations.AsNoTracking()
+                .Where(l => l.Id == locId && !l.IsDeleted)
+                .Select(l => l.Name)
+                .FirstOrDefaultAsync();
+            workLocation = NormalizeWorkLocation(name);
+            if (workLocation != null)
+                return workLocation;
+        }
+
+        throw new InvalidOperationException("Location is required.");
+    }
+
     private static string? ResolveRequisitionLocationName(Requisition r) =>
         NormalizeWorkLocation(r.WorkLocation) ?? r.Location?.Name;
 
@@ -1533,8 +1559,6 @@ public class RecruitmentService : IRecruitmentService
             throw new InvalidOperationException("Experience minimum (years) is required.");
         if (dto.ExperienceMin.Value < 0)
             throw new InvalidOperationException("Experience minimum cannot be negative.");
-        if (NormalizeWorkLocation(dto.WorkLocation) is null)
-            throw new InvalidOperationException("Location is required.");
         if (string.IsNullOrWhiteSpace(dto.Skills))
             throw new InvalidOperationException("At least one skill is required.");
     }
