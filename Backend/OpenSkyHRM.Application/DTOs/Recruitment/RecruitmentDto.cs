@@ -109,7 +109,7 @@ public class CreateRequisitionDto
     public Guid? JobTitleId { get; set; }
     public Guid? HiringManagerId { get; set; }
     public Guid? LocationId { get; set; }
-    /// <summary>Free-text work location (required on create/update).</summary>
+    /// <summary>Free-text work location. Required unless <see cref="LocationId"/> is set.</summary>
     public string? WorkLocation { get; set; }
     public Guid? PositionId { get; set; }
 
