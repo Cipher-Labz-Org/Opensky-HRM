@@ -78,6 +78,7 @@ public class EmployeeDto
     public string? SupervisorNames { get; set; }
     public string? ProfileImageUrl { get; set; }
     public bool IsTopOfHierarchy { get; set; }
+    public bool IsCashPayment { get; set; }
     public bool HasDirectSupervisor { get; set; }
     /// <summary>True for employees converted from recruitment who still need job title, location, or supervisor.</summary>
     public bool NeedsProfileSetup { get; set; }
@@ -220,6 +221,7 @@ public class UpdateEmployeeDto
     public Guid? JobTitleId { get; set; }
     public Guid? ManagerId { get; set; }
     public bool IsTopOfHierarchy { get; set; }
+    public bool IsCashPayment { get; set; }
 }
 
 /// <summary>Lightweight row for employee type-ahead dropdowns.</summary>

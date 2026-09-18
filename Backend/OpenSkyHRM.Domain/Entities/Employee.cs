@@ -61,6 +61,8 @@ public class Employee : AuditableEntity
     public string EmploymentType { get; set; } = "FullTimePermanent";
     public string? ProfileImageUrl { get; set; }
     public bool IsTopOfHierarchy { get; set; }
+    /// <summary>When true, salary is paid in cash instead of bank transfer.</summary>
+    public bool IsCashPayment { get; set; }
 
     public Guid DepartmentId { get; set; }
     public Department Department { get; set; } = null!;

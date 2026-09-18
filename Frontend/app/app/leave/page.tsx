@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, ToastPopup, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
@@ -1110,6 +1110,8 @@ function pickDefaultLeaveTypeId(types: LeaveTypeItem[], balances: BalanceItem[])
   return "";
 }
 
+const ANNUAL_LEAVE_CODE = "LT-ANN";
+
 function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: boolean; currentEmployeeId: string | null }) {
   const [employees, setEmployees] = useState<EmployeeLookup[]>([]);
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -1120,6 +1122,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   const [balances, setBalances] = useState<BalanceItem[]>([]);
   const [loadingBal, setLoadingBal] = useState(false);
   const [selectedTypeId, setSelectedTypeId] = useState("");
+  const [annualNoticeOpen, setAnnualNoticeOpen] = useState(false);
   const [durationKind, setDurationKind] = useState<LeaveDurationKind>("FullDay");
   const [halfDayPeriod, setHalfDayPeriod] = useState<HalfDayPeriod>("Morning");
   const [appliedShortLeaveHours, setAppliedShortLeaveHours] = useState(DEFAULT_SHORT_LEAVE_HOURS);
@@ -1295,6 +1298,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     : undefined;
   const isNoPayLeave = selectedLeaveType?.code?.toUpperCase() === "LT-NPL";
   const isSickLeave = selectedLeaveType?.code?.toUpperCase() === "LT-SIC";
+  const isAnnualLeave = selectedLeaveType?.code?.toUpperCase() === ANNUAL_LEAVE_CODE;
   /** More than 2 calendar days of sick leave requires a medical certificate PDF. */
   const sickLeaveRequiresMedicalPdf = isSickLeave && totalDays > 2;
   /** Sick leave and Short Leave can be applied even when no balance row exists; all other paid types need an assigned balance. */
@@ -1304,6 +1308,18 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   );
   const exceedsBalance =
     !isNoPayLeave && !isShortLeaveSelected && selectedBalance ? totalDays > selectedBalance.remaining : false;
+
+  /** Remind the applicant of the 3-day notice period each time Annual Leave becomes the selected type. */
+  const annualNoticeShown = useRef(false);
+  useEffect(() => {
+    if (!isAnnualLeave) {
+      annualNoticeShown.current = false;
+      return;
+    }
+    if (annualNoticeShown.current) return;
+    annualNoticeShown.current = true;
+    setAnnualNoticeOpen(true);
+  }, [isAnnualLeave]);
 
   const pickMedical = useCallback((file: File | null) => {
     if (!file) {
@@ -1959,6 +1975,15 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
           )}
         </div>
       )}
+
+      <ToastPopup
+        open={annualNoticeOpen}
+        onDismiss={() => setAnnualNoticeOpen(false)}
+        title="Annual leave notice"
+        message="If you require to utilize your Annual Leave balance, it must be informed at least 3 days prior. You may apply for emergency leave if needed."
+        confirmLabel="Okay"
+        autoDismiss={false}
+      />
     </div>
   );
 }
@@ -1983,6 +2008,7 @@ function BalancesTab() {
   const [balanceSaving, setBalanceSaving] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [employeeSearch, setEmployeeSearch] = useState("");
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState("");
   const [balanceViewMode, setBalanceViewMode] = useState<"summary" | "detail">("summary");
   const [employeePageSize, setEmployeePageSize] = useState(50);
 
@@ -2014,15 +2040,58 @@ function BalancesTab() {
 
   useEffect(() => { loadBalances(); }, [loadBalances]);
 
+  const leaveTypeFilterOptions = useMemo<FormSelectOption[]>(() => {
+    const names = new Set<string>();
+    for (const s of summaries) {
+      for (const b of s.balances) names.add(b.leaveTypeName);
+    }
+    return [
+      { value: "", label: "All leave types" },
+      ...Array.from(names)
+        .sort((a, b) => a.localeCompare(b))
+        .map((name) => ({ value: name, label: name })),
+    ];
+  }, [summaries]);
+
   const filteredSummaries = useMemo(() => {
     const q = employeeSearch.trim().toLowerCase();
-    if (!q) return summaries;
-    return summaries.filter(
-      (s) =>
-        s.employeeName.toLowerCase().includes(q) ||
-        (s.employeeCode?.toLowerCase().includes(q) ?? false),
-    );
-  }, [summaries, employeeSearch]);
+    const isExcelEmployee = (s: BalanceSummary) =>
+      s.balances.some((b) => {
+        if (/compensatory|special grant|freelancer/i.test(b.leaveTypeName)) return true;
+        return b.used !== 0 || b.carriedForward !== 0 || (b.broughtForwardDays ?? 0) !== 0;
+      });
+    const excelUploaded = summaries.some(isExcelEmployee);
+    return summaries
+      .filter((s) => {
+        if (excelUploaded && !isExcelEmployee(s)) return false;
+        if (q) {
+          const matchesSearch =
+            s.employeeName.toLowerCase().includes(q) ||
+            (s.employeeCode?.toLowerCase().includes(q) ?? false);
+          if (!matchesSearch) return false;
+        }
+        if (leaveTypeFilter) {
+          const b = s.balances.find((row) => row.leaveTypeName === leaveTypeFilter);
+          if (!b) return false;
+          const hasStock = b.entitled !== 0 || b.used !== 0 || b.carriedForward !== 0 || b.remaining !== 0;
+          if (!hasStock) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+  }, [summaries, employeeSearch, leaveTypeFilter]);
+
+  const importedGrantHint = useMemo(() => {
+    const count = summaries.filter((s) =>
+      s.balances.some(
+        (b) =>
+          /compensatory|special grant|freelancer/i.test(b.leaveTypeName) &&
+          (b.entitled !== 0 || b.used !== 0 || b.remaining !== 0),
+      ),
+    ).length;
+    if (count === 0) return "";
+    return `Showing employees from the leave-balance import (${count} with Compensatory Off / Special Grant).`;
+  }, [summaries]);
 
   const leaveTypeColumns = useMemo(() => {
     const names = new Set<string>();
@@ -2102,7 +2171,7 @@ function BalancesTab() {
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Filters</p>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_9rem_9rem_9rem]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(11rem,14rem)_9rem_9rem_9rem]">
           <div>
             <label className={labelClass}>Search employee</label>
             <input
@@ -2111,6 +2180,16 @@ function BalancesTab() {
               onChange={(e) => setEmployeeSearch(sanitizeSearchInput(e.target.value))}
               placeholder="Name or employee code…"
               className={inputClass + " w-full"}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Leave type</label>
+            <FormSelect
+              value={leaveTypeFilter}
+              onValueChange={setLeaveTypeFilter}
+              options={leaveTypeFilterOptions}
+              className="w-full"
+              clearable={false}
             />
           </div>
           <div>
@@ -2165,9 +2244,10 @@ function BalancesTab() {
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
           <p className="text-xs text-slate-500">
-            {balanceViewMode === "summary"
-              ? "One row per employee — best for large teams."
-              : "All balance lines — click edit on any row."}
+            {importedGrantHint ||
+              (balanceViewMode === "summary"
+                ? "One row per employee — best for large teams."
+                : "All balance lines — click edit on any row.")}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-slate-500">View</span>
@@ -3418,19 +3498,20 @@ function LeaveTypesTab() {
                   type="number"
                   min={1}
                   max={4}
+                  step="any"
                   defaultValue={editing?.shortLeaveHours && editing.shortLeaveHours > 0 ? editing.shortLeaveHours : DEFAULT_SHORT_LEAVE_HOURS}
                   className={inputClass}
                 />
-                <p className="mt-1 text-[11px] text-slate-400">Default hours on one request.</p>
+                <p className="mt-1 text-[11px] text-slate-400">Default hours on one request. Part hours allowed, e.g. 1.5.</p>
               </div>
               <div>
                 <label className={labelClass}>Minimum hours</label>
-                <input name="minHours" type="number" min={1} max={4} defaultValue={editing?.minHours ?? ""} placeholder="No minimum" className={inputClass} />
+                <input name="minHours" type="number" min={1} max={4} step="any" defaultValue={editing?.minHours ?? ""} placeholder="No minimum" className={inputClass} />
                 <p className="mt-1 text-[11px] text-slate-400">Per request. Leave empty for no limit.</p>
               </div>
               <div>
                 <label className={labelClass}>Maximum hours</label>
-                <input name="maxHours" type="number" min={1} max={4} defaultValue={editing?.maxHours ?? ""} placeholder="No maximum" className={inputClass} />
+                <input name="maxHours" type="number" min={1} max={4} step="any" defaultValue={editing?.maxHours ?? ""} placeholder="No maximum" className={inputClass} />
                 <p className="mt-1 text-[11px] text-slate-400">Per request. Leave empty for no limit.</p>
               </div>
             </div>

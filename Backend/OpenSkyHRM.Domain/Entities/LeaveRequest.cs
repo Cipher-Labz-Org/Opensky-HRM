@@ -12,7 +12,8 @@ public class LeaveRequest : AuditableEntity
     public string DurationKind { get; set; } = "FullDay";
     /// <summary>Morning or Afternoon when DurationKind is HalfDay.</summary>
     public string? HalfDayPeriod { get; set; }
-    public int? ShortLeaveHours { get; set; }
+    /// <summary>Hours taken when DurationKind is ShortLeave. Supports part hours, e.g. 1.5.</summary>
+    public decimal? ShortLeaveHours { get; set; }
     public string? Reason { get; set; }
     public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
     public string? CoveragePerson { get; set; }

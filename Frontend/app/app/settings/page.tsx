@@ -8,6 +8,7 @@ import { MasterDataEditorModal } from "@/components/forms/MasterDataEditorModal"
 import { apiFetch } from "@/lib/api";
 import { getSystemSetting } from "@/lib/system-settings";
 import { AttendancePlacesModal } from "@/components/settings/AttendancePlacesModal";
+import { MobileConnectionQr } from "@/components/settings/MobileConnectionQr";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
@@ -43,6 +44,7 @@ export default function SettingsPage() {
   const [attendanceCheckInMode, setAttendanceCheckInMode] = useState("BusinessUnitQr");
   const [attendanceModeSaving, setAttendanceModeSaving] = useState(false);
   const [attendanceModeMsg, setAttendanceModeMsg] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [counts, setCounts] = useState<CountSummary>({ businessUnits: 0, grades: 0, jobTitles: 0, locations: 0, statuses: 0, empStatuses: 0, skills: 0, skillTemplates: 0, attachmentTypes: 0, attendancePlaces: 0 });
 
   const [codeAutoGen, setCodeAutoGen] = useState(true);
@@ -104,6 +106,7 @@ export default function SettingsPage() {
     const prefix = getSystemSetting(settings, "EmployeeCodePrefix");
     if (prefix !== undefined) setCodePrefix(prefix);
     setAttendanceCheckInMode(getSystemSetting(settings, "AttendanceCheckInMode") ?? "BusinessUnitQr");
+    setCompanyName(getSystemSetting(settings, "CompanyName") ?? "");
   }
 
   useEffect(() => {
@@ -866,8 +869,21 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Master Data Blocks */}
+      {/* Mobile connection & attendance */}
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="section-title">
+            <h3>Connect mobile app</h3>
+          </div>
+          <div className="space-y-4 px-1 py-3">
+            <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
+              Employees scan this QR code in the <strong>OpenSky HRM</strong> mobile app to connect to this
+              company&apos;s backend. You can also share the backend URL manually if scanning is not possible.
+            </p>
+            <MobileConnectionQr companyName={companyName} />
+          </div>
+        </div>
+
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="section-title">
             <h3>Attendance Check-in</h3>

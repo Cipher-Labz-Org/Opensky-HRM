@@ -52,10 +52,18 @@ public class LeaveEntitlementService : ILeaveEntitlementService
 
             if (existing != null)
             {
+                var preserveImported = existing.IsImported
+                    || existing.BroughtForwardDays > 0
+                    || existing.Used > 0
+                    || existing.CarriedForward > 0;
+                if (preserveImported)
+                    continue;
+
                 existing.Entitled = entitled;
-                existing.Used = await _db.Set<LeaveRequest>()
+                var requestUsed = await _db.Set<LeaveRequest>()
                     .Where(r => r.EmployeeId == employeeId && r.LeaveTypeId == rule.LeaveTypeId && r.StartDate.Year == year && r.Status == ApprovalStatus.Approved)
                     .SumAsync(r => r.TotalDays);
+                existing.Used = Math.Max(existing.Used, requestUsed);
                 updated++;
             }
             else

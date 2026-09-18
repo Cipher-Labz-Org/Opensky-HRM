@@ -15,7 +15,7 @@ public class LeaveRequestDto
     public decimal TotalDays { get; set; }
     public string DurationKind { get; set; } = "FullDay";
     public string? HalfDayPeriod { get; set; }
-    public int? ShortLeaveHours { get; set; }
+    public decimal? ShortLeaveHours { get; set; }
     public string? Reason { get; set; }
     public string Status { get; set; } = string.Empty;
     public string? CoveragePerson { get; set; }
@@ -50,7 +50,7 @@ public class CreateLeaveRequestDto
     public decimal TotalDays { get; set; }
     public string? DurationKind { get; set; }
     public string? HalfDayPeriod { get; set; }
-    public int? ShortLeaveHours { get; set; }
+    public decimal? ShortLeaveHours { get; set; }
     public string? Reason { get; set; }
     public string? CoveragePerson { get; set; }
 }
@@ -71,9 +71,9 @@ public class LeaveTypeDto
     public bool IsActive { get; set; }
     public bool AllowHalfDay { get; set; }
     public bool AllowShortLeave { get; set; }
-    public int ShortLeaveHours { get; set; }
-    public int? MinHours { get; set; }
-    public int? MaxHours { get; set; }
+    public decimal ShortLeaveHours { get; set; }
+    public decimal? MinHours { get; set; }
+    public decimal? MaxHours { get; set; }
     public decimal? MinDays { get; set; }
     public decimal? MaxDays { get; set; }
 }
@@ -88,9 +88,9 @@ public class CreateLeaveTypeDto
     public bool IsActive { get; set; } = true;
     public bool AllowHalfDay { get; set; }
     public bool AllowShortLeave { get; set; }
-    public int ShortLeaveHours { get; set; } = 3;
-    public int? MinHours { get; set; }
-    public int? MaxHours { get; set; }
+    public decimal ShortLeaveHours { get; set; } = 3;
+    public decimal? MinHours { get; set; }
+    public decimal? MaxHours { get; set; }
     public decimal? MinDays { get; set; }
     public decimal? MaxDays { get; set; }
 }
@@ -105,9 +105,9 @@ public class UpdateLeaveTypeDto
     public bool IsActive { get; set; }
     public bool AllowHalfDay { get; set; }
     public bool AllowShortLeave { get; set; }
-    public int ShortLeaveHours { get; set; } = 3;
-    public int? MinHours { get; set; }
-    public int? MaxHours { get; set; }
+    public decimal ShortLeaveHours { get; set; } = 3;
+    public decimal? MinHours { get; set; }
+    public decimal? MaxHours { get; set; }
     public decimal? MinDays { get; set; }
     public decimal? MaxDays { get; set; }
 }

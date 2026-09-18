@@ -21,9 +21,9 @@ public static class HalfDayPeriods
 public static class LeaveDurationRules
 {
     public const int WorkdayHours = 8;
-    public const int MinShortLeaveHours = 1;
-    public const int MaxShortLeaveHours = 4;
-    public const int DefaultShortLeaveHours = 3;
+    public const decimal MinShortLeaveHours = 1m;
+    public const decimal MaxShortLeaveHours = 4m;
+    public const decimal DefaultShortLeaveHours = 3m;
     public const decimal HalfDayDays = 0.5m;
 
     public static string NormalizeKind(string? kind)
@@ -51,8 +51,12 @@ public static class LeaveDurationRules
         throw new InvalidOperationException("Select morning or afternoon for half-day leave.");
     }
 
-    public static int ClampShortLeaveHours(int hours)
+    /// <summary>Hours are kept to 2 decimal places so part-hour leave (e.g. 1.5) round-trips exactly.</summary>
+    public static decimal RoundHours(decimal hours) => Math.Round(hours, 2, MidpointRounding.AwayFromZero);
+
+    public static decimal ClampShortLeaveHours(decimal hours)
     {
+        hours = RoundHours(hours);
         if (hours < MinShortLeaveHours) return MinShortLeaveHours;
         if (hours > MaxShortLeaveHours) return MaxShortLeaveHours;
         return hours;
@@ -65,23 +69,23 @@ public static class LeaveDurationRules
     public static void ResolveTypeDurationFlags(
         string? code,
         bool requestedHalfDay,
-        int requestedHours,
+        decimal requestedHours,
         out bool allowHalfDay,
         out bool allowShortLeave,
-        out int shortLeaveHours)
+        out decimal shortLeaveHours)
     {
         allowShortLeave = IsShortLeaveType(code);
         allowHalfDay = allowShortLeave ? false : requestedHalfDay;
         shortLeaveHours = ClampShortLeaveHours(requestedHours);
     }
 
-    public static int? NormalizeOptionalHours(int? hours)
+    public static decimal? NormalizeOptionalHours(decimal? hours)
     {
         if (!hours.HasValue || hours.Value <= 0) return null;
         return ClampShortLeaveHours(hours.Value);
     }
 
-    public static void NormalizeMinMaxHours(ref int? minHours, ref int? maxHours)
+    public static void NormalizeMinMaxHours(ref decimal? minHours, ref decimal? maxHours)
     {
         minHours = NormalizeOptionalHours(minHours);
         maxHours = NormalizeOptionalHours(maxHours);
@@ -89,7 +93,7 @@ public static class LeaveDurationRules
             throw new InvalidOperationException("Minimum hours cannot be greater than maximum hours.");
     }
 
-    public static int ClampHoursWithinBounds(int hours, int? minHours, int? maxHours)
+    public static decimal ClampHoursWithinBounds(decimal hours, decimal? minHours, decimal? maxHours)
     {
         hours = ClampShortLeaveHours(hours);
         if (minHours.HasValue && hours < minHours.Value) hours = minHours.Value;
@@ -97,12 +101,12 @@ public static class LeaveDurationRules
         return hours;
     }
 
-    public static void EnsureWithinMinMaxHours(int hours, int? minHours, int? maxHours)
+    public static void EnsureWithinMinMaxHours(decimal hours, decimal? minHours, decimal? maxHours)
     {
         if (minHours.HasValue && hours < minHours.Value)
-            throw new InvalidOperationException($"This leave type requires at least {minHours.Value} hour(s). Requested: {hours}.");
+            throw new InvalidOperationException($"This leave type requires at least {minHours.Value:0.##} hour(s). Requested: {hours:0.##}.");
         if (maxHours.HasValue && hours > maxHours.Value)
-            throw new InvalidOperationException($"This leave type allows at most {maxHours.Value} hour(s) per request. Requested: {hours}.");
+            throw new InvalidOperationException($"This leave type allows at most {maxHours.Value:0.##} hour(s) per request. Requested: {hours:0.##}.");
     }
 
     public static decimal FullDayDays(DateTime start, DateTime end)
@@ -111,8 +115,8 @@ public static class LeaveDurationRules
         return (decimal)Math.Max(1, Math.Ceiling(days));
     }
 
-    public static decimal ShortLeaveDays(int hours) =>
-        ClampShortLeaveHours(hours) / (decimal)WorkdayHours;
+    public static decimal ShortLeaveDays(decimal hours) =>
+        ClampShortLeaveHours(hours) / WorkdayHours;
 
     public static decimal ResolveTotalDays(
         string durationKind,
@@ -120,11 +124,11 @@ public static class LeaveDurationRules
         DateTime end,
         bool allowHalfDay,
         bool allowShortLeave,
-        int typeShortLeaveHours,
+        decimal typeShortLeaveHours,
         string? halfDayPeriod,
-        int? requestedShortLeaveHours,
+        decimal? requestedShortLeaveHours,
         out string? storedHalfDayPeriod,
-        out int? storedShortLeaveHours)
+        out decimal? storedShortLeaveHours)
     {
         storedHalfDayPeriod = null;
         storedShortLeaveHours = null;

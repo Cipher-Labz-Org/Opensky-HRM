@@ -134,6 +134,7 @@ interface EmployeeDetail {
   managerName: string | null;
   profileImageUrl: string | null;
   isTopOfHierarchy: boolean;
+  isCashPayment?: boolean;
   hasDirectSupervisor: boolean;
 }
 
@@ -1496,6 +1497,9 @@ export default function EmployeeProfilePage() {
         </BioSection>
 
         <BioSection id="bio-bank" title="Bank accounts (direct deposit)">
+          <div className="mb-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="Payment method">{emp.isCashPayment ? "Cash payment" : "Bank payment"}</Field>
+          </div>
           <DataTable
             empty="No bank accounts."
             columns={[

@@ -85,7 +85,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     slug: "payroll",
     title: "Payroll",
-    description: "Pay runs, earnings, and payslips.",
+    description: "Pay runs, slip generate, bank slips, and payslips.",
     moduleHref: ROUTES.payroll,
     licenseModule: "Payroll",
   },
@@ -127,7 +127,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     slug: "company-profile",
     title: "Company Profile",
-    description: "Company logo, legal details, and mobile app connection.",
+    description: "Company logo, legal details, and default currency.",
     moduleHref: ROUTES.companyProfile,
     licenseModule: "Settings",
   },

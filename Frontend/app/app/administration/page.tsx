@@ -597,14 +597,23 @@ function LeaveBalanceUploadSection() {
             <h4 className="mb-2 text-sm font-semibold text-slate-800">How to import leave balances</h4>
             <ol className="list-inside list-decimal space-y-1 text-xs text-slate-600">
               <li>Click <strong>Download template</strong> to get the Excel file with pre-formatted columns.</li>
-              <li>Fill the <strong>LeaveBalances</strong> sheet: <strong>Employee Code, Leave Type, Year</strong> are required. Entitled, Used, and Carried Forward default to 0 if blank.</li>
+              <li>Fill the <strong>LeaveBalances</strong> sheet (or a CSV/TXT file with the same columns): <strong>Employee Code, Leave Type, Year</strong> are required. Entitled, Used, and Carried Forward default to 0 if blank. A Remaining/Balance column is used when Entitled is blank.</li>
               <li>Optional dates: use <strong>Start Date</strong> and <strong>End Date</strong> as <code>dd/MM/yyyy</code> (for example 1/1/2026 and 31/12/2026). A full-year range sets the entitlement period. A shorter range with both dates creates an approved leave record. One date alone is ignored and does not skip the row.</li>
-              <li>Use exact employee codes and leave type names as they appear in the system.</li>
+              <li>Leave type names can differ slightly from the catalog (for example <strong>Freelancer Special Grant</strong> vs Freelances Special Grant, or <strong>Compensatory off</strong>). Comp-off and special-grant stock in Carried Forward is imported as this year’s entitlement so Leave &amp; Absence does not treat it as expired 3-month carry-forward.</li>
               <li>If a balance already exists for the same employee + leave type + year, it will be <strong>updated</strong>. Matching leave dates are updated; overlapping dates are skipped.</li>
               <li>Upload the completed file below.</li>
             </ol>
           </div>
-          <DropZone file={file} fileRef={fileRef} dragOver={dragOver} setDragOver={setDragOver} onFileChange={handleFileChange} />
+          <DropZone
+            file={file}
+            fileRef={fileRef}
+            dragOver={dragOver}
+            setDragOver={setDragOver}
+            onFileChange={handleFileChange}
+            accept=".xlsx,.xls,.csv,.txt"
+            emptyTitle="Drop your Excel or text file here or click to browse"
+            emptyHint="Supports .xlsx, .xls, .csv and .txt (max 20MB)"
+          />
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <Button disabled={!file || uploading} onClick={handleUpload}>
               {uploading && (
@@ -1073,12 +1082,15 @@ function LoginUploadSection() {
 
 // ──── Shared Drop Zone Component ────
 
-function DropZone({ file, fileRef, dragOver, setDragOver, onFileChange }: {
+function DropZone({ file, fileRef, dragOver, setDragOver, onFileChange, accept = ".xlsx,.xls", emptyTitle = "Drop your Excel file here or click to browse", emptyHint = "Supports .xlsx and .xls (max 20MB)" }: {
   file: File | null;
   fileRef: React.RefObject<HTMLInputElement>;
   dragOver: boolean;
   setDragOver: (v: boolean) => void;
   onFileChange: (f: File | null) => void;
+  accept?: string;
+  emptyTitle?: string;
+  emptyHint?: string;
 }) {
   return (
     <div
@@ -1094,7 +1106,7 @@ function DropZone({ file, fileRef, dragOver, setDragOver, onFileChange }: {
             : "border-slate-300 bg-slate-50/80 hover:border-indigo-300 hover:bg-slate-50"
       }`}
     >
-      <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => onFileChange(e.target.files?.[0] ?? null)} />
+      <input ref={fileRef} type="file" accept={accept} className="hidden" onChange={(e) => onFileChange(e.target.files?.[0] ?? null)} />
       {file ? (
         <div className="flex flex-col items-center gap-2">
           <svg className="h-10 w-10 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -1105,8 +1117,8 @@ function DropZone({ file, fileRef, dragOver, setDragOver, onFileChange }: {
       ) : (
         <div className="flex flex-col items-center gap-2">
           <svg className="h-10 w-10 text-slate-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-          <p className="text-sm font-medium text-slate-700">Drop your Excel file here or click to browse</p>
-          <p className="text-xs text-slate-500">Supports .xlsx and .xls (max 20MB)</p>
+          <p className="text-sm font-medium text-slate-700">{emptyTitle}</p>
+          <p className="text-xs text-slate-500">{emptyHint}</p>
         </div>
       )}
     </div>

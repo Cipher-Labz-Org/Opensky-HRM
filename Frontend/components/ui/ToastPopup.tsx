@@ -10,19 +10,22 @@ type ToastPopupProps = {
   title?: string;
   message?: string;
   confirmLabel?: string;
+  /** Set false to keep the popup open until the user closes it. */
+  autoDismiss?: boolean;
 };
 
-/** Centered success popup — auto-dismisses after 5 seconds. */
+/** Centered success popup — auto-dismisses after 5 seconds unless `autoDismiss` is false. */
 export function ToastPopup({
   open,
   onDismiss,
   title = "Success!",
   message = "Your changes have been saved.",
   confirmLabel = "Okay",
+  autoDismiss = true,
 }: ToastPopupProps) {
   const dismiss = useCallback(() => onDismiss(), [onDismiss]);
 
-  useAutoDismiss(open, dismiss, SUCCESS_ALERT_DISMISS_MS);
+  useAutoDismiss(open && autoDismiss, dismiss, SUCCESS_ALERT_DISMISS_MS);
 
   if (!open) return null;
 
@@ -78,16 +81,20 @@ export function ToastPopup({
             {confirmLabel}
           </button>
 
-          <p className="mt-3 text-[11px] text-slate-400">Closes automatically in 5 seconds</p>
+          {autoDismiss ? (
+            <p className="mt-3 text-[11px] text-slate-400">Closes automatically in 5 seconds</p>
+          ) : null}
         </div>
 
-        <div className="h-1 w-full bg-slate-100" aria-hidden>
-          <div
-            key={open ? "running" : "idle"}
-            className="toast-popup-progress h-full origin-left rounded-r-full bg-gradient-to-r from-blue-500 to-sky-400"
-            style={{ animationDuration: `${SUCCESS_ALERT_DISMISS_MS}ms` }}
-          />
-        </div>
+        {autoDismiss ? (
+          <div className="h-1 w-full bg-slate-100" aria-hidden>
+            <div
+              key={open ? "running" : "idle"}
+              className="toast-popup-progress h-full origin-left rounded-r-full bg-gradient-to-r from-blue-500 to-sky-400"
+              style={{ animationDuration: `${SUCCESS_ALERT_DISMISS_MS}ms` }}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CompanyLogoDisplay } from "@/components/branding/CompanyLogoDisplay";
 import { CurrencySearchCombobox } from "@/components/forms/CurrencySearchCombobox";
-import { MobileConnectionQr } from "@/components/settings/MobileConnectionQr";
-import { EmailInput, FlashMessageBanner, PhoneInput, type FlashMessage } from "@/components/ui";
+import { EmailInput, FlashMessageBanner, ListAutocompleteInput, PhoneInput, type FlashMessage } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import {
   clampLogoOffset,
@@ -19,6 +18,7 @@ import {
   parseLogoDisplaySettings,
   resolveCompanyLogoSrc,
 } from "@/lib/company-branding";
+import { bankNameOptions } from "@/lib/bank-names";
 import { DEFAULT_CURRENCY } from "@/lib/currencies";
 import {
   EMAIL_FORMAT_VALIDATION_MESSAGE,
@@ -30,6 +30,12 @@ import {
 } from "@/lib/input-validation";
 import { normalizeCompanyLogoUpload, pdfUrlToPngFile } from "@/lib/render-pdf-logo";
 import { getSystemSetting } from "@/lib/system-settings";
+import {
+  EMPTY_BANK_ACCOUNT,
+  isBlankBankAccount,
+  parseCompanyBankAccounts,
+  type CompanyBankAccount,
+} from "@/lib/company-bank-accounts";
 
 export function CompanyProfileContent() {
   const [companyLogoUrl, setCompanyLogoUrl] = useState("");
@@ -61,6 +67,16 @@ export function CompanyProfileContent() {
   const [defaultCurrency, setDefaultCurrency] = useState(DEFAULT_CURRENCY);
   const [companySaving, setCompanySaving] = useState(false);
   const [companyMsg, setCompanyMsg] = useState("");
+
+  const [epfRegNo, setEpfRegNo] = useState("");
+  const [etfRegNo, setEtfRegNo] = useState("");
+  const [bankAccounts, setBankAccounts] = useState<CompanyBankAccount[]>([]);
+  const [additionalSaving, setAdditionalSaving] = useState(false);
+  const [additionalMsg, setAdditionalMsg] = useState("");
+  const companyBankNameOptions = useMemo(
+    () => bankNameOptions(bankAccounts.map((account) => account.bankName)),
+    [bankAccounts],
+  );
 
   async function persistLogoDisplaySettings(display: {
     scale: number;
@@ -113,6 +129,9 @@ export function CompanyProfileContent() {
     setCompanyWebsite(getSystemSetting(settings, "CompanyWebsite") ?? "");
     setCompanyRegNo(getSystemSetting(settings, "CompanyRegNo") ?? "");
     setDefaultCurrency((getSystemSetting(settings, "DefaultCurrency") ?? DEFAULT_CURRENCY).toUpperCase());
+    setEpfRegNo(getSystemSetting(settings, "CompanyEpfRegNo") ?? "");
+    setEtfRegNo(getSystemSetting(settings, "CompanyEtfRegNo") ?? "");
+    setBankAccounts(parseCompanyBankAccounts(getSystemSetting(settings, "CompanyBankAccounts")));
   }
 
   useEffect(() => {
@@ -285,8 +304,317 @@ export function CompanyProfileContent() {
     }
   }
 
+  function updateBankAccount(index: number, field: keyof CompanyBankAccount, value: string) {
+    setBankAccounts((accounts) =>
+      accounts.map((account, i) => (i === index ? { ...account, [field]: value } : account)),
+    );
+  }
+
+  async function saveAdditionalDetails() {
+    setAdditionalSaving(true);
+    setAdditionalMsg("");
+    const cleanedAccounts = bankAccounts
+      .map((account) => ({
+        fullName: account.fullName.trim(),
+        bankName: account.bankName.trim(),
+        branchName: account.branchName.trim(),
+        bankCode: account.bankCode.trim(),
+        branchCode: account.branchCode.trim(),
+        accountNo: account.accountNo.trim(),
+      }))
+      .filter((account) => !isBlankBankAccount(account));
+
+    if (cleanedAccounts.some((account) => !account.bankName || !account.accountNo)) {
+      setAdditionalMsg("Each bank account needs at least a bank name and an account number");
+      setAdditionalSaving(false);
+      return;
+    }
+
+    try {
+      await Promise.all([
+        apiFetch("/api/system-settings/CompanyEpfRegNo", { method: "PUT", body: JSON.stringify({ value: epfRegNo.trim() }) }),
+        apiFetch("/api/system-settings/CompanyEtfRegNo", { method: "PUT", body: JSON.stringify({ value: etfRegNo.trim() }) }),
+        apiFetch("/api/system-settings/CompanyBankAccounts", { method: "PUT", body: JSON.stringify({ value: JSON.stringify(cleanedAccounts) }) }),
+      ]);
+      setBankAccounts(cleanedAccounts);
+      setAdditionalMsg("Additional details saved successfully");
+      setTimeout(() => setAdditionalMsg(""), 3000);
+    } catch {
+      setAdditionalMsg("Failed to save additional details");
+    } finally {
+      setAdditionalSaving(false);
+    }
+  }
+
   return (
     <>
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="section-title">
+          <h3>Company Details</h3>
+        </div>
+        <div className="space-y-4 px-1 py-3">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Company Name *</label>
+              <input
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Registration No.</label>
+              <input
+                value={companyRegNo}
+                onChange={(e) => setCompanyRegNo(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Default currency</label>
+              <CurrencySearchCombobox
+                value={defaultCurrency}
+                onValueChange={(v) => setDefaultCurrency(v.toUpperCase())}
+              />
+              <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">
+                Used as the default for recruitment salary ranges and other monetary fields.
+              </p>
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Address Line 1</label>
+            <input
+              value={companyAddress1}
+              onChange={(e) => setCompanyAddress1(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Address Line 2</label>
+            <input
+              value={companyAddress2}
+              onChange={(e) => setCompanyAddress2(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">City</label>
+              <input
+                value={companyCity}
+                onChange={(e) => setCompanyCity(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">State / Province</label>
+              <input
+                value={companyState}
+                onChange={(e) => setCompanyState(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Postal Code</label>
+              <input
+                value={companyPostalCode}
+                onChange={(e) => setCompanyPostalCode(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Country</label>
+            <input
+              value={companyCountry}
+              onChange={(e) => setCompanyCountry(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Phone</label>
+              <PhoneInput
+                value={companyPhone}
+                onChange={(e) => setCompanyPhone(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Email</label>
+              <EmailInput
+                value={companyEmail}
+                onChange={(e) => setCompanyEmail(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Website</label>
+              <input
+                value={companyWebsite}
+                onChange={(e) => setCompanyWebsite(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-1">
+            {companyMsg && (
+              <span className={`text-xs font-medium ${companyMsg.includes("success") ? "text-green-600" : "text-red-500"}`}>
+                {companyMsg}
+              </span>
+            )}
+            <button
+              onClick={saveCompanyDetails}
+              disabled={companySaving}
+              className="rounded-lg bg-[var(--primary)] px-5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {companySaving ? "Saving..." : "Save Company Details"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="section-title">
+          <h3>Company Statutory &amp; Banking Details</h3>
+        </div>
+        <div className="space-y-5 px-1 py-3">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Company EPF Registration No.</label>
+              <input
+                value={epfRegNo}
+                onChange={(e) => setEpfRegNo(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">ETF Registration No.</label>
+              <input
+                value={etfRegNo}
+                onChange={(e) => setEtfRegNo(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <strong className="text-sm font-semibold text-[var(--text)]">Company bank accounts</strong>
+                <div className="text-xs text-[var(--text-muted)]">Accounts used for payroll payments and EPF/ETF remittances.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBankAccounts((accounts) => [...accounts, { ...EMPTY_BANK_ACCOUNT }])}
+                className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--primary)] transition hover:border-[var(--primary)]"
+              >
+                + Add bank account
+              </button>
+            </div>
+
+            {bankAccounts.length === 0 ? (
+              <p className="rounded-xl bg-[var(--bg-subtle)] px-4 py-3 text-xs text-[var(--text-muted)]">
+                No bank accounts added yet.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+                <table className="w-full min-w-[60rem] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-[var(--bg-subtle)] text-xs font-semibold uppercase text-slate-400">
+                      <th className="px-3 py-2.5">Full Name</th>
+                      <th className="px-3 py-2.5">Bank Name</th>
+                      <th className="px-3 py-2.5">Branch Name</th>
+                      <th className="px-3 py-2.5">Bank Code</th>
+                      <th className="px-3 py-2.5">Branch Code</th>
+                      <th className="px-3 py-2.5">Account No.</th>
+                      <th className="px-3 py-2.5 text-right"> </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bankAccounts.map((account, index) => (
+                      <tr key={index} className="border-b border-slate-100 last:border-b-0">
+                        <td className="px-2 py-2">
+                          <input
+                            value={account.fullName}
+                            onChange={(e) => updateBankAccount(index, "fullName", e.target.value)}
+                            className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <ListAutocompleteInput
+                            name={`company-bank-name-${index}`}
+                            value={account.bankName}
+                            onChange={(next) => updateBankAccount(index, "bankName", next)}
+                            options={companyBankNameOptions}
+                            className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                            placeholder="Choose a bank"
+                            showAllOnFocus
+                            maxSuggestions={200}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            value={account.branchName}
+                            onChange={(e) => updateBankAccount(index, "branchName", e.target.value)}
+                            className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            value={account.bankCode}
+                            onChange={(e) => updateBankAccount(index, "bankCode", e.target.value)}
+                            className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            value={account.branchCode}
+                            onChange={(e) => updateBankAccount(index, "branchCode", e.target.value)}
+                            className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            value={account.accountNo}
+                            onChange={(e) => updateBankAccount(index, "accountNo", e.target.value)}
+                            className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                          />
+                        </td>
+                        <td className="px-2 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setBankAccounts((accounts) => accounts.filter((_, i) => i !== index))}
+                            className="whitespace-nowrap text-xs font-medium text-red-600 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-1">
+            {additionalMsg && (
+              <span className={`text-xs font-medium ${additionalMsg.includes("success") ? "text-green-600" : "text-red-500"}`}>
+                {additionalMsg}
+              </span>
+            )}
+            <button
+              onClick={saveAdditionalDetails}
+              disabled={additionalSaving}
+              className="rounded-lg bg-[var(--primary)] px-5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {additionalSaving ? "Saving..." : "Save Company Statutory & Banking Details"}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 p-6 shadow-sm ring-1 ring-slate-100">
         <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -496,144 +824,6 @@ export function CompanyProfileContent() {
         </div>
       </div>
 
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="section-title">
-          <h3>Company Details</h3>
-        </div>
-        <div className="space-y-4 px-1 py-3">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Company Name *</label>
-              <input
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Registration No.</label>
-              <input
-                value={companyRegNo}
-                onChange={(e) => setCompanyRegNo(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Default currency</label>
-              <CurrencySearchCombobox
-                value={defaultCurrency}
-                onValueChange={(v) => setDefaultCurrency(v.toUpperCase())}
-              />
-              <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">
-                Used as the default for recruitment salary ranges and other monetary fields.
-              </p>
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Address Line 1</label>
-            <input
-              value={companyAddress1}
-              onChange={(e) => setCompanyAddress1(e.target.value)}
-              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Address Line 2</label>
-            <input
-              value={companyAddress2}
-              onChange={(e) => setCompanyAddress2(e.target.value)}
-              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-            />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">City</label>
-              <input
-                value={companyCity}
-                onChange={(e) => setCompanyCity(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">State / Province</label>
-              <input
-                value={companyState}
-                onChange={(e) => setCompanyState(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Postal Code</label>
-              <input
-                value={companyPostalCode}
-                onChange={(e) => setCompanyPostalCode(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Country</label>
-            <input
-              value={companyCountry}
-              onChange={(e) => setCompanyCountry(e.target.value)}
-              className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-            />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Phone</label>
-              <PhoneInput
-                value={companyPhone}
-                onChange={(e) => setCompanyPhone(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Email</label>
-              <EmailInput
-                value={companyEmail}
-                onChange={(e) => setCompanyEmail(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Website</label>
-              <input
-                value={companyWebsite}
-                onChange={(e) => setCompanyWebsite(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-end gap-3 pt-1">
-            {companyMsg && (
-              <span className={`text-xs font-medium ${companyMsg.includes("success") ? "text-green-600" : "text-red-500"}`}>
-                {companyMsg}
-              </span>
-            )}
-            <button
-              onClick={saveCompanyDetails}
-              disabled={companySaving}
-              className="rounded-lg bg-[var(--primary)] px-5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-            >
-              {companySaving ? "Saving..." : "Save Company Details"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="section-title">
-          <h3>Connect mobile app</h3>
-        </div>
-        <div className="space-y-4 px-1 py-3">
-          <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
-            Employees scan this QR code in the <strong>OpenSky HRM</strong> mobile app to connect to this
-            company&apos;s backend. You can also share the backend URL manually if scanning is not possible.
-          </p>
-          <MobileConnectionQr companyName={companyName} />
-        </div>
-      </div>
     </>
   );
 }

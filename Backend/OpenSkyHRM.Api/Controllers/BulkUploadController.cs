@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
@@ -1118,12 +1119,25 @@ public partial class BulkUploadController : ControllerBase
             return BadRequest("No file uploaded.");
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (ext != ".xlsx" && ext != ".xls")
-            return BadRequest("Only .xlsx or .xls files are supported.");
+        if (ext is not (".xlsx" or ".xls" or ".csv" or ".txt"))
+            return BadRequest("Only .xlsx, .xls, .csv or .txt files are supported.");
 
         var employees = await _db.Employees.Where(e => !e.IsDeleted)
             .Select(e => new { e.Id, e.EmployeeCode, e.FirstName, e.LastName }).ToListAsync();
-        var leaveTypes = await _db.LeaveTypes.Where(lt => !lt.IsDeleted && lt.IsActive).ToListAsync();
+        var employeeByCode = new Dictionary<string, (Guid Id, string EmployeeCode)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in employees)
+        {
+            if (string.IsNullOrWhiteSpace(e.EmployeeCode)) continue;
+            var trimmed = e.EmployeeCode.Trim();
+            employeeByCode.TryAdd(trimmed, (e.Id, trimmed));
+            employeeByCode.TryAdd(LeaveBalanceImportRules.NormalizeEmployeeCode(trimmed), (e.Id, trimmed));
+        }
+        var leaveTypes = await _db.LeaveTypes.Where(lt => !lt.IsDeleted).ToListAsync();
+        var entitlementTypeIds = (await _db.LeaveEntitlementRules
+            .Where(r => r.IsActive && !r.IsDeleted)
+            .Select(r => r.LeaveTypeId)
+            .Distinct()
+            .ToListAsync()).ToHashSet();
         var existingBalances = await _db.LeaveBalances.ToListAsync();
         var existingLeaveRequests = await _db.LeaveRequests
             .Where(r => !r.IsDeleted &&
@@ -1133,41 +1147,53 @@ public partial class BulkUploadController : ControllerBase
         var results = new List<LeaveBalanceRowResult>();
         int created = 0, updated = 0, skipped = 0;
 
-        using var stream = file.OpenReadStream();
-        using var wb = new XLWorkbook(stream);
-        var ws = wb.Worksheets.FirstOrDefault(s =>
-                string.Equals(s.Name, "LeaveBalances", StringComparison.OrdinalIgnoreCase))
-            ?? wb.Worksheets.FirstOrDefault(s =>
-            {
-                var headers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                for (int c = 1; c <= (s.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
-                {
-                    var h = NormalizeImportHeaderKey(GetCellTrimmedDisplayText(s.Cell(1, c)));
-                    if (!string.IsNullOrEmpty(h)) headers.Add(h);
-                }
-                return headers.Contains("Employee Code") && headers.Contains("Leave Type") && headers.Contains("Year");
-            });
-        if (ws is null)
-            return BadRequest("Could not find a LeaveBalances sheet. Fill the LeaveBalances sheet (not Employees or LeaveTypes) and upload again.");
-
-        var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int c = 1; c <= (ws.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
+        using var stream = new MemoryStream();
+        await file.CopyToAsync(stream);
+        stream.Position = 0;
+        XLWorkbook wb;
+        try
         {
-            var key = NormalizeImportHeaderKey(GetCellTrimmedDisplayText(ws.Cell(1, c)));
-            if (!string.IsNullOrEmpty(key))
-                headerMap[key] = c;
+            wb = OpenLeaveBalanceWorkbook(stream, ext);
+        }
+        catch (Exception)
+        {
+            return BadRequest("Could not read the file. Use the leave-balance template or a CSV/TXT file with Employee Code, Leave Type, and Year columns.");
+        }
+        using (wb)
+        {
+        var layout = FindLeaveBalanceImportLayout(wb);
+        if (layout is null)
+            return BadRequest("Could not find leave-balance columns. Fill Employee Code, Leave Type, and Year (Excel LeaveBalances sheet, or a CSV/TXT file with those headers) and upload again.");
+
+        var (ws, headerRow, headerMap) = layout.Value;
+
+        int? Col(string logicalName)
+        {
+            if (LeaveBalanceImportRules.HeaderAliases.TryGetValue(logicalName, out var aliases))
+            {
+                foreach (var alias in aliases)
+                {
+                    if (headerMap.TryGetValue(NormalizeImportHeaderKey(alias), out int aliased))
+                        return aliased;
+                }
+            }
+            if (headerMap.TryGetValue(NormalizeImportHeaderKey(logicalName), out int c))
+                return c;
+            return null;
         }
 
         string? Cell(IXLRow row, string colName)
         {
-            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
-            return GetCellTrimmedDisplayText(row.Cell(c));
+            var c = Col(colName);
+            if (c is null) return null;
+            return GetCellTrimmedDisplayText(row.Cell(c.Value));
         }
 
         decimal? DecCell(IXLRow row, string colName)
         {
-            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
-            var cell = row.Cell(c);
+            var c = Col(colName);
+            if (c is null) return null;
+            var cell = row.Cell(c.Value);
             if (cell.DataType == XLDataType.Number) return (decimal)cell.GetDouble();
             var s = GetCellTrimmedDisplayText(cell);
             if (s != null && decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out var d)) return d;
@@ -1177,20 +1203,22 @@ public partial class BulkUploadController : ControllerBase
 
         DateTime? DateCell(IXLRow row, string colName)
         {
-            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return null;
-            return ParseExcelDate(row.Cell(c));
+            var c = Col(colName);
+            if (c is null) return null;
+            return ParseExcelDate(row.Cell(c.Value));
         }
 
         bool HasMeaningfulDateText(IXLRow row, string colName)
         {
-            if (!headerMap.TryGetValue(NormalizeImportHeaderKey(colName), out int c)) return false;
-            var cell = row.Cell(c);
+            var c = Col(colName);
+            if (c is null) return false;
+            var cell = row.Cell(c.Value);
             if (cell.DataType == XLDataType.Blank) return false;
             return !IsEmptyImportToken(GetCellTrimmedDisplayText(cell));
         }
 
-        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
-        for (int r = 2; r <= lastRow; r++)
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? headerRow;
+        for (int r = headerRow + 1; r <= lastRow; r++)
         {
             var row = ws.Row(r);
             var errors = new List<string>();
@@ -1202,6 +1230,7 @@ public partial class BulkUploadController : ControllerBase
             var entitled = DecCell(row, "Entitled") ?? 0;
             var used = DecCell(row, "Used");
             var carried = DecCell(row, "Carried Forward");
+            var remainingCol = DecCell(row, "Remaining");
             var reason = Cell(row, "Reason");
 
             var startRaw = HasMeaningfulDateText(row, "Start Date");
@@ -1209,12 +1238,22 @@ public partial class BulkUploadController : ControllerBase
             var startDate = DateCell(row, "Start Date");
             var endDate = DateCell(row, "End Date");
 
+            if (string.IsNullOrEmpty(empCode) && string.IsNullOrEmpty(leaveTypeName) && string.IsNullOrEmpty(yearStr)
+                && entitled <= 0 && used is null && carried is null && remainingCol is null)
+                continue;
+
             if (string.IsNullOrEmpty(empCode)) errors.Add("Employee Code is required");
             if (string.IsNullOrEmpty(leaveTypeName)) errors.Add("Leave Type is required");
-            if (string.IsNullOrEmpty(yearStr) || !int.TryParse(yearStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var year))
+            if (!TryParseImportYear(yearStr, DateCell(row, "Year"), out var year))
             {
                 errors.Add("Valid Year is required");
                 year = 0;
+            }
+
+            if (entitled <= 0 && (used is null or 0m) && (carried is null or 0m) && remainingCol > 0)
+            {
+                entitled = remainingCol.Value;
+                notes.Add("Remaining/Balance column imported as this year's entitlement");
             }
 
             if (startRaw && startDate is null)
@@ -1228,10 +1267,21 @@ public partial class BulkUploadController : ControllerBase
                 endDate = null;
             }
 
-            var emp = employees.FirstOrDefault(e => e.EmployeeCode.Equals(empCode, StringComparison.OrdinalIgnoreCase));
+            (Guid Id, string EmployeeCode)? emp = null;
+            if (!string.IsNullOrEmpty(empCode))
+            {
+                if (employeeByCode.TryGetValue(empCode.Trim(), out var hit)
+                    || employeeByCode.TryGetValue(LeaveBalanceImportRules.NormalizeEmployeeCode(empCode), out hit))
+                    emp = hit;
+            }
             if (emp is null && !string.IsNullOrEmpty(empCode)) errors.Add($"Employee '{empCode}' not found");
 
-            var lt = leaveTypes.FirstOrDefault(t => t.Name.Equals(leaveTypeName, StringComparison.OrdinalIgnoreCase));
+            var lt = LeaveBalanceImportRules.ResolveLeaveType(
+                leaveTypes,
+                leaveTypeName,
+                t => t.Name,
+                t => t.Code,
+                t => t.IsActive);
             if (lt is null && !string.IsNullOrEmpty(leaveTypeName)) errors.Add($"Leave Type '{leaveTypeName}' not found");
 
             if (errors.Count > 0)
@@ -1241,31 +1291,41 @@ public partial class BulkUploadController : ControllerBase
                 continue;
             }
 
+            var isGrant = LeaveBalanceImportRules.IsNonExpiringGrantType(lt!.Name, lt.Code);
+            var (entitledVal, carriedVal, convertedStock) = LeaveBalanceImportRules.MapImportedStock(
+                entitled,
+                carried ?? 0,
+                entitlementTypeIds.Contains(lt.Id),
+                isGrant);
+            if (convertedStock)
+                notes.Add("Carried Forward stored as this year's entitlement so it is not treated as expired carry-forward");
+
             var existing = existingBalances.FirstOrDefault(b =>
-                b.EmployeeId == emp!.Id && b.LeaveTypeId == lt!.Id && b.Year == year);
+                b.EmployeeId == emp!.Value.Id && b.LeaveTypeId == lt.Id && b.Year == year);
 
             string status;
             if (existing != null)
             {
-                existing.Entitled = entitled;
+                existing.Entitled = entitledVal;
                 existing.Used = used ?? 0;
-                existing.CarriedForward = carried ?? 0;
-                existing.BroughtForwardDays = Math.Max(existing.BroughtForwardDays, carried ?? 0);
+                existing.CarriedForward = carriedVal;
+                existing.BroughtForwardDays = Math.Max(existing.BroughtForwardDays, Math.Max(carriedVal, entitledVal));
+                existing.IsImported = true;
                 updated++;
                 status = "Updated";
             }
             else
             {
-                var cf = carried ?? 0;
                 var balance = new LeaveBalance
                 {
-                    EmployeeId = emp!.Id,
-                    LeaveTypeId = lt!.Id,
+                    EmployeeId = emp!.Value.Id,
+                    LeaveTypeId = lt.Id,
                     Year = year,
-                    Entitled = entitled,
+                    Entitled = entitledVal,
                     Used = used ?? 0,
-                    CarriedForward = cf,
-                    BroughtForwardDays = cf,
+                    CarriedForward = carriedVal,
+                    BroughtForwardDays = Math.Max(carriedVal, entitledVal),
+                    IsImported = true,
                 };
                 _db.LeaveBalances.Add(balance);
                 existingBalances.Add(balance);
@@ -1287,7 +1347,7 @@ public partial class BulkUploadController : ControllerBase
                 var totalDays = (decimal)((end.Date - start.Date).TotalDays + 1);
 
                 var exactMatch = existingLeaveRequests.FirstOrDefault(lr =>
-                    lr.EmployeeId == emp!.Id &&
+                    lr.EmployeeId == emp!.Value.Id &&
                     lr.LeaveTypeId == lt!.Id &&
                     lr.StartDate.Date == start.Date &&
                     lr.EndDate.Date == end.Date);
@@ -1307,7 +1367,7 @@ public partial class BulkUploadController : ControllerBase
                 else
                 {
                     var overlaps = existingLeaveRequests.Any(lr =>
-                        lr.EmployeeId == emp!.Id &&
+                        lr.EmployeeId == emp!.Value.Id &&
                         lr.StartDate.Date <= end.Date &&
                         lr.EndDate.Date >= start.Date);
                     if (overlaps)
@@ -1318,7 +1378,7 @@ public partial class BulkUploadController : ControllerBase
                     {
                         var leaveRequest = new LeaveRequest
                         {
-                            EmployeeId = emp!.Id,
+                            EmployeeId = emp!.Value.Id,
                             LeaveTypeId = lt!.Id,
                             StartDate = start,
                             EndDate = end,
@@ -1339,7 +1399,172 @@ public partial class BulkUploadController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        return Ok(new LeaveBalanceUploadResult(created, updated, skipped, lastRow - 1, results));
+        return Ok(new LeaveBalanceUploadResult(created, updated, skipped, lastRow - headerRow, results));
+        }
+    }
+
+    private static XLWorkbook OpenLeaveBalanceWorkbook(Stream stream, string ext)
+    {
+        if (LooksLikeLeaveBalanceZipPackage(stream))
+            return new XLWorkbook(stream);
+        if (LooksLikeLeaveBalanceDelimitedText(stream) || ext is ".csv" or ".txt")
+            return CreateLeaveBalanceWorkbookFromDelimitedText(stream);
+        return new XLWorkbook(stream);
+    }
+
+    private static (IXLWorksheet Worksheet, int HeaderRow, Dictionary<string, int> HeaderMap)? FindLeaveBalanceImportLayout(XLWorkbook wb)
+    {
+        var sheets = wb.Worksheets
+            .OrderByDescending(s => string.Equals(s.Name, "LeaveBalances", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var sheet in sheets)
+        {
+            var lastRow = Math.Min(sheet.LastRowUsed()?.RowNumber() ?? 0, 15);
+            for (var r = 1; r <= lastRow; r++)
+            {
+                var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                for (int c = 1; c <= (sheet.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
+                {
+                    var key = NormalizeImportHeaderKey(GetCellTrimmedDisplayText(sheet.Cell(r, c)));
+                    if (!string.IsNullOrEmpty(key))
+                        headerMap[key] = c;
+                }
+
+                if (HasLeaveBalanceRequiredHeaders(headerMap))
+                    return (sheet, r, headerMap);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasLeaveBalanceRequiredHeaders(Dictionary<string, int> headerMap)
+    {
+        bool Has(string logical)
+        {
+            if (!LeaveBalanceImportRules.HeaderAliases.TryGetValue(logical, out var aliases))
+                aliases = [logical];
+            return aliases.Any(alias => headerMap.ContainsKey(NormalizeImportHeaderKey(alias)));
+        }
+
+        return Has("Employee Code") && Has("Leave Type") && Has("Year");
+    }
+
+    private static bool TryParseImportYear(string? yearStr, DateTime? yearDate, out int year)
+    {
+        year = 0;
+        if (!string.IsNullOrWhiteSpace(yearStr)
+            && int.TryParse(yearStr.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out year)
+            && year is >= 1990 and <= 2100)
+            return true;
+
+        if (yearDate is not null && yearDate.Value.Year is >= 1990 and <= 2100)
+        {
+            year = yearDate.Value.Year;
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(yearStr))
+            return false;
+
+        foreach (var culture in new[] { CultureInfo.GetCultureInfo("en-GB"), CultureInfo.CurrentCulture, CultureInfo.InvariantCulture })
+        {
+            if (DateTime.TryParse(yearStr, culture, DateTimeStyles.None, out var parsed) && parsed.Year is >= 1990 and <= 2100)
+            {
+                year = parsed.Year;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool LooksLikeLeaveBalanceZipPackage(Stream stream)
+    {
+        var buf = new byte[2];
+        var read = stream.Read(buf, 0, 2);
+        stream.Position = 0;
+        return read >= 2 && buf[0] == (byte)'P' && buf[1] == (byte)'K';
+    }
+
+    private static bool LooksLikeLeaveBalanceDelimitedText(Stream stream)
+    {
+        var buf = new byte[512];
+        var read = stream.Read(buf, 0, buf.Length);
+        stream.Position = 0;
+        if (read <= 0) return false;
+        var text = Encoding.UTF8.GetString(buf, 0, read);
+        if (text.Contains('\0', StringComparison.Ordinal)) return false;
+        return text.Contains(',') || text.Contains('\t') || text.Contains(';');
+    }
+
+    private static XLWorkbook CreateLeaveBalanceWorkbookFromDelimitedText(Stream stream)
+    {
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+        var raw = reader.ReadToEnd();
+        var lines = raw.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length == 0)
+            throw new InvalidOperationException("The file is empty.");
+
+        var delimiter = DetectLeaveBalanceDelimiter(lines[0]);
+        var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("LeaveBalances");
+        for (var r = 0; r < lines.Length; r++)
+        {
+            var cells = SplitLeaveBalanceDelimitedLine(lines[r], delimiter);
+            for (var c = 0; c < cells.Count; c++)
+                ws.Cell(r + 1, c + 1).Value = cells[c];
+        }
+
+        return wb;
+    }
+
+    private static char DetectLeaveBalanceDelimiter(string headerLine)
+    {
+        var comma = headerLine.Count(ch => ch == ',');
+        var tab = headerLine.Count(ch => ch == '\t');
+        var semi = headerLine.Count(ch => ch == ';');
+        if (tab >= comma && tab >= semi && tab > 0) return '\t';
+        if (semi >= comma && semi > 0) return ';';
+        return ',';
+    }
+
+    private static List<string> SplitLeaveBalanceDelimitedLine(string line, char delimiter)
+    {
+        var cells = new List<string>();
+        var current = new StringBuilder();
+        var inQuotes = false;
+        for (var i = 0; i < line.Length; i++)
+        {
+            var ch = line[i];
+            if (ch == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    current.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (ch == delimiter && !inQuotes)
+            {
+                cells.Add(current.ToString().Trim());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(ch);
+            }
+        }
+
+        cells.Add(current.ToString().Trim());
+        return cells;
     }
 
     private static readonly string[] ExcelDateFormats =
