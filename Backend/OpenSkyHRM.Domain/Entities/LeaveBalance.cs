@@ -14,7 +14,15 @@ public class LeaveBalance : AuditableEntity
     public decimal BroughtForwardDays { get; set; }
     /// <summary>Set when the row came from leave-balance Excel/CSV import so Recalculate does not replace it and the balances grid can list only imported employees.</summary>
     public bool IsImported { get; set; }
-    public decimal Remaining => Entitled + CarriedForward - Used;
+    public decimal Remaining
+    {
+        get
+        {
+            if (Entitled > 0 && CarriedForward > 0 && CarriedForward == Entitled - Used)
+                return Entitled - Used;
+            return Entitled + CarriedForward - Used;
+        }
+    }
 
     public Guid EmployeeId { get; set; }
     public Employee Employee { get; set; } = null!;

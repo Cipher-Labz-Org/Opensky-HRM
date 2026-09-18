@@ -401,11 +401,11 @@ function leaveBalanceBarColor(name: string, index: number): string {
 
 function leaveBalanceTotalDays(row: LeaveBalanceWidgetRow): number {
   const entitled = Number(row.entitled) || 0;
-  const carried = Number(row.carriedForward) || 0;
   const used = Number(row.used) || 0;
   const remaining = Number(row.remaining) || 0;
-  if (entitled + carried > 0) return entitled + carried;
-  if (used + remaining > 0) return used + remaining;
+  const total = remaining + used;
+  if (total > 0) return total;
+  if (entitled > 0) return entitled;
   return 1;
 }
 

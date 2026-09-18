@@ -22,6 +22,15 @@ export function clampShortLeaveHours(hours: number): number {
   return Math.min(4, Math.max(1, roundLeaveHours(hours)));
 }
 
+/** Remaining for every leave type: Entitled − Used when CF is the closing balance, else Entitled + CF − Used. */
+export function computeLeaveRemaining(entitled: number, used: number, carriedForward: number): number {
+  const e = Number(entitled) || 0;
+  const u = Number(used) || 0;
+  const cf = Number(carriedForward) || 0;
+  if (e > 0 && cf > 0 && Math.abs(cf - (e - u)) < 1e-6) return e - u;
+  return e + cf - u;
+}
+
 export function parseOptionalHours(value: FormDataEntryValue | null): number | null {
   const raw = String(value ?? "").trim();
   if (!raw) return null;

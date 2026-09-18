@@ -30,12 +30,29 @@ public class LeaveEntitlementService : ILeaveEntitlementService
 
         foreach (var rule in rules)
         {
-            var existing = await _db.LeaveBalances
-                .FirstOrDefaultAsync(b => b.EmployeeId == employeeId && b.LeaveTypeId == rule.LeaveTypeId && b.Year == year);
+            var yearStart = new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var yearEnd = new DateTime(year, 12, 31, 0, 0, 0, DateTimeKind.Utc);
+            var existingList = await _db.LeaveBalances
+                .Where(b => b.EmployeeId == employeeId && b.LeaveTypeId == rule.LeaveTypeId && (
+                    b.Year == year
+                    || (b.PeriodStart != null && b.PeriodEnd != null && b.PeriodStart <= yearEnd && b.PeriodEnd >= yearStart)))
+                .ToListAsync();
+            var existing = existingList.FirstOrDefault(b => b.Year == year) ?? existingList.FirstOrDefault();
+            foreach (var extra in existingList.Where(b =>
+                         !ReferenceEquals(b, existing)
+                         && !b.IsImported
+                         && b.Used == 0
+                         && b.CarriedForward == 0
+                         && b.BroughtForwardDays == 0))
+                _db.LeaveBalances.Remove(extra);
 
             if (!IsRuleApplicable(rule.RuleConfig, employee.Gender))
             {
-                if (existing != null)
+                if (existing != null
+                    && !existing.IsImported
+                    && existing.Used == 0
+                    && existing.CarriedForward == 0
+                    && existing.BroughtForwardDays == 0)
                     _db.LeaveBalances.Remove(existing);
                 continue;
             }
@@ -52,11 +69,10 @@ public class LeaveEntitlementService : ILeaveEntitlementService
 
             if (existing != null)
             {
-                var preserveImported = existing.IsImported
+                if (existing.IsImported
                     || existing.BroughtForwardDays > 0
                     || existing.Used > 0
-                    || existing.CarriedForward > 0;
-                if (preserveImported)
+                    || existing.CarriedForward > 0)
                     continue;
 
                 existing.Entitled = entitled;
@@ -66,7 +82,7 @@ public class LeaveEntitlementService : ILeaveEntitlementService
                 existing.Used = Math.Max(existing.Used, requestUsed);
                 updated++;
             }
-            else
+            else if (entitled > 0)
             {
                 _db.LeaveBalances.Add(new LeaveBalance
                 {

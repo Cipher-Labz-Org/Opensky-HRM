@@ -432,7 +432,7 @@ function EmployeeUploadSection() {
               {uploading && (
                 <span className="mr-2 inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-[#2B7DE9]" aria-hidden />
               )}
-              {uploading ? "Uploading…" : "Upload & import"}
+              {uploading ? "Importing…" : "Upload & import"}
             </Button>
             <InlinePageAlert message={error} className="min-w-0 flex-1 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800 scroll-mt-20" />
           </div>
@@ -597,7 +597,7 @@ function LeaveBalanceUploadSection() {
             <h4 className="mb-2 text-sm font-semibold text-slate-800">How to import leave balances</h4>
             <ol className="list-inside list-decimal space-y-1 text-xs text-slate-600">
               <li>Click <strong>Download template</strong> to get the Excel file with pre-formatted columns.</li>
-              <li>Fill the <strong>LeaveBalances</strong> sheet (or a CSV/TXT file with the same columns): <strong>Employee Code, Leave Type, Year</strong> are required. Entitled, Used, and Carried Forward default to 0 if blank. A Remaining/Balance column is used when Entitled is blank.</li>
+              <li>Fill the <strong>LeaveBalances</strong> sheet (or a CSV/TXT file with the same columns): <strong>Employee Code, Leave Type, Year</strong> are required. Entitled, Used, and Carried Forward default to 0 if blank. Remaining is <strong>Entitled + extra carry − Used</strong>. If Carried Forward equals Entitled − Used, it is treated as remaining (not extra days), so 14 entitled / 2.5 used / 11.5 carry shows <strong>11.5 remaining</strong>, not 23.</li>
               <li>Optional dates: use <strong>Start Date</strong> and <strong>End Date</strong> as <code>dd/MM/yyyy</code> (for example 1/1/2026 and 31/12/2026). A full-year range sets the entitlement period. A shorter range with both dates creates an approved leave record. One date alone is ignored and does not skip the row.</li>
               <li>Leave type names can differ slightly from the catalog (for example <strong>Freelancer Special Grant</strong> vs Freelances Special Grant, or <strong>Compensatory off</strong>). Comp-off and special-grant stock in Carried Forward is imported as this year’s entitlement so Leave &amp; Absence does not treat it as expired 3-month carry-forward.</li>
               <li>If a balance already exists for the same employee + leave type + year, it will be <strong>updated</strong>. Matching leave dates are updated; overlapping dates are skipped.</li>

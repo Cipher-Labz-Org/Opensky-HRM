@@ -218,6 +218,13 @@ public partial class BulkUploadController : ControllerBase
         var results = new List<RowResult>();
         int created = 0;
         int skipped = 0;
+        const int employeeSaveBatchSize = 100;
+        var pendingEmployees = new List<PendingEmployeeImport>();
+        var departmentsByName = ToIgnoreCaseLookup(departments, d => d.Name);
+        var businessUnitsByName = ToIgnoreCaseLookup(businessUnits, b => b.Name);
+        var gradesByName = ToIgnoreCaseLookup(grades, g => g.Name);
+        var locationsByName = ToIgnoreCaseLookup(locations, l => l.Name);
+        var jobTitlesByName = ToIgnoreCaseLookup(jobTitles, j => j.Title);
 
         using var stream = file.OpenReadStream();
         XLWorkbook wb;
@@ -303,13 +310,17 @@ public partial class BulkUploadController : ControllerBase
             var genderStr = Cell(row, "Gender");
             var dobStr = DateCell(row, "Date of Birth");
             var joinStr = DateCell(row, "Joined Date");
+            var empCodePreview = Cell(row, "Employee Code");
+
+            if (IsEmptyEmployeeImportRow(firstName, lastName, emailWork, deptName, empCodePreview, genderStr))
+                continue;
 
             if (string.IsNullOrEmpty(firstName)) errors.Add("First Name is required");
             if (string.IsNullOrEmpty(lastName)) errors.Add("Last Name is required");
             if (string.IsNullOrEmpty(deptName)) errors.Add("Department is required");
             if (dobStr is null) errors.Add("Date of Birth is required");
             if (joinStr is null) errors.Add("Joined Date is required");
-            var dept = departments.FirstOrDefault(d => d.Name.Equals(deptName, StringComparison.OrdinalIgnoreCase));
+            departmentsByName.TryGetValue(deptName ?? "", out var dept);
             if (dept is null && !string.IsNullOrEmpty(deptName)) errors.Add($"Department '{deptName}' not found");
 
             Gender gender = Gender.Male;
@@ -329,7 +340,7 @@ public partial class BulkUploadController : ControllerBase
                     employmentType = canonEmpType;
             }
 
-            var empCodeRaw = Cell(row, "Employee Code");
+            var empCodeRaw = empCodePreview;
             var empCodeFromSheet = !string.IsNullOrEmpty(empCodeRaw);
             var empCode = empCodeRaw;
             if (!string.IsNullOrEmpty(empCode) && empCode.Length > MaxEmployeeCodeLength)
@@ -410,13 +421,13 @@ public partial class BulkUploadController : ControllerBase
             }
 
             var buName = Cell(row, "Business Unit");
-            var bu = buName != null ? businessUnits.FirstOrDefault(b => b.Name.Equals(buName, StringComparison.OrdinalIgnoreCase)) : null;
+            businessUnitsByName.TryGetValue(buName ?? "", out var bu);
             var gradeName = Cell(row, "Grade");
-            var grade = gradeName != null ? grades.FirstOrDefault(g => g.Name.Equals(gradeName, StringComparison.OrdinalIgnoreCase)) : null;
+            gradesByName.TryGetValue(gradeName ?? "", out var grade);
             var locName = Cell(row, "Location");
-            var loc = locName != null ? locations.FirstOrDefault(l => l.Name.Equals(locName, StringComparison.OrdinalIgnoreCase)) : null;
+            locationsByName.TryGetValue(locName ?? "", out var loc);
             var jtName = Cell(row, "Job Title");
-            var jt = jtName != null ? jobTitles.FirstOrDefault(j => j.Title.Equals(jtName, StringComparison.OrdinalIgnoreCase)) : null;
+            jobTitlesByName.TryGetValue(jtName ?? "", out var jt);
 
             var lifecycleStatus = defaultEmployeeStatusCode;
             var lifecycleRaw = Cell(row, "Employee Status");
@@ -511,11 +522,11 @@ public partial class BulkUploadController : ControllerBase
                 FirstName = firstName!,
                 MiddleName = Cell(row, "Middle Name"),
                 LastName = lastName!,
-                Email = resolvedEmail,
+                Email = EmployeeEmailHelper.ResolveForCreate(empCode!, resolvedEmail),
                 Phone = Cell(row, "Phone"),
-                DateOfBirth = DateTime.SpecifyKind(dobStr!.Value, DateTimeKind.Utc),
+                DateOfBirth = ToImportWallDate(dobStr!.Value),
                 Gender = gender,
-                JoinDate = DateTime.SpecifyKind(joinStr!.Value, DateTimeKind.Utc),
+                JoinDate = ToImportWallDate(joinStr!.Value),
                 Status = lifecycleStatus,
                 EmploymentType = employmentType,
                 DepartmentId = dept!.Id,
@@ -538,8 +549,8 @@ public partial class BulkUploadController : ControllerBase
                 EtfNumber = Cell(row, "ETF Number"),
                 DriversLicenseNumber = Cell(row, "Driver License Number"),
                 DriversLicenseType = Cell(row, "Driver License Type"),
-                LicenseIssueDate = DateCell(row, "License Issue Date") is DateTime lid ? DateTime.SpecifyKind(lid, DateTimeKind.Utc) : null,
-                LicenseExpiryDate = DateCell(row, "License Expiry Date") is DateTime led ? DateTime.SpecifyKind(led, DateTimeKind.Utc) : null,
+                LicenseIssueDate = ToImportWallDate(DateCell(row, "License Issue Date")),
+                LicenseExpiryDate = ToImportWallDate(DateCell(row, "License Expiry Date")),
                 DriversLicenseIssuingCountry = Cell(row, "License Issuing Country"),
                 HomeTelephone = Cell(row, "Home Telephone"),
                 WorkTelephone = Cell(row, "Work Telephone"),
@@ -563,96 +574,221 @@ public partial class BulkUploadController : ControllerBase
                 PermanentDistrict = Cell(row, "Permanent District"),
                 PermanentPollingDivision = Cell(row, "Permanent Polling Division"),
                 PermanentDistanceToOffice = Cell(row, "Permanent Distance to Office"),
-                ProbationEndDate = DateCell(row, "Probation End Date") is DateTime ped ? DateTime.SpecifyKind(ped, DateTimeKind.Utc) : null,
-                DateOfPermanency = DateCell(row, "Date of Permanency") is DateTime dop ? DateTime.SpecifyKind(dop, DateTimeKind.Utc) : null,
-                TerminationDate = DateCell(row, "Termination Date") is DateTime td ? DateTime.SpecifyKind(td, DateTimeKind.Utc) : null,
+                ProbationEndDate = ToImportWallDate(DateCell(row, "Probation End Date")),
+                DateOfPermanency = ToImportWallDate(DateCell(row, "Date of Permanency")),
+                TerminationDate = ToImportWallDate(DateCell(row, "Termination Date")),
                 TerminationReason = Cell(row, "Termination Reason"),
                 TerminationNote = Cell(row, "Termination Note"),
                 IsTopOfHierarchy = ParseYesNo(Cell(row, "Is Top of Hierarchy")),
             };
 
-            _db.Employees.Add(employee);
-            try
-            {
-                await _db.SaveChangesAsync();
-            }
-            catch (DbUpdateException ex)
-            {
-                DetachTrackedEmployee(employee);
-                skipped++;
-                results.Add(new RowResult(r, firstName!, lastName!, false, DescribeEmployeeImportSaveFailure(ex)));
-                continue;
-            }
-
             existingCodesForGeneration.Add(empCode!);
             reservedEmployeeCodes.Add(empCode!);
-            if (!string.IsNullOrEmpty(resolvedEmail))
-                existingEmailSet.Add(resolvedEmail);
+            var storedEmail = EmployeeEmailHelper.ResolveForCreate(empCode!, resolvedEmail);
+            if (!string.IsNullOrEmpty(storedEmail))
+                existingEmailSet.Add(storedEmail);
             if (!managerLookup.ContainsKey(empCode!))
                 managerLookup[empCode!] = employee.Id;
-            created++;
+
             var rowNotes = new List<string>();
             if (wantLogins && !empCodeFromSheet)
                 rowNotes.Add("Employee created; login skipped (Employee Code blank).");
-            results.Add(new RowResult(r, firstName!, lastName!, true, new List<string>(), rowNotes.Count > 0 ? rowNotes : null));
-            if (wantLogins && empCodeFromSheet)
-                loginJobs.Add((r, employee, empCode!));
-        }
 
-        var loginsCreated = 0;
-        if (wantLogins && loginJobs.Count > 0)
-        {
-            var employeeRoleId = await _db.SecurityRoles.AsNoTracking()
-                .Where(x => x.Code == "EMPLOYEE")
-                .Select(x => x.Id)
-                .FirstOrDefaultAsync();
-            if (employeeRoleId != Guid.Empty)
+            pendingEmployees.Add(new PendingEmployeeImport(
+                r, firstName!, lastName!, employee, empCode!, wantLogins && empCodeFromSheet,
+                rowNotes.Count > 0 ? rowNotes : null));
+
+            if (pendingEmployees.Count >= employeeSaveBatchSize)
             {
-                var defaultPasswordHash = BCrypt.Net.BCrypt.HashPassword(BulkImportDefaultLoginPassword);
-                foreach (var job in loginJobs)
-                {
-                    if (await _db.Users.AnyAsync(u => u.EmployeeId == job.Emp.Id && !u.IsDeleted))
-                        continue;
-
-                    string username;
-                    try
-                    {
-                        username = AllocateUsernameFromImportSheet(usernamesTaken, job.EmployeeCodeForLogin);
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        ReplaceRowNotes(results, job.Row, new List<string> { "Login not created: could not allocate a unique username." });
-                        continue;
-                    }
-
-                    var user = new User
-                    {
-                        Username = username,
-                        Email = job.Emp.Email,
-                        PasswordHash = defaultPasswordHash,
-                        MustChangePassword = true,
-                        IsActive = true,
-                        EmployeeId = job.Emp.Id,
-                    };
-                    user.UserRoles.Add(new UserRole { RoleId = employeeRoleId });
-                    _db.Users.Add(user);
-                    try
-                    {
-                        await _db.SaveChangesAsync();
-                        loginsCreated++;
-                        ReplaceRowNotes(results, job.Row, new List<string> { $"User login created (username: {username})." });
-                    }
-                    catch (DbUpdateException)
-                    {
-                        DetachTrackedUser(user);
-                        ReplaceRowNotes(results, job.Row, new List<string> { "Login not created: could not save user (duplicate username or email)." });
-                    }
-                }
+                var flushed = await FlushPendingEmployeesAsync(pendingEmployees, loginJobs, results);
+                created += flushed.Created;
+                skipped += flushed.Skipped;
             }
         }
 
-        return Ok(new UploadResult(created, skipped, lastRow - 1, loginsCreated, results));
+        var remaining = await FlushPendingEmployeesAsync(pendingEmployees, loginJobs, results);
+        created += remaining.Created;
+        skipped += remaining.Skipped;
+
+        var loginsCreated = 0;
+        if (wantLogins && loginJobs.Count > 0)
+            loginsCreated = await CreateImportedEmployeeLoginsAsync(loginJobs, usernamesTaken, results);
+
+        return Ok(new UploadResult(created, skipped, created + skipped, loginsCreated, results));
         } // using (wb)
+    }
+
+    private readonly record struct PendingEmployeeImport(
+        int Row,
+        string FirstName,
+        string LastName,
+        Employee Employee,
+        string EmployeeCode,
+        bool WantLogin,
+        List<string>? Notes);
+
+    private readonly record struct FlushCounts(int Created, int Skipped);
+
+    private static Dictionary<string, T> ToIgnoreCaseLookup<T>(IEnumerable<T> items, Func<T, string> key)
+    {
+        var map = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            var k = key(item);
+            if (!string.IsNullOrWhiteSpace(k) && !map.ContainsKey(k))
+                map[k] = item;
+        }
+
+        return map;
+    }
+
+    private static bool IsEmptyEmployeeImportRow(params string?[] values)
+        => values.All(string.IsNullOrWhiteSpace);
+
+    private async Task<FlushCounts> FlushPendingEmployeesAsync(
+        List<PendingEmployeeImport> pending,
+        List<(int Row, Employee Emp, string EmployeeCodeForLogin)> loginJobs,
+        List<RowResult> results)
+    {
+        if (pending.Count == 0)
+            return new FlushCounts(0, 0);
+
+        foreach (var item in pending)
+            _db.Employees.Add(item.Employee);
+
+        try
+        {
+            await _db.SaveChangesAsync();
+            foreach (var item in pending)
+            {
+                results.Add(new RowResult(item.Row, item.FirstName, item.LastName, true, new List<string>(), item.Notes));
+                if (item.WantLogin)
+                    loginJobs.Add((item.Row, item.Employee, item.EmployeeCode));
+            }
+
+            var created = pending.Count;
+            pending.Clear();
+            return new FlushCounts(created, 0);
+        }
+        catch (DbUpdateException)
+        {
+            foreach (var item in pending)
+                DetachTrackedEmployee(item.Employee);
+        }
+
+        var createdOneByOne = 0;
+        var skippedOneByOne = 0;
+        foreach (var item in pending)
+        {
+            _db.Employees.Add(item.Employee);
+            try
+            {
+                await _db.SaveChangesAsync();
+                createdOneByOne++;
+                results.Add(new RowResult(item.Row, item.FirstName, item.LastName, true, new List<string>(), item.Notes));
+                if (item.WantLogin)
+                    loginJobs.Add((item.Row, item.Employee, item.EmployeeCode));
+            }
+            catch (DbUpdateException ex)
+            {
+                DetachTrackedEmployee(item.Employee);
+                skippedOneByOne++;
+                results.Add(new RowResult(item.Row, item.FirstName, item.LastName, false, DescribeEmployeeImportSaveFailure(ex)));
+            }
+        }
+
+        pending.Clear();
+        return new FlushCounts(createdOneByOne, skippedOneByOne);
+    }
+
+    private async Task<int> CreateImportedEmployeeLoginsAsync(
+        List<(int Row, Employee Emp, string EmployeeCodeForLogin)> loginJobs,
+        HashSet<string> usernamesTaken,
+        List<RowResult> results)
+    {
+        var employeeRoleId = await _db.SecurityRoles.AsNoTracking()
+            .Where(x => x.Code == "EMPLOYEE")
+            .Select(x => x.Id)
+            .FirstOrDefaultAsync();
+        if (employeeRoleId == Guid.Empty)
+            return 0;
+
+        var jobIds = loginJobs.Select(j => j.Emp.Id).ToList();
+        var alreadyLinked = (await _db.Users.AsNoTracking()
+                .Where(u => !u.IsDeleted && u.EmployeeId != null && jobIds.Contains(u.EmployeeId.Value))
+                .Select(u => u.EmployeeId!.Value)
+                .ToListAsync())
+            .ToHashSet();
+
+        var defaultPasswordHash = BCrypt.Net.BCrypt.HashPassword(BulkImportDefaultLoginPassword);
+        var pendingUsers = new List<(int Row, User User, string Username)>();
+
+        foreach (var job in loginJobs)
+        {
+            if (alreadyLinked.Contains(job.Emp.Id))
+                continue;
+
+            string username;
+            try
+            {
+                username = AllocateUsernameFromImportSheet(usernamesTaken, job.EmployeeCodeForLogin);
+            }
+            catch (InvalidOperationException)
+            {
+                ReplaceRowNotes(results, job.Row, new List<string> { "Login not created: could not allocate a unique username." });
+                continue;
+            }
+
+            var user = new User
+            {
+                Username = username,
+                Email = string.IsNullOrWhiteSpace(job.Emp.Email)
+                    ? EmployeeEmailHelper.ResolveForCreate(job.EmployeeCodeForLogin, null)
+                    : job.Emp.Email,
+                PasswordHash = defaultPasswordHash,
+                MustChangePassword = true,
+                IsActive = true,
+                EmployeeId = job.Emp.Id,
+            };
+            user.UserRoles.Add(new UserRole { RoleId = employeeRoleId });
+            _db.Users.Add(user);
+            pendingUsers.Add((job.Row, user, username));
+        }
+
+        if (pendingUsers.Count == 0)
+            return 0;
+
+        try
+        {
+            await _db.SaveChangesAsync();
+            foreach (var item in pendingUsers)
+                ReplaceRowNotes(results, item.Row, new List<string> { $"User login created (username: {item.Username})." });
+            return pendingUsers.Count;
+        }
+        catch (DbUpdateException)
+        {
+            foreach (var item in pendingUsers)
+                DetachTrackedUser(item.User);
+        }
+
+        var created = 0;
+        foreach (var item in pendingUsers)
+        {
+            _db.Users.Add(item.User);
+            try
+            {
+                await _db.SaveChangesAsync();
+                created++;
+                ReplaceRowNotes(results, item.Row, new List<string> { $"User login created (username: {item.Username})." });
+            }
+            catch (DbUpdateException)
+            {
+                DetachTrackedUser(item.User);
+                ReplaceRowNotes(results, item.Row, new List<string> { "Login not created: could not save user (duplicate username or email)." });
+            }
+        }
+
+        return created;
     }
 
     private static void ReplaceRowNotes(List<RowResult> results, int row, List<string> notes)
@@ -728,6 +864,12 @@ public partial class BulkUploadController : ControllerBase
         }
     }
 
+    private static DateTime ToImportWallDate(DateTime value) =>
+        DateTime.SpecifyKind(value.Date, DateTimeKind.Unspecified);
+
+    private static DateTime? ToImportWallDate(DateTime? value) =>
+        value is DateTime dt ? ToImportWallDate(dt) : null;
+
     private static string? ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
     {
         var work = NormalizeImportEmail(workEmail);
@@ -763,6 +905,13 @@ public partial class BulkUploadController : ControllerBase
 
     private void DetachTrackedUser(User user)
     {
+        foreach (var role in user.UserRoles.ToList())
+        {
+            var roleEntry = _db.Entry(role);
+            if (roleEntry.State != EntityState.Detached)
+                roleEntry.State = EntityState.Detached;
+        }
+
         var entry = _db.Entry(user);
         if (entry.State != EntityState.Detached)
             entry.State = EntityState.Detached;
@@ -1292,24 +1441,41 @@ public partial class BulkUploadController : ControllerBase
             }
 
             var isGrant = LeaveBalanceImportRules.IsNonExpiringGrantType(lt!.Name, lt.Code);
-            var (entitledVal, carriedVal, convertedStock) = LeaveBalanceImportRules.MapImportedStock(
+            var mapped = LeaveBalanceImportRules.MapImportedStock(
                 entitled,
                 carried ?? 0,
                 entitlementTypeIds.Contains(lt.Id),
-                isGrant);
-            if (convertedStock)
-                notes.Add("Carried Forward stored as this year's entitlement so it is not treated as expired carry-forward");
+                isGrant,
+                used ?? 0);
+            var entitledVal = mapped.Entitled;
+            var carriedVal = mapped.CarriedForward;
+            if (!string.IsNullOrWhiteSpace(mapped.Note))
+                notes.Add(mapped.Note);
 
-            var existing = existingBalances.FirstOrDefault(b =>
-                b.EmployeeId == emp!.Value.Id && b.LeaveTypeId == lt.Id && b.Year == year);
+            var usedVal = used ?? 0;
+            var matches = existingBalances
+                .Where(b =>
+                    b.EmployeeId == emp!.Value.Id
+                    && b.LeaveTypeId == lt.Id
+                    && (b.Year == year
+                        || (b.PeriodStart != null && b.PeriodEnd != null
+                            && b.PeriodStart.Value.Year <= year && b.PeriodEnd.Value.Year >= year)))
+                .ToList();
+            var existing = matches.FirstOrDefault(b => b.Year == year) ?? matches.FirstOrDefault();
+            foreach (var extra in matches.Where(b => !ReferenceEquals(b, existing)))
+            {
+                _db.LeaveBalances.Remove(extra);
+                existingBalances.Remove(extra);
+            }
 
             string status;
             if (existing != null)
             {
+                existing.Year = year;
                 existing.Entitled = entitledVal;
-                existing.Used = used ?? 0;
+                existing.Used = usedVal;
                 existing.CarriedForward = carriedVal;
-                existing.BroughtForwardDays = Math.Max(existing.BroughtForwardDays, Math.Max(carriedVal, entitledVal));
+                existing.BroughtForwardDays = Math.Max(existing.BroughtForwardDays, carriedVal);
                 existing.IsImported = true;
                 updated++;
                 status = "Updated";
@@ -1322,9 +1488,9 @@ public partial class BulkUploadController : ControllerBase
                     LeaveTypeId = lt.Id,
                     Year = year,
                     Entitled = entitledVal,
-                    Used = used ?? 0,
+                    Used = usedVal,
                     CarriedForward = carriedVal,
-                    BroughtForwardDays = Math.Max(carriedVal, entitledVal),
+                    BroughtForwardDays = carriedVal,
                     IsImported = true,
                 };
                 _db.LeaveBalances.Add(balance);
