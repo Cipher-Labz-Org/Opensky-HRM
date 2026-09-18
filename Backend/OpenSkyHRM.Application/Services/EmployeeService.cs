@@ -677,6 +677,7 @@ public class EmployeeService : IEmployeeService
         employee.JobTitleId = dto.JobTitleId;
         employee.ManagerId = dto.ManagerId;
         employee.IsTopOfHierarchy = dto.IsTopOfHierarchy;
+        employee.IsCashPayment = dto.IsCashPayment;
 
         await _db.SaveChangesAsync();
 
@@ -924,6 +925,7 @@ public class EmployeeService : IEmployeeService
         ManagerName = e.Manager != null ? $"{e.Manager.FirstName} {e.Manager.LastName}" : null,
         ProfileImageUrl = e.ProfileImageUrl,
         IsTopOfHierarchy = e.IsTopOfHierarchy,
+        IsCashPayment = e.IsCashPayment,
         ShiftPatternId = e.ShiftPatternId,
         ShiftPatternName = e.ShiftPattern?.Name,
         ShiftPatternCode = e.ShiftPattern?.Code,

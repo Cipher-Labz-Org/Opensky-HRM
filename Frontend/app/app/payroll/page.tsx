@@ -13,6 +13,24 @@ import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormE
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { printPayslip } from "@/lib/payslip-print";
+import { getSystemSetting } from "@/lib/system-settings";
+import { bankSlipFormatFor } from "@/lib/bank-slip-formats";
+import {
+  companyBankAccountLabel,
+  isBlankBankAccount,
+  parseCompanyBankAccounts,
+  type CompanyBankAccount,
+} from "@/lib/company-bank-accounts";
+import {
+  COMMERCIAL_BANK_SALARY_GL_CODE,
+  COMMERCIAL_BANK_SALARY_GL_DESCRIPTION,
+  buildCommercialBankOneToManyFile,
+  commercialBankAccountNumber,
+  commercialBankSalaryNarratives,
+  createCommercialBankDownload,
+  formatCommercialBankAmount,
+  triggerFileDownload,
+} from "@/lib/commercial-bank-one-to-many";
 import { evaluatePayrollFormula, formulaInputComponentCodes } from "@/lib/payroll-formula";
 import { setComponentRoundResult, shouldRoundComponent } from "@/lib/payroll-component-round";
 
@@ -136,7 +154,7 @@ interface AttendanceImportPreview {
   employeesWithPoya: number;
 }
 
-const TABS = ["Dashboard", "Components", "Employee Salary", "Variable Entry", "Payroll Run", "Pay Slips", "Settings"] as const;
+const TABS = ["Dashboard", "Components", "Employee Salary", "Variable Entry", "Payroll Run", "Slip Generate", "Pay Slips", "Settings"] as const;
 type Tab = typeof TABS[number];
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -631,7 +649,7 @@ export default function PayrollPage() {
     <>
       <AppTopbar
         title="Payroll & Compensation"
-        subtitle="Manage compensation components, run monthly payroll, and view pay slips."
+        subtitle="Manage compensation components, run monthly payroll, generate slips, and view pay slips."
       />
 
       <div className="mt-6 mb-6 flex flex-wrap gap-2 overflow-x-auto pb-1">
@@ -657,6 +675,7 @@ export default function PayrollPage() {
         {tab === "Employee Salary" && <EmployeeSalaryTab />}
         {tab === "Variable Entry" && <VariableEntryTab />}
         {tab === "Payroll Run" && <PayrollRunTab />}
+        {tab === "Slip Generate" && <SlipGenerateTab />}
         {tab === "Pay Slips" && <PayStatementsTab />}
         {tab === "Settings" && <SettingsTab />}
       </SectionErrorBoundary>
@@ -819,6 +838,7 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
     { tab: "Employee Salary", title: "Employee salary", sub: "Fixed pay and assignments" },
     { tab: "Variable Entry", title: "Variable entry", sub: "One-off adjustments" },
     { tab: "Payroll Run", title: "Payroll run", sub: "Calculate, review, and approve cycles" },
+    { tab: "Slip Generate", title: "Slip generate", sub: "Generate employee pay slips from a batch" },
     { tab: "Pay Slips", title: "Pay slips", sub: "Employee payslips and line items" },
     { tab: "Settings", title: "Settings", sub: "EPF, ETF, and payroll rules" },
   ];
@@ -3517,6 +3537,510 @@ function PayslipModal({
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/* ═══════════════════════ SLIP GENERATE ═══════════════════════ */
+
+function SlipGenerateTab() {
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [batchId, setBatchId] = useState("");
+  const [statements, setStatements] = useState<Statement[]>([]);
+  const [loadingStmts, setLoadingStmts] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [generating, setGenerating] = useState(false);
+  const [viewStmt, setViewStmt] = useState<Statement | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const [companyAccounts, setCompanyAccounts] = useState<CompanyBankAccount[]>([]);
+  const [companyAccountIndex, setCompanyAccountIndex] = useState("");
+  const [downloadNotice, setDownloadNotice] = useState("");
+  const [readyFile, setReadyFile] = useState<{ url: string; filename: string } | null>(null);
+  const [accountByKey, setAccountByKey] = useState<Record<string, string>>({});
+
+  const selectedBatch = batches.find((b) => b.id === batchId);
+  const selectedCompanyAccount =
+    companyAccountIndex === "" ? null : companyAccounts[Number(companyAccountIndex)] ?? null;
+  const selectedBankSlipFormat = bankSlipFormatFor(selectedCompanyAccount?.bankName);
+  const commercialBankSelected = selectedBankSlipFormat === "commercial-one-to-many";
+  const sortedStatements = useMemo(
+    () => [...statements].sort((a, b) => compareEmployeeCode(a.employeeCode, b.employeeCode)),
+    [statements],
+  );
+  const pager = useClientPagination(sortedStatements);
+  const selectedCount = selected.size;
+  const allSelected = sortedStatements.length > 0 && sortedStatements.every((s) => selected.has(s.id));
+
+  useEffect(() => {
+    setLoading(true);
+    setLoadError("");
+    apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200")
+      .then((d) => {
+        const items = sortBatchesNewestFirst(pagedItems(d)).filter((b) => b.status !== "Draft");
+        setBatches(items);
+      })
+      .catch((err) => {
+        setBatches([]);
+        setLoadError(err instanceof Error ? err.message : "Could not load payroll batches.");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (readyFile?.url) URL.revokeObjectURL(readyFile.url);
+    };
+  }, [readyFile]);
+
+  useEffect(() => {
+    apiFetch<Record<string, string>>("/api/system-settings")
+      .then((settings) => {
+        const accounts = parseCompanyBankAccounts(getSystemSetting(settings, "CompanyBankAccounts")).filter(
+          (account) => !isBlankBankAccount(account),
+        );
+        setCompanyAccounts(accounts);
+        setCompanyAccountIndex(accounts.length > 0 ? "0" : "");
+      })
+      .catch(() => {
+        setCompanyAccounts([]);
+        setCompanyAccountIndex("");
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!batchId) {
+      setStatements([]);
+      setSelected(new Set());
+      setAccountByKey({});
+      return;
+    }
+    let cancelled = false;
+    setLoadingStmts(true);
+    Promise.all([
+      apiFetch<Statement[]>(`/api/payroll/batches/${batchId}/statements`),
+      apiFetch<Array<Record<string, unknown>>>(`/api/payroll/batches/${batchId}/bank-slips`).catch(() => []),
+    ])
+      .then(([data, slipRows]) => {
+        if (cancelled) return;
+        const items = Array.isArray(data) ? data : [];
+        setStatements(items);
+        setSelected(new Set(items.map((s) => s.id)));
+        const accounts: Record<string, string> = {};
+        for (const row of Array.isArray(slipRows) ? slipRows : []) {
+          const accountNumber = commercialBankAccountNumber(
+            String(row.accountNumber ?? row.AccountNumber ?? ""),
+          );
+          if (!accountNumber) continue;
+          const statementId = String(row.statementId ?? row.StatementId ?? "").toLowerCase();
+          const employeeId = String(row.employeeId ?? row.EmployeeId ?? "").toLowerCase();
+          if (statementId) accounts[statementId] = accountNumber;
+          if (employeeId) accounts[employeeId] = accountNumber;
+        }
+        setAccountByKey(accounts);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStatements([]);
+          setSelected(new Set());
+          setAccountByKey({});
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingStmts(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [batchId]);
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(sortedStatements.map((s) => s.id)));
+  }
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function viewPayslip(stmt: Statement) {
+    setViewingId(stmt.id);
+    try {
+      if (stmt.lines && stmt.lines.length > 0) {
+        setViewStmt(stmt);
+        return;
+      }
+      const detail = await apiFetch<Statement>(`/api/payroll/statements/${stmt.id}`);
+      setViewStmt(detail);
+    } catch {
+      void appAlert("Could not load payslip.");
+    } finally {
+      setViewingId(null);
+    }
+  }
+
+  async function generateCommercialBankFile(chosen: Statement[]) {
+    if (!selectedBatch) return;
+    setDownloadNotice("");
+    if (readyFile?.url) URL.revokeObjectURL(readyFile.url);
+    setReadyFile(null);
+
+    let slipRows: Array<Record<string, unknown>> = [];
+    try {
+      const rows = await apiFetch<Array<Record<string, unknown>>>(
+        `/api/payroll/batches/${selectedBatch.id}/bank-slips`,
+      );
+      slipRows = Array.isArray(rows) ? rows : [];
+    } catch {
+      slipRows = [];
+    }
+
+    const byStatementId = new Map<string, Record<string, unknown>>();
+    const byEmployeeId = new Map<string, Record<string, unknown>>();
+    for (const row of slipRows) {
+      const statementId = String(row.statementId ?? row.StatementId ?? "").toLowerCase();
+      const employeeId = String(row.employeeId ?? row.EmployeeId ?? "").toLowerCase();
+      if (statementId) byStatementId.set(statementId, row);
+      if (employeeId) byEmployeeId.set(employeeId, row);
+    }
+
+    const payments = await Promise.all(
+      chosen.map(async (stmt) => {
+        const statementKey = String(stmt.id ?? "").toLowerCase();
+        const employeeKey = String(stmt.employeeId ?? "").toLowerCase();
+        const row = (statementKey ? byStatementId.get(statementKey) : undefined)
+          ?? (employeeKey ? byEmployeeId.get(employeeKey) : undefined);
+        let accountNumber = commercialBankAccountNumber(
+          String(row?.accountNumber ?? row?.AccountNumber ?? ""),
+        );
+        if (!accountNumber && stmt.employeeId) {
+          try {
+            const accounts = await apiFetch<Array<Record<string, unknown>>>(
+              `/api/employees/${stmt.employeeId}/bank-accounts`,
+            );
+            const latest = Array.isArray(accounts) ? accounts[0] : null;
+            accountNumber = commercialBankAccountNumber(
+              String(latest?.accountNumber ?? latest?.AccountNumber ?? ""),
+            );
+          } catch {
+            accountNumber = "";
+          }
+        }
+        return {
+          employeeName: stmt.employeeName,
+          accountNumber,
+          netPay: Number(stmt.netPay),
+        };
+      }),
+    );
+
+    const { content, included, skipped } = buildCommercialBankOneToManyFile(
+      payments,
+      selectedBatch.month,
+      selectedBatch.year,
+    );
+    if (included === 0) {
+      const missing = payments.filter((row) => !commercialBankAccountNumber(row.accountNumber));
+      const names = missing.map((row) => row.employeeName).filter(Boolean).slice(0, 5);
+      const message = names.length
+        ? `Could not build the Commercial Bank file. Add a bank account number for: ${names.join(", ")}.`
+        : "Could not build the Commercial Bank file. Each selected employee needs a bank account number.";
+      setDownloadNotice(message);
+      await appAlert(message);
+      return;
+    }
+
+    const file = createCommercialBankDownload(content);
+    setReadyFile(file);
+    triggerFileDownload(file.url, file.filename);
+    const okMessage = skipped > 0
+      ? `File ready: ${file.filename}. ${included} employee${included === 1 ? "" : "s"} included. ${skipped} skipped (no account number). If the download did not start, use Save file below.`
+      : `File ready: ${file.filename}. If the download did not start, use Save file below.`;
+    setDownloadNotice(okMessage);
+  }
+
+  async function generateBankSlips(ids: Set<string>) {
+    const chosen = sortedStatements.filter((s) => ids.has(s.id));
+    if (!selectedCompanyAccount) {
+      void appAlert("Choose a company bank account first.");
+      return;
+    }
+    if (chosen.length === 0) {
+      void appAlert("Select at least one employee to generate the bank slip.");
+      return;
+    }
+    if (!commercialBankSelected) {
+      const bankName = selectedCompanyAccount.bankName.trim() || "This bank";
+      void appAlert(
+        `${bankName} slip is not set up yet. Only Commercial Bank is available for now. Send that bank's slip format when you have it.`,
+      );
+      return;
+    }
+    setGenerating(true);
+    try {
+      await generateCommercialBankFile(chosen);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not download the Commercial Bank file.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  if (loading) return <Loading />;
+
+  return (
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)]">
+        <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white px-6 py-5">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-900">Slip Generate</h2>
+          <p className="mt-1 text-sm leading-relaxed text-slate-500">
+            Each bank has its own slip. Commercial Bank downloads the one-to-many salary text file. Other bank slips can be added when you send them.
+          </p>
+          <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-end">
+            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
+              <div className="min-w-0">
+                <label htmlFor="slip-generate-batch" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Payroll batch
+                </label>
+                <select
+                  id="slip-generate-batch"
+                  className={inputCls + " min-h-10 w-full !mb-0 rounded-lg border-slate-200/90 bg-white py-2.5"}
+                  value={batchId}
+                  onChange={(e) => setBatchId(e.target.value)}
+                >
+                  <option value="">Select a batch</option>
+                  {batches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.batchCode} · {MONTHS[b.month - 1]} {b.year} · {statusLabel[b.status] ?? b.status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="min-w-0">
+                <label htmlFor="slip-generate-company-account" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Company bank account
+                </label>
+                <select
+                  id="slip-generate-company-account"
+                  className={inputCls + " min-h-10 w-full !mb-0 rounded-lg border-slate-200/90 bg-white py-2.5"}
+                  value={companyAccountIndex}
+                  onChange={(e) => setCompanyAccountIndex(e.target.value)}
+                  disabled={companyAccounts.length === 0}
+                >
+                  {companyAccounts.length === 0 ? (
+                    <option value="">No company bank accounts</option>
+                  ) : (
+                    companyAccounts.map((account, index) => (
+                      <option key={`${account.accountNo}-${index}`} value={String(index)}>
+                        {companyBankAccountLabel(account, index)}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button
+                className="min-h-10 rounded-lg px-4"
+                disabled={generating || selectedCount === 0 || !selectedBatch || !selectedCompanyAccount}
+                onClick={() => void generateBankSlips(selected)}
+              >
+                {generating
+                  ? "Generating…"
+                  : commercialBankSelected
+                    ? selectedCount > 0
+                      ? `Download file (${selectedCount})`
+                      : "Download file"
+                    : selectedCount > 0
+                      ? `Generate selected (${selectedCount})`
+                      : "Generate selected"}
+              </Button>
+              <Button
+                variant="secondary"
+                className="min-h-10 rounded-lg px-4"
+                disabled={generating || sortedStatements.length === 0 || !selectedBatch || !selectedCompanyAccount}
+                onClick={() => void generateBankSlips(new Set(sortedStatements.map((s) => s.id)))}
+              >
+                {commercialBankSelected ? "Download all" : "Generate all"}
+              </Button>
+            </div>
+          </div>
+          {selectedCompanyAccount && !commercialBankSelected ? (
+            <p className="mt-3 text-xs text-amber-700">
+              {selectedCompanyAccount.bankName.trim() || "This bank"} slip is not set up yet. Only Commercial Bank is available for now.
+            </p>
+          ) : null}
+          {downloadNotice ? (
+            <p className="mt-3 text-sm text-slate-700">{downloadNotice}</p>
+          ) : null}
+          {readyFile ? (
+            <a
+              href={readyFile.url}
+              download={readyFile.filename}
+              className="mt-3 inline-flex min-h-10 items-center rounded-lg bg-[#2E7BBF] px-4 text-sm font-semibold text-white hover:bg-[#256aa3]"
+            >
+              Save file ({readyFile.filename})
+            </a>
+          ) : null}
+        </div>
+
+        {loadError ? (
+          <div className="px-6 py-4">
+            <InlinePageAlert message={loadError} className="rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-800" />
+          </div>
+        ) : null}
+
+        {!batchId ? (
+          <div className="px-6 py-14">
+            <EmptyState text="Choose a payroll batch to generate bank slips." />
+          </div>
+        ) : loadingStmts ? (
+          <div className="py-16">
+            <Loading />
+          </div>
+        ) : sortedStatements.length === 0 ? (
+          <div className="px-6 py-14">
+            <EmptyState text="No pay slips in this batch. Open Payroll Run and calculate it first." />
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className={`w-full table-fixed border-collapse text-sm ${commercialBankSelected ? "min-w-[1100px]" : "min-w-[720px]"}`}>
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/90">
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                        aria-label="Select all employees"
+                      />
+                    </th>
+                    <th className="w-[18%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Employee
+                    </th>
+                    {commercialBankSelected ? (
+                      <>
+                        <th className="w-[14%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Account no.
+                        </th>
+                        <th className="w-[12%] px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Amount
+                        </th>
+                        <th className="w-[18%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Narrative
+                        </th>
+                        <th className="w-[12%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Short
+                        </th>
+                        <th className="w-[10%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          GL code
+                        </th>
+                        <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Purpose
+                        </th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="w-[16%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Period
+                        </th>
+                        <th className="w-[14%] px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Gross
+                        </th>
+                        <th className="w-[14%] px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Net Pay
+                        </th>
+                        <th className="w-[12%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Status
+                        </th>
+                        <th className="w-[12%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Actions
+                        </th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pager.pageItems.map((stmt) => {
+                    const accountNumber = accountByKey[String(stmt.id).toLowerCase()]
+                      || accountByKey[String(stmt.employeeId ?? "").toLowerCase()]
+                      || "";
+                    const narratives = commercialBankSalaryNarratives(stmt.month, stmt.year);
+                    return (
+                    <tr key={stmt.id} className="border-b border-slate-100 hover:bg-slate-50/70">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(stmt.id)}
+                          onChange={() => toggleOne(stmt.id)}
+                          aria-label={`Select ${stmt.employeeName}`}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-slate-800">{stmt.employeeName}</div>
+                        <div className="text-xs text-slate-400">{stmt.employeeCode || "—"}</div>
+                      </td>
+                      {commercialBankSelected ? (
+                        <>
+                          <td className="px-4 py-3 font-mono text-slate-800">
+                            {accountNumber || <span className="font-sans text-amber-700">Missing</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-800">
+                            {formatCommercialBankAmount(Number(stmt.netPay))}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">{narratives.longNarrative}</td>
+                          <td className="px-4 py-3 text-slate-700">{narratives.shortNarrative}</td>
+                          <td className="px-4 py-3 font-mono text-slate-700">{COMMERCIAL_BANK_SALARY_GL_CODE}</td>
+                          <td className="px-4 py-3 text-xs text-slate-600">{COMMERCIAL_BANK_SALARY_GL_DESCRIPTION}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-4 py-3 text-slate-600">
+                            {MONTHS[stmt.month - 1]} {stmt.year}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-700">{fmt(stmt.grossPay)}</td>
+                          <td className="px-4 py-3 text-right font-mono font-semibold tabular-nums text-slate-800">{fmt(stmt.netPay)}</td>
+                          <td className="px-4 py-3">
+                            <PayStatementBadge status={stmt.status} />
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => void viewPayslip(stmt)}
+                              disabled={viewingId === stmt.id}
+                              className="text-xs font-medium text-[#256aa3] hover:underline disabled:opacity-50"
+                            >
+                              {viewingId === stmt.id ? "Opening…" : "Preview"}
+                            </button>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <TablePagination
+              page={pager.page}
+              totalPages={pager.totalPages}
+              totalCount={pager.totalCount}
+              pageSize={pager.pageSize}
+              onPageChange={pager.setPage}
+            />
+          </>
+        )}
+      </div>
+
+      {viewStmt ? (
+        <PayslipModal statement={viewStmt} onClose={() => setViewStmt(null)} />
+      ) : null}
+    </div>
   );
 }
 

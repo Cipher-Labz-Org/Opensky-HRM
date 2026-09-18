@@ -119,7 +119,7 @@ public class LeaveController : ControllerBase
         [FromForm] decimal totalDays,
         [FromForm] string? durationKind,
         [FromForm] string? halfDayPeriod,
-        [FromForm] int? shortLeaveHours,
+        [FromForm] decimal? shortLeaveHours,
         [FromForm] string? reason,
         [FromForm] string? coveragePerson,
         IFormFile? medicalCertificate)

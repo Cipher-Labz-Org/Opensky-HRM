@@ -12,11 +12,12 @@ public class LeaveType : AuditableEntity
     public bool IsActive { get; set; } = true;
     public bool AllowHalfDay { get; set; }
     public bool AllowShortLeave { get; set; }
-    public int ShortLeaveHours { get; set; } = 3;
+    /// <summary>Supports part hours, e.g. 1.5.</summary>
+    public decimal ShortLeaveHours { get; set; } = 3;
     /// <summary>Minimum hours allowed on one short-leave request. Null means no minimum.</summary>
-    public int? MinHours { get; set; }
+    public decimal? MinHours { get; set; }
     /// <summary>Maximum hours allowed on one short-leave request. Null means no maximum.</summary>
-    public int? MaxHours { get; set; }
+    public decimal? MaxHours { get; set; }
     /// <summary>Minimum days allowed on one request. Null means no minimum.</summary>
     public decimal? MinDays { get; set; }
     /// <summary>Maximum days allowed on one request. Null means no maximum.</summary>

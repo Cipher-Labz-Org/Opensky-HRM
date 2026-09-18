@@ -88,14 +88,36 @@ public class LeaveDurationRulesTests
         Assert.False(halfDay);
         Assert.True(shortLeave);
         Assert.Equal(3, hours);
-        int? minHours = 1;
-        int? maxHours = 3;
+        decimal? minHours = 1m;
+        decimal? maxHours = 3m;
         LeaveDurationRules.NormalizeMinMaxHours(ref minHours, ref maxHours);
-        Assert.Equal(1, minHours);
-        Assert.Equal(3, maxHours);
-        LeaveDurationRules.EnsureWithinMinMaxHours(3, minHours, maxHours);
+        Assert.Equal(1m, minHours);
+        Assert.Equal(3m, maxHours);
+        LeaveDurationRules.EnsureWithinMinMaxHours(3m, minHours, maxHours);
         Assert.Throws<InvalidOperationException>(() =>
-            LeaveDurationRules.EnsureWithinMinMaxHours(4, minHours: 1, maxHours: 3));
+            LeaveDurationRules.EnsureWithinMinMaxHours(4m, minHours: 1m, maxHours: 3m));
+    }
+
+    [Fact]
+    public void ShortLeave_KeepsPartHours()
+    {
+        Assert.Equal(1.5m, LeaveDurationRules.ClampShortLeaveHours(1.5m));
+        Assert.Equal(1.5m / 8m, LeaveDurationRules.ShortLeaveDays(1.5m));
+
+        var totalDays = LeaveDurationRules.ResolveTotalDays(
+            LeaveDurationKinds.ShortLeave,
+            new DateTime(2026, 8, 24),
+            new DateTime(2026, 8, 24),
+            allowHalfDay: false,
+            allowShortLeave: true,
+            typeShortLeaveHours: 3m,
+            halfDayPeriod: null,
+            requestedShortLeaveHours: 1.5m,
+            out _,
+            out var storedHours);
+
+        Assert.Equal(1.5m, storedHours);
+        Assert.Equal(1.5m / 8m, totalDays);
     }
 
     [Fact]

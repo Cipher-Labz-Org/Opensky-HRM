@@ -1217,7 +1217,7 @@ public class ReportService : IReportService
     private async Task<ReportResultDto> BankTransferListReport(Dictionary<string, string>? filters)
     {
         var q = _db.Set<BankAccount>().Include(b => b.Employee).ThenInclude(e => e.Department)
-            .Where(b => !b.IsDeleted && b.Employee.Status != "Terminated").AsQueryable();
+            .Where(b => !b.IsDeleted && !b.Employee.IsCashPayment && b.Employee.Status != "Terminated").AsQueryable();
         var scopedEmployeeIds = await ResolveScopedEmployeeIdsAsync(filters);
         if (scopedEmployeeIds != null)
             q = q.Where(b => scopedEmployeeIds.Contains(b.EmployeeId));

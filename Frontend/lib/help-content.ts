@@ -209,7 +209,7 @@ export const HELP_CONTENT_BY_SLUG: Record<string, HelpContentDoc> = {
       title: "Overview",
       tabLabel: "Overview",
       paragraphs: [
-        "Payroll supports pay runs, earnings, deductions, and employee payslips when the module is licensed.",
+        "Payroll supports pay runs, slip generate, earnings, deductions, employee payslips, and bank slips when the module is licensed.",
         "Ensure attendance and leave data is finalized before processing a run.",
       ],
     },
@@ -273,7 +273,7 @@ export const HELP_CONTENT_BY_SLUG: Record<string, HelpContentDoc> = {
       title: "Overview",
       tabLabel: "Overview",
       paragraphs: [
-        "Company Profile is where administrators set the organization logo, legal details, default currency, and the mobile app connection QR.",
+        "Company Profile is where administrators set the organization logo, legal details, default currency, EPF/ETF registration numbers, and company bank accounts.",
         "The logo appears in the sign-in circle. Changes may require elevated permissions.",
       ],
     },
@@ -284,7 +284,7 @@ export const HELP_CONTENT_BY_SLUG: Record<string, HelpContentDoc> = {
       title: "Overview",
       tabLabel: "Overview",
       paragraphs: [
-        "Policy & Settings is where administrators configure leave types, attendance rules, entitlements, and other tenant-wide options.",
+        "Policy & Settings is where administrators configure leave types, attendance rules, entitlements, the mobile app connection QR, and other tenant-wide options.",
         "Company logo and legal details live under Company Profile.",
         "Changes may require elevated permissions.",
       ],

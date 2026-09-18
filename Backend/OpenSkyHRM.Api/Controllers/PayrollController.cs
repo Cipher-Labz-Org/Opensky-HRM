@@ -333,6 +333,62 @@ public class PayrollController : ControllerBase
         return Ok(await _payrollService.GetStatementsByBatchAsync(id));
     }
 
+    [HttpGet("batches/{id:guid}/bank-slips")]
+    public async Task<IActionResult> GetBatchBankSlips(Guid id)
+    {
+        var batch = await _db.PayrollBatches.FindAsync(id);
+        if (batch is null) return NotFound();
+
+        var statements = await _db.PayStatements
+            .Include(p => p.Employee)
+            .Include(p => p.Lines)
+            .Where(p => p.BatchId == id)
+            .ToListAsync();
+
+        var employeeIds = statements.Select(p => p.EmployeeId).Distinct().ToList();
+        var accounts = await _db.BankAccounts
+            .Where(b => employeeIds.Contains(b.EmployeeId))
+            .OrderByDescending(b => b.CreatedAt)
+            .ToListAsync();
+        var latestAccount = accounts
+            .GroupBy(b => b.EmployeeId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        static decimal LineAmount(PayStatement statement, string code) =>
+            statement.Lines.Where(l => l.ComponentCode == code).Sum(l => l.Amount);
+
+        var rows = statements
+            .OrderBy(p => p.Employee.EmployeeCode)
+            .Select(p =>
+            {
+                latestAccount.TryGetValue(p.EmployeeId, out var account);
+                return new BankSlipRowDto
+                {
+                    StatementId = p.Id,
+                    EmployeeId = p.EmployeeId,
+                    EmployeeName = (p.Employee.FirstName + " " + p.Employee.LastName).Trim(),
+                    EmployeeCode = p.Employee.EmployeeCode,
+                    Status = p.Status.ToString(),
+                    NetPay = p.NetPay,
+                    EpfEmployee = LineAmount(p, "EPF_EE"),
+                    EpfEmployer = LineAmount(p, "EPF_ER"),
+                    EtfEmployer = LineAmount(p, "ETF_ER"),
+                    IsCashPayment = p.Employee.IsCashPayment,
+                    HasBankAccount = !p.Employee.IsCashPayment
+                        && account != null
+                        && !string.IsNullOrWhiteSpace(account.AccountNumber),
+                    BankName = account?.BankName,
+                    AccountNumber = account?.AccountNumber,
+                    BankCode = account?.BankCode,
+                    BranchCode = account?.BranchCode,
+                    BranchLocation = account?.BranchLocation,
+                };
+            })
+            .ToList();
+
+        return Ok(rows);
+    }
+
     [HttpPost("batches/sync-from-employee-salary")]
     public async Task<IActionResult> SyncAllBatchesFromEmployeeSalary()
     {

@@ -12,9 +12,14 @@ export function isShortLeaveType(type?: { code?: string | null; allowShortLeave?
   return Boolean(type.allowShortLeave);
 }
 
+/** Hours keep 2 decimals so part hours (e.g. 1.5) survive the round trip to the API. */
+export function roundLeaveHours(hours: number): number {
+  return Math.round(hours * 100) / 100;
+}
+
 export function clampShortLeaveHours(hours: number): number {
   if (!Number.isFinite(hours)) return DEFAULT_SHORT_LEAVE_HOURS;
-  return Math.min(4, Math.max(1, Math.round(hours)));
+  return Math.min(4, Math.max(1, roundLeaveHours(hours)));
 }
 
 export function parseOptionalHours(value: FormDataEntryValue | null): number | null {
@@ -25,6 +30,9 @@ export function parseOptionalHours(value: FormDataEntryValue | null): number | n
   return clampShortLeaveHours(n);
 }
 
+/** Half-hour steps between the type's min and max, always including both ends. */
+const SHORT_LEAVE_HOUR_STEP = 0.5;
+
 export function shortLeaveHourChoices(minHours?: number | null, maxHours?: number | null, fallback = DEFAULT_SHORT_LEAVE_HOURS): number[] {
   const hasMin = minHours != null && minHours > 0;
   const hasMax = maxHours != null && maxHours > 0;
@@ -34,7 +42,8 @@ export function shortLeaveHourChoices(minHours?: number | null, maxHours?: numbe
   const start = Math.min(lo, hi);
   const end = Math.max(lo, hi);
   const hours: number[] = [];
-  for (let h = start; h <= end; h++) hours.push(h);
+  for (let h = start; h < end; h = roundLeaveHours(h + SHORT_LEAVE_HOUR_STEP)) hours.push(h);
+  hours.push(end);
   return hours;
 }
 

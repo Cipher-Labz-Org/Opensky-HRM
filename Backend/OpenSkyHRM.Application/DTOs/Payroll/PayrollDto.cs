@@ -268,3 +268,23 @@ public class PayrollFormulaDto
     public DateTime? EffectiveTo { get; set; }
     public bool IsActive { get; set; }
 }
+
+public class BankSlipRowDto
+{
+    public Guid StatementId { get; set; }
+    public Guid EmployeeId { get; set; }
+    public string EmployeeName { get; set; } = string.Empty;
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public decimal NetPay { get; set; }
+    public decimal EpfEmployee { get; set; }
+    public decimal EpfEmployer { get; set; }
+    public decimal EtfEmployer { get; set; }
+    public bool IsCashPayment { get; set; }
+    public bool HasBankAccount { get; set; }
+    public string? BankName { get; set; }
+    public string? AccountNumber { get; set; }
+    public string? BankCode { get; set; }
+    public string? BranchCode { get; set; }
+    public string? BranchLocation { get; set; }
+}

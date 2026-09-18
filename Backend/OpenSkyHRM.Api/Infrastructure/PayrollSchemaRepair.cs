@@ -36,6 +36,7 @@ public static class PayrollSchemaRepair
                 WHERE UPPER("Code") = 'TA';
 
                 ALTER TABLE "Employees" ADD COLUMN IF NOT EXISTS "ApitTaxMode" character varying(20);
+                ALTER TABLE "Employees" ADD COLUMN IF NOT EXISTS "IsCashPayment" boolean NOT NULL DEFAULT FALSE;
                 ALTER TABLE "PayStatements" ADD COLUMN IF NOT EXISTS "ApitTaxable" numeric(18,2) NOT NULL DEFAULT 0;
 
                 CREATE TABLE IF NOT EXISTS "EmployeeApitYearBalances" (

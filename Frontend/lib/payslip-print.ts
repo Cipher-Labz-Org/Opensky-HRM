@@ -72,10 +72,11 @@ function lineRows(lines: PayslipPrintLine[]): string {
     .join("");
 }
 
-export function buildPayslipPrintHtml(
+function buildPayslipSheetHtml(
   statement: PayslipPrintData,
   companyName: string,
   logoSrc: string | null,
+  printedAt: string,
 ): string {
   const earnings =
     statement.lines?.filter(
@@ -94,33 +95,8 @@ export function buildPayslipPrintHtml(
     logoSrc && !isPdfLogoUrl(logoSrc)
       ? `<img src="${escapeHtml(logoSrc)}" alt="" style="height:56px;max-width:180px;object-fit:contain" />`
       : "";
-  const printedAt = new Date().toLocaleString("en-LK");
 
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Payslip — ${escapeHtml(statement.employeeName)} — ${escapeHtml(periodLabel(statement.month, statement.year))}</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; margin: 0; padding: 28px 32px; }
-    .sheet { position: relative; max-width: 800px; margin: 0 auto; }
-    .watermark {
-      position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%) rotate(-28deg);
-      font-size: 92px; font-weight: 800; letter-spacing: 0.18em; color: rgba(148,163,184,0.16);
-      pointer-events: none; z-index: 0; white-space: nowrap;
-    }
-    .content { position: relative; z-index: 1; }
-    h1 { margin: 0; font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; }
-    table { width: 100%; border-collapse: collapse; }
-    @media print {
-      body { padding: 12mm; }
-      .watermark { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    }
-  </style>
-</head>
-<body>
-  <div class="sheet">
+  return `<div class="sheet">
     ${showDraftMark ? `<div class="watermark">${escapeHtml(statement.status.toUpperCase() || "DRAFT")}</div>` : ""}
     <div class="content">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:2px solid #1e4a8c;padding-bottom:14px">
@@ -207,9 +183,52 @@ export function buildPayslipPrintHtml(
         This is a computer-generated payslip. Printed ${escapeHtml(printedAt)}.
       </p>
     </div>
-  </div>
+  </div>`;
+}
+
+function wrapPayslipDocument(title: string, sheetsHtml: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; margin: 0; padding: 28px 32px; }
+    .sheet { position: relative; max-width: 800px; margin: 0 auto; page-break-after: always; }
+    .sheet:last-child { page-break-after: auto; }
+    .watermark {
+      position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%) rotate(-28deg);
+      font-size: 92px; font-weight: 800; letter-spacing: 0.18em; color: rgba(148,163,184,0.16);
+      pointer-events: none; z-index: 0; white-space: nowrap;
+    }
+    .content { position: relative; z-index: 1; }
+    h1 { margin: 0; font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; }
+    table { width: 100%; border-collapse: collapse; }
+    @media print {
+      body { padding: 12mm; }
+      .sheet { page-break-after: always; }
+      .sheet:last-child { page-break-after: auto; }
+      .watermark { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  ${sheetsHtml}
 </body>
 </html>`;
+}
+
+export function buildPayslipPrintHtml(
+  statement: PayslipPrintData,
+  companyName: string,
+  logoSrc: string | null,
+): string {
+  const printedAt = new Date().toLocaleString("en-LK");
+  return wrapPayslipDocument(
+    `Payslip — ${statement.employeeName} — ${periodLabel(statement.month, statement.year)}`,
+    buildPayslipSheetHtml(statement, companyName, logoSrc, printedAt),
+  );
 }
 
 function printHtmlInIframe(html: string): Promise<void> {
@@ -268,16 +287,27 @@ function printHtmlInIframe(html: string): Promise<void> {
   });
 }
 
-/** Opens the browser print dialog for a pay statement. Draft slips can be printed. */
-export async function printPayslip(statement: PayslipPrintData): Promise<void> {
+/** Opens the browser print dialog for one or more pay statements. Draft slips can be printed. */
+export async function printPayslips(statements: PayslipPrintData[]): Promise<void> {
+  if (statements.length === 0) return;
   const branding = await fetchCompanyBranding();
   const rawLogo = branding.companyLogoUrl;
   const logoSrc =
     rawLogo && !isPdfLogoUrl(rawLogo) ? resolveCompanyLogoSrc(rawLogo) : null;
-  const html = buildPayslipPrintHtml(
-    statement,
-    branding.companyName || APP_NAME,
-    logoSrc,
+  const companyName = branding.companyName || APP_NAME;
+  const printedAt = new Date().toLocaleString("en-LK");
+  const first = statements[0];
+  const title =
+    statements.length === 1
+      ? `Payslip — ${first.employeeName} — ${periodLabel(first.month, first.year)}`
+      : `Pay slips — ${periodLabel(first.month, first.year)} (${statements.length})`;
+  const html = wrapPayslipDocument(
+    title,
+    statements.map((statement) => buildPayslipSheetHtml(statement, companyName, logoSrc, printedAt)).join(""),
   );
   await printHtmlInIframe(html);
+}
+
+export async function printPayslip(statement: PayslipPrintData): Promise<void> {
+  await printPayslips([statement]);
 }

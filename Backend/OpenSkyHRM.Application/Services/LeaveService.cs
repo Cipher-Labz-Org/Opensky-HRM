@@ -236,6 +236,7 @@ public class LeaveService : ILeaveService
         if (!skipEntireBalanceCheck)
         {
             var balances = await _db.Set<LeaveBalance>()
+                .Include(b => b.LeaveType)
                 .Where(b => b.EmployeeId == dto.EmployeeId && b.LeaveTypeId == dto.LeaveTypeId)
                 .ToListAsync();
             var balance = balances.FirstOrDefault(b =>
@@ -402,6 +403,7 @@ public class LeaveService : ILeaveService
         {
             var startDate = request.StartDate.Date;
             var balances = await _db.Set<LeaveBalance>()
+                .Include(b => b.LeaveType)
                 .Where(b => b.EmployeeId == request.EmployeeId && b.LeaveTypeId == request.LeaveTypeId)
                 .ToListAsync();
             var bal = balances.FirstOrDefault(b =>
@@ -631,8 +633,8 @@ public class LeaveService : ILeaveService
         LeaveDurationRules.ResolveTypeDurationFlags(
             dto.Code, dto.AllowHalfDay, dto.ShortLeaveHours,
             out var allowHalfDay, out var allowShortLeave, out var shortLeaveHours);
-        int? minHours = null;
-        int? maxHours = null;
+        decimal? minHours = null;
+        decimal? maxHours = null;
         if (allowShortLeave)
         {
             minDays = null;
@@ -670,8 +672,8 @@ public class LeaveService : ILeaveService
         LeaveDurationRules.ResolveTypeDurationFlags(
             dto.Code, dto.AllowHalfDay, dto.ShortLeaveHours,
             out var allowHalfDay, out var allowShortLeave, out var shortLeaveHours);
-        int? minHours = null;
-        int? maxHours = null;
+        decimal? minHours = null;
+        decimal? maxHours = null;
         if (allowShortLeave)
         {
             minDays = null;
@@ -783,15 +785,39 @@ public class LeaveService : ILeaveService
     {
         var storedCf = b.CarriedForward;
         var opening = Math.Max(b.BroughtForwardDays, storedCf);
+
+        var leaveTypeName = b.LeaveType?.Name ?? "";
+        if (LeaveBalanceImportRules.IsNonExpiringGrantType(leaveTypeName, b.LeaveType?.Code))
+        {
+            var (grantEntitled, grantCf, grantRemaining) = LeaveBalanceImportRules.MapStoredGrantForDisplay(
+                b.Entitled, b.Used, storedCf, b.BroughtForwardDays);
+            return new LeaveBalanceDto
+            {
+                Id = b.Id,
+                LeaveTypeId = b.LeaveTypeId,
+                LeaveTypeName = leaveTypeName,
+                Year = b.Year,
+                PeriodStart = b.PeriodStart,
+                PeriodEnd = b.PeriodEnd,
+                PeriodLabel = GetPeriodLabel(b),
+                Entitled = grantEntitled,
+                Used = b.Used,
+                CarriedForward = grantCf,
+                BroughtForwardDays = Math.Max(opening, grantEntitled),
+                Remaining = grantRemaining,
+            };
+        }
+
         var effectiveCf = storedCf;
-        if (storedCf > 0 && IsCarryForwardWindowClosedAsOf(b, carryAvailabilityMonths, asOfDate))
+        var importedOpening = b.BroughtForwardDays > 0 || storedCf > 0 || b.Used > 0;
+        if (!importedOpening && storedCf > 0 && IsCarryForwardWindowClosedAsOf(b, carryAvailabilityMonths, asOfDate))
             effectiveCf = Math.Min(storedCf, Math.Max(0, b.Used - b.Entitled));
 
         return new LeaveBalanceDto
         {
             Id = b.Id,
             LeaveTypeId = b.LeaveTypeId,
-            LeaveTypeName = b.LeaveType.Name,
+            LeaveTypeName = leaveTypeName,
             Year = b.Year,
             PeriodStart = b.PeriodStart,
             PeriodEnd = b.PeriodEnd,
@@ -875,14 +901,31 @@ public class LeaveService : ILeaveService
         var asOf = (asOfDate ?? _clock.Now).Date;
         await ForfeitExpiredCarryOnTrackedBalancesAsync(balances, asOf, av);
 
-        return employees.Select(e => new LeaveBalanceSummaryDto
-        {
-            EmployeeId = e.Id,
-            EmployeeName = $"{e.FirstName} {e.LastName}",
-            EmployeeCode = e.EmployeeCode,
-            Balances = balances.Where(b => b.EmployeeId == e.Id).Select(b => MapLeaveBalanceToDto(b, av, asOf)).ToList(),
-        }).Where(s => s.Balances.Count > 0).ToList();
+        var importedEmployeeIds = balances
+            .Where(IsImportedLeaveBalanceRow)
+            .Select(b => b.EmployeeId)
+            .ToHashSet();
+
+        return employees
+            .Where(e => importedEmployeeIds.Count == 0 || importedEmployeeIds.Contains(e.Id))
+            .Select(e => new LeaveBalanceSummaryDto
+            {
+                EmployeeId = e.Id,
+                EmployeeName = $"{e.FirstName} {e.LastName}",
+                EmployeeCode = e.EmployeeCode,
+                Balances = balances.Where(b => b.EmployeeId == e.Id).Select(b => MapLeaveBalanceToDto(b, av, asOf)).ToList(),
+            })
+            .Where(s => s.Balances.Count > 0)
+            .OrderBy(s => s.EmployeeName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
+
+    private static bool IsImportedLeaveBalanceRow(LeaveBalance b)
+        => b.IsImported
+            || b.Used != 0
+            || b.CarriedForward != 0
+            || b.BroughtForwardDays != 0
+            || (LeaveBalanceImportRules.IsNonExpiringGrantType(b.LeaveType?.Name, b.LeaveType?.Code));
 
     public async Task<LeaveBalanceDto> CreateLeaveBalanceAsync(CreateLeaveBalanceDto dto)
     {
@@ -1229,6 +1272,8 @@ public class LeaveService : ILeaveService
     {
         previousCarriedForward = b.CarriedForward;
         if (b.CarriedForward <= 0) return false;
+        if (LeaveBalanceImportRules.IsNonExpiringGrantType(b.LeaveType?.Name, b.LeaveType?.Code))
+            return false;
         if (!IsCarryForwardWindowClosedAsOf(b, avMonths, asOfDate)) return false;
         var newCf = Math.Min(b.CarriedForward, Math.Max(0, b.Used - b.Entitled));
         if (newCf == b.CarriedForward) return false;
@@ -1238,21 +1283,18 @@ public class LeaveService : ILeaveService
 
     private async Task ForfeitExpiredCarryOnTrackedBalancesAsync(List<LeaveBalance> balances, DateTime asOfDate, int carryAvailabilityMonths)
     {
+        // Record opening CF, but do not persist 3-month forfeiture on read.
+        // Persisting against the selected as-of month wiped imported grant stock and made January carry irreversible.
         var any = false;
         foreach (var b in balances)
         {
             if (EnsureBroughtForwardOpeningRecorded(b))
                 any = true;
         }
-        foreach (var b in balances)
-        {
-            if (TryForfeitCarryAfterWindowEnded(b, carryAvailabilityMonths, asOfDate, out var _))
-                any = true;
-        }
         if (any)
         {
             await _db.SaveChangesAsync();
-            _logger.LogInformation("Saved carry-forward opening/forfeits for at least one balance in this batch.");
+            _logger.LogInformation("Saved carry-forward opening days for at least one balance in this batch.");
         }
     }
 

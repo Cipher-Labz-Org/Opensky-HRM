@@ -16,6 +16,7 @@ import { apiFetch, apiFetchBlob } from "@/lib/api";
 import { resolveHttpErrorMessage } from "@/lib/api-errors";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { getSystemSetting } from "@/lib/system-settings";
+import { bankNameOptions } from "@/lib/bank-names";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import {
   calculateImmigrationEligibleDate,
@@ -112,6 +113,7 @@ interface EmployeeDetail {
   managerName: string | null;
   profileImageUrl: string | null;
   isTopOfHierarchy: boolean;
+  isCashPayment: boolean;
   hasDirectSupervisor: boolean;
   shiftPatternId?: string | null;
   shiftPatternName?: string | null;
@@ -507,6 +509,7 @@ function buildEmployeePutPayload(
     jobTitleId: emp.jobTitleId,
     managerId: emp.managerId,
     isTopOfHierarchy: emp.isTopOfHierarchy,
+    isCashPayment: Boolean(emp.isCashPayment),
     terminationDate: emp.terminationDate,
     terminationReason: emp.terminationReason,
     terminationNote: emp.terminationNote ?? null,
@@ -570,6 +573,10 @@ function buildEmployeePutPayloadFromForm(emp: EmployeeDetail, fd: FormData) {
 
   if (fd.has("isTopOfHierarchy")) {
     payload.isTopOfHierarchy = fd.get("isTopOfHierarchy") === "true";
+  }
+
+  if (fd.has("isCashPayment")) {
+    payload.isCashPayment = fd.get("isCashPayment") === "true";
   }
 
   if (fd.has("email")) {
@@ -700,26 +707,6 @@ function validateReportingDraft(
   }
   return null;
 }
-const BA_BANK_NAMES = [
-  "Bank of Ceylon",
-  "People's Bank",
-  "Commercial Bank",
-  "Hatton National Bank",
-  "Sampath Bank",
-  "Seylan Bank",
-  "Nations Trust Bank",
-  "DFCC Bank",
-  "National Development Bank",
-  "Pan Asia Banking Corporation",
-  "Union Bank",
-  "Amana Bank",
-  "Cargills Bank",
-  "HSBC",
-  "Standard Chartered Bank",
-  "Citibank",
-  "Deutsche Bank",
-  "Other",
-] as const;
 const BA_ACCOUNT_TYPE_OPTIONS = selectOpts(["Checking", "Savings", "Current", "Fixed Deposit", "Other"]);
 const BENEFIT_INSURER_NAMES = [
   "Aetna",
@@ -955,6 +942,50 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
     <button type="button" role="switch" aria-checked={on} onClick={onToggle}
       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${on ? "bg-orange-400" : "bg-slate-200"}`}>
       <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform ${on ? "translate-x-5" : "translate-x-0"}`} />
+    </button>
+  );
+}
+
+function PaymentMethodTick({
+  checked,
+  disabled,
+  label,
+  hint,
+  onSelect,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  hint: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onSelect}
+      className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
+        checked
+          ? "border-emerald-300 bg-emerald-50/90 ring-1 ring-emerald-200/80"
+          : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/80"
+      }`}
+    >
+      <span
+        className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md border transition ${
+          checked ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300 bg-white text-transparent"
+        }`}
+        aria-hidden
+      >
+        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-slate-800">{label}</span>
+        <span className="mt-0.5 block text-xs leading-snug text-slate-500">{hint}</span>
+      </span>
     </button>
   );
 }
@@ -1305,6 +1336,7 @@ export default function EmployeeDetailPage() {
   const [baBankCode, setBaBankCode] = useState("");
   const [baBranchCode, setBaBranchCode] = useState("");
   const [baBranchLocation, setBaBranchLocation] = useState("");
+  const [cashPaymentSaving, setCashPaymentSaving] = useState(false);
 
   useEffect(() => {
     setPdFullName([pdFirstName, pdMiddleName, pdLastName].filter(Boolean).join(" "));
@@ -1370,14 +1402,10 @@ export default function EmployeeDetailPage() {
   const driverLicensesPager = useClientPagination(driverLicenses);
   const benefitsPager = useClientPagination(benefits);
   const bankAccountsPager = useClientPagination(bankAccounts);
-  const baBankNameOptions = useMemo(() => {
-    const names = new Set<string>(BA_BANK_NAMES);
-    bankAccounts.forEach((b) => {
-      const n = b.bankName?.trim();
-      if (n) names.add(n);
-    });
-    return [...names].sort((a, b) => a.localeCompare(b));
-  }, [bankAccounts]);
+  const baBankNameOptions = useMemo(
+    () => bankNameOptions(bankAccounts.map((b) => b.bankName)),
+    [bankAccounts],
+  );
   const benefitInsurerOptions = useMemo(() => {
     const names = new Set<string>(BENEFIT_INSURER_NAMES);
     benefits.forEach((b) => {
@@ -3116,6 +3144,25 @@ export default function EmployeeDetailPage() {
     }
   }
 
+  async function saveCashPayment(next: boolean) {
+    if (!emp || next === emp.isCashPayment || cashPaymentSaving) return;
+    setCashPaymentSaving(true);
+    try {
+      const updated = await apiFetch<EmployeeDetail>(`/api/employees/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          ...buildEmployeePutPayload(emp),
+          isCashPayment: next,
+        }),
+      });
+      setEmp(updated);
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Failed to update cash payment");
+    } finally {
+      setCashPaymentSaving(false);
+    }
+  }
+
   async function deleteBankAccount(baId: string) {
     if (!(await appConfirm("Delete this bank account?"))) return;
     try {
@@ -4317,6 +4364,7 @@ export default function EmployeeDetailPage() {
               <input type="hidden" name="terminationReason" value={emp.terminationReason ?? ""} />
               <input type="hidden" name="terminationNote" value={emp.terminationNote ?? ""} />
               <input type="hidden" name="isTopOfHierarchy" value={String(emp.isTopOfHierarchy)} />
+              <input type="hidden" name="isCashPayment" value={String(emp.isCashPayment)} />
               <div className="mt-8 flex items-center justify-end gap-3 border-t border-slate-100/90 pt-6">
                 <button type="submit" disabled={saving} className="inline-flex min-w-[140px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:from-indigo-500 hover:to-blue-500 hover:shadow-lg disabled:opacity-50">
                   {saving && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
@@ -4781,6 +4829,7 @@ export default function EmployeeDetailPage() {
               <input type="hidden" name="terminationReason" value={emp.terminationReason ?? ""} />
               <input type="hidden" name="terminationNote" value={emp.terminationNote ?? ""} />
               <input type="hidden" name="isTopOfHierarchy" value={String(emp.isTopOfHierarchy)} />
+              <input type="hidden" name="isCashPayment" value={String(emp.isCashPayment)} />
               <div className="mt-6 flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
                 <button type="button" onClick={() => setPageTab("profile")} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">Cancel</button>
                 <button type="submit" disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50">
@@ -5028,6 +5077,7 @@ export default function EmployeeDetailPage() {
           <input type="hidden" name="terminationReason" value={emp.terminationReason ?? ""} />
           <input type="hidden" name="terminationNote" value={emp.terminationNote ?? ""} />
           <input type="hidden" name="isTopOfHierarchy" value={String(emp.isTopOfHierarchy)} />
+          <input type="hidden" name="isCashPayment" value={String(emp.isCashPayment)} />
           <div className="flex items-center justify-end gap-2">
             <button type="submit" disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50">
               {saving && <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
@@ -6266,6 +6316,25 @@ export default function EmployeeDetailPage() {
                 <h2 className="text-base font-bold text-slate-800">Bank Accounts</h2>
               </div>
               <SectionRecordHeaderActions count={bankAccounts.length} onAdd={() => openBaModal()} addTitle="Add bank account" />
+            </div>
+            <div className="border-b border-slate-100 px-6 py-4">
+              <p className="mb-2.5 text-[13px] font-semibold text-slate-700">Payment method</p>
+              <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Payment method">
+                <PaymentMethodTick
+                  checked={emp.isCashPayment}
+                  disabled={cashPaymentSaving}
+                  label="Cash payment"
+                  hint="Salary is paid in cash. A bank account is optional."
+                  onSelect={() => void saveCashPayment(true)}
+                />
+                <PaymentMethodTick
+                  checked={!emp.isCashPayment}
+                  disabled={cashPaymentSaving}
+                  label="Bank payment"
+                  hint="Salary is transferred to a bank account."
+                  onSelect={() => void saveCashPayment(false)}
+                />
+              </div>
             </div>
             {bankAccounts.length === 0 ? (
               <div className="px-6 py-8 text-center text-sm text-slate-400">No bank accounts added.</div>
