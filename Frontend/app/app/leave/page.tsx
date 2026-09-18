@@ -32,6 +32,7 @@ import { ROUTES } from "@/config/routes";
 import { sanitizeSearchInput } from "@/lib/input-validation";
 import {
   clampShortLeaveHours,
+  computeLeaveRemaining,
   computeLeaveTotalDays,
   DEFAULT_SHORT_LEAVE_HOURS,
   formatLeaveDays,
@@ -2058,7 +2059,7 @@ function BalancesTab() {
     const isExcelEmployee = (s: BalanceSummary) =>
       s.balances.some((b) => {
         if (/compensatory|special grant|freelancer/i.test(b.leaveTypeName)) return true;
-        return b.used !== 0 || b.carriedForward !== 0 || (b.broughtForwardDays ?? 0) !== 0;
+        return b.entitled !== 0 || b.used !== 0 || b.carriedForward !== 0 || (b.broughtForwardDays ?? 0) !== 0 || b.remaining !== 0;
       });
     const excelUploaded = summaries.some(isExcelEmployee);
     return summaries
@@ -2347,9 +2348,22 @@ function BalancesTab() {
                 )}
                 {!loading &&
                   summariesPager.pageItems.map((s) => {
-                    const totalUsed = s.balances.reduce((sum, b) => sum + b.used, 0);
-                    const totalRemaining = s.balances.reduce((sum, b) => sum + b.remaining, 0);
-                    const balanceByType = new Map(s.balances.map((b) => [b.leaveTypeName, b]));
+                    const balanceByType = new Map<string, BalanceItem>();
+                    for (const b of s.balances) {
+                      const key = b.leaveTypeId || b.leaveTypeName;
+                      const prev = balanceByType.get(key);
+                      if (!prev) {
+                        balanceByType.set(key, b);
+                        continue;
+                      }
+                      const score = (x: BalanceItem) =>
+                        Math.abs(x.entitled) + Math.abs(x.used) + Math.abs(x.carriedForward) + Math.abs(x.remaining);
+                      if (score(b) > score(prev)) balanceByType.set(key, b);
+                    }
+                    const uniqueBalances = Array.from(balanceByType.values());
+                    const totalUsed = uniqueBalances.reduce((sum, b) => sum + b.used, 0);
+                    const totalRemaining = uniqueBalances.reduce((sum, b) => sum + b.remaining, 0);
+                    const columnByType = new Map(uniqueBalances.map((b) => [b.leaveTypeName, b]));
                     return (
                       <tr key={s.employeeId} className="border-b border-slate-100 transition hover:bg-slate-50/80">
                         <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">
@@ -2359,7 +2373,7 @@ function BalancesTab() {
                           <p className="truncate font-medium text-slate-800">{s.employeeName}</p>
                         </td>
                         {leaveTypeColumns.map((type) => {
-                          const b = balanceByType.get(type);
+                          const b = columnByType.get(type);
                           const rem = b?.remaining ?? null;
                           const remClass =
                             rem == null ? "text-slate-300" : rem > 0 ? "text-emerald-700" : rem < 0 ? "text-rose-700" : "text-slate-400";
@@ -2543,6 +2557,18 @@ function BalancesTab() {
               <input type="number" min={0} step={0.5} value={editCarriedForward} onChange={(e) => setEditCarriedForward(e.target.value)} className={inputClass + " w-full"} />
             </div>
           </div>
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            Remaining:{" "}
+            <span className="font-semibold tabular-nums text-slate-800">
+              {(() => {
+                const entitled = Number(editEntitled) || 0;
+                const used = Number(editUsed) || 0;
+                const carried = Number(editCarriedForward) || 0;
+                return computeLeaveRemaining(entitled, used, carried);
+              })()}
+            </span>
+            {" "}days
+          </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" type="button" onClick={() => setEditingBalance(null)}>Cancel</Button>
             <Button type="submit" disabled={balanceSaving}>{balanceSaving ? "Saving..." : "Update"}</Button>
@@ -2609,7 +2635,7 @@ function AssignLeaveTypeTab() {
     const entitled = Number(addEntitled) || 0;
     const used = Number(addUsed) || 0;
     const carried = Number(addCarriedForward) || 0;
-    return entitled + carried - used;
+    return computeLeaveRemaining(entitled, used, carried);
   }, [addEntitled, addUsed, addCarriedForward]);
 
   async function handleSubmit(e: React.FormEvent) {

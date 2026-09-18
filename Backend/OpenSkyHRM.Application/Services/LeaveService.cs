@@ -270,7 +270,7 @@ public class LeaveService : ILeaveService
                         r.StartDate.Date >= periodStart && r.StartDate.Date <= periodEnd &&
                         (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2))
                     .SumAsync(r => r.TotalDays);
-                var fullRemaining = balance.Entitled + balance.CarriedForward - balance.Used - pendingDays;
+                var fullRemaining = LeaveBalanceImportRules.ComputeRemaining(balance.Entitled, balance.Used, balance.CarriedForward) - pendingDays;
                 decimal effectiveRemaining = fullRemaining;
                 if (balance.CarriedForward > 0)
                 {
@@ -783,36 +783,26 @@ public class LeaveService : ILeaveService
 
     private static LeaveBalanceDto MapLeaveBalanceToDto(LeaveBalance b, int carryAvailabilityMonths, DateTime asOfDate)
     {
-        var storedCf = b.CarriedForward;
-        var opening = Math.Max(b.BroughtForwardDays, storedCf);
-
         var leaveTypeName = b.LeaveType?.Name ?? "";
-        if (LeaveBalanceImportRules.IsNonExpiringGrantType(leaveTypeName, b.LeaveType?.Code))
+        var entitled = b.Entitled;
+        var used = b.Used;
+        var cf = b.CarriedForward;
+        var isGrant = LeaveBalanceImportRules.IsNonExpiringGrantType(leaveTypeName, b.LeaveType?.Code);
+
+        if (isGrant && entitled <= 0)
         {
-            var (grantEntitled, grantCf, grantRemaining) = LeaveBalanceImportRules.MapStoredGrantForDisplay(
-                b.Entitled, b.Used, storedCf, b.BroughtForwardDays);
-            return new LeaveBalanceDto
-            {
-                Id = b.Id,
-                LeaveTypeId = b.LeaveTypeId,
-                LeaveTypeName = leaveTypeName,
-                Year = b.Year,
-                PeriodStart = b.PeriodStart,
-                PeriodEnd = b.PeriodEnd,
-                PeriodLabel = GetPeriodLabel(b),
-                Entitled = grantEntitled,
-                Used = b.Used,
-                CarriedForward = grantCf,
-                BroughtForwardDays = Math.Max(opening, grantEntitled),
-                Remaining = grantRemaining,
-            };
+            entitled = Math.Max(cf, Math.Max(0, b.BroughtForwardDays));
+            cf = 0;
         }
 
-        var effectiveCf = storedCf;
-        var importedOpening = b.BroughtForwardDays > 0 || storedCf > 0 || b.Used > 0;
-        if (!importedOpening && storedCf > 0 && IsCarryForwardWindowClosedAsOf(b, carryAvailabilityMonths, asOfDate))
-            effectiveCf = Math.Min(storedCf, Math.Max(0, b.Used - b.Entitled));
+        if (LeaveBalanceImportRules.LooksLikeClosingRemaining(entitled, used, cf))
+            cf = 0;
 
+        var importedOpening = b.IsImported || b.BroughtForwardDays > 0 || b.CarriedForward > 0 || b.Used > 0;
+        if (!isGrant && !importedOpening && cf > 0 && IsCarryForwardWindowClosedAsOf(b, carryAvailabilityMonths, asOfDate))
+            cf = Math.Min(cf, Math.Max(0, used - entitled));
+
+        var opening = Math.Max(b.BroughtForwardDays, b.CarriedForward);
         return new LeaveBalanceDto
         {
             Id = b.Id,
@@ -822,11 +812,11 @@ public class LeaveService : ILeaveService
             PeriodStart = b.PeriodStart,
             PeriodEnd = b.PeriodEnd,
             PeriodLabel = GetPeriodLabel(b),
-            Entitled = b.Entitled,
-            Used = b.Used,
-            CarriedForward = effectiveCf,
-            BroughtForwardDays = opening,
-            Remaining = b.Entitled + effectiveCf - b.Used,
+            Entitled = entitled,
+            Used = used,
+            CarriedForward = cf,
+            BroughtForwardDays = Math.Max(opening, entitled),
+            Remaining = entitled + cf - used,
         };
     }
 
@@ -867,7 +857,7 @@ public class LeaveService : ILeaveService
         var av = await GetCarryForwardAvailabilityMonthsAsync();
         var asOf = (asOfDate ?? _clock.Now).Date;
         await ForfeitExpiredCarryOnTrackedBalancesAsync(list, asOf, av);
-        return list.Select(b => MapLeaveBalanceToDto(b, av, asOf)).ToList();
+        return CollapseBalanceDtos(list.Select(b => MapLeaveBalanceToDto(b, av, asOf)));
     }
 
     private async Task<List<LeaveBalance>> QueryEmployeeBalancesForYearAsync(Guid employeeId, DateTime yearStart, DateTime yearEnd)
@@ -913,7 +903,8 @@ public class LeaveService : ILeaveService
                 EmployeeId = e.Id,
                 EmployeeName = $"{e.FirstName} {e.LastName}",
                 EmployeeCode = e.EmployeeCode,
-                Balances = balances.Where(b => b.EmployeeId == e.Id).Select(b => MapLeaveBalanceToDto(b, av, asOf)).ToList(),
+                Balances = CollapseBalanceDtos(
+                    balances.Where(b => b.EmployeeId == e.Id).Select(b => MapLeaveBalanceToDto(b, av, asOf))),
             })
             .Where(s => s.Balances.Count > 0)
             .OrderBy(s => s.EmployeeName, StringComparer.OrdinalIgnoreCase)
@@ -922,10 +913,20 @@ public class LeaveService : ILeaveService
 
     private static bool IsImportedLeaveBalanceRow(LeaveBalance b)
         => b.IsImported
+            || b.Entitled != 0
             || b.Used != 0
             || b.CarriedForward != 0
             || b.BroughtForwardDays != 0
             || (LeaveBalanceImportRules.IsNonExpiringGrantType(b.LeaveType?.Name, b.LeaveType?.Code));
+
+    private static List<LeaveBalanceDto> CollapseBalanceDtos(IEnumerable<LeaveBalanceDto> rows)
+        => LeaveBalanceImportRules.CollapseDuplicateLeaveTypeRows(
+            rows,
+            b => b.LeaveTypeId,
+            b => b.Entitled,
+            b => b.Used,
+            b => b.CarriedForward,
+            b => b.Remaining);
 
     public async Task<LeaveBalanceDto> CreateLeaveBalanceAsync(CreateLeaveBalanceDto dto)
     {
@@ -991,10 +992,13 @@ public class LeaveService : ILeaveService
     {
         var balance = await _db.Set<LeaveBalance>().Include(b => b.LeaveType).FirstOrDefaultAsync(b => b.Id == id);
         if (balance is null) return null;
-        balance.Entitled = dto.Entitled;
+        var isGrant = LeaveBalanceImportRules.IsNonExpiringGrantType(balance.LeaveType?.Name, balance.LeaveType?.Code);
+        var mapped = LeaveBalanceImportRules.MapImportedStock(
+            dto.Entitled, dto.CarriedForward, leaveTypeHasEntitlementRule: !isGrant, isGrant, dto.Used);
+        balance.Entitled = mapped.Entitled;
         balance.Used = dto.Used;
-        balance.CarriedForward = dto.CarriedForward;
-        balance.BroughtForwardDays = Math.Max(balance.BroughtForwardDays, dto.CarriedForward);
+        balance.CarriedForward = mapped.CarriedForward;
+        balance.BroughtForwardDays = Math.Max(balance.BroughtForwardDays, mapped.CarriedForward);
         await _db.SaveChangesAsync();
         var av = await GetCarryForwardAvailabilityMonthsAsync();
         return MapLeaveBalanceToDto(balance, av, _clock.Now.Date);
@@ -1054,7 +1058,7 @@ public class LeaveService : ILeaveService
             var maxCarry = GetMaxCarryableDays(fromBal, policyByLeaveType, out var usedOpenRemaining);
             if (usedOpenRemaining) anyUsedOpenRemainingCap = true;
 
-            var remaining = fromBal.Entitled + fromBal.CarriedForward - fromBal.Used;
+            var remaining = LeaveBalanceImportRules.ComputeRemaining(fromBal.Entitled, fromBal.Used, fromBal.CarriedForward);
             if (remaining <= 0) continue;
 
             var carryDays = Math.Min(remaining, maxCarry);
@@ -1290,6 +1294,11 @@ public class LeaveService : ILeaveService
         {
             if (EnsureBroughtForwardOpeningRecorded(b))
                 any = true;
+            if (LeaveBalanceImportRules.LooksLikeClosingRemaining(b.Entitled, b.Used, b.CarriedForward))
+            {
+                b.CarriedForward = 0;
+                any = true;
+            }
         }
         if (any)
         {

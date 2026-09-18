@@ -128,22 +128,60 @@ public static class LeaveBalanceImportRules
     }
 
     /// <summary>
+    /// True when Excel "Carried Forward" is the closing remaining (Entitled − Used),
+    /// not extra days on top of this year's entitlement. Example: 14 entitled, 2.5 used, 11.5 CF.
+    /// </summary>
+    public static bool LooksLikeClosingRemaining(decimal entitled, decimal used, decimal carriedForward)
+    {
+        var e = Math.Max(0, entitled);
+        var u = Math.Max(0, used);
+        var cf = Math.Max(0, carriedForward);
+        if (e <= 0 || cf <= 0) return false;
+        return cf == e - u;
+    }
+
+    /// <summary>Remaining days: Entitled + extra carry − Used, without double-counting a closing-balance CF column.</summary>
+    public static decimal ComputeRemaining(decimal entitled, decimal used, decimal carriedForward)
+    {
+        if (LooksLikeClosingRemaining(entitled, used, carriedForward))
+            return entitled - used;
+        return entitled + carriedForward - used;
+    }
+
+    /// <summary>
     /// Grant/comp-off stock is often listed under Carried Forward with Entitled blank.
     /// Store it as Entitled so the 3-month carry-forward window does not forfeit it.
     /// Annual/Casual (and any type with an entitlement rule) keep CF as carry-forward,
     /// unless the type is a known non-expiring grant.
+    /// When CF equals Entitled − Used, it is remaining — do not store it as extra stock.
     /// </summary>
-    public static (decimal Entitled, decimal CarriedForward, bool Converted) MapImportedStock(
+    public static ImportedStockMapping MapImportedStock(
         decimal entitled,
         decimal carriedForward,
         bool leaveTypeHasEntitlementRule,
-        bool isNonExpiringGrant = false)
+        bool isNonExpiringGrant = false,
+        decimal used = 0)
     {
+        var e = Math.Max(0, entitled);
+        var u = Math.Max(0, used);
         var cf = Math.Max(0, carriedForward);
         var treatAsGrant = isNonExpiringGrant || !leaveTypeHasEntitlementRule;
-        if (treatAsGrant && entitled <= 0 && cf > 0)
-            return (cf, 0, true);
-        return (Math.Max(0, entitled), cf, false);
+
+        if (LooksLikeClosingRemaining(e, u, cf))
+        {
+            return new ImportedStockMapping(
+                e, 0, false,
+                "Carried Forward matched Entitled − Used so it was stored as remaining, not extra stock");
+        }
+
+        if (treatAsGrant && e <= 0 && cf > 0)
+        {
+            return new ImportedStockMapping(
+                cf, 0, true,
+                "Carried Forward stored as this year's entitlement so it is not treated as expired carry-forward");
+        }
+
+        return new ImportedStockMapping(e, cf, false, null);
     }
 
     /// <summary>
@@ -155,6 +193,9 @@ public static class LeaveBalanceImportRules
         decimal carriedForward,
         decimal broughtForwardDays)
     {
+        if (LooksLikeClosingRemaining(entitled, used, carriedForward))
+            return (Math.Max(0, entitled), 0, entitled - used);
+
         var grantStock = Math.Max(0, entitled);
         var grantCarry = Math.Max(0, carriedForward);
         if (grantStock <= 0)
@@ -163,6 +204,25 @@ public static class LeaveBalanceImportRules
             grantCarry = 0;
         }
 
-        return (grantStock, grantCarry, grantStock + grantCarry - used);
+        return (grantStock, grantCarry, ComputeRemaining(grantStock, used, grantCarry));
+    }
+
+    public static List<T> CollapseDuplicateLeaveTypeRows<T>(
+        IEnumerable<T> rows,
+        Func<T, Guid> leaveTypeId,
+        Func<T, decimal> entitled,
+        Func<T, decimal> used,
+        Func<T, decimal> carriedForward,
+        Func<T, decimal> remaining)
+    {
+        return rows
+            .GroupBy(leaveTypeId)
+            .Select(g => g
+                .OrderByDescending(r =>
+                    Math.Abs(entitled(r)) + Math.Abs(used(r)) + Math.Abs(carriedForward(r)) + Math.Abs(remaining(r)))
+                .First())
+            .ToList();
     }
 }
+
+public sealed record ImportedStockMapping(decimal Entitled, decimal CarriedForward, bool Converted, string? Note);

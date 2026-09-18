@@ -80,6 +80,57 @@ public class LeaveBalanceImportRulesTests
     }
 
     [Fact]
+    public void ComputeRemaining_DoesNotDoubleCountClosingBalance()
+    {
+        Assert.Equal(11.5m, LeaveBalanceImportRules.ComputeRemaining(14, 2.5m, 11.5m));
+        Assert.Equal(0.5m, LeaveBalanceImportRules.ComputeRemaining(7, 6.5m, 0.5m));
+        Assert.Equal(2m, LeaveBalanceImportRules.ComputeRemaining(0, 0, 2m));
+        Assert.Equal(18.5m, LeaveBalanceImportRules.ComputeRemaining(21, 2.5m, 18.5m));
+        Assert.Equal(21m, LeaveBalanceImportRules.ComputeRemaining(21, 0, 21m));
+        Assert.Equal(21m, LeaveBalanceImportRules.ComputeRemaining(21, 0, 0));
+        Assert.Equal(17m, LeaveBalanceImportRules.ComputeRemaining(14, 2m, 5m));
+        Assert.Equal(1m, LeaveBalanceImportRules.ComputeRemaining(1, 0, 0));
+    }
+
+    [Fact]
+    public void MapImportedStock_ZerosCarryWhenItIsClosingRemaining()
+    {
+        var mapped = LeaveBalanceImportRules.MapImportedStock(
+            14, 11.5m, leaveTypeHasEntitlementRule: true, used: 2.5m);
+        Assert.Equal(14m, mapped.Entitled);
+        Assert.Equal(0, mapped.CarriedForward);
+        Assert.Equal(11.5m, LeaveBalanceImportRules.ComputeRemaining(mapped.Entitled, 2.5m, mapped.CarriedForward));
+
+        var casual = LeaveBalanceImportRules.MapImportedStock(
+            7, 0.5m, leaveTypeHasEntitlementRule: true, used: 6.5m);
+        Assert.Equal(7m, casual.Entitled);
+        Assert.Equal(0, casual.CarriedForward);
+        Assert.Equal(0.5m, LeaveBalanceImportRules.ComputeRemaining(casual.Entitled, 6.5m, casual.CarriedForward));
+
+        var fsg = LeaveBalanceImportRules.MapImportedStock(
+            21, 18.5m, leaveTypeHasEntitlementRule: false, isNonExpiringGrant: true, used: 2.5m);
+        Assert.Equal(21m, fsg.Entitled);
+        Assert.Equal(0, fsg.CarriedForward);
+        Assert.Equal(18.5m, LeaveBalanceImportRules.ComputeRemaining(fsg.Entitled, 2.5m, fsg.CarriedForward));
+
+        var coff = LeaveBalanceImportRules.MapImportedStock(
+            0, 2m, leaveTypeHasEntitlementRule: true, isNonExpiringGrant: true, used: 0);
+        Assert.Equal(2m, coff.Entitled);
+        Assert.Equal(0, coff.CarriedForward);
+        Assert.Equal(2m, LeaveBalanceImportRules.ComputeRemaining(coff.Entitled, 0, coff.CarriedForward));
+    }
+
+    [Fact]
+    public void MapImportedStock_EntitledOnlyRowIsKept()
+    {
+        var mapped = LeaveBalanceImportRules.MapImportedStock(
+            21, 0, leaveTypeHasEntitlementRule: true);
+        Assert.Equal(21m, mapped.Entitled);
+        Assert.Equal(0, mapped.CarriedForward);
+        Assert.False(mapped.Converted);
+    }
+
+    [Fact]
     public void MapStoredGrantForDisplay_RestoresForfeitedCarryAsRemaining()
     {
         var mapped = LeaveBalanceImportRules.MapStoredGrantForDisplay(
@@ -105,5 +156,25 @@ public class LeaveBalanceImportRulesTests
         Assert.Equal(17.5m, mapped.Entitled);
         Assert.Equal(0, mapped.CarriedForward);
         Assert.Equal(14m, mapped.Remaining);
+    }
+
+    [Fact]
+    public void CollapseDuplicateLeaveTypeRows_KeepsTheStockedLine()
+    {
+        var emptyId = Guid.NewGuid();
+        var coffId = Guid.NewGuid();
+        var rows = new[]
+        {
+            (LeaveTypeId: coffId, Entitled: 0m, Used: 0m, CarriedForward: 0m, Remaining: 0m),
+            (LeaveTypeId: coffId, Entitled: 1m, Used: 0m, CarriedForward: 0m, Remaining: 1m),
+            (LeaveTypeId: emptyId, Entitled: 14m, Used: 2m, CarriedForward: 0m, Remaining: 12m),
+        };
+
+        var collapsed = LeaveBalanceImportRules.CollapseDuplicateLeaveTypeRows(
+            rows, r => r.LeaveTypeId, r => r.Entitled, r => r.Used, r => r.CarriedForward, r => r.Remaining);
+
+        Assert.Equal(2, collapsed.Count);
+        Assert.Equal(1m, collapsed.Single(r => r.LeaveTypeId == coffId).Remaining);
+        Assert.Equal(12m, collapsed.Single(r => r.LeaveTypeId == emptyId).Remaining);
     }
 }
