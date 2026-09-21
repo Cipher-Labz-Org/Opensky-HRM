@@ -648,9 +648,7 @@ public partial class BulkUploadController : ControllerBase
             var rowNotes = new List<string>();
             if (existingId is not null)
             {
-                rowNotes.Add("Updated from Excel. Date of Birth comes only from the Date of Birth column (National ID is not used).");
-                if (dobStr is null)
-                    rowNotes.Add("Date of Birth left unchanged because the Excel Date of Birth cell was blank.");
+                rowNotes.Add("Employee record updated from Excel.");
             }
             else if (wantLogins && !empCodeFromSheet)
             {
@@ -826,8 +824,9 @@ public partial class BulkUploadController : ControllerBase
                 continue;
             }
 
+            var notes = BuildBirthdateUpdateNotes(item.Notes, existing, item.Employee, item.Apply);
             ApplyImportedEmployeeFields(existing, item.Employee, item.Apply);
-            applied.Add(item);
+            applied.Add(item with { Notes = notes });
         }
 
         if (applied.Count == 0)
@@ -859,12 +858,13 @@ public partial class BulkUploadController : ControllerBase
                 continue;
             }
 
+            var notes = item.Notes ?? BuildBirthdateUpdateNotes(null, existing, item.Employee, item.Apply);
             ApplyImportedEmployeeFields(existing, item.Employee, item.Apply);
             try
             {
                 await _db.SaveChangesAsync();
                 updated++;
-                results.Add(new RowResult(item.Row, item.FirstName, item.LastName, true, new List<string>(), item.Notes, "Updated"));
+                results.Add(new RowResult(item.Row, item.FirstName, item.LastName, true, new List<string>(), notes, "Updated"));
             }
             catch (DbUpdateException ex)
             {
@@ -875,6 +875,32 @@ public partial class BulkUploadController : ControllerBase
         }
 
         return new FlushCounts(0, updated, skipped);
+    }
+
+    private static List<string> BuildBirthdateUpdateNotes(
+        List<string>? baseNotes,
+        Employee existing,
+        Employee imported,
+        EmployeeImportApply apply)
+    {
+        var notes = baseNotes is { Count: > 0 }
+            ? new List<string>(baseNotes)
+            : new List<string> { "Employee record updated from Excel." };
+
+        if (!apply.DateOfBirth)
+        {
+            notes.Add("Date of Birth left unchanged because the Excel Date of Birth cell was blank.");
+            return notes;
+        }
+
+        var previous = ExcelImportDateParser.ToWallDate(existing.DateOfBirth).Date;
+        var next = ExcelImportDateParser.ToWallDate(imported.DateOfBirth).Date;
+        if (previous == next)
+            notes.Add($"Birthdate already matches Excel ({next:yyyy-MM-dd}).");
+        else
+            notes.Add($"Birthdate record updated from {previous:yyyy-MM-dd} to {next:yyyy-MM-dd}.");
+
+        return notes;
     }
 
     private static void ApplyImportedEmployeeFields(Employee existing, Employee imported, EmployeeImportApply apply)
