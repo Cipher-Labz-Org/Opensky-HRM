@@ -12,6 +12,7 @@ import { CreateCourseModal } from "@/components/forms/CreateCourseModal";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { dateOnlyPayload } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars } from "@/lib/workspace-charts";
 
 // ──────────────────────────── Types ────────────────────────────
@@ -436,8 +437,8 @@ export default function LearningPage() {
       const employeeId = editingEmpCert?.employeeId ?? empCertEmployeeId;
       const body = {
         certificationId: editingEmpCert?.certificationId ?? empCertTypeId,
-        obtainedDate: new Date(empCertObtained).toISOString(),
-        expiryDate: empCertExpiry ? new Date(empCertExpiry).toISOString() : null,
+        obtainedDate: dateOnlyPayload(empCertObtained),
+        expiryDate: dateOnlyPayload(empCertExpiry),
         certificateNumber: empCertNumber.trim() || null,
         status: empCertStatus || "Active",
       };
@@ -545,7 +546,7 @@ export default function LearningPage() {
     if (!matrixProficiency.trim() || (!editingMatrix && (!matrixEmployeeId || !matrixSkillId))) return;
     setMatrixSaving(true);
     try {
-      const assessedPayload = matrixAssessedAt ? new Date(matrixAssessedAt).toISOString() : null;
+      const assessedPayload = dateOnlyPayload(matrixAssessedAt);
       const notesPayload = matrixNotes.trim() || null;
       if (editingMatrix) {
         await apiFetch(`/api/learning/skill-matrix/${editingMatrix.id}`, {
@@ -621,7 +622,7 @@ export default function LearningPage() {
           method: "PUT",
           body: JSON.stringify({
             status: assignStatus,
-            dueDate: assignDue ? new Date(assignDue).toISOString() : null,
+            dueDate: dateOnlyPayload(assignDue),
             completedAt: editingAssign.completedAt,
             notes: assignNotes.trim() || null,
           }),
@@ -632,7 +633,7 @@ export default function LearningPage() {
           body: JSON.stringify({
             employeeId: assignEmployeeId,
             courseId: assignCourseId,
-            dueDate: assignDue ? new Date(assignDue).toISOString() : null,
+            dueDate: dateOnlyPayload(assignDue),
             notes: assignNotes.trim() || null,
           }),
         });

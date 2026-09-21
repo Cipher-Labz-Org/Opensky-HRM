@@ -75,6 +75,8 @@ Please read the details below and reply if you have any questions.`;
 
 const SYSTEM_EMAIL_KEYS = new Set([
   "Email_LeaveApplication",
+  "Email_LeaveApplicationSupervisor",
+  "Email_LeaveApplicationCovering",
   "Email_RecruitmentOffer",
   "Email_RecruitmentInterviewCandidate",
   "Email_RecruitmentInterviewInterviewer",

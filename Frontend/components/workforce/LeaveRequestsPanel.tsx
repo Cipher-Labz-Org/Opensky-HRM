@@ -81,6 +81,7 @@ const QUICK_STATUS_FILTERS: Array<{ value: string; label: string }> = [
   { value: "Approved", label: "Approved" },
   { value: "Rejected", label: "Rejected" },
   { value: "Cancelled", label: "Cancelled" },
+  { value: "CancellationRequested", label: "Cancel requested" },
 ];
 
 function normalizePaged(raw: PagedLeaveResponse): {
@@ -98,7 +99,21 @@ function normalizePaged(raw: PagedLeaveResponse): {
 
 function canActOnLeaveStatus(status: string): boolean {
   const s = status.toLowerCase();
-  return s === "pending" || s === "pendinglevel2";
+  return s === "pending" || s === "pendinglevel2" || s === "cancellationrequested";
+}
+
+function isOwnLeaveRow(row: LeaveRequestRow, currentEmployeeId: string | null): boolean {
+  return Boolean(currentEmployeeId) && row.employeeId.toLowerCase() === currentEmployeeId!.toLowerCase();
+}
+
+function canSupervisorCancelApproved(
+  row: LeaveRequestRow,
+  currentEmployeeId: string | null,
+  showApprovalActions: boolean,
+): boolean {
+  if (!showApprovalActions || row.status !== "Approved") return false;
+  if (!currentEmployeeId || !row.responsibleEmployeeId) return false;
+  return row.responsibleEmployeeId.toLowerCase() === currentEmployeeId.toLowerCase();
 }
 
 function canUserActOnLeaveRow(
@@ -115,6 +130,7 @@ function leaveStatusBadgeClass(status: string): string {
   const s = status.toLowerCase();
   if (s.includes("approved")) return "badge badge-green";
   if (s.includes("reject")) return "badge badge-red";
+  if (s === "cancellationrequested") return "badge badge-yellow";
   if (s.includes("pending")) return "badge badge-yellow";
   if (s.includes("cancel")) return "badge badge-blue";
   return "badge badge-blue";
@@ -122,6 +138,7 @@ function leaveStatusBadgeClass(status: string): string {
 
 function formatLeaveStatusLabel(status: string): string {
   if (status === "PendingLevel2") return "Pending (L2)";
+  if (status === "CancellationRequested") return "Cancel requested";
   return status;
 }
 
@@ -181,7 +198,7 @@ export function LeaveRequestsPanel({
   }
 
   const [actionRow, setActionRow] = useState<LeaveRequestRow | null>(null);
-  const [actionKind, setActionKind] = useState<"approve" | "reject" | null>(null);
+  const [actionKind, setActionKind] = useState<"approve" | "reject" | "cancel" | "request-cancel" | null>(null);
   const [remarks, setRemarks] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -264,7 +281,9 @@ export function LeaveRequestsPanel({
       const path =
         actionKind === "approve"
           ? `/api/leave/requests/${actionRow.id}/approve`
-          : `/api/leave/requests/${actionRow.id}/reject`;
+          : actionKind === "reject"
+            ? `/api/leave/requests/${actionRow.id}/reject`
+            : `/api/leave/requests/${actionRow.id}/cancel`;
       await apiFetch(path, {
         method: "POST",
         body: JSON.stringify({ remarks: remarks.trim() || null }),
@@ -274,7 +293,12 @@ export function LeaveRequestsPanel({
       setRemarks("");
       await load();
     } catch (e) {
-      await appAlert(e instanceof Error ? e.message : "Request failed", actionKind === "approve" ? "Approve" : "Reject");
+      const title =
+        actionKind === "approve" ? "Approve"
+          : actionKind === "reject" ? "Reject"
+            : actionKind === "request-cancel" ? "Request cancel"
+              : "Cancel leave";
+      await appAlert(e instanceof Error ? e.message : "Request failed", title);
     } finally {
       setSubmitting(false);
     }
@@ -498,7 +522,7 @@ export function LeaveRequestsPanel({
                                 setRemarks("");
                               }}
                             >
-                              Approve
+                              {r.status.toLowerCase() === "cancellationrequested" ? "Approve cancel" : "Approve"}
                             </button>
                             <button
                               type="button"
@@ -509,9 +533,48 @@ export function LeaveRequestsPanel({
                                 setRemarks("");
                               }}
                             >
-                              Reject
+                              {r.status.toLowerCase() === "cancellationrequested" ? "Keep leave" : "Reject"}
                             </button>
                           </>
+                        ) : null}
+                        {isOwnLeaveRow(r, currentEmployeeId ?? null) && (r.status === "Pending" || r.status === "PendingLevel2") && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                            onClick={() => {
+                              setActionRow(r);
+                              setActionKind("cancel");
+                              setRemarks("");
+                            }}
+                          >
+                            Cancel leave
+                          </button>
+                        )}
+                        {isOwnLeaveRow(r, currentEmployeeId ?? null) && r.status === "Approved" && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                            onClick={() => {
+                              setActionRow(r);
+                              setActionKind("request-cancel");
+                              setRemarks("");
+                            }}
+                          >
+                            Request cancel
+                          </button>
+                        )}
+                        {showApprovalActions && canSupervisorCancelApproved(r, currentEmployeeId ?? null, showApprovalActions) ? (
+                          <button
+                            type="button"
+                            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                            onClick={() => {
+                              setActionRow(r);
+                              setActionKind("cancel");
+                              setRemarks("");
+                            }}
+                          >
+                            Cancel & return days
+                          </button>
                         ) : null}
                       </div>
                     </td>
@@ -547,7 +610,15 @@ export function LeaveRequestsPanel({
           setActionKind(null);
           setRemarks("");
         }}
-        title={actionKind === "approve" ? "Approve leave" : "Reject leave"}
+        title={
+          actionKind === "approve"
+            ? (actionRow?.status === "CancellationRequested" ? "Approve cancellation" : "Approve leave")
+            : actionKind === "reject"
+              ? (actionRow?.status === "CancellationRequested" ? "Keep this leave" : "Reject leave")
+              : actionKind === "request-cancel"
+                ? "Request to cancel leave"
+                : "Cancel leave"
+        }
       >
         {actionRow && (
           <div className="space-y-4">
@@ -565,7 +636,15 @@ export function LeaveRequestsPanel({
                 onChange={(e) => setRemarks(e.target.value)}
                 rows={3}
                 className={inputClassSlate}
-                placeholder={actionKind === "reject" ? "Reason for rejection…" : "Optional note to the employee…"}
+                placeholder={
+                  actionKind === "reject"
+                    ? (actionRow.status === "CancellationRequested" ? "Why this leave should stay approved…" : "Reason for rejection…")
+                    : actionKind === "request-cancel"
+                      ? "Why you need to cancel this leave…"
+                      : actionKind === "cancel"
+                        ? "Optional note…"
+                        : "Optional note to the employee…"
+                }
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -582,7 +661,15 @@ export function LeaveRequestsPanel({
                 Cancel
               </Button>
               <Button type="button" disabled={submitting} onClick={() => void submitLeaveAction()}>
-                {submitting ? "Saving…" : actionKind === "approve" ? "Confirm approve" : "Confirm reject"}
+                {submitting
+                  ? "Saving…"
+                  : actionKind === "approve"
+                    ? (actionRow.status === "CancellationRequested" ? "Confirm cancel" : "Confirm approve")
+                    : actionKind === "reject"
+                      ? (actionRow.status === "CancellationRequested" ? "Keep leave" : "Confirm reject")
+                      : actionKind === "request-cancel"
+                        ? "Send request"
+                        : "Confirm cancel"}
               </Button>
             </div>
           </div>

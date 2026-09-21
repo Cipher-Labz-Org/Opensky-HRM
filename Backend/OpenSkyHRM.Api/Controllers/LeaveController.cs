@@ -122,6 +122,7 @@ public class LeaveController : ControllerBase
         [FromForm] decimal? shortLeaveHours,
         [FromForm] string? reason,
         [FromForm] string? coveragePerson,
+        [FromForm] Guid? coverageEmployeeId,
         IFormFile? medicalCertificate)
     {
         try
@@ -163,6 +164,7 @@ public class LeaveController : ControllerBase
                 ShortLeaveHours = shortLeaveHours,
                 Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
                 CoveragePerson = string.IsNullOrWhiteSpace(coveragePerson) ? null : coveragePerson.Trim(),
+                CoverageEmployeeId = coverageEmployeeId,
             };
 
             var created = await _leaveService.CreateLeaveRequestAsync(dto, medicalUrl);
@@ -191,7 +193,7 @@ public class LeaveController : ControllerBase
         var request = await _db.Set<Domain.Entities.LeaveRequest>().FindAsync(id);
         if (request is null) return NotFound();
 
-        if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2)
+        if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2 or ApprovalStatus.CancellationRequested)
         {
             var responsibleId = await _leaveService.GetResponsibleApproverEmployeeIdAsync(id);
             if (!responsibleId.HasValue || responsibleId.Value != approverId.Value)
@@ -211,7 +213,7 @@ public class LeaveController : ControllerBase
         var request = await _db.Set<Domain.Entities.LeaveRequest>().FindAsync(id);
         if (request is null) return NotFound();
 
-        if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2)
+        if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2 or ApprovalStatus.CancellationRequested)
         {
             var responsibleId = await _leaveService.GetResponsibleApproverEmployeeIdAsync(id);
             if (!responsibleId.HasValue || responsibleId.Value != approverId.Value)
@@ -220,6 +222,22 @@ public class LeaveController : ControllerBase
 
         var result = await _leaveService.RejectLeaveRequestAsync(id, approverId.Value, dto);
         return result is null ? NotFound() : Ok(result);
+    }
+
+    [HttpPost("requests/{id:guid}/cancel")]
+    public async Task<IActionResult> Cancel(Guid id, [FromBody] ApproveRejectLeaveDto? dto)
+    {
+        var actorId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
+        if (!actorId.HasValue)
+            return BadRequest(new { message = "Your account must be linked to an employee to cancel leave." });
+        try
+        {
+            return Ok(await _leaveService.CancelLeaveRequestAsync(id, actorId.Value, dto?.Remarks));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     // ───── Approval Workflow Config ─────

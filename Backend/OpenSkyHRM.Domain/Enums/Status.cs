@@ -36,5 +36,6 @@ public enum ApprovalStatus
     PendingLevel2,
     Approved,
     Rejected,
-    Cancelled
+    Cancelled,
+    CancellationRequested
 }

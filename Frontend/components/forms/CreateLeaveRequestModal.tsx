@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect, useMemo, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { DatePickerField, FormErrorAlert } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import {
   clampShortLeaveHours,
   computeLeaveTotalDays,
@@ -47,8 +46,7 @@ export function CreateLeaveRequestModal({ open, onClose, onCreated }: Props) {
   const [error, setError] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const todayMinDate = useMemo(() => formatLocalDateToIso(new Date()), []);
-  const endMinDate = startDate && startDate > todayMinDate ? startDate : todayMinDate;
+  const endMinDate = startDate || undefined;
   const selectedType = leaveTypes.find((t) => t.id === leaveTypeId);
   const isShortLeaveSelected = isShortLeaveType(selectedType);
   const allowHalfDay = Boolean(selectedType?.allowHalfDay) && !isShortLeaveSelected;
@@ -91,11 +89,6 @@ export function CreateLeaveRequestModal({ open, onClose, onCreated }: Props) {
     const end = durationKind === "FullDay" ? (endDate || (fd.get("endDate") as string)) : start;
     if (!start || !end) {
       setError("Select both start and end dates.");
-      setSubmitting(false);
-      return;
-    }
-    if (start < todayMinDate || end < todayMinDate) {
-      setError("Leave cannot be applied for past dates.");
       setSubmitting(false);
       return;
     }
@@ -258,7 +251,6 @@ export function CreateLeaveRequestModal({ open, onClose, onCreated }: Props) {
               name="startDate"
               required
               value={startDate}
-              min={todayMinDate}
               onChange={(iso) => {
                 setStartDate(iso);
                 if (durationKind !== "FullDay") {

@@ -13,6 +13,7 @@ public interface ILeaveService
     Task<LeaveRequestDto> CreateLeaveRequestAsync(CreateLeaveRequestDto dto, string? medicalCertificateUrl = null);
     Task<LeaveRequestDto?> ApproveLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto);
     Task<LeaveRequestDto?> RejectLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto);
+    Task<LeaveRequestDto> CancelLeaveRequestAsync(Guid id, Guid actingEmployeeId, string? remarks);
     Task<Guid?> GetResponsibleApproverEmployeeIdAsync(Guid leaveRequestId);
 
     // Leave Types

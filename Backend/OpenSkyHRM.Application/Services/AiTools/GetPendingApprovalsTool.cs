@@ -35,7 +35,7 @@ public sealed class GetPendingApprovalsTool : AiToolBase
         var q = ctx.Db.LeaveRequests.AsNoTracking()
             .Include(r => r.Employee)
             .Include(r => r.LeaveType)
-            .Where(r => !r.IsDeleted && r.Status == ApprovalStatus.Pending);
+            .Where(r => !r.IsDeleted && (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2 || r.Status == ApprovalStatus.CancellationRequested));
 
         if (allowedIds != null)
             q = q.Where(r => allowedIds.Contains(r.EmployeeId));

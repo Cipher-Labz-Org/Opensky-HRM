@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { appAlert } from "@/components/ui/appDialogs";
 import { apiFetch } from "@/lib/api";
 import { formatBusinessDateTime } from "@/lib/date-utils";
+import { formatLocalDateToIso, instantToLocalDateKey } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
@@ -294,16 +295,16 @@ export default function DashboardPage() {
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      keys.push(d.toISOString().slice(0, 10));
+      keys.push(formatLocalDateToIso(d));
     }
     const counts = new Map<string, number>();
     for (const k of keys) counts.set(k, 0);
     leaveDash?.recentRequests?.forEach((r) => {
-      const k = new Date(r.createdAt).toISOString().slice(0, 10);
+      const k = instantToLocalDateKey(r.createdAt);
       if (counts.has(k)) counts.set(k, (counts.get(k) ?? 0) + 1);
     });
     recruitDash?.recentActivities?.forEach((a) => {
-      const k = new Date(a.performedAt).toISOString().slice(0, 10);
+      const k = instantToLocalDateKey(a.performedAt);
       if (counts.has(k)) counts.set(k, (counts.get(k) ?? 0) + 1);
     });
     return keys.map((key) => ({

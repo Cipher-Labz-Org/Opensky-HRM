@@ -60,7 +60,7 @@ public class RecruitmentService : IRecruitmentService
         Phone = c.Phone,
         Stage = c.Stage,
         AppliedAt = AsStoredUtc(c.AppliedAt),
-        RequisitionId = c.RequisitionId,
+        RequisitionId = c.RequisitionId ?? Guid.Empty,
         RequisitionTitle = c.Requisition?.Title,
         HasUploadedResume = await ResumeFileExistsAsync(c.Id),
         ResumeFileName = c.ResumeUrl,
@@ -282,10 +282,14 @@ public class RecruitmentService : IRecruitmentService
     // ── Candidates ───────────────────────────────────────────────
 
     public async Task<PagedResult<CandidateDto>> GetCandidatesAsync(
-        int page = 1, int pageSize = 50, Guid? requisitionId = null, string? stage = null, string? search = null)
+        int page = 1, int pageSize = 50, Guid? requisitionId = null, string? stage = null, string? search = null, bool? talentPool = null)
     {
         var query = _db.Candidates.Include(c => c.Requisition).AsQueryable();
 
+        if (talentPool == true)
+            query = query.Where(c => c.RequisitionId == null);
+        else if (talentPool == false)
+            query = query.Where(c => c.RequisitionId != null);
         if (requisitionId.HasValue)
             query = query.Where(c => c.RequisitionId == requisitionId.Value);
         if (!string.IsNullOrWhiteSpace(stage))
@@ -354,22 +358,76 @@ public class RecruitmentService : IRecruitmentService
         InputValidators.ValidatePhone(dto.Phone, "Phone", required: false);
         InputValidators.ValidateEmailInput(dto.Email, "Email", required: true);
 
+        var requisitionId = NormalizeRequisitionId(dto.RequisitionId);
+        if (requisitionId.HasValue)
+        {
+            var reqExists = await _db.Requisitions.AnyAsync(r => r.Id == requisitionId.Value && !r.IsDeleted);
+            if (!reqExists)
+                throw new InvalidOperationException("Requisition not found.");
+        }
+
         var candidate = new Candidate
         {
             FirstName = dto.FirstName, LastName = dto.LastName, Email = dto.Email,
-            Phone = dto.Phone, ResumeUrl = dto.ResumeUrl, Source = dto.Source,
-            RequisitionId = dto.RequisitionId, CurrentTitle = dto.CurrentTitle,
+            Phone = dto.Phone, ResumeUrl = dto.ResumeUrl,
+            Source = string.IsNullOrWhiteSpace(dto.Source)
+                ? (requisitionId.HasValue ? "Direct" : "Talent Pool")
+                : dto.Source.Trim(),
+            RequisitionId = requisitionId, CurrentTitle = dto.CurrentTitle,
             CurrentCompany = dto.CurrentCompany, ExpectedSalary = dto.ExpectedSalary,
             NoticePeriod = dto.NoticePeriod, Notes = dto.Notes, Tags = dto.Tags,
             AppliedAt = DateTime.UtcNow,
+            Stage = "Sourced",
         };
         _db.Candidates.Add(candidate);
 
-        LogActivity(candidate.Id, "StageChange", $"Candidate created in Sourced stage");
+        LogActivity(candidate.Id, "StageChange",
+            requisitionId.HasValue
+                ? "Candidate created in Sourced stage"
+                : "Candidate added to talent pool");
 
         await _db.SaveChangesAsync();
-        return (await GetCandidatesAsync(1, 1, dto.RequisitionId)).Items.First();
+        await _db.Entry(candidate).Reference(c => c.Requisition).LoadAsync();
+        return MapCandidate(candidate);
     }
+
+    public async Task<CandidateDto> AssignCandidateRequisitionAsync(Guid candidateId, Guid? requisitionId)
+    {
+        var c = await _db.Candidates.Include(x => x.Requisition).FirstOrDefaultAsync(x => x.Id == candidateId)
+            ?? throw new InvalidOperationException("Candidate not found");
+
+        var nextReqId = NormalizeRequisitionId(requisitionId);
+        var wasPool = c.RequisitionId == null;
+        if (nextReqId.HasValue)
+        {
+            var req = await _db.Requisitions.FirstOrDefaultAsync(r => r.Id == nextReqId.Value && !r.IsDeleted)
+                ?? throw new InvalidOperationException("Requisition not found.");
+            if (req.ClosedAt.HasValue)
+                throw new InvalidOperationException("Cannot assign a candidate to a closed requisition.");
+            c.RequisitionId = req.Id;
+            if (wasPool)
+            {
+                c.Stage = "Sourced";
+                LogActivity(c.Id, "StageChange", $"Re-hired onto requisition {req.Title}");
+            }
+            else
+            {
+                LogActivity(c.Id, "StageChange", $"Assigned to requisition {req.Title}");
+            }
+        }
+        else
+        {
+            c.RequisitionId = null;
+            LogActivity(c.Id, "StageChange", "Moved to talent pool");
+        }
+
+        await _db.SaveChangesAsync();
+        await _db.Entry(c).Reference(x => x.Requisition).LoadAsync();
+        return MapCandidate(c);
+    }
+
+    private static Guid? NormalizeRequisitionId(Guid? id) =>
+        id.HasValue && id.Value != Guid.Empty ? id : null;
 
     public async Task<PublicCandidateApplicationDto?> GetPublicApplicationAsync(Guid candidateId, string email)
     {
@@ -508,7 +566,14 @@ public class RecruitmentService : IRecruitmentService
 
         c.FirstName = dto.FirstName; c.LastName = dto.LastName; c.Email = dto.Email;
         c.Phone = dto.Phone; c.ResumeUrl = dto.ResumeUrl; c.Source = dto.Source;
-        c.RequisitionId = dto.RequisitionId; c.CurrentTitle = dto.CurrentTitle;
+        var nextReqId = NormalizeRequisitionId(dto.RequisitionId);
+        if (nextReqId.HasValue)
+        {
+            var reqExists = await _db.Requisitions.AnyAsync(r => r.Id == nextReqId.Value && !r.IsDeleted);
+            if (!reqExists)
+                throw new InvalidOperationException("Requisition not found.");
+        }
+        c.RequisitionId = nextReqId; c.CurrentTitle = dto.CurrentTitle;
         c.CurrentCompany = dto.CurrentCompany; c.ExpectedSalary = dto.ExpectedSalary;
         c.NoticePeriod = dto.NoticePeriod; c.Notes = dto.Notes; c.Tags = dto.Tags;
         c.Rating = dto.Rating;
@@ -1322,9 +1387,10 @@ public class RecruitmentService : IRecruitmentService
         var openReqs = await _db.Requisitions.CountAsync(r =>
             r.ClosedAt == null && r.Status != ApprovalStatus.Cancelled);
 
-        // Active pipeline = candidates still moving through hiring (exclude terminal outcomes).
+        // Active pipeline = candidates still moving through hiring (exclude talent pool and terminal outcomes).
         var totalCandidates = await _db.Candidates.CountAsync(c =>
             !c.IsDeleted
+            && c.RequisitionId != null
             && c.Stage.ToLower() != "hired"
             && c.Stage.ToLower() != "rejected"
             && c.Stage.ToLower() != "withdrawn");
@@ -1362,7 +1428,8 @@ public class RecruitmentService : IRecruitmentService
         var stages = new[] { "Sourced", "Screening", "Interview", "Evaluation", "Offer", "Hired", "Rejected", "Withdrawn" };
         var pipelineByStage = new Dictionary<string, int>();
         foreach (var st in stages)
-            pipelineByStage[st] = await _db.Candidates.CountAsync(c => !c.IsDeleted && c.Stage == st);
+            pipelineByStage[st] = await _db.Candidates.CountAsync(c =>
+                !c.IsDeleted && c.RequisitionId != null && c.Stage == st);
 
         var upcoming = await GetUpcomingInterviewsAsync();
 
@@ -1511,9 +1578,10 @@ public class RecruitmentService : IRecruitmentService
     }
 
     /// <summary>When hired placements meet or exceed vacancies, mark the requisition closed.</summary>
-    private async Task TryAutoCloseRequisitionIfFilledAsync(Guid requisitionId)
+    private async Task TryAutoCloseRequisitionIfFilledAsync(Guid? requisitionId)
     {
-        var req = await _db.Requisitions.FindAsync(requisitionId);
+        if (!requisitionId.HasValue) return;
+        var req = await _db.Requisitions.FindAsync(requisitionId.Value);
         if (req == null || req.ClosedAt.HasValue || req.Status != ApprovalStatus.Approved)
             return;
 

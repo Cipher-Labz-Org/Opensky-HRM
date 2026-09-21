@@ -195,7 +195,7 @@ public class CandidateDto
     public int? Rating { get; set; }
     public string? RejectionReason { get; set; }
     public string? Tags { get; set; }
-    public Guid RequisitionId { get; set; }
+    public Guid? RequisitionId { get; set; }
     public string? RequisitionTitle { get; set; }
     public Guid? EmployeeId { get; set; }
 
@@ -244,7 +244,7 @@ public class CreateCandidateDto
     public string? Phone { get; set; }
     public string? ResumeUrl { get; set; }
     public string Source { get; set; } = string.Empty;
-    public Guid RequisitionId { get; set; }
+    public Guid? RequisitionId { get; set; }
     public string? CurrentTitle { get; set; }
     public string? CurrentCompany { get; set; }
     public decimal? ExpectedSalary { get; set; }
@@ -257,6 +257,11 @@ public class UpdateCandidateDto : CreateCandidateDto
 {
     public Guid Id { get; set; }
     public int? Rating { get; set; }
+}
+
+public class AssignCandidateRequisitionDto
+{
+    public Guid? RequisitionId { get; set; }
 }
 
 public class AddEvaluationNoteDto

@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  joinReportFilterValues,
+  reportFilterContains,
   reportGroupByLabel,
+  splitReportFilterValues,
+  toggleReportFilterValue,
   type ReportFilterPill,
   type ReportFilterSection,
   type ReportGroupByKey,
@@ -23,8 +27,8 @@ interface ReportParametersSearchBarProps {
   groupByOptions: GroupByOption[];
   filterSections: ReportFilterSection[];
   filterPills: ReportFilterPill[];
-  onFilterChange: (key: ReportParamFilterKey, value: string) => void;
-  onRemoveFilter: (key: ReportParamFilterKey) => void;
+  onFilterChange: (key: ReportParamFilterKey, nextCsv: string) => void;
+  onRemoveFilter: (key: ReportParamFilterKey, value?: string) => void;
   activeFilterValues: Partial<Record<ReportParamFilterKey, string>>;
   onClearAll: () => void;
   loading?: boolean;
@@ -111,6 +115,49 @@ function MenuOption({
   );
 }
 
+function FilterCheckOption({
+  checked,
+  label,
+  onToggle,
+}: {
+  checked: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12.5px] transition ${
+        checked
+          ? "bg-blue-50 font-medium text-slate-900"
+          : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"
+      }`}
+    >
+      <span
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border ${
+          checked
+            ? "border-[#2B7DE9] bg-[#2B7DE9] text-white"
+            : "border-slate-300 bg-white"
+        }`}
+      >
+        {checked ? (
+          <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24" aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+          </svg>
+        ) : null}
+      </span>
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
+  );
+}
+
 export function ReportParametersSearchBar({
   employeeSearch,
   onEmployeeSearchChange,
@@ -128,7 +175,11 @@ export function ReportParametersSearchBar({
 }: ReportParametersSearchBarProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [expandedFilterKey, setExpandedFilterKey] = useState<ReportParamFilterKey | null>(null);
+  const [expandedFilterKeys, setExpandedFilterKeys] = useState<Set<ReportParamFilterKey>>(new Set());
+  const localFilterRef = useRef<Partial<Record<ReportParamFilterKey, string>>>({ ...activeFilterValues });
+  const [localFilters, setLocalFilters] = useState<Partial<Record<ReportParamFilterKey, string>>>({
+    ...activeFilterValues,
+  });
 
   const hasActiveState = groupBy !== null || filterPills.length > 0 || Boolean(employeeSearch.trim());
   const activeFilterCount = filterPills.length + (groupBy ? 1 : 0);
@@ -144,10 +195,40 @@ export function ReportParametersSearchBar({
   }, []);
 
   useEffect(() => {
-    if (menuOpen && filterPills.length > 0) {
-      setExpandedFilterKey(filterPills[0].key);
-    }
-  }, [menuOpen, filterPills]);
+    if (menuOpen) return;
+    localFilterRef.current = { ...activeFilterValues };
+    setLocalFilters({ ...activeFilterValues });
+  }, [menuOpen, activeFilterValues]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    localFilterRef.current = { ...activeFilterValues };
+    setLocalFilters({ ...activeFilterValues });
+    setExpandedFilterKeys((prev) => {
+      if (prev.size > 0) return prev;
+      return new Set(filterPills.map((pill) => pill.key));
+    });
+  }, [menuOpen]);
+
+  function emitFilter(key: ReportParamFilterKey, nextCsv: string) {
+    localFilterRef.current = { ...localFilterRef.current, [key]: nextCsv };
+    setLocalFilters((prev) => ({ ...prev, [key]: nextCsv }));
+    onFilterChange(key, nextCsv);
+  }
+
+  function clearLocalFilters() {
+    localFilterRef.current = {};
+    setLocalFilters({});
+  }
+
+  function toggleFilterSection(key: ReportParamFilterKey) {
+    setExpandedFilterKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   function toggleMenu() {
     setMenuOpen((o) => !o);
@@ -194,9 +275,14 @@ export function ReportParametersSearchBar({
           )}
           {filterPills.map((pill) => (
             <FilterPill
-              key={pill.key}
+              key={`${pill.key}:${pill.value}`}
               label={pill.label}
-              onRemove={() => onRemoveFilter(pill.key)}
+              onRemove={() => {
+                const next = toggleReportFilterValue(localFilterRef.current[pill.key], pill.value);
+                localFilterRef.current = { ...localFilterRef.current, [pill.key]: next };
+                setLocalFilters((prev) => ({ ...prev, [pill.key]: next }));
+                onRemoveFilter(pill.key, pill.value);
+              }}
               removeLabel={`Remove filter ${pill.label}`}
             />
           ))}
@@ -288,28 +374,40 @@ export function ReportParametersSearchBar({
                   d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
                 />
               </svg>
-              <span className="text-[12px] font-semibold text-slate-800">Filters</span>
+              <div>
+                <span className="text-[12px] font-semibold text-slate-800">Filters</span>
+                <p className="text-[10px] font-normal text-slate-400">Choose one or more</p>
+              </div>
             </div>
 
-            <div className="max-h-[260px] overflow-y-auto p-1.5">
+            <div className="max-h-[320px] overflow-y-auto p-1.5">
               {filterSections.length === 0 ? (
                 <p className="px-2 py-3 text-[12px] text-slate-400">No filters available</p>
               ) : (
                 filterSections.map((section) => {
-                  const sectionOpen = expandedFilterKey === section.key;
-                  const activeValue = activeFilterValues[section.key];
-                  const activeLabel = section.options.find((o) => o.value === activeValue)?.label;
+                  const sectionOpen = expandedFilterKeys.has(section.key);
+                  const selectedValues = splitReportFilterValues(localFilters[section.key]);
+                  const selectedLabels = selectedValues
+                    .map((value) => section.options.find((o) => o.value === value)?.label ?? value)
+                    .filter(Boolean);
+                  const allSelected =
+                    section.options.length > 0 &&
+                    section.options.every((opt) => reportFilterContains(localFilters[section.key], opt.value));
                   return (
                     <div key={section.key} className="mb-0.5">
                       <button
                         type="button"
-                        onClick={() => setExpandedFilterKey(sectionOpen ? null : section.key)}
+                        onClick={() => toggleFilterSection(section.key)}
                         className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition hover:bg-white"
                       >
                         <div className="min-w-0">
                           <div className="text-[12.5px] font-medium text-slate-700">{section.label}</div>
-                          {activeLabel && (
-                            <div className="truncate text-[10px] text-[#2B7DE9]">{activeLabel}</div>
+                          {selectedLabels.length > 0 && (
+                            <div className="truncate text-[10px] text-[#2B7DE9]">
+                              {selectedLabels.length === 1
+                                ? selectedLabels[0]
+                                : `${selectedLabels.length} selected`}
+                            </div>
                           )}
                         </div>
                         <svg
@@ -321,21 +419,55 @@ export function ReportParametersSearchBar({
                         </svg>
                       </button>
                       {sectionOpen && (
-                        <ul className="mb-1 max-h-[140px] space-y-0.5 overflow-y-auto rounded-lg bg-white p-1 ring-1 ring-slate-100">
-                          {section.options.length === 0 ? (
-                            <li className="px-2.5 py-2 text-[12px] text-slate-400">No options</li>
-                          ) : (
-                            section.options.map((opt) => (
-                              <li key={opt.value}>
-                                <MenuOption
-                                  active={activeValue === opt.value}
-                                  label={opt.label}
-                                  onClick={() => onFilterChange(section.key, opt.value)}
-                                />
-                              </li>
-                            ))
+                        <div className="mb-1 rounded-lg bg-white ring-1 ring-slate-100">
+                          {section.options.length > 1 && (
+                            <div className="flex items-center justify-between px-2.5 pt-1.5">
+                              <button
+                                type="button"
+                                className="text-[10px] font-medium text-[#2B7DE9] hover:underline"
+                                onClick={() =>
+                                  emitFilter(
+                                    section.key,
+                                    allSelected
+                                      ? ""
+                                      : joinReportFilterValues(section.options.map((opt) => opt.value)),
+                                  )
+                                }
+                              >
+                                {allSelected ? "Clear" : "Select all"}
+                              </button>
+                              {selectedValues.length > 0 && !allSelected && (
+                                <button
+                                  type="button"
+                                  className="text-[10px] font-medium text-slate-400 hover:text-rose-600"
+                                  onClick={() => emitFilter(section.key, "")}
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
                           )}
-                        </ul>
+                          <ul className="max-h-[140px] space-y-0.5 overflow-y-auto p-1">
+                            {section.options.length === 0 ? (
+                              <li className="px-2.5 py-2 text-[12px] text-slate-400">No options</li>
+                            ) : (
+                              section.options.map((opt) => (
+                                <li key={opt.value}>
+                                  <FilterCheckOption
+                                    checked={reportFilterContains(localFilters[section.key], opt.value)}
+                                    label={opt.label}
+                                    onToggle={() =>
+                                      emitFilter(
+                                        section.key,
+                                        toggleReportFilterValue(localFilterRef.current[section.key], opt.value),
+                                      )
+                                    }
+                                  />
+                                </li>
+                              ))
+                            )}
+                          </ul>
+                        </div>
                       )}
                     </div>
                   );
@@ -348,6 +480,7 @@ export function ReportParametersSearchBar({
                 <button
                   type="button"
                   onClick={() => {
+                    clearLocalFilters();
                     onClearAll();
                     setMenuOpen(false);
                   }}

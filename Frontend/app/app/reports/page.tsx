@@ -6,7 +6,7 @@ import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { DatePickerField } from "@/components/ui";
 import { FormSelect } from "@/components/ui/FormSelect";
-import { applyFromDateInRange, applyToDateInRange } from "@/lib/datePickerIso";
+import { applyFromDateInRange, applyToDateInRange, formatLocalDateToIso } from "@/lib/datePickerIso";
 import { formatDateTime } from "@/lib/date-utils";
 import { formatInt } from "@/lib/workspace-charts";
 import { getReportIconPaths } from "@/lib/report-icons";
@@ -21,6 +21,8 @@ import {
   groupReportRowsByColumn,
   isValidReportGroupByKey,
   reportGroupByColumn,
+  splitReportFilterValues,
+  toggleReportFilterValue,
   type ReportFilterPill,
   type ReportFilterSection,
   type ReportGroupByKey,
@@ -73,7 +75,7 @@ function getDefaultQueryParamsForItem(item: ReportItem | null | undefined): Reco
   if (!item) return p;
   const today = new Date();
   const mode = item.periodFilterMode || "none";
-  const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+  const isoDate = (d: Date) => formatLocalDateToIso(d);
   if (mode === "dateRange") {
     if (item.key === "daily-attendance" || item.key === "overtime-report" || item.key === "overtime-detail") {
       const from = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -303,6 +305,14 @@ export default function ReportsPage() {
   const [filterDate, setFilterDate] = useState("");
   const [reportGroupBy, setReportGroupBy] = useState<ReportGroupByKey | null>(null);
   const [collapsedReportGroups, setCollapsedReportGroups] = useState<Set<string>>(new Set());
+  const pendingFiltersRef = useRef({
+    departmentId: "",
+    locationId: "",
+    employeeName: "",
+    status: "",
+    gradeId: "",
+  });
+  const filterApplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     apiFetch<ReportCategory[]>("/api/reports/catalog").then((cats) => {
@@ -343,6 +353,22 @@ export default function ReportsPage() {
     () => filterLookupsByAllowedIds(grades, user?.assignedGradeIds),
     [grades, user?.assignedGradeIds],
   );
+
+  useEffect(() => {
+    pendingFiltersRef.current = {
+      departmentId: filterDepartmentId,
+      locationId: filterLocationId,
+      employeeName: filterEmployeeName,
+      status: filterStatus,
+      gradeId: filterGradeId,
+    };
+  }, [filterDepartmentId, filterLocationId, filterEmployeeName, filterStatus, filterGradeId]);
+
+  useEffect(() => {
+    return () => {
+      if (filterApplyTimerRef.current) clearTimeout(filterApplyTimerRef.current);
+    };
+  }, []);
 
   function syncFilterInputsFromParams(params: Record<string, string>) {
     setFilterDepartmentId(params.departmentId ?? "");
@@ -488,48 +514,83 @@ export default function ReportsPage() {
 
   const reportFilterPills = useMemo<ReportFilterPill[]>(() => {
     const pills: ReportFilterPill[] = [];
-    if (filterDepartmentId) {
+    for (const id of splitReportFilterValues(filterDepartmentId)) {
       pills.push({
         key: "departmentId",
-        label: departments.find((d) => d.id === filterDepartmentId)?.name ?? "Department",
+        value: id,
+        label: departments.find((d) => d.id === id)?.name ?? "Department",
       });
     }
-    if (filterLocationId) {
+    for (const id of splitReportFilterValues(filterLocationId)) {
       pills.push({
         key: "locationId",
-        label: locations.find((l) => l.id === filterLocationId)?.name ?? "Location",
+        value: id,
+        label: locations.find((l) => l.id === id)?.name ?? "Location",
       });
     }
-    if (filterStatus) pills.push({ key: "status", label: filterStatus });
-    if (filterGradeId) {
+    for (const status of splitReportFilterValues(filterStatus)) {
+      pills.push({ key: "status", value: status, label: status });
+    }
+    for (const id of splitReportFilterValues(filterGradeId)) {
       pills.push({
         key: "gradeId",
-        label: grades.find((g) => g.id === filterGradeId)?.name ?? "Grade",
+        value: id,
+        label: grades.find((g) => g.id === id)?.name ?? "Grade",
       });
     }
     return pills;
   }, [filterDepartmentId, filterLocationId, filterStatus, filterGradeId, departments, locations, grades]);
 
   function getReportFilterValue(key: ReportParamFilterKey): string {
+    return pendingFiltersRef.current[key] ?? "";
+  }
+
+  function setPendingReportFilter(key: ReportParamFilterKey, value: string) {
+    pendingFiltersRef.current = { ...pendingFiltersRef.current, [key]: value };
     switch (key) {
-      case "departmentId": return filterDepartmentId;
-      case "locationId": return filterLocationId;
-      case "status": return filterStatus;
-      case "gradeId": return filterGradeId;
-      default: return "";
+      case "departmentId":
+        setFilterDepartmentId(value);
+        break;
+      case "locationId":
+        setFilterLocationId(value);
+        break;
+      case "status":
+        setFilterStatus(value);
+        break;
+      case "gradeId":
+        setFilterGradeId(value);
+        break;
     }
   }
 
-  function handleReportFilterChange(key: ReportParamFilterKey, value: string) {
-    const next = getReportFilterValue(key) === value ? "" : value;
-    void applyReportFilters({ [key]: next });
+  function scheduleReportFilterApply() {
+    if (filterApplyTimerRef.current) clearTimeout(filterApplyTimerRef.current);
+    filterApplyTimerRef.current = setTimeout(() => {
+      void applyReportFilters({ ...pendingFiltersRef.current });
+    }, 280);
   }
 
-  function handleRemoveReportFilter(key: ReportParamFilterKey) {
-    void applyReportFilters({ [key]: "" });
+  function handleReportFilterChange(key: ReportParamFilterKey, nextCsv: string) {
+    setPendingReportFilter(key, nextCsv);
+    scheduleReportFilterApply();
+  }
+
+  function handleRemoveReportFilter(key: ReportParamFilterKey, value?: string) {
+    const next = value ? toggleReportFilterValue(getReportFilterValue(key), value) : "";
+    setPendingReportFilter(key, next);
+    if (filterApplyTimerRef.current) clearTimeout(filterApplyTimerRef.current);
+    void applyReportFilters({ ...pendingFiltersRef.current });
   }
 
   function handleClearReportFilters() {
+    if (filterApplyTimerRef.current) clearTimeout(filterApplyTimerRef.current);
+    pendingFiltersRef.current = {
+      departmentId: "",
+      locationId: "",
+      employeeName: "",
+      status: "",
+      gradeId: "",
+    };
     setReportGroupBy(null);
     setCollapsedReportGroups(new Set());
     void applyReportFilters({

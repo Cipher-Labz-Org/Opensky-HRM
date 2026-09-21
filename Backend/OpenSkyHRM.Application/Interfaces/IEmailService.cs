@@ -12,6 +12,14 @@ public interface IEmailService
     Task SendLeaveApplicationConfirmationAsync(string toEmail, string employeeName, string leaveTypeName,
         DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason);
 
+    /// <summary>Notifies the employee's supervisor that a leave request is waiting for approval.</summary>
+    Task SendLeaveApplicationToSupervisorAsync(string toEmail, string supervisorName, string employeeName,
+        string leaveTypeName, DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason);
+
+    /// <summary>Notifies the covering person that they are named on a leave request.</summary>
+    Task SendLeaveApplicationToCoveringPersonAsync(string toEmail, string coveringPersonName, string employeeName,
+        string leaveTypeName, DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason);
+
     Task SendTrainingAssignedAsync(string toEmail, string employeeName, string courseTitle, DateTime? dueDate);
 
     Task SendTrainingOverdueReminderAsync(string toEmail, string employeeName, string courseTitle, DateTime dueDate);

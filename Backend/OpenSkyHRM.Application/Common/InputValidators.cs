@@ -72,25 +72,25 @@ public static class InputValidators
         throw new InvalidOperationException($"{fieldName}: {PhoneValidationMessage}");
     }
 
-    public static void ValidateEmployeeHireDates(DateTime dateOfBirth, DateTime joinDate)
+    public static void ValidateEmployeeHireDates(DateTime dateOfBirth, DateTime joinDate, DateTime today)
     {
-        var today = DateTime.UtcNow.Date;
+        var todayDate = today.Date;
         var dob = dateOfBirth.Date;
         var joined = joinDate.Date;
 
         if (dob == default)
             throw new InvalidOperationException("Date of birth is required.");
 
-        if (dob > today)
+        if (dob > todayDate)
             throw new InvalidOperationException("Date of birth cannot be in the future.");
 
-        if (dob < today.AddYears(-100))
+        if (dob < todayDate.AddYears(-100))
             throw new InvalidOperationException("Date of birth is not valid.");
 
         if (joined == default)
             throw new InvalidOperationException("Join date is required.");
 
-        if (joined > today)
+        if (joined > todayDate)
             throw new InvalidOperationException("Join date cannot be in the future.");
 
         if (joined < dob)

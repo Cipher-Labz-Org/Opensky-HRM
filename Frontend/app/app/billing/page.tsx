@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { ROUTES } from "@/config/routes";
 import { formatDate as fmtDate } from "@/lib/date-utils";
+import { dateOnlyPayload } from "@/lib/datePickerIso";
 import { formatInt } from "@/lib/workspace-charts";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
@@ -151,7 +152,7 @@ export default function BillingPage() {
         body: JSON.stringify({
           planName: planName || undefined,
           status: status || undefined,
-          validUntil: validUntil ? new Date(validUntil).toISOString() : null,
+          validUntil: dateOnlyPayload(validUntil),
           notes: notes || null,
         }),
       });

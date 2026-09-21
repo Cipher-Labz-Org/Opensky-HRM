@@ -5,6 +5,7 @@ using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Persistence;
 using OpenSkyHRM.Persistence.Auditing;
 
@@ -16,17 +17,20 @@ public class EmployeeService : IEmployeeService
     private readonly ISystemSettingService _settings;
     private readonly ILeaveEntitlementService _entitlementService;
     private readonly IEmployeeLifecycleService _lifecycleService;
+    private readonly IBusinessClock _clock;
 
     public EmployeeService(
         AppDbContext db,
         ISystemSettingService settings,
         ILeaveEntitlementService entitlementService,
-        IEmployeeLifecycleService lifecycleService)
+        IEmployeeLifecycleService lifecycleService,
+        IBusinessClock clock)
     {
         _db = db;
         _settings = settings;
         _entitlementService = entitlementService;
         _lifecycleService = lifecycleService;
+        _clock = clock;
     }
 
     private static bool IsProfileSetupIncomplete(Employee e, bool hasDirectSupervisor) =>
@@ -146,8 +150,7 @@ public class EmployeeService : IEmployeeService
 
         var supervisors = await _db.Set<EmployeeSupervisor>()
             .AsNoTracking()
-            .Include(s => s.Supervisor)
-            .Where(s => !s.IsDeleted && idList.Contains(s.EmployeeId))
+            .Where(s => !s.IsDeleted && idList.Contains(s.EmployeeId) && s.Supervisor != null)
             .OrderBy(s => s.Supervisor.LastName)
             .ThenBy(s => s.Supervisor.FirstName)
             .Select(s => new
@@ -161,7 +164,7 @@ public class EmployeeService : IEmployeeService
             .GroupBy(s => s.EmployeeId)
             .ToDictionary(
                 g => g.Key,
-                g => string.Join(", ", g.Select(x => x.SupervisorName.Trim()).Where(n => n.Length > 0).Distinct()));
+                g => string.Join(", ", g.Select(x => (x.SupervisorName ?? "").Trim()).Where(n => n.Length > 0).Distinct()));
     }
 
     private async Task<HashSet<Guid>> GetEmployeesWithDirectSupervisorAsync(IEnumerable<Guid> employeeIds)
@@ -363,7 +366,7 @@ public class EmployeeService : IEmployeeService
         InputValidators.ValidatePersonName(dto.LastName, "Last name");
         dto.Phone = InputValidators.NormalizePhone(dto.Phone);
         InputValidators.ValidatePhone(dto.Phone, "Mobile phone", required: false);
-        InputValidators.ValidateEmployeeHireDates(dto.DateOfBirth, dto.JoinDate);
+        InputValidators.ValidateEmployeeHireDates(dto.DateOfBirth, dto.JoinDate, _clock.Now);
         InputValidators.ValidatePhone(dto.HomeTelephone, "Home telephone", required: false);
         InputValidators.ValidatePhone(dto.WorkTelephone, "Work telephone", required: false);
         InputValidators.ValidateNic(dto.NationalId, "NIC number", required: false);
@@ -616,9 +619,9 @@ public class EmployeeService : IEmployeeService
         {
             // Job/Personal tabs send blank for hidden placeholders — keep the stored value.
         }
-        else if (!string.IsNullOrWhiteSpace(employee.Email))
+        else
         {
-            // Explicit clear of a real work email. Placeholder keeps NOT NULL DBs happy.
+            // Blank work email (or a null leftover from import) must stay unique / NOT NULL-safe.
             employee.Email = EmployeeEmailHelper.ResolveForCreate(employee.EmployeeCode, null);
         }
         employee.Phone = dto.Phone;
@@ -664,8 +667,12 @@ public class EmployeeService : IEmployeeService
         if (dto.JoinDate.HasValue) employee.JoinDate = ToWallDate(dto.JoinDate.Value);
         employee.ProbationEndDate = dto.ProbationEndDate.HasValue ? ToWallDate(dto.ProbationEndDate.Value) : null;
         employee.DateOfPermanency = dto.DateOfPermanency.HasValue ? ToWallDate(dto.DateOfPermanency.Value) : null;
-        employee.Status = dto.Status;
-        employee.EmploymentType = dto.EmploymentType;
+        employee.Status = string.IsNullOrWhiteSpace(dto.Status) ? employee.Status : dto.Status.Trim();
+        if (string.IsNullOrWhiteSpace(employee.Status))
+            employee.Status = "Active";
+        employee.EmploymentType = string.IsNullOrWhiteSpace(dto.EmploymentType)
+            ? employee.EmploymentType
+            : dto.EmploymentType.Trim();
         employee.TerminationDate = dto.TerminationDate.HasValue ? ToWallDate(dto.TerminationDate.Value) : null;
         employee.TerminationReason = dto.TerminationReason;
         employee.TerminationNote = dto.TerminationNote;
@@ -682,7 +689,16 @@ public class EmployeeService : IEmployeeService
         await _db.SaveChangesAsync();
 
         if (fingerprintChanged && fingerprintId != null)
-            await ResetBiometricPunchesForFingerprintIdAsync(fingerprintId);
+        {
+            try
+            {
+                await ResetBiometricPunchesForFingerprintIdAsync(fingerprintId);
+            }
+            catch
+            {
+                // Fingerprint rematch must not fail a successful profile save.
+            }
+        }
 
         try
         {
@@ -712,7 +728,14 @@ public class EmployeeService : IEmployeeService
             }
         }
 
-        return (await GetByIdAsync(id))!;
+        try
+        {
+            return (await GetByIdAsync(id))!;
+        }
+        catch
+        {
+            return MapToDto(employee);
+        }
     }
 
     public async Task<bool> DeleteAsync(Guid id)
@@ -906,7 +929,7 @@ public class EmployeeService : IEmployeeService
         TerminationDate = e.TerminationDate,
         TerminationReason = e.TerminationReason,
         TerminationNote = e.TerminationNote,
-        Status = e.Status.ToString(),
+        Status = string.IsNullOrWhiteSpace(e.Status) ? "Active" : e.Status,
         EmploymentType = e.EmploymentType,
         DepartmentId = e.DepartmentId,
         DepartmentName = e.Department?.Name,

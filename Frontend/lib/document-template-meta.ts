@@ -41,6 +41,66 @@ Reason: {{Reason}}
 
 You will be notified when your request is approved or rejected. If you have questions, contact HR.`,
   },
+  Email_LeaveApplicationSupervisor: {
+    module: "Leave",
+    category: "Approval",
+    description: "Tells the employee's supervisor that a leave request is waiting for approval.",
+    trigger: "Employee submits a leave application in Leave & Absence.",
+    recipients: ["Supervisor"],
+    senderProfile: "OpenSky HRM notifications",
+    defaultSamples: {
+      SupervisorName: "Sam Rivera",
+      EmployeeName: "Alex Morgan",
+      Status: "Pending",
+      LeaveTypeName: "Annual leave",
+      StartDate: "July 1, 2026",
+      EndDate: "July 5, 2026",
+      TotalDays: "5",
+      Reason: "Family vacation",
+    },
+    defaultBody: `Hi {{SupervisorName}},
+
+{{EmployeeName}} has submitted a leave request and it is now {{Status}}. Please review it in Leave & Absence.
+
+Employee: {{EmployeeName}}
+Leave type: {{LeaveTypeName}}
+Start: {{StartDate}}
+End: {{EndDate}}
+Total days: {{TotalDays}}
+Reason: {{Reason}}
+
+Open Leave & Absence in OpenSky HRM to approve or reject this request.`,
+  },
+  Email_LeaveApplicationCovering: {
+    module: "Leave",
+    category: "Coverage",
+    description: "Tells the covering person they are named on a leave request.",
+    trigger: "Employee submits a leave application and selects a covering person.",
+    recipients: ["Covering person"],
+    senderProfile: "OpenSky HRM notifications",
+    defaultSamples: {
+      CoveringPersonName: "Jamie Chen",
+      EmployeeName: "Alex Morgan",
+      Status: "Pending",
+      LeaveTypeName: "Annual leave",
+      StartDate: "July 1, 2026",
+      EndDate: "July 5, 2026",
+      TotalDays: "5",
+      Reason: "Family vacation",
+    },
+    defaultBody: `Hi {{CoveringPersonName}},
+
+{{EmployeeName}} has submitted a leave request and named you as the covering person. The request is currently {{Status}}.
+
+Employee: {{EmployeeName}}
+Leave type: {{LeaveTypeName}}
+Start: {{StartDate}}
+End: {{EndDate}}
+Total days: {{TotalDays}}
+Reason: {{Reason}}
+
+Please be available to cover duties during this period if the request is approved.`,
+  },
   Email_RecruitmentOffer: {
     module: "Recruitment",
     category: "Offer",

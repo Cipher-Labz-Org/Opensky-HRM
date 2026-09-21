@@ -16,6 +16,7 @@ import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/date-utils";
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import { sanitizeSearchInput } from "@/lib/input-validation";
 import { ROUTES } from "@/config/routes";
@@ -78,7 +79,7 @@ function parseStored(raw: string | null): EmployeeActionRecord[] {
 const emptyForm = {
   employeeId: "",
   actionType: "Promotion" as ActionType,
-  effectiveDate: new Date().toISOString().slice(0, 10),
+  effectiveDate: formatLocalDateToIso(new Date()),
   title: "",
   details: "",
   warningFromDate: "",
@@ -335,7 +336,7 @@ export default function EmployeeActionsPage() {
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      keys.push(d.toISOString().slice(0, 10));
+      keys.push(formatLocalDateToIso(d));
     }
     const counts = new Map<string, number>();
     for (const k of keys) counts.set(k, 0);
@@ -351,7 +352,7 @@ export default function EmployeeActionsPage() {
 
   function openCreate() {
     setEditingId(null);
-    setForm({ ...emptyForm, effectiveDate: new Date().toISOString().slice(0, 10) });
+    setForm({ ...emptyForm, effectiveDate: formatLocalDateToIso(new Date()) });
     setEmpInput("");
     setEmpComboOpen(false);
     setModalOpen(true);

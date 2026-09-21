@@ -27,8 +27,19 @@ export default function MarketingLayout({
       </header>
       <main className="flex-1 bg-[var(--bg)]">{children}</main>
       <footer className="border-t border-slate-200/90 bg-white py-6">
-        <div className="mx-auto max-w-6xl px-6 text-center text-sm text-slate-600">
-          © {new Date().getFullYear()} {APP_NAME}. All rights reserved.
+        <div className="mx-auto flex max-w-6xl flex-col items-center gap-2 px-6 text-center text-sm text-slate-600 sm:flex-row sm:justify-between sm:text-left">
+          <p>© {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
+          <nav className="flex items-center gap-4">
+            <Link href={ROUTES.privacy} className="font-medium text-slate-700 hover:text-[#2E7BBF]">
+              Privacy Policy
+            </Link>
+            <Link href={ROUTES.dataDeletion} className="font-medium text-slate-700 hover:text-[#2E7BBF]">
+              Data deletion
+            </Link>
+            <Link href={ROUTES.contact} className="font-medium text-slate-700 hover:text-[#2E7BBF]">
+              Contact
+            </Link>
+          </nav>
         </div>
       </footer>
     </div>

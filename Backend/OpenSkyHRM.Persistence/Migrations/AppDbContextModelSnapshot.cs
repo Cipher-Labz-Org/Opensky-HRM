@@ -1156,7 +1156,7 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<string>("RejectionReason")
                         .HasColumnType("text");
 
-                    b.Property<Guid>("RequisitionId")
+                    b.Property<Guid?>("RequisitionId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("ResumeUrl")
@@ -6532,8 +6532,7 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.HasOne("OpenSkyHRM.Domain.Entities.Requisition", "Requisition")
                         .WithMany("Candidates")
                         .HasForeignKey("RequisitionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Employee");
 

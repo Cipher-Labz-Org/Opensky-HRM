@@ -33,7 +33,7 @@ interface CandidateDetail {
   phone?: string; resumeUrl?: string; hasUploadedResume?: boolean; source: string; stage: string; appliedAt: string;
   currentTitle?: string; currentCompany?: string; expectedSalary?: number;
   noticePeriod?: string; notes?: string; rating?: number; rejectionReason?: string;
-  tags?: string; requisitionId: string; requisitionTitle?: string; employeeId?: string;
+  tags?: string; requisitionId?: string | null; requisitionTitle?: string; employeeId?: string;
   requisitionDepartmentId?: string; requisitionJobTitleId?: string;
   requisitionLocationId?: string; requisitionPositionId?: string;
   interviews: Interview[]; offer?: Offer; activities: Activity[];
@@ -100,7 +100,7 @@ export default function CandidateDetailPage() {
     positionTitle: "",
     salaryOffered: "",
     currency: "LKR",
-    offerDate: new Date().toISOString().slice(0, 10),
+    offerDate: formatLocalDateToIso(new Date()),
     expiryDate: "",
     joiningDate: "",
     remarks: "",
@@ -119,6 +119,9 @@ export default function CandidateDetailPage() {
   const [editJoiningDateValue, setEditJoiningDateValue] = useState("");
   const [editJoiningDateSaving, setEditJoiningDateSaving] = useState(false);
   const [evaluationNoteSaving, setEvaluationNoteSaving] = useState(false);
+  const [assignModal, setAssignModal] = useState(false);
+  const [assignReqId, setAssignReqId] = useState("");
+  const [assignReqOpts, setAssignReqOpts] = useState<FormSelectOption[]>([{ value: "", label: "Select requisition…" }]);
 
   useEffect(() => {
     let mounted = true;
@@ -352,6 +355,21 @@ export default function CandidateDetailPage() {
       openScheduleModal();
     } catch (e) {
       await appAlert(e instanceof Error ? e.message : "Could not reopen candidate for interview.");
+    }
+  }
+
+  async function handleAssignToRequisition() {
+    if (!assignReqId) return;
+    try {
+      await apiFetch(`/api/recruitment/candidates/${id}/assign-requisition`, {
+        method: "POST",
+        body: JSON.stringify({ requisitionId: assignReqId }),
+      });
+      setAssignModal(false);
+      setAssignReqId("");
+      await load();
+    } catch (e) {
+      await appAlert(e instanceof Error ? e.message : "Could not assign candidate.");
     }
   }
 
@@ -671,6 +689,27 @@ export default function CandidateDetailPage() {
             {c.stage === "Rejected" && (
               <Button onClick={() => void handleReinterview()}>Re-interview</Button>
             )}
+            {!c.requisitionId && (
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  setAssignReqId("");
+                  try {
+                    const res = await apiFetch<{ items: { id: string; code: string; title: string; closedAt?: string }[] }>(
+                      "/api/recruitment/requisitions?page=1&pageSize=500",
+                    );
+                    const open = (res.items ?? []).filter((r) => !r.closedAt);
+                    setAssignReqOpts([
+                      { value: "", label: "Select requisition…" },
+                      ...open.map((r) => ({ value: r.id, label: `${r.code} — ${r.title}` })),
+                    ]);
+                  } catch { /* */ }
+                  setAssignModal(true);
+                }}
+              >
+                Re-hire
+              </Button>
+            )}
             {c.stage !== "Hired" && c.stage !== "Rejected" && (
               <>
                 <div className="relative" ref={stageActionRef}>
@@ -754,7 +793,10 @@ export default function CandidateDetailPage() {
               <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                 <div><dt className="text-[var(--text-muted)]">Source</dt><dd className="font-medium">{c.source}</dd></div>
                 <div><dt className="text-[var(--text-muted)]">Applied On</dt><dd className="font-medium">{formatDateTime(c.appliedAt)}</dd></div>
-                <div><dt className="text-[var(--text-muted)]">Requisition</dt><dd className="font-medium text-[var(--primary)]">{c.requisitionTitle || "—"}</dd></div>
+                <div>
+                  <dt className="text-[var(--text-muted)]">Requisition</dt>
+                  <dd className="font-medium text-[var(--primary)]">{c.requisitionTitle || "Talent pool"}</dd>
+                </div>
                 <div><dt className="text-[var(--text-muted)]">Rating</dt><dd className="font-medium">{c.rating ? "★".repeat(c.rating) + "☆".repeat(5 - c.rating) : "Not rated"}</dd></div>
               </dl>
               {c.notes && <div className="mt-4"><dt className="text-sm text-[var(--text-muted)]">Notes</dt><dd className="mt-1 text-sm whitespace-pre-wrap">{c.notes}</dd></div>}
@@ -1275,6 +1317,32 @@ export default function CandidateDetailPage() {
             <div className="mt-5 flex justify-end gap-3">
               <Button variant="secondary" onClick={() => setScheduleModal(false)}>Cancel</Button>
               <Button onClick={handleScheduleInterview}>Schedule</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {assignModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 pt-16 pb-10"
+          onClick={(e) => { if (e.target === e.currentTarget) { setAssignModal(false); setAssignReqId(""); } }}
+        >
+          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-6 shadow-xl">
+            <h2 className="mb-1 text-lg font-semibold text-[var(--text)]">Re-hire onto a job</h2>
+            <p className="mb-4 text-sm text-[var(--text-muted)]">
+              Put this talent pool candidate back onto a requisition.
+            </p>
+            <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Requisition *</label>
+            <FormSelect
+              value={assignReqId}
+              onValueChange={setAssignReqId}
+              options={assignReqOpts}
+              placeholder="Select requisition…"
+              clearable={false}
+            />
+            <div className="mt-5 flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => { setAssignModal(false); setAssignReqId(""); }}>Cancel</Button>
+              <Button onClick={() => void handleAssignToRequisition()} disabled={!assignReqId}>Re-hire</Button>
             </div>
           </div>
         </div>
