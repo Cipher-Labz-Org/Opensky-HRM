@@ -408,8 +408,8 @@ function EmployeeUploadSection() {
                 <strong>Email</strong> is optional. Leave blank if the employee has no company email address. Leave <strong>Employee Code</strong> blank to auto-generate a code for the employee record only. Optional <strong>Fingerprint ID</strong> is the biometric machine PIN when it differs from Employee Code (leave blank if they match; must be unique when set). If you enable <strong>Create employee logins</strong>, a login is created only for rows with <strong>Employee Code</strong> filled in — that code becomes the username (letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, or <code className="text-[11px]">-</code>; unique). Rows with a blank Employee Code are imported without a login.
               </li>
               <li>
-                Matching <strong>Employee Code</strong> rows are <strong>updated</strong> from the Excel columns that have values (name, joined date, NIC, department, and the rest). Date of Birth is taken only from the{" "}
-                <strong>Date of Birth</strong> column — never from National ID. A blank Date of Birth cell leaves the existing birthday unchanged. Import results Notes will say <strong>Birthdate record updated</strong> when the birthday changed.
+                Matching <strong>Employee Code</strong> rows are a birthday-only update: Date of Birth is taken only from the{" "}
+                <strong>Date of Birth</strong> column. Gender, department, employment type, address, and every other column are ignored and not validated. A blank Date of Birth cell leaves the existing birthday unchanged. Import results Notes will say <strong>Birthdate record updated</strong> when the birthday changed.
               </li>
               <li>Use values from the lookup sheets (Departments, Grades, etc.) for dropdown fields.</li>
               <li><strong>Employment Type</strong> and <strong>Employee Status</strong> must match the codes on the <strong>Reference</strong> sheet (same codes as Organization / People Hub).</li>

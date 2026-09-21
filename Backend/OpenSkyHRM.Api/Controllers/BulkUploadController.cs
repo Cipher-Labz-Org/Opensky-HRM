@@ -335,6 +335,58 @@ public partial class BulkUploadController : ControllerBase
             if (IsEmptyEmployeeImportRow(firstName, lastName, emailWork, deptName, empCodePreview, genderStr))
                 continue;
 
+            var empCodeRaw = empCodePreview;
+            var empCodeFromSheet = !string.IsNullOrEmpty(empCodeRaw);
+            var empCode = empCodeRaw;
+            Guid? existingId = null;
+            if (!string.IsNullOrEmpty(empCode) && existingByCode.TryGetValue(empCode, out var existingHitId))
+                existingId = existingHitId;
+
+            // Second upload: matching Employee Code updates Date of Birth only — no other fields or validations.
+            if (existingId is not null)
+            {
+                if (!codesSeenInFile.Add(empCode!))
+                {
+                    skipped++;
+                    results.Add(new RowResult(r, firstName ?? "", lastName ?? "", false,
+                        new List<string> { $"Duplicate Employee Code '{empCode}' in this file." }));
+                    continue;
+                }
+
+                var birthdayOnly = new Employee
+                {
+                    EmployeeCode = empCode!,
+                    FirstName = firstName ?? "",
+                    LastName = lastName ?? "",
+                    DateOfBirth = dobStr is DateTime existingDob ? ToImportWallDate(existingDob) : default,
+                };
+                var birthdayApply = new EmployeeImportApply(
+                    DateOfBirth: dobStr is not null,
+                    JoinDate: false,
+                    Gender: false,
+                    Department: false,
+                    EmploymentType: false,
+                    Status: false,
+                    TopOfHierarchy: false,
+                    Email: false,
+                    Fingerprint: false);
+                pendingEmployees.Add(new PendingEmployeeImport(
+                    r, firstName ?? "", lastName ?? "", birthdayOnly, empCode!,
+                    false,
+                    new List<string> { "Birthdate-only update. Other Excel columns were ignored." },
+                    existingId, birthdayApply));
+
+                if (pendingEmployees.Count >= employeeSaveBatchSize)
+                {
+                    var flushedExisting = await FlushPendingEmployeesAsync(pendingEmployees, loginJobs, results);
+                    created += flushedExisting.Created;
+                    updated += flushedExisting.Updated;
+                    skipped += flushedExisting.Skipped;
+                }
+
+                continue;
+            }
+
             departmentsByName.TryGetValue(deptName ?? "", out var dept);
             if (dept is null && !string.IsNullOrEmpty(deptName)) errors.Add($"Department '{deptName}' not found");
 
@@ -355,31 +407,18 @@ public partial class BulkUploadController : ControllerBase
                     employmentType = canonEmpType;
             }
 
-            var empCodeRaw = empCodePreview;
-            var empCodeFromSheet = !string.IsNullOrEmpty(empCodeRaw);
-            var empCode = empCodeRaw;
-            Guid? existingId = null;
             if (!string.IsNullOrEmpty(empCode) && empCode.Length > MaxEmployeeCodeLength)
                 errors.Add($"Employee Code must be at most {MaxEmployeeCodeLength} characters (this row has {empCode.Length}).");
-            if (!string.IsNullOrEmpty(empCode) && existingByCode.TryGetValue(empCode, out var existingHitId))
-            {
-                existingId = existingHitId;
-            }
             else if (!string.IsNullOrEmpty(empCode) && reservedEmployeeCodes.Contains(empCode))
-            {
                 errors.Add($"Employee Code '{empCode}' already exists (including terminated or removed employees). Use a different code.");
-            }
             if (!string.IsNullOrEmpty(empCode) && !codesSeenInFile.Add(empCode))
                 errors.Add($"Duplicate Employee Code '{empCode}' in this file.");
 
-            if (existingId is null)
-            {
-                if (string.IsNullOrEmpty(firstName)) errors.Add("First Name is required");
-                if (string.IsNullOrEmpty(lastName)) errors.Add("Last Name is required");
-                if (string.IsNullOrEmpty(deptName)) errors.Add("Department is required");
-                if (dobStr is null) errors.Add("Date of Birth is required");
-                if (joinStr is null) errors.Add("Joined Date is required");
-            }
+            if (string.IsNullOrEmpty(firstName)) errors.Add("First Name is required");
+            if (string.IsNullOrEmpty(lastName)) errors.Add("Last Name is required");
+            if (string.IsNullOrEmpty(deptName)) errors.Add("Department is required");
+            if (dobStr is null) errors.Add("Date of Birth is required");
+            if (joinStr is null) errors.Add("Joined Date is required");
 
             var posCodeRaw = Cell(row, "Position Code");
             Position? position = null;
@@ -905,87 +944,8 @@ public partial class BulkUploadController : ControllerBase
 
     private static void ApplyImportedEmployeeFields(Employee existing, Employee imported, EmployeeImportApply apply)
     {
-        CopyIfPresent(imported.FirstName, v => existing.FirstName = v);
-        CopyIfPresent(imported.MiddleName, v => existing.MiddleName = v);
-        CopyIfPresent(imported.LastName, v => existing.LastName = v);
-        if (apply.Email && !string.IsNullOrWhiteSpace(imported.Email))
-            existing.Email = imported.Email;
-        CopyIfPresent(imported.Phone, v => existing.Phone = v);
         if (apply.DateOfBirth)
             existing.DateOfBirth = ExcelImportDateParser.ToWallDate(imported.DateOfBirth);
-        if (apply.Gender)
-            existing.Gender = imported.Gender;
-        if (apply.JoinDate)
-            existing.JoinDate = ExcelImportDateParser.ToWallDate(imported.JoinDate);
-        if (apply.Status)
-            existing.Status = imported.Status;
-        if (apply.EmploymentType)
-            existing.EmploymentType = imported.EmploymentType;
-        if (apply.Department && imported.DepartmentId != Guid.Empty)
-            existing.DepartmentId = imported.DepartmentId;
-        if (imported.BusinessUnitId.HasValue) existing.BusinessUnitId = imported.BusinessUnitId;
-        if (imported.GradeId.HasValue) existing.GradeId = imported.GradeId;
-        if (imported.LocationId.HasValue) existing.LocationId = imported.LocationId;
-        if (imported.JobTitleId.HasValue) existing.JobTitleId = imported.JobTitleId;
-        if (imported.PositionId.HasValue) existing.PositionId = imported.PositionId;
-        if (imported.ManagerId.HasValue) existing.ManagerId = imported.ManagerId;
-        if (imported.ShiftPatternId.HasValue) existing.ShiftPatternId = imported.ShiftPatternId;
-        CopyIfPresent(imported.MaritalStatus, v => existing.MaritalStatus = v);
-        CopyIfPresent(imported.Nationality, v => existing.Nationality = v);
-        CopyIfPresent(imported.Religion, v => existing.Religion = v);
-        CopyIfPresent(imported.Ethnicity, v => existing.Ethnicity = v);
-        CopyIfPresent(imported.NationalId, v => existing.NationalId = v);
-        CopyIfPresent(imported.OtherId, v => existing.OtherId = v);
-        if (apply.Fingerprint)
-            existing.FingerprintId = imported.FingerprintId;
-        CopyIfPresent(imported.TinNumber, v => existing.TinNumber = v);
-        CopyIfPresent(imported.EpfNumber, v => existing.EpfNumber = v);
-        CopyIfPresent(imported.EtfNumber, v => existing.EtfNumber = v);
-        CopyIfPresent(imported.DriversLicenseNumber, v => existing.DriversLicenseNumber = v);
-        CopyIfPresent(imported.DriversLicenseType, v => existing.DriversLicenseType = v);
-        if (imported.LicenseIssueDate.HasValue)
-            existing.LicenseIssueDate = ExcelImportDateParser.ToWallDate(imported.LicenseIssueDate.Value);
-        if (imported.LicenseExpiryDate.HasValue)
-            existing.LicenseExpiryDate = ExcelImportDateParser.ToWallDate(imported.LicenseExpiryDate.Value);
-        CopyIfPresent(imported.DriversLicenseIssuingCountry, v => existing.DriversLicenseIssuingCountry = v);
-        CopyIfPresent(imported.HomeTelephone, v => existing.HomeTelephone = v);
-        CopyIfPresent(imported.WorkTelephone, v => existing.WorkTelephone = v);
-        CopyIfPresent(imported.OtherEmail, v => existing.OtherEmail = v);
-        CopyIfPresent(imported.AddressStreet1, v => existing.AddressStreet1 = v);
-        CopyIfPresent(imported.AddressStreet2, v => existing.AddressStreet2 = v);
-        CopyIfPresent(imported.City, v => existing.City = v);
-        CopyIfPresent(imported.Country, v => existing.Country = v);
-        CopyIfPresent(imported.StateProvince, v => existing.StateProvince = v);
-        CopyIfPresent(imported.ZipPostalCode, v => existing.ZipPostalCode = v);
-        CopyIfPresent(imported.District, v => existing.District = v);
-        CopyIfPresent(imported.PollingDivision, v => existing.PollingDivision = v);
-        CopyIfPresent(imported.DistanceToOffice, v => existing.DistanceToOffice = v);
-        CopyIfPresent(imported.ModeOfTransport, v => existing.ModeOfTransport = v);
-        CopyIfPresent(imported.PermanentStreet1, v => existing.PermanentStreet1 = v);
-        CopyIfPresent(imported.PermanentStreet2, v => existing.PermanentStreet2 = v);
-        CopyIfPresent(imported.PermanentCity, v => existing.PermanentCity = v);
-        CopyIfPresent(imported.PermanentCountry, v => existing.PermanentCountry = v);
-        CopyIfPresent(imported.PermanentStateProvince, v => existing.PermanentStateProvince = v);
-        CopyIfPresent(imported.PermanentZipPostalCode, v => existing.PermanentZipPostalCode = v);
-        CopyIfPresent(imported.PermanentDistrict, v => existing.PermanentDistrict = v);
-        CopyIfPresent(imported.PermanentPollingDivision, v => existing.PermanentPollingDivision = v);
-        CopyIfPresent(imported.PermanentDistanceToOffice, v => existing.PermanentDistanceToOffice = v);
-        if (imported.ProbationEndDate.HasValue)
-            existing.ProbationEndDate = ExcelImportDateParser.ToWallDate(imported.ProbationEndDate.Value);
-        if (imported.DateOfPermanency.HasValue)
-            existing.DateOfPermanency = ExcelImportDateParser.ToWallDate(imported.DateOfPermanency.Value);
-        if (imported.TerminationDate.HasValue)
-            existing.TerminationDate = ExcelImportDateParser.ToWallDate(imported.TerminationDate.Value);
-        CopyIfPresent(imported.TerminationReason, v => existing.TerminationReason = v);
-        CopyIfPresent(imported.TerminationNote, v => existing.TerminationNote = v);
-        if (apply.TopOfHierarchy)
-            existing.IsTopOfHierarchy = imported.IsTopOfHierarchy;
-    }
-
-    private static void CopyIfPresent(string? value, Action<string> assign)
-    {
-        if (!string.IsNullOrWhiteSpace(value))
-            assign(value.Trim());
     }
 
     private async Task<int> CreateImportedEmployeeLoginsAsync(
