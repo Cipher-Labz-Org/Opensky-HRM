@@ -409,7 +409,7 @@ function EmployeeUploadSection() {
               </li>
               <li>
                 Matching <strong>Employee Code</strong> rows are <strong>updated</strong> from the Excel columns that have values (name, joined date, NIC, department, and the rest). Date of Birth is taken only from the{" "}
-                <strong>Date of Birth</strong> column — never from National ID. A blank Date of Birth cell leaves the existing birthday unchanged.
+                <strong>Date of Birth</strong> column — never from National ID. A blank Date of Birth cell leaves the existing birthday unchanged. Import results Notes will say <strong>Birthdate record updated</strong> when the birthday changed.
               </li>
               <li>Use values from the lookup sheets (Departments, Grades, etc.) for dropdown fields.</li>
               <li><strong>Employment Type</strong> and <strong>Employee Status</strong> must match the codes on the <strong>Reference</strong> sheet (same codes as Organization / People Hub).</li>
@@ -511,7 +511,22 @@ function EmployeeUploadSection() {
                             : <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-100">Skipped</span>}
                         </td>
                         <td className="px-4 py-2 text-xs text-rose-700">{r.errors.join("; ")}</td>
-                        <td className="px-4 py-2 text-xs text-slate-600">{r.notes?.length ? r.notes.join(" ") : "—"}</td>
+                        <td className="px-4 py-2 text-xs text-slate-600">
+                          {r.notes?.length
+                            ? r.notes.map((note, i) => (
+                                <span
+                                  key={`${r.row}-note-${i}`}
+                                  className={
+                                    /birthdate record updated/i.test(note)
+                                      ? "mb-0.5 mr-1 inline-block rounded-full bg-sky-50 px-2 py-0.5 font-medium text-sky-800 ring-1 ring-sky-100"
+                                      : "mr-1"
+                                  }
+                                >
+                                  {note}
+                                </span>
+                              ))
+                            : "—"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
