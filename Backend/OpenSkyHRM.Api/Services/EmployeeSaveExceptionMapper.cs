@@ -60,6 +60,25 @@ public static class EmployeeSaveExceptionMapper
         return TryMapInnerMessage(ex) ?? "Could not save employee. Check the data and try again.";
     }
 
+    public static string Map(Exception ex)
+    {
+        if (ex is DbUpdateException db)
+            return Map(db);
+
+        for (var inner = ex; inner != null; inner = inner.InnerException!)
+        {
+            if (inner is PostgresException)
+                return Map(new DbUpdateException(inner.Message, inner));
+
+            var msg = inner.Message ?? "";
+            if (msg.Contains("timestamp", StringComparison.OrdinalIgnoreCase)
+                && msg.Contains("DateTime", StringComparison.OrdinalIgnoreCase))
+                return "A date could not be saved. Check date of birth, joined date, and license dates.";
+        }
+
+        return TryMapInnerMessage(ex) ?? "Could not save employee. Check the data and try again.";
+    }
+
     private static string? TryMapInnerMessage(Exception ex)
     {
         for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)

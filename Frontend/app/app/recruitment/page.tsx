@@ -54,7 +54,7 @@ interface Candidate {
   phone?: string; source: string; stage: string; appliedAt: string;
   currentTitle?: string; currentCompany?: string; expectedSalary?: number;
   noticePeriod?: string; rating?: number; tags?: string;
-  requisitionId: string; requisitionTitle?: string;
+  requisitionId?: string | null; requisitionTitle?: string;
 }
 
 interface Interview {
@@ -107,7 +107,7 @@ interface Activity {
   performedBy?: string; performedAt: string;
 }
 
-const TABS = ["Dashboard", "Requisitions", "Candidates", "Interviews", "Interview History", "Offer Letter History"] as const;
+const TABS = ["Dashboard", "Requisitions", "Candidates", "Talent Pool", "Interviews", "Interview History", "Offer Letter History"] as const;
 const STAGES = ["Sourced", "Screening", "Interview", "Evaluation", "Offer", "Hired"];
 const STAGE_COLORS: Record<string, string> = {
   Sourced: "bg-gray-100 text-gray-700", Screening: "bg-blue-100 text-blue-700",
@@ -147,6 +147,7 @@ const CANDIDATE_SOURCE_OPTS: FormSelectOption[] = [
   { value: "Job Board", label: "Job Board" },
   { value: "Agency", label: "Agency" },
   { value: "Walk-in", label: "Walk-in" },
+  { value: "Talent Pool", label: "Talent Pool" },
   { value: "Other", label: "Other" },
 ];
 
@@ -210,6 +211,10 @@ export default function RecruitmentPage() {
     interviewers: { id: string; name: string }[];
   }>({ locations: [], interviewers: [] });
   const [showAddCandidate, setShowAddCandidate] = useState(false);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
+  const [poolSelectedIds, setPoolSelectedIds] = useState<string[]>([]);
+  const [assigningTargets, setAssigningTargets] = useState<Candidate[]>([]);
+  const [assignReqId, setAssignReqId] = useState("");
   const [candidateForm, setCandidateForm] = useState({ firstName: "", lastName: "", email: "", phone: "", source: "", requisitionId: "", currentTitle: "", currentCompany: "", expectedSalary: "", noticePeriod: "", notes: "", tags: "" });
 
   const candReqFilterOpts = useMemo<FormSelectOption[]>(
@@ -324,11 +329,12 @@ export default function RecruitmentPage() {
       });
       if (filterCandReq) params.set("requisitionId", filterCandReq);
       if (candSearchFilter.applied) params.set("search", candSearchFilter.applied);
+      params.set("talentPool", tab === "Talent Pool" ? "true" : "false");
       const res = await apiFetch<{ items: Candidate[]; totalCount: number }>(`/api/recruitment/candidates?${params}`);
       setCandidates(res.items ?? []);
       setCandTotalCount(res.totalCount ?? res.items?.length ?? 0);
     } catch { /* */ }
-  }, [filterCandReq, candSearchFilter.applied, candPage, candidateView]);
+  }, [filterCandReq, candSearchFilter.applied, candPage, candidateView, tab]);
 
   const loadInterviews = useCallback(async () => {
     try { setInterviews(await apiFetch<Interview[]>("/api/recruitment/interviews/upcoming")); } catch { /* */ }
@@ -362,6 +368,7 @@ export default function RecruitmentPage() {
     if (tab === "Dashboard") loadDashboard();
     if (tab === "Requisitions") loadRequisitions();
     if (tab === "Candidates") { loadCandidates(); loadRequisitionPicklist(); }
+    if (tab === "Talent Pool") { loadCandidates(); loadRequisitionPicklist(); }
     if (tab === "Interviews") { loadInterviews(); loadCandidates(); loadRequisitionPicklist(); }
     if (tab === "Interview History") loadInterviewHistory();
     if (tab === "Offer Letter History") loadOfferHistory();
@@ -377,6 +384,7 @@ export default function RecruitmentPage() {
       try {
         const params = new URLSearchParams({ page: "1", pageSize: "8", search: q });
         if (filterCandReq) params.set("requisitionId", filterCandReq);
+        params.set("talentPool", tab === "Talent Pool" ? "true" : "false");
         const res = await apiFetch<{ items: Candidate[] }>(`/api/recruitment/candidates?${params}`);
         setCandSuggestions(res.items ?? []);
         setCandSuggestOpen((res.items ?? []).length > 0);
@@ -384,7 +392,7 @@ export default function RecruitmentPage() {
       } catch { /* */ }
     }, 220);
     return () => clearTimeout(handle);
-  }, [candSearchFilter.input, filterCandReq]);
+  }, [candSearchFilter.input, filterCandReq, tab]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -495,7 +503,8 @@ export default function RecruitmentPage() {
   };
 
   const handleAddCandidate = async () => {
-    if (!candidateForm.firstName || !candidateForm.lastName || !candidateForm.email || !candidateForm.requisitionId) return;
+    if (!candidateForm.firstName || !candidateForm.lastName || !candidateForm.email) return;
+    if (!candidateForm.requisitionId) return;
     if (candidateForm.phone.trim() && !isValidPhone(candidateForm.phone)) {
       await appAlert(PHONE_VALIDATION_MESSAGE);
       return;
@@ -505,7 +514,8 @@ export default function RecruitmentPage() {
       body: JSON.stringify({
         firstName: candidateForm.firstName, lastName: candidateForm.lastName,
         email: candidateForm.email, phone: candidateForm.phone || null,
-        source: candidateForm.source || "Direct", requisitionId: candidateForm.requisitionId,
+        source: candidateForm.source || "Direct",
+        requisitionId: candidateForm.requisitionId,
         currentTitle: candidateForm.currentTitle || null, currentCompany: candidateForm.currentCompany || null,
         expectedSalary: candidateForm.expectedSalary ? Number(candidateForm.expectedSalary) : null,
         noticePeriod: candidateForm.noticePeriod || null, notes: candidateForm.notes || null,
@@ -516,6 +526,70 @@ export default function RecruitmentPage() {
     setCandidateForm({ firstName: "", lastName: "", email: "", phone: "", source: "", requisitionId: "", currentTitle: "", currentCompany: "", expectedSalary: "", noticePeriod: "", notes: "", tags: "" });
     loadCandidates();
     loadDashboard();
+  };
+
+  function toggleId(list: string[], id: string): string[] {
+    return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+  }
+
+  const handleAssignToRequisition = async () => {
+    if (assigningTargets.length === 0 || !assignReqId) return;
+    try {
+      for (const target of assigningTargets) {
+        await apiFetch(`/api/recruitment/candidates/${target.id}/assign-requisition`, {
+          method: "POST",
+          body: JSON.stringify({ requisitionId: assignReqId }),
+        });
+      }
+      setAssigningTargets([]);
+      setAssignReqId("");
+      setPoolSelectedIds([]);
+      loadCandidates();
+      loadDashboard();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not re-hire candidate.");
+    }
+  };
+
+  const handleMoveToTalentPool = async (candidate: Candidate) => {
+    if (!(await appConfirm(`Move ${candidate.fullName} to the talent pool for later re-hire?`, "Move to talent pool"))) {
+      return;
+    }
+    try {
+      await apiFetch(`/api/recruitment/candidates/${candidate.id}/assign-requisition`, {
+        method: "POST",
+        body: JSON.stringify({ requisitionId: null }),
+      });
+      setSelectedCandidateIds((ids) => ids.filter((id) => id !== candidate.id));
+      loadCandidates();
+      loadDashboard();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not move candidate.");
+    }
+  };
+
+  const handleMoveSelectedToTalentPool = async () => {
+    if (selectedCandidateIds.length === 0) return;
+    const count = selectedCandidateIds.length;
+    if (!(await appConfirm(
+      `Move ${count} selected candidate${count === 1 ? "" : "s"} to the talent pool? You can re-hire them onto a job later.`,
+      "Move to talent pool",
+    ))) {
+      return;
+    }
+    try {
+      for (const id of selectedCandidateIds) {
+        await apiFetch(`/api/recruitment/candidates/${id}/assign-requisition`, {
+          method: "POST",
+          body: JSON.stringify({ requisitionId: null }),
+        });
+      }
+      setSelectedCandidateIds([]);
+      loadCandidates();
+      loadDashboard();
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not move candidates.");
+    }
   };
 
   const inputClass = inputClassSlate;
@@ -529,6 +603,8 @@ export default function RecruitmentPage() {
 
   function selectTab(next: (typeof TABS)[number]) {
     setTab(next);
+    setSelectedCandidateIds([]);
+    setPoolSelectedIds([]);
     router.replace(ROUTES.recruitmentTab(next), { scroll: false });
   }
 
@@ -920,6 +996,11 @@ export default function RecruitmentPage() {
                 Table
               </button>
             </div>
+            {selectedCandidateIds.length > 0 && (
+              <Button variant="secondary" onClick={() => void handleMoveSelectedToTalentPool()}>
+                Move {selectedCandidateIds.length} to Talent Pool
+              </Button>
+            )}
             <Button onClick={() => setShowAddCandidate(true)}>+ Add Candidate</Button>
           </div>
 
@@ -943,22 +1024,37 @@ export default function RecruitmentPage() {
                       <span className="text-xs font-medium text-slate-500">{stageCands.length}</span>
                     </div>
                     <div className="space-y-2">
-                      {stageCands.map((c) => (
-                        <Link key={c.id} href={`/app/recruitment/candidate/${c.id}`}>
+                      {stageCands.map((c) => {
+                        const selected = selectedCandidateIds.includes(c.id);
+                        return (
                           <div
+                            key={c.id}
                             draggable
                             onDragStart={() => setDragCandidate(c.id)}
-                            className="cursor-grab rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+                            className={`flex gap-2 rounded-xl border bg-white p-3 shadow-sm transition ${
+                              selected
+                                ? "border-[#2E7BBF] ring-2 ring-[#2E7BBF]/20"
+                                : "border-slate-200 hover:border-slate-300 hover:shadow-md"
+                            }`}
                           >
-                            <div className="text-sm font-medium text-slate-800">{c.fullName}</div>
-                            <div className="text-xs text-slate-500">{c.requisitionTitle}</div>
-                            <div className="mt-1 flex items-center justify-between">
-                              <span className="text-xs text-slate-500">{c.source}</span>
-                              {c.rating ? <span className="text-xs text-amber-500">{"★".repeat(c.rating)}</span> : null}
-                            </div>
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-[#2E7BBF] focus:ring-[#2E7BBF]/30"
+                              checked={selected}
+                              onChange={() => setSelectedCandidateIds((ids) => toggleId(ids, c.id))}
+                              aria-label={`Select ${c.fullName}`}
+                            />
+                            <Link href={`/app/recruitment/candidate/${c.id}`} className="min-w-0 flex-1 cursor-grab">
+                              <div className="text-sm font-medium text-slate-800">{c.fullName}</div>
+                              <div className="text-xs text-slate-500">{c.requisitionTitle}</div>
+                              <div className="mt-1 flex items-center justify-between">
+                                <span className="text-xs text-slate-500">{c.source}</span>
+                                {c.rating ? <span className="text-xs text-amber-500">{"★".repeat(c.rating)}</span> : null}
+                              </div>
+                            </Link>
                           </div>
-                        </Link>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -969,13 +1065,34 @@ export default function RecruitmentPage() {
               <table className="hris-table">
                 <thead>
                   <tr>
+                    <th className="w-10">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300 text-[#2E7BBF] focus:ring-[#2E7BBF]/30"
+                        checked={candidates.length > 0 && candidates.every((c) => selectedCandidateIds.includes(c.id))}
+                        onChange={() => {
+                          const allSelected = candidates.every((c) => selectedCandidateIds.includes(c.id));
+                          setSelectedCandidateIds(allSelected ? [] : candidates.map((c) => c.id));
+                        }}
+                        aria-label="Select all candidates"
+                      />
+                    </th>
                     <th>Name</th><th>Email</th><th>Requisition</th><th>Stage</th>
                     <th>Source</th><th>Rating</th><th>Applied</th><th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {candidates.map((c) => (
-                    <tr key={c.id}>
+                    <tr key={c.id} className={selectedCandidateIds.includes(c.id) ? "bg-[#2E7BBF]/5" : undefined}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-[#2E7BBF] focus:ring-[#2E7BBF]/30"
+                          checked={selectedCandidateIds.includes(c.id)}
+                          onChange={() => setSelectedCandidateIds((ids) => toggleId(ids, c.id))}
+                          aria-label={`Select ${c.fullName}`}
+                        />
+                      </td>
                       <td>
                         <Link href={`/app/recruitment/candidate/${c.id}`} className="font-medium text-[#2E7BBF] hover:underline">
                           {c.fullName}
@@ -991,11 +1108,18 @@ export default function RecruitmentPage() {
                       <td>{formatBusinessDateTime(c.appliedAt)}</td>
                       <td>
                         <Link href={`/app/recruitment/candidate/${c.id}`} className="text-xs text-[#2E7BBF] hover:underline">View</Link>
+                        <button
+                          type="button"
+                          className="ml-2 text-xs text-slate-500 hover:text-slate-800 hover:underline"
+                          onClick={() => void handleMoveToTalentPool(c)}
+                        >
+                          Talent pool
+                        </button>
                       </td>
                     </tr>
                   ))}
                   {candidates.length === 0 && (
-                    <tr><td colSpan={8} className="text-center text-slate-500">No candidates found</td></tr>
+                    <tr><td colSpan={9} className="text-center text-slate-500">No candidates found</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1008,6 +1132,103 @@ export default function RecruitmentPage() {
               />
             </div>
           )}
+        </div>
+      )}
+
+      {tab === "Talent Pool" && (
+        <div className="mt-6 space-y-4">
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div>
+              <h3 className="text-base font-semibold text-slate-800">Talent pool</h3>
+              <p className="text-xs text-slate-500">
+                People moved here from Candidates. Re-hire them onto a job when a role opens.
+              </p>
+            </div>
+            <div className="flex-1" />
+            {poolSelectedIds.length > 0 && (
+              <Button
+                onClick={() => {
+                  const targets = candidates.filter((c) => poolSelectedIds.includes(c.id));
+                  setAssigningTargets(targets);
+                  setAssignReqId("");
+                }}
+              >
+                Re-hire {poolSelectedIds.length} onto a job
+              </Button>
+            )}
+          </div>
+          <div className={`${panelClass} overflow-x-auto`}>
+            <table className="hris-table">
+              <thead>
+                <tr>
+                  <th className="w-10">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-[#2E7BBF] focus:ring-[#2E7BBF]/30"
+                      checked={candidates.length > 0 && candidates.every((c) => poolSelectedIds.includes(c.id))}
+                      onChange={() => {
+                        const allSelected = candidates.every((c) => poolSelectedIds.includes(c.id));
+                        setPoolSelectedIds(allSelected ? [] : candidates.map((c) => c.id));
+                      }}
+                      aria-label="Select all talent pool candidates"
+                    />
+                  </th>
+                  <th>Name</th><th>Email</th><th>Phone</th><th>Title</th>
+                  <th>Company</th><th>Source</th><th>Added</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {candidates.map((c) => (
+                  <tr key={c.id} className={poolSelectedIds.includes(c.id) ? "bg-[#2E7BBF]/5" : undefined}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300 text-[#2E7BBF] focus:ring-[#2E7BBF]/30"
+                        checked={poolSelectedIds.includes(c.id)}
+                        onChange={() => setPoolSelectedIds((ids) => toggleId(ids, c.id))}
+                        aria-label={`Select ${c.fullName}`}
+                      />
+                    </td>
+                    <td>
+                      <Link href={`/app/recruitment/candidate/${c.id}`} className="font-medium text-[#2E7BBF] hover:underline">
+                        {c.fullName}
+                      </Link>
+                    </td>
+                    <td>{c.email}</td>
+                    <td>{c.phone || "—"}</td>
+                    <td>{c.currentTitle || "—"}</td>
+                    <td>{c.currentCompany || "—"}</td>
+                    <td>{c.source || "—"}</td>
+                    <td>{formatBusinessDateTime(c.appliedAt)}</td>
+                    <td className="whitespace-nowrap">
+                      <Link href={`/app/recruitment/candidate/${c.id}`} className="text-xs text-[#2E7BBF] hover:underline">View</Link>
+                      <button
+                        type="button"
+                        className="ml-2 text-xs text-slate-600 hover:text-slate-900 hover:underline"
+                        onClick={() => { setAssigningTargets([c]); setAssignReqId(""); }}
+                      >
+                        Re-hire
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {candidates.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="text-center text-slate-500">
+                      No one in the talent pool yet. On Candidates, select people and choose Move to Talent Pool.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <TablePagination
+              page={candPage}
+              totalPages={Math.max(1, Math.ceil(candTotalCount / CAND_PAGE_SIZE))}
+              totalCount={candTotalCount}
+              pageSize={CAND_PAGE_SIZE}
+              onPageChange={setCandPage}
+            />
+          </div>
         </div>
       )}
 
@@ -1507,6 +1728,34 @@ export default function RecruitmentPage() {
             <div className="mt-5 flex justify-end gap-3">
               <Button variant="secondary" onClick={() => setShowAddCandidate(false)}>Cancel</Button>
               <Button onClick={handleAddCandidate}>Add Candidate</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {assigningTargets.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 pt-16 pb-10"
+          onClick={(e) => { if (e.target === e.currentTarget) { setAssigningTargets([]); setAssignReqId(""); } }}
+        >
+          <div className={`relative w-full ${modalShellWidthClass(false)} rounded-2xl border border-slate-200 bg-white p-6 shadow-xl`}>
+            <h2 className="mb-1 text-lg font-semibold text-slate-900">Re-hire onto a job</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              {assigningTargets.length === 1
+                ? `Put ${assigningTargets[0].fullName} back onto a requisition as Sourced.`
+                : `Put ${assigningTargets.length} talent-pool candidates back onto a requisition as Sourced.`}
+            </p>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Requisition *</label>
+            <FormSelect
+              value={assignReqId}
+              onValueChange={setAssignReqId}
+              options={addCandidateReqOpts}
+              placeholder="Select requisition…"
+              clearable={false}
+            />
+            <div className="mt-5 flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => { setAssigningTargets([]); setAssignReqId(""); }}>Cancel</Button>
+              <Button onClick={() => void handleAssignToRequisition()} disabled={!assignReqId}>Re-hire</Button>
             </div>
           </div>
         </div>

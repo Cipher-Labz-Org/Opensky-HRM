@@ -84,4 +84,25 @@ public static class BiometricEmployeeResolver
 
         return aliases.ToList();
     }
+
+    /// <summary>
+    /// Spreadsheet "Employee Code" column: match employee codes first. Fingerprint PINs are used only when they
+    /// do not collide with another employee's code or code suffix (e.g. 322 vs EMP-0322).
+    /// </summary>
+    public static void IndexSpreadsheetLookups<T>(
+        IDictionary<string, T> byEmployeeCode,
+        IDictionary<string, T> byFingerprint,
+        string? employeeCode,
+        string? fingerprintId,
+        T value)
+    {
+        foreach (var alias in GetAliases(employeeCode))
+            byEmployeeCode.TryAdd(alias, value);
+        foreach (var alias in GetAliases(fingerprintId))
+        {
+            if (byEmployeeCode.ContainsKey(alias))
+                continue;
+            byFingerprint.TryAdd(alias, value);
+        }
+    }
 }

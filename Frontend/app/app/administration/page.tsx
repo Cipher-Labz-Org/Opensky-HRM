@@ -25,10 +25,12 @@ interface RowResult {
   success: boolean;
   errors: string[];
   notes?: string[] | null;
+  action?: string | null;
 }
 
 interface UploadResult {
   created: number;
+  updated?: number;
   skipped: number;
   totalRows: number;
   results: RowResult[];
@@ -405,6 +407,10 @@ function EmployeeUploadSection() {
                 Fill in employee data. <strong>First Name, Last Name, Department, Gender, Date of Birth, Joined Date</strong> are required.{" "}
                 <strong>Email</strong> is optional. Leave blank if the employee has no company email address. Leave <strong>Employee Code</strong> blank to auto-generate a code for the employee record only. Optional <strong>Fingerprint ID</strong> is the biometric machine PIN when it differs from Employee Code (leave blank if they match; must be unique when set). If you enable <strong>Create employee logins</strong>, a login is created only for rows with <strong>Employee Code</strong> filled in — that code becomes the username (letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, or <code className="text-[11px]">-</code>; unique). Rows with a blank Employee Code are imported without a login.
               </li>
+              <li>
+                Matching <strong>Employee Code</strong> rows are <strong>updated</strong> from the Excel columns that have values (name, joined date, NIC, department, and the rest). Date of Birth is taken only from the{" "}
+                <strong>Date of Birth</strong> column — never from National ID. A blank Date of Birth cell leaves the existing birthday unchanged.
+              </li>
               <li>Use values from the lookup sheets (Departments, Grades, etc.) for dropdown fields.</li>
               <li><strong>Employment Type</strong> and <strong>Employee Status</strong> must match the codes on the <strong>Reference</strong> sheet (same codes as Organization / People Hub).</li>
               <li>Upload the completed file below.</li>
@@ -458,7 +464,7 @@ function EmployeeUploadSection() {
             </div>
           </div>
           <div className="p-6">
-            <div className={`mb-5 grid gap-4 ${(result.loginsCreated ?? 0) > 0 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
+            <div className={`mb-5 grid gap-4 ${(result.loginsCreated ?? 0) > 0 ? "sm:grid-cols-2 lg:grid-cols-5" : "sm:grid-cols-2 lg:grid-cols-4"}`}>
               <div className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Total rows</div>
                 <p className="mt-2 text-2xl font-semibold text-slate-900">{result.totalRows}</p>
@@ -466,6 +472,10 @@ function EmployeeUploadSection() {
               <div className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-emerald-600">Created</div>
                 <p className="mt-2 text-2xl font-semibold text-emerald-700">{result.created}</p>
+              </div>
+              <div className={kpiTileClass}>
+                <div className="text-xs font-medium uppercase tracking-wider text-sky-600">Updated</div>
+                <p className="mt-2 text-2xl font-semibold text-sky-700">{result.updated ?? 0}</p>
               </div>
               <div className={kpiTileClass}>
                 <div className="text-xs font-medium uppercase tracking-wider text-rose-600">Skipped</div>
@@ -497,7 +507,7 @@ function EmployeeUploadSection() {
                         <td className="px-4 py-2 font-medium text-slate-700">{r.firstName} {r.lastName}</td>
                         <td className="px-4 py-2">
                           {r.success
-                            ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-100">Created</span>
+                            ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-100">{String(r.action ?? "").toLowerCase() === "updated" ? "Updated" : "Created"}</span>
                             : <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-100">Skipped</span>}
                         </td>
                         <td className="px-4 py-2 text-xs text-rose-700">{r.errors.join("; ")}</td>

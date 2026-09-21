@@ -69,8 +69,10 @@ Mobile/
 2. Log in: `eas login`
 3. Configure project ID in `app.config.ts` (`extra.eas.projectId`) via `eas init`
 4. Build:
-   - Preview APK: `eas build --profile preview --platform android`
-   - Production: `eas build --profile production --platform all`
+   - Preview APK (sideload): `eas build --profile preview --platform android`
+   - Production AAB (Play Store): `eas build --profile production --platform android`
+   - Production APK: `eas build --profile production-apk --platform android`
+   - iOS + Android: `eas build --profile production --platform all`
 5. Submit:
    - `eas submit --platform ios`
    - `eas submit --platform android`
@@ -81,7 +83,8 @@ Mobile/
 |---------|---------|
 | `development` | Dev client, internal distribution |
 | `preview` | Internal QA APK |
-| `production` | Store release with auto version increment |
+| `production` | Play Store AAB with auto version increment |
+| `production-apk` | Signed production APK (sideload / non-Play) |
 
 ## Configuration
 
@@ -97,5 +100,7 @@ Mobile/
 | `npm start` | Start Expo dev server |
 | `npm run android` | Open on Android |
 | `npm run ios` | Open on iOS (macOS required for native build) |
+| `npm run build:aab` | Production Android App Bundle (`.aab`) |
+| `npm run build:apk` | Preview APK |
 | `npm run lint` | ESLint |
 | `npm run format` | Prettier |

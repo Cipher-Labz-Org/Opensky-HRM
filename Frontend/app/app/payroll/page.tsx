@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } fro
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import { getApiBaseUrl } from "@/config/constants";
 import { Modal } from "@/components/ui/Modal";
@@ -1905,7 +1906,7 @@ function SalaryComponentsEditor({
         componentId: def.id,
         amount: target,
         currency: "LKR",
-        effectiveFrom: mode === "Fixed" ? DEFAULT_FIXED_SALARY_EFFECTIVE_FROM : new Date().toISOString(),
+        effectiveFrom: mode === "Fixed" ? DEFAULT_FIXED_SALARY_EFFECTIVE_FROM : formatLocalDateToIso(new Date()),
       };
       if (mode === "Variable" && batchId) payload.batchId = batchId;
       const res = await apiFetch<{ recalculatedBatches?: number }>(`/api/payroll/compensation/${employeeId}`, {
@@ -2348,7 +2349,7 @@ function SalaryComponentsEditor({
 
 function ImportCompensationModal({ category, batchId, onClose, onImported }: { category: string; batchId?: string; onClose: () => void; onImported: () => void }) {
   const [file, setFile] = useState<File | null>(null);
-  const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().split("T")[0]);
+  const [effectiveFrom, setEffectiveFrom] = useState(() => formatLocalDateToIso(new Date()));
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<{ created: number; updated: number; skipped: number; errors: string[] } | null>(null);
   const [error, setError] = useState("");

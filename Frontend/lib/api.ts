@@ -103,7 +103,9 @@ export async function apiFetch<T>(
   if (res.status === 401) {
     if (typeof window !== "undefined") {
       localStorage.removeItem("auth_token");
+      sessionStorage.removeItem("auth_token");
       document.cookie = "auth_token=; path=/; max-age=0";
+      document.cookie = "auth_ok=; path=/; max-age=0";
       // Avoid redirect loops: login page or parallel 401s must not stack full navigations.
       if (!window.location.pathname.startsWith("/login")) {
         window.location.replace("/login");
@@ -235,7 +237,9 @@ export async function apiFetchBlob(endpoint: string, options?: ApiFetchOptions):
   if (res.status === 401) {
     if (typeof window !== "undefined") {
       localStorage.removeItem("auth_token");
+      sessionStorage.removeItem("auth_token");
       document.cookie = "auth_token=; path=/; max-age=0";
+      document.cookie = "auth_ok=; path=/; max-age=0";
       // Avoid redirect loops: login page or parallel 401s must not stack full navigations.
       if (!window.location.pathname.startsWith("/login")) {
         window.location.replace("/login");

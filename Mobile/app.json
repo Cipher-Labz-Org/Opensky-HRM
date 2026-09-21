@@ -26,7 +26,7 @@
       }
     },
     "android": {
-      "package": "com.openskyhrm.mobile",
+      "package": "com.opensky.hrm",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#28A9E0",

@@ -11,6 +11,8 @@ export const ROUTES = {
   forgotPassword: "/forgot-password",
   pricing: "/pricing",
   contact: "/contact",
+  privacy: "/privacy",
+  dataDeletion: "/data-deletion",
 
   // App – Core (under /app so one layout wraps all)
   dashboard: "/app/dashboard",

@@ -10,6 +10,7 @@ export type ReportGroupByKey =
 
 export interface ReportFilterPill {
   key: ReportParamFilterKey;
+  value: string;
   label: string;
 }
 
@@ -39,6 +40,36 @@ export function reportGroupByLabel(key: ReportGroupByKey): string {
 
 export function reportGroupByColumn(key: ReportGroupByKey): string {
   return EMPLOYEE_MASTER_GROUP_BY_OPTIONS.find((o) => o.key === key)?.column ?? key;
+}
+
+export function splitReportFilterValues(raw: string | null | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(/[,;|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export function joinReportFilterValues(values: string[]): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out.join(",");
+}
+
+export function toggleReportFilterValue(current: string | null | undefined, value: string): string {
+  const selected = splitReportFilterValues(current);
+  const next = selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value];
+  return joinReportFilterValues(next);
+}
+
+export function reportFilterContains(current: string | null | undefined, value: string): boolean {
+  return splitReportFilterValues(current).includes(value);
 }
 
 export function groupReportRowsByColumn(

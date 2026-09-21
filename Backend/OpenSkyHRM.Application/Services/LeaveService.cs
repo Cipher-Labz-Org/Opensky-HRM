@@ -47,7 +47,10 @@ public class LeaveService : ILeaveService
     {
         var now = DateTime.UtcNow;
         var totalRequests = await _db.Set<LeaveRequest>().CountAsync();
-        var pendingApprovals = await _db.Set<LeaveRequest>().CountAsync(r => r.Status == ApprovalStatus.Pending);
+        var pendingApprovals = await _db.Set<LeaveRequest>().CountAsync(r =>
+            r.Status == ApprovalStatus.Pending
+            || r.Status == ApprovalStatus.PendingLevel2
+            || r.Status == ApprovalStatus.CancellationRequested);
         var approvedThisMonth = await _db.Set<LeaveRequest>()
             .CountAsync(r => r.Status == ApprovalStatus.Approved && r.ApprovedAt != null && r.ApprovedAt.Value.Month == now.Month && r.ApprovedAt.Value.Year == now.Year);
         var upcomingHolidays = await _db.Set<Holiday>().CountAsync(h => h.Date >= now.Date);
@@ -174,14 +177,11 @@ public class LeaveService : ILeaveService
         // Check for overlapping leave requests (any leave type, any active status)
         var hasOverlap = await _db.Set<LeaveRequest>()
             .AnyAsync(r => r.EmployeeId == dto.EmployeeId &&
-                (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2 || r.Status == ApprovalStatus.Approved) &&
+                (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2 || r.Status == ApprovalStatus.Approved || r.Status == ApprovalStatus.CancellationRequested) &&
                 r.StartDate <= dto.EndDate && r.EndDate >= dto.StartDate);
         if (hasOverlap)
             throw new InvalidOperationException("Leave already exists for one or more of the selected dates. Please choose different dates.");
 
-        var today = _clock.Now.Date;
-        if (dto.StartDate.Date < today || dto.EndDate.Date < today)
-            throw new InvalidOperationException("Leave cannot be applied for past dates.");
         if (dto.EndDate.Date < dto.StartDate.Date)
             throw new InvalidOperationException("End date cannot be before start date.");
 
@@ -318,34 +318,7 @@ public class LeaveService : ILeaveService
             .FirstAsync(r => r.Id == request.Id);
 
         var result = MapToDto(created);
-
-        var recipientEmail = await ResolveLeaveNotificationEmailAsync(employee.Id, employee.Email);
-        if (string.IsNullOrWhiteSpace(recipientEmail))
-        {
-            _logger.LogInformation(
-                "Leave request {LeaveRequestId} created; no confirmation email (employee has no work email and no linked user email).",
-                request.Id);
-        }
-        else
-        {
-            try
-            {
-                await _emailService.SendLeaveApplicationConfirmationAsync(
-                    recipientEmail,
-                    employee.FullName,
-                    created.LeaveType?.Name ?? "Leave",
-                    created.StartDate,
-                    created.EndDate,
-                    created.TotalDays,
-                    created.Status.ToString(),
-                    created.Reason);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Leave request {LeaveRequestId} saved but confirmation email to {Email} failed.", request.Id, recipientEmail);
-            }
-        }
-
+        await NotifyLeaveApplicationRecipientsAsync(employee, created, dto.CoverageEmployeeId);
         return result;
     }
 
@@ -353,6 +326,20 @@ public class LeaveService : ILeaveService
     {
         var request = await _db.Set<LeaveRequest>().FindAsync(id);
         if (request is null) return null;
+
+        if (request.Status == ApprovalStatus.CancellationRequested)
+        {
+            request.ApproverId = approverId;
+            request.ApproverRemarks = string.IsNullOrWhiteSpace(dto.Remarks)
+                ? "Cancellation approved by supervisor."
+                : dto.Remarks.Trim();
+            request.ApprovedAt = DateTime.UtcNow;
+            await RestoreUsedDaysAsync(request);
+            request.Status = ApprovalStatus.Cancelled;
+            await _db.SaveChangesAsync();
+            return await GetLeaveRequestByIdAsync(id);
+        }
+
         if (request.Status != ApprovalStatus.Pending && request.Status != ApprovalStatus.PendingLevel2) return null;
 
         var maxLevels = await GetApprovalLevels();
@@ -429,6 +416,18 @@ public class LeaveService : ILeaveService
     {
         var request = await _db.Set<LeaveRequest>().FindAsync(id);
         if (request is null) return null;
+
+        if (request.Status == ApprovalStatus.CancellationRequested)
+        {
+            request.Status = ApprovalStatus.Approved;
+            request.ApproverId = approverId;
+            request.ApproverRemarks = string.IsNullOrWhiteSpace(dto.Remarks)
+                ? "Cancellation request declined. Leave remains approved."
+                : dto.Remarks.Trim();
+            await _db.SaveChangesAsync();
+            return await GetLeaveRequestByIdAsync(id);
+        }
+
         if (request.Status != ApprovalStatus.Pending && request.Status != ApprovalStatus.PendingLevel2) return null;
 
         if (request.CurrentApprovalLevel == 1)
@@ -450,6 +449,116 @@ public class LeaveService : ILeaveService
         return await GetLeaveRequestByIdAsync(id);
     }
 
+    public async Task<LeaveRequestDto> CancelLeaveRequestAsync(Guid id, Guid actingEmployeeId, string? remarks)
+    {
+        var request = await _db.Set<LeaveRequest>().FindAsync(id)
+            ?? throw new InvalidOperationException("Leave request not found.");
+
+        var isOwner = request.EmployeeId == actingEmployeeId;
+        var supervisorId = await GetDirectSupervisorIdAsync(request.EmployeeId);
+        var isSupervisor = supervisorId.HasValue && supervisorId.Value == actingEmployeeId;
+        var note = string.IsNullOrWhiteSpace(remarks) ? null : remarks.Trim();
+
+        if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2)
+        {
+            if (!isOwner)
+                throw new InvalidOperationException("Only the employee can cancel a leave request before it is approved.");
+            request.Status = ApprovalStatus.Cancelled;
+            request.ApproverRemarks = note ?? "Cancelled by employee before approval.";
+            await _db.SaveChangesAsync();
+            return (await GetLeaveRequestByIdAsync(id))!;
+        }
+
+        if (request.Status == ApprovalStatus.Approved)
+        {
+            if (isOwner)
+            {
+                request.Status = ApprovalStatus.CancellationRequested;
+                request.ApproverRemarks = note ?? "Employee requested cancellation.";
+                await _db.SaveChangesAsync();
+                await NotifyLeaveCancellationRequestAsync(request);
+                return (await GetLeaveRequestByIdAsync(id))!;
+            }
+
+            if (isSupervisor)
+            {
+                await RestoreUsedDaysAsync(request);
+                request.Status = ApprovalStatus.Cancelled;
+                request.ApproverId = actingEmployeeId;
+                request.ApproverRemarks = note ?? "Cancelled by supervisor. Days returned to leave balance.";
+                await _db.SaveChangesAsync();
+                return (await GetLeaveRequestByIdAsync(id))!;
+            }
+
+            throw new InvalidOperationException("You cannot cancel this leave request.");
+        }
+
+        if (request.Status == ApprovalStatus.CancellationRequested)
+        {
+            if (!isSupervisor)
+                throw new InvalidOperationException("This cancellation is waiting for the supervisor.");
+            await RestoreUsedDaysAsync(request);
+            request.Status = ApprovalStatus.Cancelled;
+            request.ApproverId = actingEmployeeId;
+            request.ApproverRemarks = note ?? "Cancellation approved by supervisor. Days returned to leave balance.";
+            await _db.SaveChangesAsync();
+            return (await GetLeaveRequestByIdAsync(id))!;
+        }
+
+        throw new InvalidOperationException("This leave request cannot be cancelled.");
+    }
+
+    private async Task RestoreUsedDaysAsync(LeaveRequest request)
+    {
+        var startDate = request.StartDate.Date;
+        var balances = await _db.Set<LeaveBalance>()
+            .Where(b => b.EmployeeId == request.EmployeeId && b.LeaveTypeId == request.LeaveTypeId)
+            .ToListAsync();
+        var bal = balances.FirstOrDefault(b =>
+            b.PeriodStart.HasValue && b.PeriodEnd.HasValue
+                ? startDate >= b.PeriodStart.Value.Date && startDate <= b.PeriodEnd.Value.Date
+                : b.Year == startDate.Year);
+        if (bal != null)
+            bal.Used = Math.Max(0, bal.Used - request.TotalDays);
+    }
+
+    private async Task NotifyLeaveCancellationRequestAsync(LeaveRequest request)
+    {
+        try
+        {
+            var employee = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == request.EmployeeId && !e.IsDeleted);
+            if (employee is null) return;
+            var leaveType = await _db.Set<LeaveType>().AsNoTracking()
+                .Where(t => t.Id == request.LeaveTypeId)
+                .Select(t => t.Name)
+                .FirstOrDefaultAsync() ?? "Leave";
+            var supervisorIds = await GetLeaveNotifySupervisorIdsAsync(employee.Id);
+            foreach (var supervisorId in supervisorIds)
+            {
+                var supervisor = await _db.Employees.AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.Id == supervisorId && !e.IsDeleted);
+                if (supervisor is null) continue;
+                var supervisorEmail = await ResolveLeaveNotificationEmailAsync(supervisor.Id, supervisor.Email);
+                if (string.IsNullOrWhiteSpace(supervisorEmail)) continue;
+                await _emailService.SendLeaveApplicationToSupervisorAsync(
+                    supervisorEmail,
+                    supervisor.FullName,
+                    employee.FullName,
+                    leaveType,
+                    request.StartDate,
+                    request.EndDate,
+                    request.TotalDays,
+                    "Cancellation requested",
+                    request.ApproverRemarks);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Leave request {LeaveRequestId} cancellation requested; supervisor email failed.", request.Id);
+        }
+    }
+
     /// <summary>Work email on the employee record, or login email from a user linked to that employee.</summary>
     private async Task<string?> ResolveLeaveNotificationEmailAsync(Guid employeeId, string? employeeWorkEmail)
     {
@@ -464,6 +573,186 @@ public class LeaveService : ILeaveService
             .FirstOrDefaultAsync();
 
         return string.IsNullOrWhiteSpace(userEmail) ? null : userEmail.Trim();
+    }
+
+    private async Task NotifyLeaveApplicationRecipientsAsync(
+        Employee employee, LeaveRequest created, Guid? coverageEmployeeId)
+    {
+        var leaveType = created.LeaveType?.Name ?? "Leave";
+        var sent = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        async Task TrySendAsync(string? email, string role, Func<Task> send)
+        {
+            if (string.IsNullOrWhiteSpace(email) || !sent.Add(email.Trim()))
+                return;
+            try
+            {
+                await send();
+                _logger.LogInformation(
+                    "Leave request {LeaveRequestId} {Role} email sent to {Email}.",
+                    created.Id, role, email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Leave request {LeaveRequestId} saved but {Role} email to {Email} failed.", created.Id, role, email);
+            }
+        }
+
+        var employeeEmail = await ResolveLeaveNotificationEmailAsync(employee.Id, employee.Email);
+        if (string.IsNullOrWhiteSpace(employeeEmail))
+        {
+            _logger.LogInformation(
+                "Leave request {LeaveRequestId} created; no employee confirmation email (no work or login email).",
+                created.Id);
+        }
+        else
+        {
+            await TrySendAsync(employeeEmail, "employee", () =>
+                _emailService.SendLeaveApplicationConfirmationAsync(
+                    employeeEmail,
+                    employee.FullName,
+                    leaveType,
+                    created.StartDate,
+                    created.EndDate,
+                    created.TotalDays,
+                    created.Status.ToString(),
+                    created.Reason));
+        }
+
+        if (!employee.IsTopOfHierarchy)
+        {
+            var supervisorIds = await GetLeaveNotifySupervisorIdsAsync(employee.Id);
+            if (supervisorIds.Count == 0)
+            {
+                _logger.LogInformation(
+                    "Leave request {LeaveRequestId} created; no supervisor email (no supervisor assigned).",
+                    created.Id);
+            }
+
+            foreach (var supervisorId in supervisorIds)
+            {
+                var supervisor = await _db.Employees.AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.Id == supervisorId && !e.IsDeleted);
+                if (supervisor is null) continue;
+                var supervisorEmail = await ResolveLeaveNotificationEmailAsync(supervisor.Id, supervisor.Email);
+                if (string.IsNullOrWhiteSpace(supervisorEmail))
+                {
+                    _logger.LogInformation(
+                        "Leave request {LeaveRequestId} created; supervisor {SupervisorId} has no work or login email.",
+                        created.Id, supervisor.Id);
+                    continue;
+                }
+
+                await TrySendAsync(supervisorEmail, "supervisor", () =>
+                    _emailService.SendLeaveApplicationToSupervisorAsync(
+                        supervisorEmail,
+                        supervisor.FullName,
+                        employee.FullName,
+                        leaveType,
+                        created.StartDate,
+                        created.EndDate,
+                        created.TotalDays,
+                        created.Status.ToString(),
+                        created.Reason));
+            }
+        }
+
+        var covering = await ResolveCoverageEmployeeAsync(employee.Id, coverageEmployeeId, created.CoveragePerson);
+        if (covering is null)
+        {
+            if (!string.IsNullOrWhiteSpace(created.CoveragePerson))
+            {
+                _logger.LogInformation(
+                    "Leave request {LeaveRequestId} created; covering person {CoveragePerson} could not be matched to an employee email.",
+                    created.Id, created.CoveragePerson);
+            }
+            return;
+        }
+
+        var coveringEmail = await ResolveLeaveNotificationEmailAsync(covering.Id, covering.Email);
+        if (string.IsNullOrWhiteSpace(coveringEmail))
+        {
+            _logger.LogInformation(
+                "Leave request {LeaveRequestId} created; covering person {CoveringId} has no work or login email.",
+                created.Id, covering.Id);
+            return;
+        }
+
+        await TrySendAsync(coveringEmail, "covering person", () =>
+            _emailService.SendLeaveApplicationToCoveringPersonAsync(
+                coveringEmail,
+                covering.FullName,
+                employee.FullName,
+                leaveType,
+                created.StartDate,
+                created.EndDate,
+                created.TotalDays,
+                created.Status.ToString(),
+                created.Reason));
+    }
+
+    private async Task<List<Guid>> GetLeaveNotifySupervisorIdsAsync(Guid employeeId)
+    {
+        var links = await _db.Set<EmployeeSupervisor>()
+            .Where(es => !es.IsDeleted && es.EmployeeId == employeeId)
+            .Select(es => new { es.SupervisorId, es.ReportingMethod })
+            .ToListAsync();
+
+        var ids = links
+            .Where(x => string.Equals(x.ReportingMethod, "Direct", StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.SupervisorId)
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+            ids = links.Select(x => x.SupervisorId).Distinct().ToList();
+
+        if (ids.Count == 0)
+        {
+            var managerId = await _db.Employees.AsNoTracking()
+                .Where(e => e.Id == employeeId && !e.IsDeleted)
+                .Select(e => e.ManagerId)
+                .FirstOrDefaultAsync();
+            if (managerId.HasValue)
+                ids.Add(managerId.Value);
+        }
+
+        return ids;
+    }
+
+    private async Task<Employee?> ResolveCoverageEmployeeAsync(
+        Guid applicantId, Guid? coverageEmployeeId, string? coveragePerson)
+    {
+        if (coverageEmployeeId.HasValue && coverageEmployeeId.Value != applicantId)
+        {
+            var byId = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == coverageEmployeeId.Value && !e.IsDeleted);
+            if (byId != null) return byId;
+        }
+
+        var raw = coveragePerson?.Trim();
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+
+        string? code = null;
+        var open = raw.LastIndexOf('(');
+        var close = raw.LastIndexOf(')');
+        if (open >= 0 && close > open)
+            code = raw[(open + 1)..close].Trim();
+
+        if (!string.IsNullOrWhiteSpace(code))
+        {
+            var byCode = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => !e.IsDeleted && e.Id != applicantId && e.EmployeeCode == code);
+            if (byCode != null) return byCode;
+        }
+
+        var name = open >= 0 ? raw[..open].Trim() : raw;
+        if (string.IsNullOrWhiteSpace(name)) return null;
+
+        return await _db.Employees.AsNoTracking()
+            .FirstOrDefaultAsync(e =>
+                !e.IsDeleted
+                && e.Id != applicantId
+                && (e.FirstName + " " + e.LastName) == name);
     }
 
     private async Task<int> GetApprovalLevels()
@@ -565,6 +854,8 @@ public class LeaveService : ILeaveService
             return r.ApproverId;
         if (r.Status == ApprovalStatus.Pending)
             return await GetDirectSupervisorIdAsync(r.EmployeeId);
+        if (r.Status == ApprovalStatus.CancellationRequested)
+            return await GetDirectSupervisorIdAsync(r.EmployeeId);
         if (r.Status == ApprovalStatus.PendingLevel2 && r.Level1ApproverId.HasValue)
             return await GetDirectSupervisorIdAsync(r.Level1ApproverId.Value);
         return null;
@@ -576,7 +867,7 @@ public class LeaveService : ILeaveService
             return r.Level2Approver != null ? r.Level2Approver.FirstName + " " + r.Level2Approver.LastName : r.Level1Approver != null ? r.Level1Approver.FirstName + " " + r.Level1Approver.LastName : r.Approver != null ? r.Approver.FirstName + " " + r.Approver.LastName : null;
         if (r.Status == ApprovalStatus.Rejected)
             return r.Approver != null ? r.Approver.FirstName + " " + r.Approver.LastName : null;
-        if (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2)
+        if (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2 || r.Status == ApprovalStatus.CancellationRequested)
         {
             var supervisorId = await GetResponsibleEmployeeIdAsync(r);
             if (!supervisorId.HasValue) return null;

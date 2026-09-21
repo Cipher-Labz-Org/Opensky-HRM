@@ -351,6 +351,7 @@ if (dbAvailable)
         await BankAccountSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, app.Configuration);
         await LeaveSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
+        await RecruitmentSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
     }
     catch (Exception ex)
@@ -360,6 +361,7 @@ if (dbAvailable)
         {
             var fallbackConn = builder.Configuration.GetConnectionString("DefaultConnection");
             await LeaveSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
+            await RecruitmentSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
             await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
         }
         catch (Exception repairEx)

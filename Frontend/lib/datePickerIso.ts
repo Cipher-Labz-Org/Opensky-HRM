@@ -15,6 +15,13 @@ export function formatLocalDateToIso(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Calendar date for API payloads. Do not convert through UTC (`toISOString`). */
+export function dateOnlyPayload(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const day = value.trim().split("T")[0].split(" ")[0];
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
 /** Split datetime-local style string (YYYY-MM-DDTHH:mm) into date and time parts. */
 export function splitDateTime(iso: string): { date: string; time: string } {
   if (!iso) return { date: "", time: "" };
@@ -28,6 +35,14 @@ export function joinDateTime(date: string, time: string): string {
   if (!d) return "";
   const tm = time && /^\d{2}:\d{2}$/.test(time) ? time : "00:00";
   return `${d}T${tm}`;
+}
+
+/** Local calendar YYYY-MM-DD for an instant (API timestamps). Avoids UTC toISOString shifts. */
+export function instantToLocalDateKey(value: string | Date | null | undefined): string {
+  if (value == null || value === "") return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return formatLocalDateToIso(d);
 }
 
 /** When from moves past to, bump to to match (ISO YYYY-MM-DD strings). */

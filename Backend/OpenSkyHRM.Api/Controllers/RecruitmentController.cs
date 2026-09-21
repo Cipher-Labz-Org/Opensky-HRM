@@ -192,8 +192,9 @@ public class RecruitmentController : ControllerBase
     [HttpGet("candidates")]
     public async Task<IActionResult> GetCandidates(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 50,
-        [FromQuery] Guid? requisitionId = null, [FromQuery] string? stage = null, [FromQuery] string? search = null)
-        => Ok(await _svc.GetCandidatesAsync(page, pageSize, requisitionId, stage, search));
+        [FromQuery] Guid? requisitionId = null, [FromQuery] string? stage = null, [FromQuery] string? search = null,
+        [FromQuery] bool? talentPool = null)
+        => Ok(await _svc.GetCandidatesAsync(page, pageSize, requisitionId, stage, search, talentPool));
 
     [HttpGet("candidates/{id}")]
     public async Task<IActionResult> GetCandidate(Guid id)
@@ -206,6 +207,13 @@ public class RecruitmentController : ControllerBase
     public async Task<IActionResult> CreateCandidate([FromBody] CreateCandidateDto dto)
     {
         try { return Ok(await _svc.CreateCandidateAsync(dto)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPost("candidates/{id:guid}/assign-requisition")]
+    public async Task<IActionResult> AssignCandidateRequisition(Guid id, [FromBody] AssignCandidateRequisitionDto dto)
+    {
+        try { return Ok(await _svc.AssignCandidateRequisitionAsync(id, dto.RequisitionId)); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 

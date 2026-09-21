@@ -18,6 +18,7 @@ import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCom
 import { getSystemSetting } from "@/lib/system-settings";
 import { bankNameOptions } from "@/lib/bank-names";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { dateOnlyPayload, formatLocalDateToIso } from "@/lib/datePickerIso";
 import {
   calculateImmigrationEligibleDate,
   countdownTone,
@@ -1046,7 +1047,7 @@ export default function EmployeeDetailPage() {
 
   const [showTerminateModal, setShowTerminateModal] = useState(false);
   const [termReason, setTermReason] = useState("");
-  const [termDate, setTermDate] = useState(new Date().toISOString().split("T")[0]);
+  const [termDate, setTermDate] = useState(() => formatLocalDateToIso(new Date()));
   const [termNote, setTermNote] = useState("");
   const [termSaving, setTermSaving] = useState(false);
   const [withOffboarding, setWithOffboarding] = useState(true);
@@ -1057,7 +1058,7 @@ export default function EmployeeDetailPage() {
   const docPopoverRef = useRef<HTMLDivElement>(null);
   const [reactActivateNow, setReactActivateNow] = useState(false);
   const [reactUpdateJoinDate, setReactUpdateJoinDate] = useState(true);
-  const [reactDate, setReactDate] = useState(new Date().toISOString().split("T")[0]);
+  const [reactDate, setReactDate] = useState(() => formatLocalDateToIso(new Date()));
   const [reactHour, setReactHour] = useState("00");
   const [reactMinute, setReactMinute] = useState("00");
   const [reactTimezone, setReactTimezone] = useState("(GMT+05:30) GMT+05:30");
@@ -2188,7 +2189,7 @@ export default function EmployeeDetailPage() {
       setDepFirstName(dep.firstName);
       setDepLastName(dep.lastName);
       setDepRelationship(dep.relationship);
-      setDepDob(dep.dateOfBirth ? new Date(dep.dateOfBirth).toISOString().split("T")[0] : "");
+      setDepDob(dep.dateOfBirth ? dep.dateOfBirth.split("T")[0] : "");
       setDepMaritalStatus(dep.maritalStatus ?? "");
       setDepOccupation(dep.occupation ?? "");
       setDepOrganization(dep.organization ?? "");
@@ -2271,8 +2272,8 @@ export default function EmployeeDetailPage() {
       setEduMajor(edu.major ?? "");
       setEduYear(edu.year ?? "");
       setEduGpa(edu.gpaScore ?? "");
-      setEduStartDate(edu.startDate ? new Date(edu.startDate).toISOString().split("T")[0] : "");
-      setEduEndDate(edu.endDate ? new Date(edu.endDate).toISOString().split("T")[0] : "");
+      setEduStartDate(edu.startDate ? edu.startDate.split("T")[0] : "");
+      setEduEndDate(edu.endDate ? edu.endDate.split("T")[0] : "");
       setEduRemark(edu.remark ?? "");
     } else {
       setEditingEdu(null);
@@ -2425,7 +2426,7 @@ export default function EmployeeDetailPage() {
         body: JSON.stringify({
           employeeId: id,
           courseId: trainCourseId,
-          dueDate: trainDue ? new Date(trainDue).toISOString() : null,
+          dueDate: dateOnlyPayload(trainDue),
           notes: null,
         }),
       });
@@ -2492,8 +2493,8 @@ export default function EmployeeDetailPage() {
     try {
       const body = {
         certificationId: certCatalogId,
-        obtainedDate: new Date(certObtained).toISOString(),
-        expiryDate: certExpiry ? new Date(certExpiry).toISOString() : null,
+        obtainedDate: dateOnlyPayload(certObtained),
+        expiryDate: dateOnlyPayload(certExpiry),
         certificateNumber: certNumber.trim() || null,
         status: certStatus || "Active",
       };
@@ -2564,7 +2565,7 @@ export default function EmployeeDetailPage() {
     if (!matrixProficiency.trim()) return;
     setMatrixSaving(true);
     try {
-      const assessedPayload = matrixAssessedAt ? new Date(matrixAssessedAt).toISOString() : null;
+      const assessedPayload = dateOnlyPayload(matrixAssessedAt);
       const notesPayload = matrixNotes.trim() || null;
       if (editingMatrix) {
         await apiFetch(`/api/learning/skill-matrix/${editingMatrix.id}`, {
@@ -2873,8 +2874,8 @@ export default function EmployeeDetailPage() {
       setImmDocType(imm.documentType);
       setImmNumber(sanitizePassportNumberInput(imm.number));
       setImmIssuedBy(imm.issuedBy ?? "");
-      setImmIssuedDate(imm.issuedDate ? new Date(imm.issuedDate).toISOString().split("T")[0] : "");
-      setImmExpiryDate(imm.expiryDate ? new Date(imm.expiryDate).toISOString().split("T")[0] : "");
+      setImmIssuedDate(imm.issuedDate ? imm.issuedDate.split("T")[0] : "");
+      setImmExpiryDate(imm.expiryDate ? imm.expiryDate.split("T")[0] : "");
       setImmComments(imm.comments ?? "");
     } else {
       setEditingImm(null);
@@ -2996,8 +2997,8 @@ export default function EmployeeDetailPage() {
       setWeCompany(item.company);
       setWeJobTitle(item.jobTitle);
       setWeEmploymentType(item.employmentType && isKnownEmploymentTypeCode(employmentTypes, item.employmentType) ? item.employmentType : "");
-      setWeFromDate(item.fromDate ? new Date(item.fromDate).toISOString().split("T")[0] : "");
-      setWeToDate(item.toDate ? new Date(item.toDate).toISOString().split("T")[0] : "");
+      setWeFromDate(item.fromDate ? item.fromDate.split("T")[0] : "");
+      setWeToDate(item.toDate ? item.toDate.split("T")[0] : "");
       setWeCreditable(item.creditable);
       setWeComment(item.comment ?? "");
     } else {
@@ -4855,7 +4856,7 @@ export default function EmployeeDetailPage() {
           <div className="w-fit rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <button
               type="button"
-              onClick={() => { setReactActivateNow(false); setReactUpdateJoinDate(true); setReactDate(new Date().toISOString().split("T")[0]); setReactHour("00"); setReactMinute("00"); setReactWithOnboarding(false); setShowReactivateModal(true); }}
+              onClick={() => { setReactActivateNow(false); setReactUpdateJoinDate(true); setReactDate(formatLocalDateToIso(new Date())); setReactHour("00"); setReactMinute("00"); setReactWithOnboarding(false); setShowReactivateModal(true); }}
               className="inline-flex items-center gap-2 rounded-full bg-green-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
@@ -4868,7 +4869,7 @@ export default function EmployeeDetailPage() {
           <div className="w-fit rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <button
               type="button"
-              onClick={() => { setTermReason(""); setTermDate(new Date().toISOString().split("T")[0]); setTermNote(""); setWithOffboarding(true); setSelectedTemplateId(""); setShowTerminateModal(true); }}
+              onClick={() => { setTermReason(""); setTermDate(formatLocalDateToIso(new Date())); setTermNote(""); setWithOffboarding(true); setSelectedTemplateId(""); setShowTerminateModal(true); }}
               className="inline-flex items-center gap-2 rounded-full bg-red-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>

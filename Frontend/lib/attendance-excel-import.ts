@@ -342,7 +342,6 @@ function cellText(value: SheetCell): string {
   if (value instanceof Date) {
     const hh = String(value.getHours()).padStart(2, "0");
     const mm = String(value.getMinutes()).padStart(2, "0");
-    if (value.getHours() === 0 && value.getMinutes() === 0) return "";
     return `${hh}:${mm}`;
   }
   return String(value).trim();
@@ -361,7 +360,8 @@ function parseDateCell(value: SheetCell): Date | null {
   if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
   const dmy = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/.exec(text);
   if (dmy) {
-    const year = Number(dmy[3].length === 2 ? `20${dmy[3]}` : dmy[3]);
+    const rawYear = Number(dmy[3]);
+    const year = dmy[3].length === 2 ? (rawYear >= 70 ? 1900 + rawYear : 2000 + rawYear) : rawYear;
     const first = Number(dmy[1]);
     const second = Number(dmy[2]);
     const monthFirst = first <= 12 && second > 12;
@@ -371,27 +371,33 @@ function parseDateCell(value: SheetCell): Date | null {
       return new Date(year, month - 1, day);
     }
   }
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : startOfDay(parsed);
+  return null;
 }
 
 function parseDateTime(date: Date, raw: string): Date | null {
   if (!raw) return null;
   const s = raw.trim();
-  const full = new Date(s);
-  if (!Number.isNaN(full.getTime()) && /[T\-]/.test(s) && s.length > 10) return full;
 
-  const match = /^(?:(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\s+)?(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/i.exec(s);
-  if (!match) {
-    const asDate = new Date(s);
-    return Number.isNaN(asDate.getTime()) ? null : asDate;
+  const timeMatch = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\s*$/i.exec(s);
+  if (timeMatch) {
+    let hours = Number(timeMatch[1]);
+    const minutes = Number(timeMatch[2]);
+    const ampm = timeMatch[4]?.toLowerCase();
+    if (ampm === "pm" && hours < 12) hours += 12;
+    if (ampm === "am" && hours === 12) hours = 0;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, Number(timeMatch[3] || 0));
   }
-  let hours = Number(match[4]);
-  const minutes = Number(match[5]);
-  const ampm = match[7]?.toLowerCase();
-  if (ampm === "pm" && hours < 12) hours += 12;
-  if (ampm === "am" && hours === 12) hours = 0;
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, Number(match[6] || 0));
+
+  const fraction = Number(s);
+  if (Number.isFinite(fraction) && fraction >= 0 && fraction < 1) {
+    const totalSeconds = Math.round(fraction * 24 * 60 * 60);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, seconds);
+  }
+
+  return null;
 }
 
 function normalizeStatus(raw: string): string | null {
@@ -437,30 +443,43 @@ function employeeAliases(code: string | null | undefined): string[] {
   return [...aliases].filter(Boolean);
 }
 
-function buildEmployeeLookup(employees: EmployeeRow[]): Map<string, EmployeeRow> {
-  const map = new Map<string, EmployeeRow>();
+function buildEmployeeLookup(employees: EmployeeRow[]): { codeMap: Map<string, EmployeeRow>; fingerprintMap: Map<string, EmployeeRow> } {
+  const codeMap = new Map<string, EmployeeRow>();
+  const fingerprintMap = new Map<string, EmployeeRow>();
+  const codeKeys = new Set<string>();
   for (const employee of employees) {
     for (const alias of employeeAliases(employee.employeeCode)) {
-      if (!map.has(alias)) map.set(alias, employee);
-    }
-    for (const alias of employeeAliases(employee.fingerprintId)) {
-      map.set(alias, employee);
+      codeKeys.add(alias);
+      if (!codeMap.has(alias)) codeMap.set(alias, employee);
     }
   }
-  return map;
+  for (const employee of employees) {
+    for (const alias of employeeAliases(employee.fingerprintId)) {
+      if (codeKeys.has(alias)) continue;
+      if (!fingerprintMap.has(alias)) fingerprintMap.set(alias, employee);
+    }
+  }
+  return { codeMap, fingerprintMap };
 }
 
-function resolveEmployee(lookup: Map<string, EmployeeRow>, code: string): EmployeeRow | undefined {
+function resolveEmployee(
+  lookup: { codeMap: Map<string, EmployeeRow>; fingerprintMap: Map<string, EmployeeRow> },
+  code: string,
+): EmployeeRow | undefined {
   const key = code.trim();
   if (!key) return undefined;
-  const direct = lookup.get(key.toLowerCase());
-  if (direct) return direct;
-  for (const alias of employeeAliases(key)) {
-    const match = lookup.get(alias);
-    if (match) return match;
+  const keys = [key.toLowerCase(), ...employeeAliases(key)];
+  const trimmedZeros = key.replace(/^0+/, "").toLowerCase();
+  if (trimmedZeros) keys.push(trimmedZeros);
+  for (const alias of keys) {
+    const hit = lookup.codeMap.get(alias);
+    if (hit) return hit;
   }
-  const trimmedZeros = key.replace(/^0+/, "");
-  return trimmedZeros ? lookup.get(trimmedZeros.toLowerCase()) : undefined;
+  for (const alias of keys) {
+    const hit = lookup.fingerprintMap.get(alias);
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 async function loadAllEmployees(): Promise<EmployeeRow[]> {

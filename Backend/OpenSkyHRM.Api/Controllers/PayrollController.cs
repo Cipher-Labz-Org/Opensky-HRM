@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Payroll;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Application.Services;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Api.Filters;
@@ -23,17 +25,20 @@ public class PayrollController : ControllerBase
     private readonly IPayrollAttendanceImportService _attendanceImport;
     private readonly PayrollCalculationEngine _engine;
     private readonly AppDbContext _db;
+    private readonly IBusinessClock _clock;
 
     public PayrollController(
         IPayrollService payrollService,
         IPayrollAttendanceImportService attendanceImport,
         PayrollCalculationEngine engine,
-        AppDbContext db)
+        AppDbContext db,
+        IBusinessClock clock)
     {
         _payrollService = payrollService;
         _attendanceImport = attendanceImport;
         _engine = engine;
         _db = db;
+        _clock = clock;
     }
 
     // ── Compensation Components ──────────────────────────────────────
@@ -594,7 +599,7 @@ public class PayrollController : ControllerBase
         if (file is null || file.Length == 0)
             return BadRequest(new { message = "No file uploaded." });
 
-        var effDate = DateTime.TryParse(effectiveFrom, out var d) ? d : DateTime.UtcNow;
+        var effDate = ExcelImportDateParser.ParseWallDate(effectiveFrom) ?? _clock.Now.Date;
 
         using var stream = file.OpenReadStream();
         using var wb = new ClosedXML.Excel.XLWorkbook(stream);

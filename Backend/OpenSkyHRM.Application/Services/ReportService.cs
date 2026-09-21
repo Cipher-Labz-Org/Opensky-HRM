@@ -291,22 +291,28 @@ public class ReportService : IReportService
         return false;
     }
 
-    private static bool TryGetDepartmentId(Dictionary<string, string>? filters, out Guid departmentId)
+    private static List<Guid> ParseGuidFilter(Dictionary<string, string>? filters, string key)
     {
-        departmentId = default;
-        return TryGetFilterValue(filters, "departmentId", out var s) && Guid.TryParse(s, out departmentId);
+        var ids = new List<Guid>();
+        if (!TryGetFilterValue(filters, key, out var raw)) return ids;
+        foreach (var part in raw.Split([',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (Guid.TryParse(part, out var id) && !ids.Contains(id))
+                ids.Add(id);
+        }
+        return ids;
     }
 
-    private static bool TryGetLocationId(Dictionary<string, string>? filters, out Guid locationId)
+    private static List<string> ParseCsvFilter(Dictionary<string, string>? filters, string key)
     {
-        locationId = default;
-        return TryGetFilterValue(filters, "locationId", out var s) && Guid.TryParse(s, out locationId);
-    }
-
-    private static bool TryGetGradeId(Dictionary<string, string>? filters, out Guid gradeId)
-    {
-        gradeId = default;
-        return TryGetFilterValue(filters, "gradeId", out var s) && Guid.TryParse(s, out gradeId);
+        var values = new List<string>();
+        if (!TryGetFilterValue(filters, key, out var raw)) return values;
+        foreach (var part in raw.Split([',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!values.Exists(v => string.Equals(v, part, StringComparison.OrdinalIgnoreCase)))
+                values.Add(part);
+        }
+        return values;
     }
 
     private static bool TryGetEmployeeNameFilter(Dictionary<string, string>? filters, out string search)
@@ -318,8 +324,8 @@ public class ReportService : IReportService
     }
 
     private static bool HasEmployeeScopeFilters(Dictionary<string, string>? filters) =>
-        TryGetDepartmentId(filters, out _)
-        || TryGetLocationId(filters, out _)
+        ParseGuidFilter(filters, "departmentId").Count > 0
+        || ParseGuidFilter(filters, "locationId").Count > 0
         || TryGetEmployeeNameFilter(filters, out _);
 
     private static IQueryable<Employee> ApplyEmployeeNameFilter(IQueryable<Employee> q, string name)
@@ -355,10 +361,12 @@ public class ReportService : IReportService
     {
         q = ScopedEmployees(q);
         if (filters == null) return q;
-        if (TryGetDepartmentId(filters, out var deptId))
-            q = q.Where(e => e.DepartmentId == deptId);
-        if (TryGetLocationId(filters, out var locId))
-            q = q.Where(e => e.LocationId == locId);
+        var deptIds = ParseGuidFilter(filters, "departmentId");
+        if (deptIds.Count > 0)
+            q = q.Where(e => deptIds.Contains(e.DepartmentId));
+        var locIds = ParseGuidFilter(filters, "locationId");
+        if (locIds.Count > 0)
+            q = q.Where(e => e.LocationId != null && locIds.Contains(e.LocationId.Value));
         if (TryGetEmployeeNameFilter(filters, out var name))
             q = ApplyEmployeeNameFilter(q, name);
         return q;
@@ -368,10 +376,12 @@ public class ReportService : IReportService
     {
         var q = ScopedEmployees(source);
         if (filters == null) return q;
-        if (TryGetDepartmentId(filters, out var deptId))
-            q = q.Where(e => e.DepartmentId == deptId);
-        if (TryGetLocationId(filters, out var locId))
-            q = q.Where(e => e.LocationId == locId);
+        var deptIds = ParseGuidFilter(filters, "departmentId");
+        if (deptIds.Count > 0)
+            q = q.Where(e => deptIds.Contains(e.DepartmentId));
+        var locIds = ParseGuidFilter(filters, "locationId");
+        if (locIds.Count > 0)
+            q = q.Where(e => e.LocationId != null && locIds.Contains(e.LocationId.Value));
         if (TryGetEmployeeNameFilter(filters, out var name))
         {
             q = q.Where(e =>
@@ -396,12 +406,14 @@ public class ReportService : IReportService
     {
         var q = _db.Employees.Include(e => e.Department).Include(e => e.JobTitle)
             .Include(e => e.Location).Include(e => e.Grade).Include(e => e.BusinessUnit).AsQueryable();
-        if (filters != null && filters.TryGetValue("status", out var st) && !string.IsNullOrWhiteSpace(st))
-            q = q.Where(e => e.Status == st);
+        var statuses = ParseCsvFilter(filters, "status");
+        if (statuses.Count > 0)
+            q = q.Where(e => statuses.Contains(e.Status));
         else
             q = q.Where(e => e.Status != "Terminated");
-        if (TryGetGradeId(filters, out var gradeId))
-            q = q.Where(e => e.GradeId == gradeId);
+        var gradeIds = ParseGuidFilter(filters, "gradeId");
+        if (gradeIds.Count > 0)
+            q = q.Where(e => e.GradeId != null && gradeIds.Contains(e.GradeId.Value));
         q = ApplyEmployeeFilters(q, filters);
 
         var data = await q.OrderBy(e => e.FirstName).ToListAsync();
@@ -1246,8 +1258,9 @@ public class ReportService : IReportService
         }
         var q = _db.Set<Requisition>().Include(r => r.Department).Include(r => r.JobTitle).Include(r => r.Candidates)
             .Where(r => !r.IsDeleted && r.Status != Domain.Enums.ApprovalStatus.Cancelled).AsQueryable();
-        if (TryGetDepartmentId(filters, out var deptId))
-            q = q.Where(r => r.DepartmentId == deptId);
+        var deptIds = ParseGuidFilter(filters, "departmentId");
+        if (deptIds.Count > 0)
+            q = q.Where(r => deptIds.Contains(r.DepartmentId));
         if (hasRange)
             q = q.Where(r => r.CreatedAt >= from && r.CreatedAt <= to);
         var data = await q.OrderByDescending(r => r.CreatedAt).ToListAsync();
@@ -1265,8 +1278,9 @@ public class ReportService : IReportService
     {
         var q = _db.Set<Candidate>().Include(c => c.Requisition)
             .Where(c => !c.IsDeleted).AsQueryable();
-        if (TryGetDepartmentId(filters, out var deptId))
-            q = q.Where(c => c.Requisition != null && c.Requisition.DepartmentId == deptId);
+        var deptIds = ParseGuidFilter(filters, "departmentId");
+        if (deptIds.Count > 0)
+            q = q.Where(c => c.Requisition != null && deptIds.Contains(c.Requisition.DepartmentId));
         var data = await q
             .GroupBy(c => c.Stage)
             .Select(g => new { Stage = g.Key, Count = g.Count() })
@@ -1288,8 +1302,9 @@ public class ReportService : IReportService
         }
         var q = _db.Set<Requisition>().Include(r => r.Department)
             .Where(r => !r.IsDeleted && r.Status == Domain.Enums.ApprovalStatus.Approved).AsQueryable();
-        if (TryGetDepartmentId(filters, out var deptId))
-            q = q.Where(r => r.DepartmentId == deptId);
+        var deptIds = ParseGuidFilter(filters, "departmentId");
+        if (deptIds.Count > 0)
+            q = q.Where(r => deptIds.Contains(r.DepartmentId));
         if (hasRange)
             q = q.Where(r => r.CreatedAt >= from && r.CreatedAt <= to);
         var data = await q.ToListAsync();
@@ -1449,8 +1464,9 @@ public class ReportService : IReportService
     private async Task<ReportResultDto> PositionVacancyReport(Dictionary<string, string>? filters)
     {
         var q = _db.Positions.Include(p => p.Department).Include(p => p.JobTitle).AsQueryable();
-        if (TryGetDepartmentId(filters, out var deptId))
-            q = q.Where(p => p.DepartmentId == deptId);
+        var deptIds = ParseGuidFilter(filters, "departmentId");
+        if (deptIds.Count > 0)
+            q = q.Where(p => deptIds.Contains(p.DepartmentId));
         var data = await q.OrderBy(p => p.Title).ToListAsync();
         var cols = new List<string> { "Position", "Code", "Department", "Job Title", "Vacant" };
         var rows = data.Select(p => new Dictionary<string, object?>

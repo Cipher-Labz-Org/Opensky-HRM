@@ -215,6 +215,11 @@ export function LoginFormCard({
           Contact your administrator
         </Link>
       </p>
+      <p className="mt-2 text-center text-xs" style={{ color: LOGIN_THEME.muted }}>
+        <Link href={ROUTES.privacy} className="hover:underline" style={{ color: LOGIN_THEME.skyBlue }}>
+          Privacy Policy
+        </Link>
+      </p>
     </div>
   );
 }

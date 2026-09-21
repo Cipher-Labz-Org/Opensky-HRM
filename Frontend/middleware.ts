@@ -2,7 +2,16 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isKnownTenant } from "@/config/tenants";
 
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/", "/pricing", "/contact", "/careers"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/forgot-password",
+  "/",
+  "/pricing",
+  "/contact",
+  "/privacy",
+  "/data-deletion",
+  "/careers",
+];
 
 /** True when the hostname is a *.openskyhrm.com subdomain (not the apex). */
 function isProductionTenantDomain(hostname: string): boolean {
@@ -39,8 +48,11 @@ export function middleware(request: NextRequest) {
   }
 
   // Redirect unauthenticated users to login.
-  const token = request.cookies.get("auth_token")?.value;
-  if (!token && pathname.startsWith("/app")) {
+  // Use the small auth_ok marker — JWTs with permissions do not fit in a cookie.
+  const hasSession =
+    request.cookies.get("auth_ok")?.value === "1" ||
+    Boolean(request.cookies.get("auth_token")?.value);
+  if (!hasSession && pathname.startsWith("/app")) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);

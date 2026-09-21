@@ -51,7 +51,7 @@ export function LoginLandingExperience() {
     window.location.replace(user.mustChangePassword === true ? ROUTES.changePassword : "/app/dashboard");
   }, [isAuthenticated, isLoading, user]);
 
-  if (!mounted || isAuthenticated) {
+  if (!mounted || isLoading || isAuthenticated) {
     return (
       <div
         className="flex min-h-screen min-h-[100dvh] items-center justify-center"

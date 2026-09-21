@@ -53,6 +53,7 @@ public class CreateLeaveRequestDto
     public decimal? ShortLeaveHours { get; set; }
     public string? Reason { get; set; }
     public string? CoveragePerson { get; set; }
+    public Guid? CoverageEmployeeId { get; set; }
 }
 
 public class ApproveRejectLeaveDto

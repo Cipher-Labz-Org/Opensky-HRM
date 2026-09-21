@@ -106,8 +106,22 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 const AUTH_TOKEN_KEY = "auth_token";
+/** Small marker for Next.js middleware. JWTs with permissions exceed the ~4KB cookie limit. */
+const AUTH_OK_COOKIE = "auth_ok";
 /** Rotates on each login; stable across refresh within the same browser session. */
 export const AUTH_VISIT_ID_KEY = "opensky:auth-visit-id";
+
+function writeAuthSessionCookie(rememberMe: boolean) {
+  // Drop any leftover JWT cookie so an oversized Cookie header cannot block auth_ok.
+  document.cookie = `${AUTH_TOKEN_KEY}=; path=/; max-age=0`;
+  const maxAge = rememberMe ? `; max-age=${8 * 60 * 60}` : "";
+  document.cookie = `${AUTH_OK_COOKIE}=1; path=/; samesite=lax${maxAge}`;
+}
+
+function clearAuthBrowserCookies() {
+  document.cookie = `${AUTH_TOKEN_KEY}=; path=/; max-age=0`;
+  document.cookie = `${AUTH_OK_COOKIE}=; path=/; max-age=0`;
+}
 
 function ensureAuthVisitId() {
   if (typeof window === "undefined") return;
@@ -136,12 +150,11 @@ function persistAuthToken(token: string, rememberMe: boolean) {
   if (rememberMe) {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     sessionStorage.removeItem(AUTH_TOKEN_KEY);
-    document.cookie = `auth_token=${token}; path=/; max-age=${8 * 60 * 60}; samesite=lax`;
   } else {
     sessionStorage.setItem(AUTH_TOKEN_KEY, token);
     localStorage.removeItem(AUTH_TOKEN_KEY);
-    document.cookie = `auth_token=${token}; path=/; samesite=lax`;
   }
+  writeAuthSessionCookie(rememberMe);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -156,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     localStorage.removeItem(AUTH_TOKEN_KEY);
     sessionStorage.removeItem(AUTH_TOKEN_KEY);
-    document.cookie = "auth_token=; path=/; max-age=0";
+    clearAuthBrowserCookies();
   }, []);
 
   const fetchProfile = useCallback(async (authToken: string): Promise<UserProfile | null> => {
@@ -200,7 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setToken(stored);
-    document.cookie = `auth_token=${stored}; path=/; max-age=${8 * 60 * 60}; samesite=lax`;
+    writeAuthSessionCookie(Boolean(localStorage.getItem(AUTH_TOKEN_KEY)));
 
     const bootstrapId = ++authBootstrapId.current;
     fetchProfile(stored)

@@ -21,8 +21,8 @@ public class Candidate : AuditableEntity
     public string? RejectionReason { get; set; }
     public string? Tags { get; set; }
 
-    public Guid RequisitionId { get; set; }
-    public Requisition Requisition { get; set; } = null!;
+    public Guid? RequisitionId { get; set; }
+    public Requisition? Requisition { get; set; }
 
     public Guid? EmployeeId { get; set; }
     public Employee? Employee { get; set; }

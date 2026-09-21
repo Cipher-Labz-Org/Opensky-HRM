@@ -5,6 +5,7 @@ using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Api.Services;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.Services;
 using OpenSkyHRM.Domain.Entities;
 
@@ -99,12 +100,15 @@ public partial class AttendanceController
             .Select(e => new { e.Id, e.EmployeeCode, e.FingerprintId, e.FirstName, e.LastName })
             .ToListAsync();
         var employeeByCode = new Dictionary<string, (Guid Id, string? EmployeeCode)>(StringComparer.OrdinalIgnoreCase);
+        var employeeByFingerprint = new Dictionary<string, (Guid Id, string? EmployeeCode)>(StringComparer.OrdinalIgnoreCase);
         foreach (var employee in employees)
         {
-            foreach (var alias in BiometricEmployeeResolver.GetAliases(employee.EmployeeCode))
-                employeeByCode.TryAdd(alias, (employee.Id, employee.EmployeeCode));
-            foreach (var alias in BiometricEmployeeResolver.GetAliases(employee.FingerprintId))
-                employeeByCode[alias] = (employee.Id, employee.EmployeeCode);
+            BiometricEmployeeResolver.IndexSpreadsheetLookups(
+                employeeByCode,
+                employeeByFingerprint,
+                employee.EmployeeCode,
+                employee.FingerprintId,
+                (employee.Id, employee.EmployeeCode));
         }
 
         var allowedUpdateIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
@@ -160,8 +164,6 @@ public partial class AttendanceController
 
             var empCode = Cell(row, empCol);
             var date = DateCell(row);
-            var punchInRaw = Cell(row, punchInCol);
-            var punchOutRaw = Cell(row, punchOutCol);
             var statusRaw = Cell(row, statusCol);
             var remarks = Cell(row, remarksCol);
 
@@ -178,7 +180,7 @@ public partial class AttendanceController
                 continue;
             }
 
-            if (!TryResolveImportEmployee(employeeByCode, empCode, out var employee))
+            if (!TryResolveImportEmployee(employeeByCode, employeeByFingerprint, empCode, out var employee))
             {
                 skipped++;
                 results.Add(new AttendanceImportRowResult(r, empCode, date, "Skipped", ["Employee not found."]));
@@ -209,8 +211,8 @@ public partial class AttendanceController
                 continue;
             }
 
-            var punchIn = ParseImportDateTime(date!.Value, punchInRaw);
-            var punchOut = ParseImportDateTime(date.Value, punchOutRaw);
+            var punchIn = ParseImportPunch(row, punchInCol, date!.Value);
+            var punchOut = ParseImportPunch(row, punchOutCol, date.Value);
             if (punchIn.HasValue && punchOut.HasValue && punchOut <= punchIn)
             {
                 skipped++;
@@ -425,7 +427,8 @@ public partial class AttendanceController
     }
 
     private static bool TryResolveImportEmployee(
-        Dictionary<string, (Guid Id, string? EmployeeCode)> lookup,
+        Dictionary<string, (Guid Id, string? EmployeeCode)> byEmployeeCode,
+        Dictionary<string, (Guid Id, string? EmployeeCode)> byFingerprint,
         string? empCode,
         out (Guid Id, string? EmployeeCode) employee)
     {
@@ -434,6 +437,16 @@ public partial class AttendanceController
         if (string.IsNullOrEmpty(key))
             return false;
 
+        if (TryResolveImportAlias(byEmployeeCode, key, out employee))
+            return true;
+        return TryResolveImportAlias(byFingerprint, key, out employee);
+    }
+
+    private static bool TryResolveImportAlias(
+        Dictionary<string, (Guid Id, string? EmployeeCode)> lookup,
+        string key,
+        out (Guid Id, string? EmployeeCode) employee)
+    {
         if (lookup.TryGetValue(key, out employee))
             return true;
 
@@ -516,14 +529,14 @@ public partial class AttendanceController
     {
         var cell = row.Cell(column);
         if (cell.DataType == XLDataType.DateTime)
-            return cell.GetDateTime().Date;
+            return ExcelImportDateParser.ToWallDate(cell.GetDateTime());
 
         if (cell.DataType == XLDataType.Number && cell.TryGetValue<double>(out var oaDate))
         {
             try
             {
-                if (oaDate >= 1 && oaDate < 2958466)
-                    return DateTime.FromOADate(oaDate).Date;
+                if (oaDate >= 200 && oaDate < 2958466)
+                    return ExcelImportDateParser.FromExcelSerial(oaDate);
             }
             catch (ArgumentException)
             {
@@ -531,45 +544,33 @@ public partial class AttendanceController
             }
         }
 
-        var s = GetCellTrimmedDisplayText(cell);
-        if (string.IsNullOrEmpty(s)) return null;
-        if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt)) return dt.Date;
-        if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return dt.Date;
-        return null;
+        return ExcelImportDateParser.ParseWallDate(GetCellTrimmedDisplayText(cell));
     }
 
-    private static DateTime? ParseImportDateTime(DateTime date, string? raw)
+    private static DateTime? ParseImportPunch(IXLRow row, int? column, DateTime attendanceDate)
     {
-        if (string.IsNullOrWhiteSpace(raw)) return null;
+        if (column is null) return null;
+        var cell = row.Cell(column.Value);
 
-        var s = raw.Trim();
-        if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt))
-            return dt;
-        if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
-            return dt;
+        if (cell.DataType == XLDataType.DateTime)
+            return DateTime.SpecifyKind(attendanceDate.Date.Add(cell.GetDateTime().TimeOfDay), DateTimeKind.Unspecified);
 
-        if (TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var ts)
-            || TimeSpan.TryParse(s, CultureInfo.CurrentCulture, out ts))
+        if (cell.DataType == XLDataType.Number && cell.TryGetValue<double>(out var oaDate) && oaDate is >= 0 and < 2958466)
         {
-            return date.Date.Add(ts);
-        }
-
-        var match = Regex.Match(s, @"^(?<h>\d{1,2}):(?<m>\d{2})(?::(?<sec>\d{2}))?\s*(?<ampm>am|pm)?$", RegexOptions.IgnoreCase);
-        if (match.Success
-            && int.TryParse(match.Groups["h"].Value, out var h)
-            && int.TryParse(match.Groups["m"].Value, out var m))
-        {
-            if (match.Groups["ampm"].Success)
+            try
             {
-                var ampm = match.Groups["ampm"].Value.ToLowerInvariant();
-                if (ampm == "pm" && h < 12) h += 12;
-                if (ampm == "am" && h == 12) h = 0;
+                if (oaDate < 1)
+                    return DateTime.SpecifyKind(attendanceDate.Date.Add(TimeSpan.FromDays(oaDate)), DateTimeKind.Unspecified);
+                if (Math.Abs(oaDate - Math.Truncate(oaDate)) > 1e-9)
+                    return DateTime.SpecifyKind(attendanceDate.Date.Add(DateTime.FromOADate(oaDate).TimeOfDay), DateTimeKind.Unspecified);
             }
-
-            return date.Date.Add(new TimeSpan(h, m, 0));
+            catch (ArgumentException)
+            {
+                /* fall through */
+            }
         }
 
-        return null;
+        return ExcelImportDateParser.CombineAttendanceDateAndPunch(attendanceDate, GetCellTrimmedDisplayText(cell));
     }
 
     private static string NormalizeImportHeaderKey(string? raw)

@@ -24,9 +24,10 @@ public interface IRecruitmentService
     Task<RequisitionDto> DeleteSupportingPdfAsync(Guid id);
 
     // Candidates
-    Task<PagedResult<CandidateDto>> GetCandidatesAsync(int page = 1, int pageSize = 50, Guid? requisitionId = null, string? stage = null, string? search = null);
+    Task<PagedResult<CandidateDto>> GetCandidatesAsync(int page = 1, int pageSize = 50, Guid? requisitionId = null, string? stage = null, string? search = null, bool? talentPool = null);
     Task<CandidateDetailDto?> GetCandidateByIdAsync(Guid id);
     Task<CandidateDto> CreateCandidateAsync(CreateCandidateDto dto);
+    Task<CandidateDto> AssignCandidateRequisitionAsync(Guid candidateId, Guid? requisitionId);
     Task<PublicCandidateApplicationDto?> GetPublicApplicationAsync(Guid candidateId, string email);
     Task<PublicCandidateApplicationDto?> LookupPublicApplicationAsync(Guid requisitionId, string email);
     Task<PublicCandidateApplicationDto> UpdatePublicApplicationAsync(

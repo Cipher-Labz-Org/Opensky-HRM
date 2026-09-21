@@ -12,7 +12,7 @@ import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCom
 import { apiFetch } from "@/lib/api";
 import { API_BASE_URL, resolveAssetUrl } from "@/config/constants";
 import { formatDate } from "@/lib/date-utils";
-import { formatLocalDateToIso } from "@/lib/datePickerIso";
+import { formatLocalDateToIso, instantToLocalDateKey } from "@/lib/datePickerIso";
 import {
   DonutMixChart,
   formatInt,
@@ -843,12 +843,12 @@ function DashboardTab({
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      keys.push(d.toISOString().slice(0, 10));
+      keys.push(formatLocalDateToIso(d));
     }
     const counts = new Map<string, number>();
     for (const k of keys) counts.set(k, 0);
     dash?.recentRequests?.forEach((r) => {
-      const k = new Date(r.createdAt).toISOString().slice(0, 10);
+      const k = instantToLocalDateKey(r.createdAt);
       if (counts.has(k)) counts.set(k, (counts.get(k) ?? 0) + 1);
     });
     return keys.map((key) => ({
@@ -1138,7 +1138,6 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   const [medicalDrag, setMedicalDrag] = useState(false);
   const medicalInputId = useId();
   const currentYear = new Date().getFullYear();
-  const todayMinDate = useMemo(() => formatLocalDateToIso(new Date()), []);
 
   function onApplyStartDateChange(iso: string) {
     setStartDate(iso);
@@ -1153,9 +1152,8 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     setEndDate(iso);
   }
 
-  const applyEndMinDate = startDate && startDate > todayMinDate ? startDate : todayMinDate;
-  const applyDatesInvalid =
-    Boolean(startDate && endDate && (startDate < todayMinDate || endDate < todayMinDate || endDate < startDate));
+  const applyEndMinDate = startDate || undefined;
+  const applyDatesInvalid = Boolean(startDate && endDate && endDate < startDate);
 
   const catalogLeaveTypes = useMemo(
     () => [...leaveTypes].filter((t) => t.isActive).sort((a, b) => a.name.localeCompare(b.name)),
@@ -1407,10 +1405,6 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
       setMessage({ type: "err", text: "Select both From and To dates." });
       return;
     }
-    if (startDate < todayMinDate || effectiveEndDate < todayMinDate) {
-      setMessage({ type: "err", text: "Leave cannot be applied for past dates. Choose today or a future date." });
-      return;
-    }
     if (effectiveEndDate < startDate) {
       setMessage({ type: "err", text: "To date cannot be before From date." });
       return;
@@ -1443,6 +1437,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
         if (durationKind === "ShortLeave") fd.set("shortLeaveHours", String(effectiveShortLeaveHours));
         if (reason.trim()) fd.set("reason", reason.trim());
         if (coveragePerson.trim()) fd.set("coveragePerson", coveragePerson.trim());
+        if (coverageEmployeeId) fd.set("coverageEmployeeId", coverageEmployeeId);
         fd.set("medicalCertificate", medicalFile, medicalFile.name);
         await apiFetch("/api/leave/requests/with-document", { method: "POST", body: fd });
       } else {
@@ -1459,6 +1454,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
             shortLeaveHours: durationKind === "ShortLeave" ? effectiveShortLeaveHours : null,
             reason: reason || null,
             coveragePerson: coveragePerson || null,
+            coverageEmployeeId: coverageEmployeeId || null,
           }),
         });
       }
@@ -1833,7 +1829,6 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                   <DatePickerField
                     required
                     value={startDate}
-                    min={todayMinDate}
                     onChange={onApplyStartDateChange}
                     className={applyInput}
                   />
@@ -1851,7 +1846,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                 </div>
               </div>
               {applyDatesInvalid && (
-                <p className="text-xs text-red-600">Dates must be today or later, and To must be on or after From.</p>
+                <p className="text-xs text-red-600">To date must be on or after From date.</p>
               )}
               {isSickLeave && (
                 <div>
