@@ -124,6 +124,15 @@ export function formatColomboLogDateTime(value: string | null | undefined): stri
   return formatInstantColomboWall(d);
 }
 
+/** Date + time for UTC API instants (…Z or naive UTC wall) → Sri Lanka. */
+export function formatUtcInstantAsBusinessDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const trimmed = value.trim();
+  const d = parseUtcApiInstant(trimmed);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-LK", businessDateTimeFmt);
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const trimmed = value.trim();

@@ -149,7 +149,8 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
               </p>
               <p className="mt-2 text-xs text-slate-500">
                 Save as Excel Workbook (.xlsx). Type can be Present, Absent, Late, Half Day, or On Leave.
-                Times can be 08:30 or 8.30. Existing records for the same employee and date are updated.
+                Times can be 08:30 or 8.30. Employee code must match an active employee. Existing records for the same employee and date are updated.
+                Night or 24h shifts can use the same Date with Punch Out after midnight (e.g. In 22:00, Out 06:00) or the same clock time for a full day (e.g. In 07:00, Out 07:00 → next day).
               </p>
             </div>
             <Button

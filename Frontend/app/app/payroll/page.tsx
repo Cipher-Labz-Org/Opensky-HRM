@@ -116,6 +116,13 @@ interface Settings {
   otHourlyDivisor: number;
   otMultiplier: number;
   apitTaxMode?: string;
+  salaryPeriodStartDay?: number;
+  salaryPeriodEndDay?: number;
+  otComponentCode?: string;
+  nopayComponentCode?: string;
+  poyaComponentCode?: string;
+  baseComponentCode?: string;
+  workingHoursComponentCode?: string;
 }
 
 interface AttendanceImportLine {
@@ -135,7 +142,45 @@ const DEFAULT_PAYROLL_SETTINGS: Settings = {
   otHourlyDivisor: 208,
   otMultiplier: 1.5,
   apitTaxMode: "Exact",
+  salaryPeriodStartDay: 1,
+  salaryPeriodEndDay: 31,
+  otComponentCode: "OT",
+  nopayComponentCode: "NOPAY",
+  poyaComponentCode: "POYA",
+  baseComponentCode: "BASIC",
+  workingHoursComponentCode: "",
 };
+
+function clampDay(day: number | undefined, fallback: number): number {
+  if (!Number.isFinite(day) || !day || day < 1) return fallback;
+  return Math.min(31, Math.floor(day));
+}
+
+function monthDateRange(
+  month: number,
+  year: number,
+  startDay = 1,
+  endDay = 31,
+): { from: string; to: string } {
+  const start = clampDay(startDay, 1);
+  const end = clampDay(endDay, 31);
+  const iso = (y: number, m: number, d: number) => {
+    const last = new Date(y, m, 0).getDate();
+    const day = Math.min(d, last);
+    return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  };
+
+  if (start <= end) {
+    return { from: iso(year, month, start), to: iso(year, month, end) };
+  }
+
+  const prev = new Date(year, month - 1, 1);
+  prev.setMonth(prev.getMonth() - 1);
+  return {
+    from: iso(prev.getFullYear(), prev.getMonth() + 1, start),
+    to: iso(year, month, end),
+  };
+}
 
 function pagedItems<T>(result: PagedResult<T> | null | undefined): T[] {
   if (!result) return [];
@@ -188,15 +233,6 @@ function formatProcessType(value?: string): string {
   if (value === "OtherTransactions") return "Other Transactions";
   if (value === "Bonus") return "Bonus";
   return value;
-}
-
-function monthDateRange(month: number, year: number): { from: string; to: string } {
-  const lastDay = new Date(year, month, 0).getDate();
-  const mm = String(month).padStart(2, "0");
-  return {
-    from: `${year}-${mm}-01`,
-    to: `${year}-${mm}-${String(lastDay).padStart(2, "0")}`,
-  };
 }
 
 function formatBatchPeriod(b: Batch): string {
@@ -3002,14 +3038,15 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const now = new Date();
   const initialMonth = now.getMonth() + 1;
   const initialYear = now.getFullYear();
-  const initialRange = monthDateRange(initialMonth, initialYear);
 
   const [step, setStep] = useState<1 | 2>(1);
   const [processType, setProcessType] = useState("Salary");
   const [month, setMonth] = useState(initialMonth);
   const [year, setYear] = useState(initialYear);
-  const [effectiveFrom, setEffectiveFrom] = useState(initialRange.from);
-  const [effectiveTo, setEffectiveTo] = useState(initialRange.to);
+  const [periodStartDay, setPeriodStartDay] = useState(1);
+  const [periodEndDay, setPeriodEndDay] = useState(31);
+  const [effectiveFrom, setEffectiveFrom] = useState(() => monthDateRange(initialMonth, initialYear).from);
+  const [effectiveTo, setEffectiveTo] = useState(() => monthDateRange(initialMonth, initialYear).to);
   const [notes, setNotes] = useState("");
 
   const [employees, setEmployees] = useState<EligibleEmployee[]>([]);
@@ -3023,10 +3060,19 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const range = monthDateRange(month, year);
+    apiFetch<Settings>("/api/payroll/settings")
+      .then((s) => {
+        setPeriodStartDay(clampDay(s.salaryPeriodStartDay, 1));
+        setPeriodEndDay(clampDay(s.salaryPeriodEndDay, 31));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const range = monthDateRange(month, year, periodStartDay, periodEndDay);
     setEffectiveFrom(range.from);
     setEffectiveTo(range.to);
-  }, [month, year]);
+  }, [month, year, periodStartDay, periodEndDay]);
 
   useEffect(() => {
     if (step !== 2) return;
@@ -4802,13 +4848,51 @@ function PayStatementsTab() {
 
 function SettingsTab() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [components, setComponents] = useState<Component[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [periodStartDay, setPeriodStartDay] = useState(1);
+  const [periodEndDay, setPeriodEndDay] = useState(31);
+  const [otComponentCode, setOtComponentCode] = useState("OT");
+  const [nopayComponentCode, setNopayComponentCode] = useState("NOPAY");
+  const [poyaComponentCode, setPoyaComponentCode] = useState("POYA");
+  const [baseComponentCode, setBaseComponentCode] = useState("BASIC");
+  const [workingHoursComponentCode, setWorkingHoursComponentCode] = useState("");
 
   useEffect(() => {
-    apiFetch<Settings>("/api/payroll/settings").then(setSettings).catch(() => {}).finally(() => setLoading(false));
+    let cancelled = false;
+    Promise.all([
+      apiFetch<Settings>("/api/payroll/settings"),
+      apiFetch<Component[]>("/api/payroll/components"),
+    ])
+      .then(([s, comps]) => {
+        if (cancelled) return;
+        setSettings(s);
+        setComponents(comps.filter((c) => c.isActive !== false));
+        setPeriodStartDay(clampDay(s.salaryPeriodStartDay, 1));
+        setPeriodEndDay(clampDay(s.salaryPeriodEndDay, 31));
+        setOtComponentCode(s.otComponentCode || "OT");
+        setNopayComponentCode(s.nopayComponentCode || "NOPAY");
+        setPoyaComponentCode(s.poyaComponentCode || "POYA");
+        setBaseComponentCode(s.baseComponentCode || "BASIC");
+        setWorkingHoursComponentCode(s.workingHoursComponentCode || "");
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
+
+  const componentOptions = useMemo(
+    () => components
+      .slice()
+      .sort((a, b) => a.code.localeCompare(b.code))
+      .map((c) => ({
+        value: c.code,
+        label: `${c.code} — ${c.name}`,
+      })),
+    [components],
+  );
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setSaving(true); setMsg("");
@@ -4820,21 +4904,46 @@ function SettingsTab() {
       otHourlyDivisor: Number(fd.get("otHourlyDivisor")) || 208,
       otMultiplier: Number(fd.get("otMultiplier")) || 1.5,
       apitTaxMode: String(fd.get("apitTaxMode") || settings?.apitTaxMode || "Exact"),
+      salaryPeriodStartDay: clampDay(Number(fd.get("salaryPeriodStartDay")), 1),
+      salaryPeriodEndDay: clampDay(Number(fd.get("salaryPeriodEndDay")), 31),
+      otComponentCode,
+      nopayComponentCode,
+      poyaComponentCode,
+      baseComponentCode,
+      workingHoursComponentCode: workingHoursComponentCode || "",
     };
     try {
       const result = await apiFetch<Settings>("/api/payroll/settings", { method: "PUT", body: JSON.stringify(payload) });
       setSettings(result);
+      setPeriodStartDay(clampDay(result.salaryPeriodStartDay, 1));
+      setPeriodEndDay(clampDay(result.salaryPeriodEndDay, 31));
+      setOtComponentCode(result.otComponentCode || "OT");
+      setNopayComponentCode(result.nopayComponentCode || "NOPAY");
+      setPoyaComponentCode(result.poyaComponentCode || "POYA");
+      setBaseComponentCode(result.baseComponentCode || "BASIC");
+      setWorkingHoursComponentCode(result.workingHoursComponentCode || "");
       setMsg("Settings saved successfully.");
-    } catch { setMsg("Failed to save settings."); }
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Failed to save settings.");
+    }
     finally { setSaving(false); }
   }
 
   if (loading) return <Loading />;
 
+  const previewNow = new Date();
+  const previewRange = monthDateRange(
+    previewNow.getMonth() + 1,
+    previewNow.getFullYear(),
+    periodStartDay,
+    periodEndDay,
+  );
+  const previewLabel = `${MONTHS[previewNow.getMonth()]} ${previewNow.getFullYear()}`;
+
   return (
-    <div className="max-w-lg">
+    <div className="max-w-2xl space-y-5">
       <Card title="Statutory Rates">
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form id="payroll-settings-form" onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className={labelCls}>EPF Employee Rate (%)</label>
             <input name="epfEmployeeRate" type="number" step="0.01" className={inputCls}
@@ -4854,7 +4963,10 @@ function SettingsTab() {
             <label className={labelCls}>OT Hourly Divisor</label>
             <input name="otHourlyDivisor" type="number" step="1" className={inputCls}
               defaultValue={settings?.otHourlyDivisor ?? 208} />
-            <p className="mt-1 text-xs text-slate-400">OT rate = BASIC ÷ divisor × multiplier × approved hours</p>
+            <p className="mt-1 text-xs text-slate-400">
+              Used when Working hours component is unset or has no amount.
+              OT = Base ÷ divisor × multiplier × approved hours
+            </p>
           </div>
           <div>
             <label className={labelCls}>OT Multiplier</label>
@@ -4869,18 +4981,111 @@ function SettingsTab() {
               <option value="Exact">Expact</option>
             </select>
           </div>
-          {msg ? (
-            <InlinePageAlert
-              message={msg}
-              variant={msg.includes("success") ? "success" : "error"}
-              className={`rounded-lg px-4 py-2 text-sm scroll-mt-20 ${msg.includes("success") ? "border border-green-200 bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}
-            />
-          ) : null}
-          <div className="flex justify-end pt-2">
-            <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Settings"}</Button>
+
+          <div className="border-t border-slate-100 pt-4">
+            <h4 className="mb-1 text-sm font-semibold text-slate-700">Salary calculation period</h4>
+            <p className="mb-3 text-xs text-slate-500">
+              Days of the month used for attendance / OT / nopay when running each month&apos;s salary.
+              If the start day is greater than the end day, the period begins in the previous month
+              (e.g. 26 → 25 = 26th last month through 25th this month).
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>From day</label>
+                <input
+                  name="salaryPeriodStartDay"
+                  type="number"
+                  min={1}
+                  max={31}
+                  className={inputCls}
+                  value={periodStartDay}
+                  onChange={(e) => setPeriodStartDay(clampDay(Number(e.target.value), 1))}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>To day</label>
+                <input
+                  name="salaryPeriodEndDay"
+                  type="number"
+                  min={1}
+                  max={31}
+                  className={inputCls}
+                  value={periodEndDay}
+                  onChange={(e) => setPeriodEndDay(clampDay(Number(e.target.value), 31))}
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Example for {previewLabel}: <span className="font-medium text-slate-700">{previewRange.from}</span>
+              {" → "}
+              <span className="font-medium text-slate-700">{previewRange.to}</span>
+            </p>
           </div>
         </form>
       </Card>
+
+      <Card title="Attendance & leave component mapping">
+        <div className="mb-4 text-xs text-slate-500">
+          Map each attendance/leave parameter to one payroll component. Import and Calculate use these codes
+          instead of hard-coded OT / NOPAY / POYA / BASIC.
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className={labelCls}>OT earning component</label>
+            <select className={inputCls} value={otComponentCode} onChange={(e) => setOtComponentCode(e.target.value)} form="payroll-settings-form">
+              {componentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">Receives imported overtime pay amount.</p>
+          </div>
+          <div>
+            <label className={labelCls}>No-pay deduction component</label>
+            <select className={inputCls} value={nopayComponentCode} onChange={(e) => setNopayComponentCode(e.target.value)} form="payroll-settings-form">
+              {componentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">Formula uses Base ÷ 30 × no-pay days from attendance + unpaid leave.</p>
+          </div>
+          <div>
+            <label className={labelCls}>Poya day pay component</label>
+            <select className={inputCls} value={poyaComponentCode} onChange={(e) => setPoyaComponentCode(e.target.value)} form="payroll-settings-form">
+              {componentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">Formula uses Base ÷ 30 × Poya days worked.</p>
+          </div>
+          <div>
+            <label className={labelCls}>Base pay component</label>
+            <select className={inputCls} value={baseComponentCode} onChange={(e) => setBaseComponentCode(e.target.value)} form="payroll-settings-form">
+              {componentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">Used as BASIC in OT, no-pay, and Poya day-rate formulas.</p>
+          </div>
+          <div>
+            <label className={labelCls}>Working hours component</label>
+            <select
+              className={inputCls}
+              value={workingHoursComponentCode}
+              onChange={(e) => setWorkingHoursComponentCode(e.target.value)}
+              form="payroll-settings-form"
+            >
+              <option value="">— Use OT Hourly Divisor setting —</option>
+              {componentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">
+              When set, that component&apos;s employee amount is the OT divisor (and WORKING_HOURS in formulas).
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {msg ? (
+        <InlinePageAlert
+          message={msg}
+          variant={msg.includes("success") ? "success" : "error"}
+          className={`rounded-lg px-4 py-2 text-sm scroll-mt-20 ${msg.includes("success") ? "border border-green-200 bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}
+        />
+      ) : null}
+      <div className="flex justify-end">
+        <Button type="submit" form="payroll-settings-form" disabled={saving}>{saving ? "Saving..." : "Save Settings"}</Button>
+      </div>
     </div>
   );
 }

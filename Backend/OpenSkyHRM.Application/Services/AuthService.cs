@@ -66,7 +66,7 @@ public class AuthService : IAuthService
         if (!user.IsActive)
             throw new UnauthorizedAccessException("Account is disabled. Contact your administrator.");
 
-        user.LastLoginAt = DateTime.UtcNow;
+        user.LastLoginAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
         await _db.SaveChangesAsync();
 
         var (token, expiresAt) = GenerateJwt(user);
@@ -369,6 +369,9 @@ public class AuthService : IAuthService
             })
             .ToListAsync();
 
+        foreach (var item in items)
+            item.LastLoginAt = AsStoredUtcInstant(item.LastLoginAt);
+
         return new PagedResult<UserListDto>
         {
             Items = items,
@@ -391,7 +394,7 @@ public class AuthService : IAuthService
 
     public async Task<UserListDto?> GetUserByIdAsync(Guid id)
     {
-        return await _db.Users
+        var dto = await _db.Users
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
             .Include(u => u.Employee)
             .Include(u => u.AssignedLocations)
@@ -416,6 +419,11 @@ public class AuthService : IAuthService
                 AssignedJobTitleIds = u.AssignedJobTitles.Select(a => a.JobTitleId).ToList()
             })
             .FirstOrDefaultAsync();
+
+        if (dto is not null)
+            dto.LastLoginAt = AsStoredUtcInstant(dto.LastLoginAt);
+
+        return dto;
     }
 
     public async Task<List<SecurityRoleDto>> GetRolesAsync()
@@ -638,6 +646,13 @@ public class AuthService : IAuthService
 
         return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
     }
+
+    /// <summary>
+    /// LastLoginAt is stored as UTC clock in a timestamp-without-time-zone column (Unspecified Kind).
+    /// Mark as UTC so API JSON includes Z and clients convert to Asia/Colombo.
+    /// </summary>
+    private static DateTime? AsStoredUtcInstant(DateTime? value) =>
+        value is { } dt ? DateTime.SpecifyKind(dt, DateTimeKind.Utc) : null;
 
     private static UserProfileDto MapProfile(User user, IReadOnlyList<string> licensedModules)
     {

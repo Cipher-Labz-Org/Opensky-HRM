@@ -72,12 +72,13 @@ public static partial class ExcelImportDateParser
     }
 
     /// <summary>
-    /// Night / split shifts often punch out after midnight on the next calendar day while the
-    /// Excel Date column stays on the shift start day. Same rule as fingerprint first-in/last-out.
+    /// Night / split / 24h shifts often punch out on the next calendar day while the Excel Date
+    /// column stays on the shift start day. Same clock time in and out (e.g. 07:00–07:00) means
+    /// a full 24h shift ending the next day. Same rule as fingerprint first-in/last-out.
     /// </summary>
     public static DateTime ApplyOvernightPunchOutIfNeeded(DateTime punchIn, DateTime punchOut)
     {
-        if (punchOut < punchIn)
+        if (punchOut <= punchIn)
             return DateTime.SpecifyKind(punchOut.AddDays(1), DateTimeKind.Unspecified);
         return punchOut;
     }
