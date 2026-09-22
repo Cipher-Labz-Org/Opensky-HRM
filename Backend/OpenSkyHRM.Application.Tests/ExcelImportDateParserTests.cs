@@ -121,6 +121,18 @@ public class ExcelImportDateParserTests
     }
 
     [Fact]
+    public void ApplyOvernightPunchOutIfNeeded_EqualClockTimesMean24HourShift()
+    {
+        var punchIn = new DateTime(2026, 8, 1, 7, 0, 0);
+        var punchOut = new DateTime(2026, 8, 1, 7, 0, 0);
+
+        var adjusted = ExcelImportDateParser.ApplyOvernightPunchOutIfNeeded(punchIn, punchOut);
+
+        Assert.Equal(new DateTime(2026, 8, 2, 7, 0, 0), adjusted);
+        Assert.Equal(24, (adjusted - punchIn).TotalHours);
+    }
+
+    [Fact]
     public void ApplyOvernightPunchOutIfNeeded_LeavesSameDayShiftUnchanged()
     {
         var punchIn = new DateTime(2026, 8, 1, 8, 0, 0);

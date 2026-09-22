@@ -9,18 +9,45 @@ import { apiFetch } from "@/lib/api";
 
 interface Props { open: boolean; onClose: () => void; onCreated?: () => void }
 
+interface PayrollSettings {
+  salaryPeriodStartDay?: number;
+  salaryPeriodEndDay?: number;
+}
+
 const PROCESS_TYPE_OPTS: FormSelectOption[] = [
   { value: "Salary", label: "Salary" },
   { value: "Bonus", label: "Bonus" },
   { value: "OtherTransactions", label: "Other Transactions" },
 ];
 
-function monthDateRange(month: number, year: number): { from: string; to: string } {
-  const lastDay = new Date(year, month, 0).getDate();
-  const mm = String(month).padStart(2, "0");
+function clampDay(day: number | undefined, fallback: number): number {
+  if (!Number.isFinite(day) || !day || day < 1) return fallback;
+  return Math.min(31, Math.floor(day));
+}
+
+function monthDateRange(
+  month: number,
+  year: number,
+  startDay = 1,
+  endDay = 31,
+): { from: string; to: string } {
+  const start = clampDay(startDay, 1);
+  const end = clampDay(endDay, 31);
+  const iso = (y: number, m: number, d: number) => {
+    const last = new Date(y, m, 0).getDate();
+    const day = Math.min(d, last);
+    return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  };
+
+  if (start <= end) {
+    return { from: iso(year, month, start), to: iso(year, month, end) };
+  }
+
+  const prev = new Date(year, month - 1, 1);
+  prev.setMonth(prev.getMonth() - 1);
   return {
-    from: `${year}-${mm}-01`,
-    to: `${year}-${mm}-${String(lastDay).padStart(2, "0")}`,
+    from: iso(prev.getFullYear(), prev.getMonth() + 1, start),
+    to: iso(year, month, end),
   };
 }
 
@@ -28,21 +55,32 @@ export function CreatePayrollBatchModal({ open, onClose, onCreated }: Props) {
   const now = new Date();
   const initialMonth = now.getMonth() + 1;
   const initialYear = now.getFullYear();
-  const initialRange = monthDateRange(initialMonth, initialYear);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [processType, setProcessType] = useState("Salary");
   const [month, setMonth] = useState(initialMonth);
   const [year, setYear] = useState(initialYear);
-  const [effectiveFrom, setEffectiveFrom] = useState(initialRange.from);
-  const [effectiveTo, setEffectiveTo] = useState(initialRange.to);
+  const [periodStartDay, setPeriodStartDay] = useState(1);
+  const [periodEndDay, setPeriodEndDay] = useState(31);
+  const [effectiveFrom, setEffectiveFrom] = useState(() => monthDateRange(initialMonth, initialYear).from);
+  const [effectiveTo, setEffectiveTo] = useState(() => monthDateRange(initialMonth, initialYear).to);
 
   useEffect(() => {
-    const range = monthDateRange(month, year);
+    if (!open) return;
+    apiFetch<PayrollSettings>("/api/payroll/settings")
+      .then((s) => {
+        setPeriodStartDay(clampDay(s.salaryPeriodStartDay, 1));
+        setPeriodEndDay(clampDay(s.salaryPeriodEndDay, 31));
+      })
+      .catch(() => {});
+  }, [open]);
+
+  useEffect(() => {
+    const range = monthDateRange(month, year, periodStartDay, periodEndDay);
     setEffectiveFrom(range.from);
     setEffectiveTo(range.to);
-  }, [month, year]);
+  }, [month, year, periodStartDay, periodEndDay]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();

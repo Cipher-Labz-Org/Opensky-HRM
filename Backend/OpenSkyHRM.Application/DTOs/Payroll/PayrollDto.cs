@@ -187,6 +187,24 @@ public class PayrollSettingsDto
     public decimal OtMultiplier { get; set; } = 1.5m;
     /// <summary>Monthly (Table 01), Annual (12× monthly), or Exact (cumulative from 1 March).</summary>
     public string ApitTaxMode { get; set; } = "Exact";
+    /// <summary>Day of month (1–31) when the salary attendance period starts.</summary>
+    public int SalaryPeriodStartDay { get; set; } = 1;
+    /// <summary>Day of month (1–31) when the salary attendance period ends. If less than start day, period begins in the previous month.</summary>
+    public int SalaryPeriodEndDay { get; set; } = 31;
+
+    /// <summary>Component that receives imported overtime pay.</summary>
+    public string OtComponentCode { get; set; } = "OT";
+    /// <summary>Deduction component driven by attendance/leave no-pay days.</summary>
+    public string NopayComponentCode { get; set; } = "NOPAY";
+    /// <summary>Earning component for Poya day pay.</summary>
+    public string PoyaComponentCode { get; set; } = "POYA";
+    /// <summary>Base earning used in OT / no-pay / Poya day-rate formulas.</summary>
+    public string BaseComponentCode { get; set; } = "BASIC";
+    /// <summary>
+    /// Optional component whose amount supplies monthly working hours (OT divisor).
+    /// Empty = use OtHourlyDivisor setting.
+    /// </summary>
+    public string WorkingHoursComponentCode { get; set; } = "";
 }
 
 public class EmployeeApitSummaryDto
