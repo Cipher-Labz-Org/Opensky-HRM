@@ -8,7 +8,6 @@ using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
-using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
@@ -123,11 +122,9 @@ public partial class AttendanceController : ControllerBase
 
     /// <summary>Today's attendance sessions for the signed-in user's linked employee (web punch widget).</summary>
     [HttpGet("my-today")]
-    public async Task<IActionResult> GetMyToday(
-        [FromServices] IBusinessClock clock,
-        [FromServices] ISystemSettingService settings)
+    public async Task<IActionResult> GetMyToday([FromServices] IBusinessClock clock)
     {
-        var linkedEmployeeId = await EnsureLinkedEmployeeIdAsync(settings);
+        var linkedEmployeeId = await ResolveLinkedEmployeeIdAsync();
         if (linkedEmployeeId == null)
             return Ok(new PagedResult<AttendanceRecordDto> { Page = 1, PageSize = 50 });
 
@@ -138,11 +135,9 @@ public partial class AttendanceController : ControllerBase
     }
 
     [HttpPost("punch")]
-    public async Task<IActionResult> Punch(
-        [FromBody] PunchRequestDto dto,
-        [FromServices] ISystemSettingService settings)
+    public async Task<IActionResult> Punch([FromBody] PunchRequestDto dto)
     {
-        var linkedEmployeeId = await EnsureLinkedEmployeeIdAsync(settings);
+        var linkedEmployeeId = await ResolveLinkedEmployeeIdAsync();
 
         Guid targetEmployeeId;
         if (dto.EmployeeId.HasValue && dto.EmployeeId.Value != Guid.Empty)
@@ -150,7 +145,7 @@ public partial class AttendanceController : ControllerBase
         else if (linkedEmployeeId != null)
             targetEmployeeId = linkedEmployeeId.Value;
         else
-            return BadRequest(new { message = "No employee record is available to punch." });
+            return BadRequest(new { message = "Link this user to an employee in User Management before punching." });
 
         // Any authenticated user linked to an employee may punch themselves (QR / mobile ESS).
         // Punching another employee still requires People:Update on that record.
@@ -252,87 +247,29 @@ public partial class AttendanceController : ControllerBase
         return Ok(result);
     }
 
-    private async Task<Guid?> EnsureLinkedEmployeeIdAsync(ISystemSettingService settings)
+    /// <summary>Existing linked employee only — never auto-creates a People profile.</summary>
+    private async Task<Guid?> ResolveLinkedEmployeeIdAsync()
     {
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
             ?? User.FindFirst("sub")?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var accountId))
+        Guid? linkedEmployeeId = null;
+        if (userId != null && Guid.TryParse(userId, out var accountId))
         {
-            if (Guid.TryParse(User.FindFirst("employeeId")?.Value, out var fromClaimOnly))
-                return fromClaimOnly;
-            return null;
+            var user = await _db.Set<User>().AsNoTracking().FirstOrDefaultAsync(u => u.Id == accountId);
+            linkedEmployeeId = user?.EmployeeId;
         }
 
-        var user = await _db.Set<User>().FirstOrDefaultAsync(u => u.Id == accountId);
-        if (user == null)
-            return null;
+        if (linkedEmployeeId == null && Guid.TryParse(User.FindFirst("employeeId")?.Value, out var fromClaim))
+            linkedEmployeeId = fromClaim;
 
-        if (user.EmployeeId is Guid existingId && existingId != Guid.Empty)
+        if (linkedEmployeeId is Guid id && id != Guid.Empty)
         {
-            var stillThere = await _db.Employees.AnyAsync(e => e.Id == existingId && !e.IsDeleted);
-            if (stillThere)
-                return existingId;
+            var exists = await _db.Employees.AsNoTracking().AnyAsync(e => e.Id == id && !e.IsDeleted);
+            if (exists)
+                return id;
         }
 
-        var email = (user.Email ?? "").Trim();
-        var username = (user.Username ?? "").Trim();
-        Employee? match = null;
-        if (email.Length > 0)
-        {
-            var emailLower = email.ToLower();
-            match = await _db.Employees.FirstOrDefaultAsync(e =>
-                !e.IsDeleted && e.Email != null && e.Email.ToLower() == emailLower);
-        }
-        if (match == null && username.Length > 0)
-        {
-            var usernameLower = username.ToLower();
-            match = await _db.Employees.FirstOrDefaultAsync(e =>
-                !e.IsDeleted && e.Email != null && e.Email.ToLower() == usernameLower);
-        }
-
-        if (match != null)
-        {
-            user.EmployeeId = match.Id;
-            await _db.SaveChangesAsync();
-            return match.Id;
-        }
-
-        var departmentId = await _db.Set<Department>()
-            .Where(d => !d.IsDeleted)
-            .OrderBy(d => d.Name)
-            .Select(d => d.Id)
-            .FirstOrDefaultAsync();
-        if (departmentId == Guid.Empty)
-            return null;
-
-        var code = await settings.GenerateNextEmployeeCodeAsync();
-        var firstName = username.Length > 0 ? username : "User";
-        var lastName = "Account";
-        var space = firstName.IndexOf(' ');
-        if (space > 0)
-        {
-            lastName = firstName[(space + 1)..].Trim();
-            firstName = firstName[..space].Trim();
-            if (string.IsNullOrEmpty(lastName)) lastName = "Account";
-        }
-
-        var employee = new Employee
-        {
-            EmployeeCode = code,
-            FirstName = firstName,
-            LastName = lastName,
-            Email = EmployeeEmailHelper.ResolveForCreate(code, email.Length > 0 ? email : null),
-            DepartmentId = departmentId,
-            DateOfBirth = new DateTime(1990, 1, 1),
-            JoinDate = DateTime.UtcNow.Date,
-            Gender = Gender.Other,
-            Status = "Active",
-            EmploymentType = "FullTimePermanent",
-        };
-        _db.Employees.Add(employee);
-        user.EmployeeId = employee.Id;
-        await _db.SaveChangesAsync();
-        return employee.Id;
+        return null;
     }
 
     /// <summary>

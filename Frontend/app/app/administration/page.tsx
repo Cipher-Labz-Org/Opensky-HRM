@@ -28,6 +28,13 @@ interface RowResult {
   action?: string | null;
 }
 
+interface CreatedLoginCredential {
+  employeeCode: string;
+  username: string;
+  password: string;
+  employeeName?: string | null;
+}
+
 interface UploadResult {
   created: number;
   updated?: number;
@@ -35,6 +42,7 @@ interface UploadResult {
   totalRows: number;
   results: RowResult[];
   loginsCreated?: number;
+  createdLogins?: CreatedLoginCredential[];
 }
 
 interface LeaveBalanceRowResult {
@@ -324,6 +332,40 @@ function downloadCsv(filename: string, headers: string[], rows: string[][]) {
   window.URL.revokeObjectURL(url);
 }
 
+async function downloadLoginCredentialsXlsx(logins: CreatedLoginCredential[]) {
+  if (logins.length === 0) return;
+  const XLSX = await import("xlsx");
+  const rows = logins.map((l) => ({
+    "Employee ID": l.employeeCode ?? "",
+    "Employee Name": l.employeeName ?? "",
+    Username: l.username ?? "",
+    Password: l.password || BULK_IMPORT_DEFAULT_LOGIN_PASSWORD,
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Login credentials");
+  XLSX.writeFile(wb, "employee-import-login-credentials.xlsx");
+}
+
+function normalizeEmployeeUploadResult(json: UploadResult): UploadResult {
+  const raw = json as UploadResult & Record<string, unknown>;
+  const list = (raw.createdLogins ?? raw.CreatedLogins ?? []) as unknown[];
+  const createdLogins: CreatedLoginCredential[] = list.map((item) => {
+    const r = (item ?? {}) as Record<string, unknown>;
+    return {
+      employeeCode: String(r.employeeCode ?? r.EmployeeCode ?? ""),
+      username: String(r.username ?? r.Username ?? ""),
+      password: String(r.password ?? r.Password ?? BULK_IMPORT_DEFAULT_LOGIN_PASSWORD),
+      employeeName: (r.employeeName ?? r.EmployeeName ?? null) as string | null,
+    };
+  });
+  return {
+    ...json,
+    loginsCreated: Number(raw.loginsCreated ?? raw.LoginsCreated ?? json.loginsCreated ?? 0),
+    createdLogins,
+  };
+}
+
 // ──── Employee Upload Section ────
 
 function EmployeeUploadSection() {
@@ -350,7 +392,7 @@ function EmployeeUploadSection() {
         timeoutMs: 300_000,
         baseUrl: bulkImportApiBase(),
       });
-      setResult(json);
+      setResult(normalizeEmployeeUploadResult(json));
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
     } catch (err) { setError(bulkUploadErrorMessage(err, "Upload failed")); }
@@ -369,6 +411,16 @@ function EmployeeUploadSection() {
       r.errors.join("; "),
     ]);
     downloadCsv("employee-import-skipped-rows.csv", ["Row", "First Name", "Last Name", "Status", "Details"], rows);
+  }
+
+  async function downloadLoginCredentials() {
+    const logins = result?.createdLogins ?? [];
+    if (logins.length === 0) return;
+    try {
+      await downloadLoginCredentialsXlsx(logins);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Login credentials download failed");
+    }
   }
 
   return (
@@ -417,7 +469,7 @@ function EmployeeUploadSection() {
             </ol>
             <p className="mt-3 text-xs text-slate-600">
               When <strong>Create employee logins</strong> is checked, a login is created only for rows with <strong>Employee Code</strong> filled in (used as username). Blank Employee Code rows are imported as employees only. Default password{" "}
-              <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong> and mandatory password change on first sign-in. Allowed username characters: letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, <code className="text-[11px]">-</code> (unique; a numeric suffix may be added to avoid collisions). With the option off, no logins are created.
+              <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong> and mandatory password change on first sign-in. Allowed username characters: letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, <code className="text-[11px]">-</code> (unique; a numeric suffix may be added to avoid collisions). After a successful import, use <strong>Download login credentials</strong> for an Excel file with Employee ID, Username, and Password. With the option off, no logins are created.
             </p>
           </div>
           <DropZone file={file} fileRef={fileRef} dragOver={dragOver} setDragOver={setDragOver} onFileChange={handleFileChange} />
@@ -453,14 +505,24 @@ function EmployeeUploadSection() {
                 <h2 className="text-base font-semibold text-slate-800">Import results</h2>
                 <p className="mt-0.5 text-xs text-slate-500">Row-level outcomes from the last upload</p>
               </div>
-              {result.skipped > 0 && (
-                <Button variant="secondary" className="gap-2" onClick={downloadSkippedRows}>
-                  <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                  </svg>
-                  Download skipped list
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {(result.createdLogins?.length ?? 0) > 0 && (
+                  <Button variant="secondary" className="gap-2" onClick={() => void downloadLoginCredentials()}>
+                    <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Download login credentials
+                  </Button>
+                )}
+                {result.skipped > 0 && (
+                  <Button variant="secondary" className="gap-2" onClick={downloadSkippedRows}>
+                    <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Download skipped list
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
           <div className="p-6">
