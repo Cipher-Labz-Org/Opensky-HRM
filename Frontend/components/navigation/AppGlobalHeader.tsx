@@ -268,7 +268,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
       role="banner"
     >
       <div className="flex items-center gap-0.5 sm:gap-1">
-        <HeaderPunchControl licensedModules={user.licensedModules} />
+        <HeaderPunchControl employeeId={user.employeeId} licensedModules={user.licensedModules} />
         <HeaderCalendarPopover iconBtnClass={iconBtn} iconStroke={iconStroke} />
 
         <Popover.Root open={notifOpen} onOpenChange={setNotifOpen}>

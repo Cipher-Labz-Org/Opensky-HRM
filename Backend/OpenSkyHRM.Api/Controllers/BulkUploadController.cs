@@ -725,10 +725,11 @@ public partial class BulkUploadController : ControllerBase
         skipped += remaining.Skipped;
 
         var loginsCreated = 0;
+        List<CreatedLoginCredential> createdLogins = [];
         if (wantLogins && loginJobs.Count > 0)
-            loginsCreated = await CreateImportedEmployeeLoginsAsync(loginJobs, usernamesTaken, results);
+            (loginsCreated, createdLogins) = await CreateImportedEmployeeLoginsAsync(loginJobs, usernamesTaken, results);
 
-        return Ok(new UploadResult(created, updated, skipped, created + updated + skipped, loginsCreated, results));
+        return Ok(new UploadResult(created, updated, skipped, created + updated + skipped, loginsCreated, results, createdLogins));
         } // using (wb)
     }
 
@@ -948,7 +949,7 @@ public partial class BulkUploadController : ControllerBase
             existing.DateOfBirth = ExcelImportDateParser.ToWallDate(imported.DateOfBirth);
     }
 
-    private async Task<int> CreateImportedEmployeeLoginsAsync(
+    private async Task<(int Created, List<CreatedLoginCredential> Credentials)> CreateImportedEmployeeLoginsAsync(
         List<(int Row, Employee Emp, string EmployeeCodeForLogin)> loginJobs,
         HashSet<string> usernamesTaken,
         List<RowResult> results)
@@ -958,7 +959,7 @@ public partial class BulkUploadController : ControllerBase
             .Select(x => x.Id)
             .FirstOrDefaultAsync();
         if (employeeRoleId == Guid.Empty)
-            return 0;
+            return (0, []);
 
         var jobIds = loginJobs.Select(j => j.Emp.Id).ToList();
         var alreadyLinked = (await _db.Users.AsNoTracking()
@@ -968,7 +969,7 @@ public partial class BulkUploadController : ControllerBase
             .ToHashSet();
 
         var defaultPasswordHash = BCrypt.Net.BCrypt.HashPassword(BulkImportDefaultLoginPassword);
-        var pendingUsers = new List<(int Row, User User, string Username)>();
+        var pendingUsers = new List<(int Row, User User, string Username, string EmployeeCode, string EmployeeName)>();
 
         foreach (var job in loginJobs)
         {
@@ -999,23 +1000,34 @@ public partial class BulkUploadController : ControllerBase
             };
             user.UserRoles.Add(new UserRole { RoleId = employeeRoleId });
             _db.Users.Add(user);
-            pendingUsers.Add((job.Row, user, username));
+            var employeeName = $"{job.Emp.FirstName} {job.Emp.LastName}".Trim();
+            pendingUsers.Add((job.Row, user, username, job.EmployeeCodeForLogin, employeeName));
         }
 
         if (pendingUsers.Count == 0)
-            return 0;
+            return (0, []);
+
+        List<CreatedLoginCredential> credentials = [];
 
         try
         {
             await _db.SaveChangesAsync();
             foreach (var item in pendingUsers)
+            {
                 ReplaceRowNotes(results, item.Row, new List<string> { $"User login created (username: {item.Username})." });
-            return pendingUsers.Count;
+                credentials.Add(new CreatedLoginCredential(
+                    item.EmployeeCode,
+                    item.Username,
+                    BulkImportDefaultLoginPassword,
+                    item.EmployeeName));
+            }
+            return (pendingUsers.Count, credentials);
         }
         catch (DbUpdateException)
         {
             foreach (var item in pendingUsers)
                 DetachTrackedUser(item.User);
+            credentials.Clear();
         }
 
         var created = 0;
@@ -1027,6 +1039,11 @@ public partial class BulkUploadController : ControllerBase
                 await _db.SaveChangesAsync();
                 created++;
                 ReplaceRowNotes(results, item.Row, new List<string> { $"User login created (username: {item.Username})." });
+                credentials.Add(new CreatedLoginCredential(
+                    item.EmployeeCode,
+                    item.Username,
+                    BulkImportDefaultLoginPassword,
+                    item.EmployeeName));
             }
             catch (DbUpdateException)
             {
@@ -1035,7 +1052,7 @@ public partial class BulkUploadController : ControllerBase
             }
         }
 
-        return created;
+        return (created, credentials);
     }
 
     private static void ReplaceRowNotes(List<RowResult> results, int row, List<string> notes)
@@ -2016,7 +2033,8 @@ public partial class BulkUploadController : ControllerBase
     }
 
     public record RowResult(int Row, string FirstName, string LastName, bool Success, List<string> Errors, List<string>? Notes = null, string? Action = null);
-    public record UploadResult(int Created, int Updated, int Skipped, int TotalRows, int LoginsCreated, List<RowResult> Results);
+    public record CreatedLoginCredential(string EmployeeCode, string Username, string Password, string? EmployeeName = null);
+    public record UploadResult(int Created, int Updated, int Skipped, int TotalRows, int LoginsCreated, List<RowResult> Results, List<CreatedLoginCredential>? CreatedLogins = null);
     public record LeaveBalanceRowResult(int Row, string EmployeeCode, string LeaveType, string Status, List<string> Errors, List<string>? Notes = null);
     public record LeaveBalanceUploadResult(int Created, int Updated, int Skipped, int TotalRows, List<LeaveBalanceRowResult> Results);
 }

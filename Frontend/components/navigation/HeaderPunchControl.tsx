@@ -12,6 +12,7 @@ type TodayRecord = {
 };
 
 type HeaderPunchControlProps = {
+  employeeId: string | null;
   licensedModules?: string[];
 };
 
@@ -56,23 +57,28 @@ function isCheckedIn(records: TodayRecord[]): boolean {
   return records.some((r) => r.punchIn && !r.punchOut);
 }
 
-export function HeaderPunchControl({ licensedModules }: HeaderPunchControlProps) {
+export function HeaderPunchControl({ employeeId, licensedModules }: HeaderPunchControlProps) {
   const [records, setRecords] = React.useState<TodayRecord[]>([]);
   const [optimisticOn, setOptimisticOn] = React.useState<boolean | null>(null);
   const [punching, setPunching] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  const canPunch = Boolean(employeeId);
   const serverOn = isCheckedIn(records);
   const checkedIn = optimisticOn ?? serverOn;
 
   const loadToday = React.useCallback(async () => {
+    if (!employeeId) {
+      setRecords([]);
+      return;
+    }
     try {
       const data = await apiFetch<unknown>("/api/attendance/my-today");
       setRecords(normalizeTodayRecords(data));
     } catch {
       /* keep last known state */
     }
-  }, []);
+  }, [employeeId]);
 
   React.useEffect(() => {
     void loadToday();
@@ -89,7 +95,7 @@ export function HeaderPunchControl({ licensedModules }: HeaderPunchControlProps)
   }, [loadToday]);
 
   async function punch() {
-    if (punching) return;
+    if (!canPunch || punching) return;
     const nextOn = !checkedIn;
     setPunching(true);
     setError(null);
@@ -116,12 +122,16 @@ export function HeaderPunchControl({ licensedModules }: HeaderPunchControlProps)
   if (!isAttendanceLicensed(licensedModules)) return null;
 
   const label = checkedIn ? "Punch out" : "Punch in";
+  const hint = canPunch
+    ? label
+    : "Link this login to an employee in User Management to punch.";
 
   return (
     <div className="mx-1 flex max-w-[14rem] flex-col items-end">
       <div
         className="flex items-center gap-2 rounded-full border px-2.5 py-1"
-        style={{ borderColor: "#D4DEE8" }}
+        style={{ borderColor: "#D4DEE8", opacity: canPunch ? 1 : 0.55 }}
+        title={hint}
       >
         <span className="whitespace-nowrap text-[13px] font-semibold" style={{ color: "#081F3E" }}>
           {label}
@@ -130,11 +140,11 @@ export function HeaderPunchControl({ licensedModules }: HeaderPunchControlProps)
           type="button"
           role="switch"
           aria-checked={checkedIn}
-          aria-label={label}
-          title={label}
-          disabled={punching}
+          aria-label={hint}
+          title={hint}
+          disabled={!canPunch || punching}
           onClick={() => void punch()}
-          className="relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border outline-none transition-colors duration-200 ease-in-out focus-visible:ring-2 focus-visible:ring-[var(--action)]/30 disabled:cursor-wait"
+          className="relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border outline-none transition-colors duration-200 ease-in-out focus-visible:ring-2 focus-visible:ring-[var(--action)]/30 disabled:cursor-not-allowed"
           style={{
             backgroundColor: checkedIn ? "#76D62A" : "#C4C4C4",
             borderColor: checkedIn ? "#5BB21F" : "#A3A3A3",
