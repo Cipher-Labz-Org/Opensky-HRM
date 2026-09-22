@@ -140,6 +140,7 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
               </p>
               <p className="mt-2 text-xs text-slate-500">
                 Save as Excel Workbook (.xlsx). Employee code must match an active employee. Existing records for the same employee and date are updated.
+                Night shifts can use the same Date with Punch Out after midnight (e.g. In 22:00, Out 06:00).
               </p>
             </div>
             <Button

@@ -107,4 +107,25 @@ public class ExcelImportDateParserTests
         var fraction = new TimeSpan(8, 30, 0).TotalDays;
         Assert.Equal(new TimeSpan(8, 30, 0), ExcelImportDateParser.ParseTimeOfDay(fraction.ToString(CultureInfo.InvariantCulture)));
     }
+
+    [Fact]
+    public void ApplyOvernightPunchOutIfNeeded_RollsPastMidnightOntoNextDay()
+    {
+        var punchIn = new DateTime(2026, 8, 1, 22, 0, 0);
+        var punchOut = new DateTime(2026, 8, 1, 6, 0, 0);
+
+        var adjusted = ExcelImportDateParser.ApplyOvernightPunchOutIfNeeded(punchIn, punchOut);
+
+        Assert.Equal(new DateTime(2026, 8, 2, 6, 0, 0), adjusted);
+        Assert.Equal(8, (adjusted - punchIn).TotalHours);
+    }
+
+    [Fact]
+    public void ApplyOvernightPunchOutIfNeeded_LeavesSameDayShiftUnchanged()
+    {
+        var punchIn = new DateTime(2026, 8, 1, 8, 0, 0);
+        var punchOut = new DateTime(2026, 8, 1, 18, 0, 0);
+
+        Assert.Equal(punchOut, ExcelImportDateParser.ApplyOvernightPunchOutIfNeeded(punchIn, punchOut));
+    }
 }

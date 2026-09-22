@@ -71,6 +71,17 @@ public static partial class ExcelImportDateParser
         return DateTime.SpecifyKind(attendanceDate.Date.Add(tod.Value), DateTimeKind.Unspecified);
     }
 
+    /// <summary>
+    /// Night / split shifts often punch out after midnight on the next calendar day while the
+    /// Excel Date column stays on the shift start day. Same rule as fingerprint first-in/last-out.
+    /// </summary>
+    public static DateTime ApplyOvernightPunchOutIfNeeded(DateTime punchIn, DateTime punchOut)
+    {
+        if (punchOut < punchIn)
+            return DateTime.SpecifyKind(punchOut.AddDays(1), DateTimeKind.Unspecified);
+        return punchOut;
+    }
+
     public static TimeSpan? ParseTimeOfDay(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
