@@ -34,7 +34,8 @@ public static class AttendancePunchTimes
             return true;
 
         return source.Contains("Mobile", StringComparison.OrdinalIgnoreCase)
-            || source.Contains("PeopleProfile", StringComparison.OrdinalIgnoreCase);
+            || source.Contains("PeopleProfile", StringComparison.OrdinalIgnoreCase)
+            || source.Equals("Web", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

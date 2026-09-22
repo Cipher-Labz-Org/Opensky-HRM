@@ -32,25 +32,17 @@ const ALL_NAV_GROUPS: NavGroup[] = [
     items: [
       { href: ROUTES.dashboard, label: "Dashboard", module: "Dashboard" },
       { href: ROUTES.people, label: "People Hub", module: "People" },
-      { href: ROUTES.employeeProfile, label: "Employee bio", module: "People" },
+      { href: ROUTES.employeeProfile, label: "Employee bio", module: "EmployeeBio" },
       { href: ROUTES.recruitment, label: "Recruitment", module: "Recruitment" },
-      {
-        href: ROUTES.employeeTasks,
-        label: "Employee Tasks",
-        moduleAnyOf: ["People", "Employee360", "Recruitment", "EmployeeTasks"],
-      },
-      { href: ROUTES.employeeActions, label: "Employee Actions", module: "People" },
+      { href: ROUTES.employeeTasks, label: "Employee Tasks", module: "EmployeeTasks" },
+      { href: ROUTES.employeeActions, label: "Employee Actions", module: "EmployeeActions" },
     ],
   },
   {
     title: "Workforce",
     items: [
       { href: ROUTES.leave, label: "Leave & Absence", module: "Leave" },
-      {
-        href: ROUTES.approvals,
-        label: "Approvals",
-        moduleAnyOf: ["Leave", "Attendance"],
-      },
+      { href: ROUTES.approvals, label: "Approvals", module: "Approvals" },
       { href: ROUTES.attendance, label: "Time & Attendance", module: "Attendance" },
       { href: ROUTES.payroll, label: "Payroll", module: "Payroll" },
       { href: ROUTES.performance, label: "Performance Appraisal", module: "Performance" },
@@ -60,10 +52,10 @@ const ALL_NAV_GROUPS: NavGroup[] = [
   {
     title: "Intelligence",
     items: [
-      { href: ROUTES.reports, label: "Reports", module: "Analytics" },
+      { href: ROUTES.reports, label: "Reports", module: "Reports" },
       { href: ROUTES.orgStructure, label: "Org Structure", module: "OrgStructure" },
       { href: ROUTES.analytics, label: "Analytics", module: "Analytics" },
-      { href: ROUTES.companyProfile, label: "Company Profile", module: "Settings" },
+      { href: ROUTES.companyProfile, label: "Company Profile", module: "CompanyProfile" },
       { href: ROUTES.settings, label: "Policy & Settings", module: "Settings" },
       { href: ROUTES.billing, label: "Billing", module: "Billing" },
     ],
@@ -71,15 +63,15 @@ const ALL_NAV_GROUPS: NavGroup[] = [
   {
     title: "Audit & Compliance",
     items: [
-      { href: ROUTES.emailTemplates, label: "Email & letter templates", module: "Settings" },
-      { href: ROUTES.emailDeliveryLog, label: "Email delivery log", module: "Settings" },
+      { href: ROUTES.emailTemplates, label: "Email & letter templates", module: "EmailTemplates" },
+      { href: ROUTES.emailDeliveryLog, label: "Email delivery log", module: "EmailDeliveryLog" },
     ],
   },
   {
     title: "Administration",
     items: [
       { href: ROUTES.administration, label: "Data Import / Export", module: "Administration" },
-      { href: ROUTES.userManagement, label: "User Management", module: "Administration" },
+      { href: ROUTES.userManagement, label: "User Management", module: "UserManagement" },
     ],
   },
   {

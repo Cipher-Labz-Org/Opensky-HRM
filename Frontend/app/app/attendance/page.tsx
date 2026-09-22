@@ -464,6 +464,16 @@ function fmtDate(iso: string | null): string {
   return formatDate(iso);
 }
 
+function fmtWorkedHours(hours: number | null): string {
+  if (hours == null || !Number.isFinite(hours)) return "—";
+  const totalMins = Math.max(0, Math.round(hours * 60));
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m.toString().padStart(2, "0")}m`;
+}
+
 function fmtTimeSpan(ts: string | null): string {
   if (!ts) return "—";
   return ts.split(":").slice(0, 2).join(":");
@@ -588,6 +598,16 @@ function DashboardTab({
     { id: string; employeeName: string; status: string; punchIn: string | null; punchOut: string | null; date: string }[]
   >([]);
 
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    function onPunched() {
+      setRefreshKey((k) => k + 1);
+    }
+    window.addEventListener("opensky:attendance-punched", onPunched);
+    return () => window.removeEventListener("opensky:attendance-punched", onPunched);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -643,7 +663,7 @@ function DashboardTab({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshKey]);
 
   const statusBars = useMemo(() => {
     if (!summary) return [];
@@ -1011,6 +1031,14 @@ function AttendanceListTab() {
     return () => window.clearInterval(timer);
   }, [load, page]);
 
+  useEffect(() => {
+    function onPunched() {
+      load({ silent: true, pageNum: page });
+    }
+    window.addEventListener("opensky:attendance-punched", onPunched);
+    return () => window.removeEventListener("opensky:attendance-punched", onPunched);
+  }, [load, page]);
+
   function applyDraftFilters(targetPage = 1) {
     setAppliedEmployeeId(draftEmployeeId);
     setAppliedEmployee(draftEmployee);
@@ -1338,7 +1366,7 @@ function AttendanceListTab() {
                   <td className={`px-3 py-2.5 text-slate-600 ${isSingleEmployeeView ? "pl-4" : ""}`}>{fmtDate(r.date)}</td>
                   <td className="px-3 py-2.5 text-slate-600">{fmtTime(r.punchIn)}</td>
                   <td className="px-3 py-2.5 text-slate-600">{fmtTime(r.punchOut)}</td>
-                  <td className="px-3 py-2.5 text-slate-600">{r.workedHours != null ? r.workedHours.toFixed(1) : "—"}</td>
+                  <td className="px-3 py-2.5 text-slate-600">{fmtWorkedHours(r.workedHours)}</td>
                   <td className="px-3 py-2.5">
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${r.status === "Present" ? "bg-green-100 text-green-700" : r.status === "Late" ? "bg-amber-100 text-amber-700" : r.status === "Absent" ? "bg-red-100 text-red-700" : r.status === "On Leave" ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-600"}`}>
                       {r.status}

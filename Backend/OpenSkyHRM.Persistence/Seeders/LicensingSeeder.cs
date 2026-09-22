@@ -6,7 +6,7 @@ namespace OpenSkyHRM.Persistence.Seeders;
 
 /// <summary>
 /// Idempotent licensing catalog and default subscription for one-customer-per-database deployments.
-/// Required modules (Dashboard, People, Settings, Billing) cannot be turned off in the application layer.
+/// Required module (Dashboard) cannot be turned off in the application layer.
 /// </summary>
 public static class LicensingSeeder
 {
@@ -16,22 +16,30 @@ public static class LicensingSeeder
     public static readonly (Guid Id, string Code, string DisplayName, string Category, int Sort, bool Required)[] ModuleDefinitions =
     {
         (Guid.Parse("10000001-0000-0000-0000-000000000001"), "Dashboard", "Dashboard", "Core", 10, true),
-        (Guid.Parse("10000001-0000-0000-0000-000000000002"), "People", "People Hub", "Core", 20, true),
-        (Guid.Parse("10000001-0000-0000-0000-000000000003"), "Settings", "Policy & Settings", "Intelligence", 30, true),
-        (Guid.Parse("10000001-0000-0000-0000-000000000004"), "Billing", "Billing", "Intelligence", 40, true),
-        (Guid.Parse("10000001-0000-0000-0000-000000000010"), "Recruitment", "Recruitment", "Core", 50, false),
-        (Guid.Parse("10000001-0000-0000-0000-000000000011"), "EmployeeTasks", "Employee Tasks", "Core", 60, false),
-        (Guid.Parse("10000001-0000-0000-0000-000000000012"), "Onboarding", "Onboarding", "Core", 70, false),
-        (Guid.Parse("10000001-0000-0000-0000-000000000013"), "Offboarding", "Offboarding", "Core", 80, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000002"), "People", "People Hub", "Core", 20, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000014"), "EmployeeBio", "Employee bio", "Core", 25, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000010"), "Recruitment", "Recruitment", "Core", 30, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000011"), "EmployeeTasks", "Employee Tasks", "Core", 40, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000015"), "EmployeeActions", "Employee Actions", "Core", 50, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000012"), "Onboarding", "Onboarding", "Core", 55, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000013"), "Offboarding", "Offboarding", "Core", 56, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000020"), "Leave", "Leave & Absence", "Workforce", 10, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000025"), "Approvals", "Approvals", "Workforce", 15, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000021"), "Attendance", "Time & Attendance", "Workforce", 20, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000022"), "Payroll", "Payroll", "Workforce", 30, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000023"), "Performance", "Performance Appraisal", "Workforce", 40, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000024"), "Learning", "Learning & Skills", "Workforce", 50, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000032"), "Reports", "Reports", "Intelligence", 5, false),
         (Guid.Parse("10000001-0000-0000-0000-000000000030"), "OrgStructure", "Org Structure", "Intelligence", 10, false),
-        (Guid.Parse("10000001-0000-0000-0000-000000000031"), "Analytics", "Analytics & Reports", "Intelligence", 20, false),
-        (Guid.Parse("10000001-0000-0000-0000-000000000041"), "AiAssistant", "OpenSky AI", "Intelligence", 25, false),
-        (Guid.Parse("10000001-0000-0000-0000-000000000040"), "Administration", "Administration", "Administration", 10, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000031"), "Analytics", "Analytics", "Intelligence", 20, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000033"), "CompanyProfile", "Company Profile", "Intelligence", 28, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000003"), "Settings", "Policy & Settings", "Intelligence", 30, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000004"), "Billing", "Billing", "Intelligence", 40, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000041"), "AiAssistant", "OpenSky AI", "Intelligence", 45, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000042"), "EmailTemplates", "Email & letter templates", "Audit & Compliance", 10, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000043"), "EmailDeliveryLog", "Email delivery log", "Audit & Compliance", 20, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000040"), "Administration", "Data Import / Export", "Administration", 10, false),
+        (Guid.Parse("10000001-0000-0000-0000-000000000044"), "UserManagement", "User Management", "Administration", 20, false),
     };
 
     public static async Task EnsureAsync(AppDbContext context, CancellationToken cancellationToken = default)

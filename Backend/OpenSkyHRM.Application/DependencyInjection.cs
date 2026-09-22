@@ -14,6 +14,7 @@ public static class DependencyInjection
         services.AddHttpClient();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ILicensingService, LicensingService>();
+        services.AddScoped<IVendorLicensingAuthService, VendorLicensingAuthService>();
         services.AddScoped<IEmployeeService, EmployeeService>();
         services.AddScoped<IEmployeeLifecycleService, EmployeeLifecycleService>();
         services.AddScoped<IOrganizationService, OrganizationService>();

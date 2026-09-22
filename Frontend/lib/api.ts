@@ -35,7 +35,32 @@ function parseHttpErrorMessage(text: string, status: number, endpoint: string): 
   });
 }
 
-export type ApiFetchOptions = RequestInit & { timeoutMs?: number; baseUrl?: string };
+export type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number;
+  baseUrl?: string;
+  /** When true, 401 does not clear the company session or redirect to /login. */
+  skipAuthRedirect?: boolean;
+};
+
+function headerRecord(init?: HeadersInit): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!init) return out;
+  if (init instanceof Headers) {
+    init.forEach((value, key) => {
+      out[key] = value;
+    });
+    return out;
+  }
+  if (Array.isArray(init)) {
+    for (const [key, value] of init) out[key] = value;
+    return out;
+  }
+  return { ...init };
+}
+
+function hasAuthorizationHeader(headers: Record<string, string>): boolean {
+  return Object.keys(headers).some((key) => key.toLowerCase() === "authorization");
+}
 
 export class ApiHttpError extends Error {
   readonly status: number;
@@ -59,16 +84,16 @@ export async function apiFetch<T>(
   endpoint: string,
   options?: ApiFetchOptions
 ): Promise<T> {
-  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, baseUrl, ...fetchInit } = options ?? {};
+  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, baseUrl, skipAuthRedirect, ...fetchInit } = options ?? {};
   const token = getAuthToken();
   const isFormData =
     typeof FormData !== "undefined" && fetchInit.body instanceof FormData;
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { "Content-Type": "application/json" }),
-    ...(fetchInit?.headers as Record<string, string>),
+    ...headerRecord(fetchInit.headers),
   };
 
-  if (token) {
+  if (token && !hasAuthorizationHeader(headers)) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
@@ -101,7 +126,7 @@ export async function apiFetch<T>(
   }
 
   if (res.status === 401) {
-    if (typeof window !== "undefined") {
+    if (!skipAuthRedirect && typeof window !== "undefined") {
       localStorage.removeItem("auth_token");
       sessionStorage.removeItem("auth_token");
       document.cookie = "auth_token=; path=/; max-age=0";
@@ -110,6 +135,10 @@ export async function apiFetch<T>(
       if (!window.location.pathname.startsWith("/login")) {
         window.location.replace("/login");
       }
+    }
+    if (skipAuthRedirect) {
+      const text = await res.text().catch(() => "");
+      throw new ApiHttpError(parseHttpErrorMessage(text, res.status, endpoint), res.status, endpoint);
     }
     throw new Error("Session expired. Please login again.");
   }

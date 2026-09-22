@@ -9,7 +9,7 @@ using OpenSkyHRM.Api.Services;
 namespace OpenSkyHRM.Api.Controllers;
 
 [ApiController]
-[RequireLicensedModule("Administration")]
+[RequireLicensedModule("UserManagement")]
 [Route("api/[controller]")]
 [Authorize(Roles = "ADMIN,HR_MANAGER")]
 public class UserController : ControllerBase

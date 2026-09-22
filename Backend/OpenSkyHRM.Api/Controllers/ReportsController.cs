@@ -12,7 +12,7 @@ namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
-[RequireLicensedModule("Analytics")]
+[RequireLicensedModule("Reports")]
 [Route("api/[controller]")]
 public class ReportsController : ControllerBase
 {

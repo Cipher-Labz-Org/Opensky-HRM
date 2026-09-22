@@ -4,12 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { ROUTES } from "@/config/routes";
 import { formatDate as fmtDate } from "@/lib/date-utils";
-import { dateOnlyPayload } from "@/lib/datePickerIso";
 import { formatInt } from "@/lib/workspace-charts";
 import { apiFetch } from "@/lib/api";
-import { useAuth } from "@/contexts/auth-context";
 import Link from "next/link";
-import { DatePickerField, InlinePageAlert } from "@/components/ui";
+import { InlinePageAlert } from "@/components/ui";
 
 type LicensingSummary = {
   planName: string;
@@ -20,65 +18,18 @@ type LicensingSummary = {
   maxEmployees?: number | null;
 };
 
-type AdminModule = {
-  id: string;
-  code: string;
-  displayName: string;
-  category: string;
-  sortOrder: number;
-  isRequired: boolean;
-  isActive: boolean;
-  isEnabled: boolean;
-};
-
-type AdminState = {
-  subscription: {
-    id: string;
-    instanceKey: string;
-    status: string;
-    planName: string;
-    validFrom: string;
-    validUntil: string | null;
-    notes: string | null;
-    maxEmployees: number | null;
-  };
-  modules: AdminModule[];
-};
-
 function formatDate(iso: string) {
   return fmtDate(iso);
 }
 
 export default function BillingPage() {
-  const { isAdmin, refreshProfile } = useAuth();
   const [summary, setSummary] = useState<LicensingSummary | null>(null);
-  const [admin, setAdmin] = useState<AdminState | null>(null);
-  const [optionalEnabled, setOptionalEnabled] = useState<Set<string>>(new Set());
-  const [planName, setPlanName] = useState("");
-  const [status, setStatus] = useState("Active");
-  const [validUntil, setValidUntil] = useState("");
-  const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const loadSummary = useCallback(async () => {
     const data = await apiFetch<LicensingSummary>("/api/licensing/summary");
     setSummary(data);
-  }, []);
-
-  const loadAdmin = useCallback(async () => {
-    const data = await apiFetch<AdminState>("/api/licensing/admin");
-    setAdmin(data);
-    const opt = new Set(
-      data.modules.filter((m) => !m.isRequired && m.isEnabled).map((m) => m.code)
-    );
-    setOptionalEnabled(opt);
-    setPlanName(data.subscription.planName);
-    setStatus(data.subscription.status);
-    setValidUntil(data.subscription.validUntil ? data.subscription.validUntil.slice(0, 10) : "");
-    setNotes(data.subscription.notes ?? "");
   }, []);
 
   useEffect(() => {
@@ -88,18 +39,6 @@ export default function BillingPage() {
       setError(null);
       try {
         await loadSummary();
-        if (!isAdmin) {
-          if (!cancelled) setAdmin(null);
-          return;
-        }
-        try {
-          await loadAdmin();
-        } catch (adminErr) {
-          if (!cancelled) {
-            setAdmin(null);
-            setError(adminErr instanceof Error ? adminErr.message : "Could not load admin licensing data.");
-          }
-        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Load failed.");
       } finally {
@@ -109,105 +48,34 @@ export default function BillingPage() {
     return () => {
       cancelled = true;
     };
-  }, [isAdmin, loadSummary, loadAdmin]);
-
-  const toggleOptional = (code: string, checked: boolean) => {
-    setOptionalEnabled((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(code);
-      else next.delete(code);
-      return next;
-    });
-  };
-
-  const saveModules = async () => {
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      await apiFetch("/api/licensing/entitlements", {
-        method: "PUT",
-        body: JSON.stringify({
-          enabledOptionalModuleCodes: Array.from(optionalEnabled),
-        }),
-      });
-      setSuccess("Module entitlements updated.");
-      await loadSummary();
-      await loadAdmin();
-      await refreshProfile();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveSubscription = async () => {
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      await apiFetch("/api/licensing/subscription", {
-        method: "PUT",
-        body: JSON.stringify({
-          planName: planName || undefined,
-          status: status || undefined,
-          validUntil: dateOnlyPayload(validUntil),
-          notes: notes || null,
-        }),
-      });
-      setSuccess("Subscription details updated.");
-      await loadSummary();
-      await loadAdmin();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed.");
-    } finally {
-      setSaving(false);
-    }
-  };
+  }, [loadSummary]);
 
   const billingKpis = useMemo(() => {
     if (loading && !summary) {
       return [
-        { label: "Plan", value: "…", sub: "Loading licensing summary" },
-        { label: "Status", value: "—", sub: "—" },
-        { label: "Licensed modules", value: "—", sub: "—" },
-        { label: "Seat cap", value: "—", sub: admin?.subscription.maxEmployees != null ? "From subscription" : "—" },
+        { label: "Plan", value: "…" },
+        { label: "Status", value: "—" },
+        { label: "Licensed modules", value: "—" },
+        { label: "Seat cap", value: "—" },
       ];
     }
     if (!summary) {
       return [
-        { label: "Plan", value: "—", sub: "Summary unavailable" },
-        { label: "Status", value: "—", sub: "—" },
-        { label: "Licensed modules", value: "—", sub: "—" },
-        { label: "Seat cap", value: "—", sub: "—" },
+        { label: "Plan", value: "—" },
+        { label: "Status", value: "—" },
+        { label: "Licensed modules", value: "—" },
+        { label: "Seat cap", value: "—" },
       ];
     }
-    const seatCap = summary.maxEmployees ?? admin?.subscription.maxEmployees ?? null;
+    const seatCap = summary.maxEmployees ?? null;
     const cap = seatCap != null ? formatInt(seatCap) : "Not set";
     return [
-      {
-        label: "Plan",
-        value: summary.planName || "—",
-        sub: "Current subscription tier",
-      },
-      {
-        label: "Status",
-        value: summary.status,
-        sub: "Licensing state",
-      },
-      {
-        label: "Licensed modules",
-        value: formatInt(summary.licensedModules.length),
-        sub: "Entitled product areas",
-      },
-      {
-        label: "Seat cap",
-        value: cap,
-        sub: admin ? "Max employees (admin view)" : "Contact admin for limits",
-      },
+      { label: "Plan", value: summary.planName || "—" },
+      { label: "Status", value: summary.status },
+      { label: "Licensed modules", value: formatInt(summary.licensedModules.length) },
+      { label: "Seat cap", value: cap },
     ];
-  }, [summary, loading, admin]);
+  }, [summary, loading]);
 
   return (
     <>
@@ -217,11 +85,6 @@ export default function BillingPage() {
         <InlinePageAlert
           message={error}
           className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200 scroll-mt-20"
-        />
-        <InlinePageAlert
-          message={success}
-          variant="success"
-          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 scroll-mt-20"
         />
 
         <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
@@ -335,98 +198,6 @@ export default function BillingPage() {
             </div>
           )}
         </div>
-
-        {isAdmin && admin && (
-          <>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="text-lg font-semibold text-slate-900">Subscription details</h3>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <label className="block text-sm">
-                  <span className="text-slate-500">Plan name</span>
-                  <input
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                    value={planName}
-                    onChange={(e) => setPlanName(e.target.value)}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="text-slate-500">Status</span>
-                  <select
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                  >
-                    <option value="Trial">Trial</option>
-                    <option value="Active">Active</option>
-                    <option value="Suspended">Suspended</option>
-                  </select>
-                </label>
-                <label className="block text-sm sm:col-span-2">
-                  <span className="text-slate-500">Valid until (optional)</span>
-                  <div className="mt-1 max-w-xs">
-                    <DatePickerField
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                      value={validUntil}
-                      onChange={setValidUntil}
-                    />
-                  </div>
-                </label>
-                <label className="block text-sm sm:col-span-2">
-                  <span className="text-slate-500">Notes</span>
-                  <textarea
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                    rows={3}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                  />
-                </label>
-              </div>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void saveSubscription()}
-                className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
-              >
-                Save subscription
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="text-lg font-semibold text-slate-900">Module entitlements</h3>
-              <ul className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                {admin.modules.map((m) => (
-                  <li
-                    key={m.id}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2"
-                  >
-                    <div>
-                      <div className="text-sm font-medium text-slate-900">{m.displayName}</div>
-                      <div className="text-xs text-slate-500">
-                        {m.code}
-                        {m.isRequired ? " · required" : ""} · {m.category}
-                      </div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                      disabled={m.isRequired || saving}
-                      checked={m.isRequired || optionalEnabled.has(m.code)}
-                      onChange={(e) => toggleOptional(m.code, e.target.checked)}
-                    />
-                  </li>
-                ))}
-              </ul>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void saveModules()}
-                className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
-              >
-                Save modules
-              </button>
-            </div>
-          </>
-        )}
       </div>
     </>
   );

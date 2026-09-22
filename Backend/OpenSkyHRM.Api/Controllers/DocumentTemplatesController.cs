@@ -11,7 +11,7 @@ namespace OpenSkyHRM.Api.Controllers;
 
 [Authorize]
 [ApiController]
-[RequireLicensedModule("Settings")]
+[RequireLicensedModule("EmailTemplates")]
 [Route("api/[controller]")]
 public class DocumentTemplatesController : ControllerBase
 {

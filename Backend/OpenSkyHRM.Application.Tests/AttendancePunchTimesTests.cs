@@ -78,6 +78,29 @@ public class AttendancePunchTimesTests
     }
 
     [Fact]
+    public void Utc_web_punch_converts_to_colombo()
+    {
+        var clock = new PacificHostColomboClock();
+        var utc = new DateTime(2026, 9, 22, 5, 20, 0, DateTimeKind.Utc);
+
+        var shown = AttendancePunchTimes.ToApiWallClock(utc, "Web", clock);
+
+        Assert.Equal(new DateTime(2026, 9, 22, 10, 50, 0), shown);
+        Assert.Equal(DateTimeKind.Unspecified, shown!.Value.Kind);
+    }
+
+    [Fact]
+    public void Unspecified_web_punch_stored_as_utc_clock_shows_colombo()
+    {
+        var clock = new PacificHostColomboClock();
+        var stored = new DateTime(2026, 9, 22, 5, 46, 0, DateTimeKind.Unspecified);
+
+        var shown = AttendancePunchTimes.ToApiWallClock(stored, "Web", clock);
+
+        Assert.Equal(new DateTime(2026, 9, 22, 11, 16, 0), shown);
+    }
+
+    [Fact]
     public void Business_clock_never_falls_back_to_utc()
     {
         var config = new ConfigurationBuilder()

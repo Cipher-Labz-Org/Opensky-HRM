@@ -38,7 +38,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: "Employee 360",
     description: "Personal profile summary and access to employee records.",
     moduleHref: ROUTES.employeeProfile,
-    licenseModule: "People",
+    licenseModule: "EmployeeBio",
   },
   {
     slug: "recruitment",
@@ -52,14 +52,14 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: "Employee Tasks",
     description: "Tasks related to hiring and people operations.",
     moduleHref: ROUTES.employeeTasks,
-    licenseAnyOf: ["People", "Recruitment", "EmployeeTasks"],
+    licenseModule: "EmployeeTasks",
   },
   {
     slug: "employee-actions",
     title: "Employee Actions",
     description: "HR actions like transfers and lifecycle events.",
     moduleHref: ROUTES.employeeActions,
-    licenseModule: "People",
+    licenseModule: "EmployeeActions",
   },
   {
     slug: "leave",
@@ -73,7 +73,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: "Approvals",
     description: "Central hub for leave and attendance approvals.",
     moduleHref: ROUTES.approvals,
-    licenseAnyOf: ["Leave", "Attendance"],
+    licenseModule: "Approvals",
   },
   {
     slug: "attendance",
@@ -108,7 +108,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: "Reports",
     description: "Standard and custom HR reports.",
     moduleHref: ROUTES.reports,
-    licenseModule: "Analytics",
+    licenseModule: "Reports",
   },
   {
     slug: "org-structure",
@@ -129,7 +129,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: "Company Profile",
     description: "Company logo, legal details, and default currency.",
     moduleHref: ROUTES.companyProfile,
-    licenseModule: "Settings",
+    licenseModule: "CompanyProfile",
   },
   {
     slug: "settings",
@@ -164,27 +164,28 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: "User Management",
     description: "Users, roles, and access control.",
     moduleHref: ROUTES.userManagement,
-    licenseModule: "Administration",
+    licenseModule: "UserManagement",
   },
   {
     slug: "billing",
     title: "Billing",
     description: "Subscription and billing for your organization.",
     moduleHref: ROUTES.billing,
+    licenseModule: "Billing",
   },
   {
     slug: "email-templates",
     title: "Email & letter templates",
     description: "Transactional templates and merge fields.",
     moduleHref: ROUTES.emailTemplates,
-    licenseModule: "Settings",
+    licenseModule: "EmailTemplates",
   },
   {
     slug: "email-delivery-log",
     title: "Email delivery log",
     description: "Sent messages and delivery status for compliance.",
     moduleHref: ROUTES.emailDeliveryLog,
-    licenseModule: "Settings",
+    licenseModule: "EmailDeliveryLog",
   },
 ];
 

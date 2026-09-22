@@ -43,8 +43,22 @@ public class LicensedModuleAdminDto
 
 public class LicensingAdminDto
 {
+    public string CompanyName { get; set; } = string.Empty;
     public InstanceSubscriptionDto Subscription { get; set; } = null!;
     public List<LicensedModuleAdminDto> Modules { get; set; } = new();
+}
+
+public class VendorLicensingLoginDto
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+
+public class VendorLicensingLoginResponseDto
+{
+    public string Token { get; set; } = string.Empty;
+    public DateTime ExpiresAt { get; set; }
+    public string CompanyName { get; set; } = string.Empty;
 }
 
 public class UpdateModuleEntitlementsDto

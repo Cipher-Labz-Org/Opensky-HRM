@@ -238,4 +238,16 @@ public class AttendancePunchPolicyEvaluatorTests
 
         Assert.Null(policy.ResolvedPlace);
     }
+
+    [Fact]
+    public async Task WebSource_SkipsQrAndGeofencePolicy()
+    {
+        var (db, employee, _, _) = await SeedAsync();
+        var dto = new PunchRequestDto { Type = "in", Source = "Web" };
+
+        var policy = await AttendancePunchPolicyEvaluator.EvaluateAsync(
+            db, new FakeSettings(AttendanceCheckInModes.BusinessUnitQr), employee.Id, dto);
+
+        Assert.Null(policy.ResolvedPlace);
+    }
 }
