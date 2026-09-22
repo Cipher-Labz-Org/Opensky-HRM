@@ -362,6 +362,9 @@ public class PayrollController : ControllerBase
         static decimal LineAmount(PayStatement statement, string code) =>
             statement.Lines.Where(l => l.ComponentCode == code).Sum(l => l.Amount);
 
+        static string? FirstNonEmpty(params string?[] values) =>
+            values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim();
+
         var rows = statements
             .OrderBy(p => p.Employee.EmployeeCode)
             .Select(p =>
@@ -387,6 +390,9 @@ public class PayrollController : ControllerBase
                     BankCode = account?.BankCode,
                     BranchCode = account?.BranchCode,
                     BranchLocation = account?.BranchLocation,
+                    NationalId = p.Employee.NationalId,
+                    Phone = FirstNonEmpty(p.Employee.Phone, p.Employee.WorkTelephone, p.Employee.HomeTelephone),
+                    Email = FirstNonEmpty(p.Employee.Email, p.Employee.OtherEmail),
                 };
             })
             .ToList();

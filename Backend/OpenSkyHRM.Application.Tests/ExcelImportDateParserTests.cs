@@ -66,6 +66,11 @@ public class ExcelImportDateParserTests
     [InlineData("8:30 AM", 8, 30, 0)]
     [InlineData("5:45 PM", 17, 45, 0)]
     [InlineData("17:30", 17, 30, 0)]
+    [InlineData("8.30", 8, 30, 0)]
+    [InlineData("17.45", 17, 45, 0)]
+    [InlineData("8.30 AM", 8, 30, 0)]
+    [InlineData("830", 8, 30, 0)]
+    [InlineData("1730", 17, 30, 0)]
     [InlineData("1899-12-30 08:30", 8, 30, 0)]
     [InlineData("07/12/2025 08:30", 8, 30, 0)]
     [InlineData("7/12/2025 8:30 AM", 8, 30, 0)]
@@ -106,6 +111,14 @@ public class ExcelImportDateParserTests
     {
         var fraction = new TimeSpan(8, 30, 0).TotalDays;
         Assert.Equal(new TimeSpan(8, 30, 0), ExcelImportDateParser.ParseTimeOfDay(fraction.ToString(CultureInfo.InvariantCulture)));
+    }
+
+    [Fact]
+    public void FromExcelNumber_ReadsTypedHmmNotNineteenHundredSerial()
+    {
+        Assert.Equal(new TimeSpan(8, 30, 0), ExcelImportDateParser.FromExcelNumber(8.30));
+        Assert.Equal(new TimeSpan(17, 45, 0), ExcelImportDateParser.FromExcelNumber(17.45));
+        Assert.Equal(new TimeSpan(8, 30, 0), ExcelImportDateParser.FromExcelNumber(new TimeSpan(8, 30, 0).TotalDays));
     }
 
     [Fact]

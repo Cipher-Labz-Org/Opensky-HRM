@@ -83,6 +83,31 @@ public static partial class ExcelImportDateParser
         return punchOut;
     }
 
+    /// <summary>
+    /// Excel time serial (0.354 = 08:30) or a clock typed as a number (8.30 = 08:30).
+    /// Values 1–23.59 are treated as H.mm, not as 1900-era dates.
+    /// </summary>
+    public static TimeSpan? FromExcelNumber(double n)
+    {
+        if (double.IsNaN(n) || double.IsInfinity(n) || n < 0 || n >= 2958466)
+            return null;
+        if (n < 1)
+            return RoundToSecond(TimeSpan.FromDays(n));
+
+        var hours = (int)Math.Truncate(n);
+        var minutes = (int)Math.Round((n - hours) * 100, MidpointRounding.AwayFromZero);
+        if (hours is >= 0 and <= 23 && minutes is >= 0 and <= 59)
+            return new TimeSpan(hours, minutes, 0);
+
+        if (Math.Abs(n - Math.Truncate(n)) > 1e-9)
+        {
+            try { return RoundToSecond(DateTime.FromOADate(n).TimeOfDay); }
+            catch (ArgumentException) { return null; }
+        }
+
+        return null;
+    }
+
     public static TimeSpan? ParseTimeOfDay(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
@@ -99,18 +124,17 @@ public static partial class ExcelImportDateParser
                 return RoundToSecond(exact.TimeOfDay);
         }
 
+        if (TryParseDottedOrCompactClock(s, out var typedClock))
+            return typedClock;
+
         if (TimeSpan.TryParse(s, invariant, out var ts) && ts >= TimeSpan.Zero && ts < TimeSpan.FromDays(1))
             return RoundToSecond(ts);
 
         if (double.TryParse(s, NumberStyles.Float, invariant, out var n) && n is >= 0 and < 2958466)
         {
-            if (n < 1)
-                return RoundToSecond(TimeSpan.FromDays(n));
-            if (Math.Abs(n - Math.Truncate(n)) > 1e-9)
-            {
-                try { return RoundToSecond(DateTime.FromOADate(n).TimeOfDay); }
-                catch (ArgumentException) { /* fall through */ }
-            }
+            var fromNumber = FromExcelNumber(n);
+            if (fromNumber is not null)
+                return fromNumber;
         }
 
         foreach (var culture in new[] { enGb, invariant, enUs })
@@ -160,6 +184,52 @@ public static partial class ExcelImportDateParser
 
     [GeneratedRegex(@"(?<h>\d{1,2}):(?<m>\d{2})(?::(?<sec>\d{2}))?\s*(?<ampm>am|pm)?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex TimeOfDayRegex();
+
+    [GeneratedRegex(@"^(?<h>\d{1,2})[.\-](?<m>\d{2})(?:[.\-](?<sec>\d{2}))?\s*(?<ampm>am|pm)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex DottedClockRegex();
+
+    [GeneratedRegex(@"^(?<hmm>\d{3,4})$", RegexOptions.CultureInvariant)]
+    private static partial Regex CompactClockRegex();
+
+    private static bool TryParseDottedOrCompactClock(string s, out TimeSpan tod)
+    {
+        tod = default;
+        var dotted = DottedClockRegex().Match(s);
+        if (dotted.Success
+            && int.TryParse(dotted.Groups["h"].Value, out var h)
+            && int.TryParse(dotted.Groups["m"].Value, out var m))
+        {
+            if (dotted.Groups["ampm"].Success)
+            {
+                var ampm = dotted.Groups["ampm"].Value.ToLowerInvariant();
+                if (ampm == "pm" && h < 12) h += 12;
+                if (ampm == "am" && h == 12) h = 0;
+            }
+
+            var sec = 0;
+            if (dotted.Groups["sec"].Success)
+                int.TryParse(dotted.Groups["sec"].Value, out sec);
+            if (h is >= 0 and < 24 && m is >= 0 and < 60 && sec is >= 0 and < 60)
+            {
+                tod = new TimeSpan(h, m, sec);
+                return true;
+            }
+        }
+
+        var compact = CompactClockRegex().Match(s);
+        if (compact.Success && int.TryParse(compact.Groups["hmm"].Value, out var hmm))
+        {
+            var hours = hmm / 100;
+            var minutes = hmm % 100;
+            if (hours is >= 0 and < 24 && minutes is >= 0 and < 60)
+            {
+                tod = new TimeSpan(hours, minutes, 0);
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static TimeSpan RoundToSecond(TimeSpan t)
     {

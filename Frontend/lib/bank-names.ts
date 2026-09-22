@@ -34,3 +34,9 @@ export function isCommercialBankName(bankName?: string | null): boolean {
   if (name.includes("combank")) return true;
   return /\bcommercial(\s+bank(\s+of\s+ceylon)?)?\b/.test(name);
 }
+
+export function isSampathBankName(bankName?: string | null): boolean {
+  const name = (bankName ?? "").trim().toLowerCase();
+  if (!name) return false;
+  return /\bsampath(\s+bank)?\b/.test(name);
+}

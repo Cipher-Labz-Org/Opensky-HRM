@@ -210,6 +210,8 @@ export const HELP_CONTENT_BY_SLUG: Record<string, HelpContentDoc> = {
       tabLabel: "Overview",
       paragraphs: [
         "Payroll supports pay runs, slip generate, earnings, deductions, employee payslips, and bank slips when the module is licensed.",
+        "Slip Generate uses the company bank account you select: Commercial Bank downloads the Combiz One-to-Many text file (employee account, amount, salary narrative, and GL 784001). Sampath Bank downloads the salary deposit text file (SAL_MON, beneficiary, 12-digit account, bank/branch, amount, remarks, and SBA for Sampath or SLI for other banks). Other banks download a salary Excel sheet (employee, account, bank/branch, amount, and narrative) until a dedicated slip format is added.",
+        "Bank files download only after the payroll run is Approved (or Finalized) on Payroll Run. Pending review, pending HR approval, and cancelled batches cannot be sent to the bank.",
         "Ensure attendance and leave data is finalized before processing a run.",
       ],
     },
