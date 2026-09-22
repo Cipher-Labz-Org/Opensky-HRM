@@ -164,6 +164,7 @@ export async function importAttendanceFromWorkbook(
             ...(punchOut ? { punchOut: toLocalIso(punchOut) } : {}),
             status,
             remarks: row.remarks || null,
+            source: "Import",
           }),
         });
         updated += 1;

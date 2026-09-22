@@ -39,7 +39,7 @@ function shouldFallbackToBrowserImport(err: unknown): boolean {
 interface Props {
   open: boolean;
   onClose: () => void;
-  onImported?: () => void;
+  onImported?: (result: AttendanceImportUploadResult) => void;
 }
 
 export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
@@ -104,7 +104,7 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
       if ((json.created ?? 0) + (json.updated ?? 0) > 0) {
-        onImported?.();
+        onImported?.(json);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");

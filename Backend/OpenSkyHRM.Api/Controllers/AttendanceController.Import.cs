@@ -215,13 +215,17 @@ public partial class AttendanceController
             if (punchIn.HasValue && punchOut.HasValue)
                 workedHours = Math.Round((decimal)(punchOut.Value - punchIn.Value).TotalHours, 2);
 
+            // Always store / match on calendar day so the Attendance list date filter finds the row.
+            var day = date!.Value.Date;
+            var dayEnd = day.AddDays(1);
             var existing = await _db.Set<AttendanceRecord>()
-                .Where(a => a.EmployeeId == employee.Id && a.Date == date.Value && !a.IsDeleted)
+                .Where(a => a.EmployeeId == employee.Id && a.Date >= day && a.Date < dayEnd && !a.IsDeleted)
                 .OrderByDescending(a => a.UpdatedAt)
                 .FirstOrDefaultAsync();
 
             if (existing is not null)
             {
+                existing.Date = day;
                 if (punchInCol is not null) existing.PunchIn = punchIn;
                 if (punchOutCol is not null) existing.PunchOut = punchOut;
                 if (punchInCol is not null || punchOutCol is not null)
@@ -236,14 +240,14 @@ public partial class AttendanceController
                     existing.Remarks = remarks.Trim();
                 existing.Source = "Import";
                 updated++;
-                results.Add(new AttendanceImportRowResult(r, empLabel, date, "Updated", []));
+                results.Add(new AttendanceImportRowResult(r, empLabel, day, "Updated", []));
             }
             else
             {
                 _db.Set<AttendanceRecord>().Add(new AttendanceRecord
                 {
                     EmployeeId = employee.Id,
-                    Date = date.Value,
+                    Date = day,
                     PunchIn = punchIn,
                     PunchOut = punchOut,
                     WorkedHours = workedHours,
@@ -252,7 +256,7 @@ public partial class AttendanceController
                     Source = "Import",
                 });
                 created++;
-                results.Add(new AttendanceImportRowResult(r, empLabel, date, "Created", []));
+                results.Add(new AttendanceImportRowResult(r, empLabel, day, "Created", []));
             }
         }
 
