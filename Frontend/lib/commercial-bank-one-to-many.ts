@@ -39,7 +39,8 @@ export function commercialBankAccountNumber(accountNumber?: string | null): stri
 }
 
 export function formatCommercialBankAmount(amount: number): string {
-  return amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const [whole, fraction] = Math.max(0, Number(amount) || 0).toFixed(2).split(".");
+  return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction}`;
 }
 
 export function commercialBankOneToManyFileName(now: Date = new Date()): string {

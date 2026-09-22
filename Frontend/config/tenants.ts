@@ -39,6 +39,10 @@ const TENANT_META: Record<string, Omit<TenantConfig, "apiUrl">> = {
     companyId: "stagecafe",
     companyName: "Stage Cafe",
   },
+  "stage2cafe.openskyhrm.com": {
+    companyId: "stage2cafe",
+    companyName: "Stage Cafe",
+  },
   "demo.openskyhrm.com": {
     companyId: "demo",
     companyName: "Demo",

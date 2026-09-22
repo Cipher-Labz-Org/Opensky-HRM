@@ -4,8 +4,8 @@ import { useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
-import { API_ASSET_BASE_URL, getApiBaseUrl, getAssetBaseUrl } from "@/config/constants";
-import { apiFetch, apiFetchBlob, isMissingApiRoute } from "@/lib/api";
+import { API_ASSET_BASE_URL, getApiBaseUrl, getAssetBaseUrl, tenantBackendUrl } from "@/config/constants";
+import { ApiHttpError, apiFetch, apiFetchBlob, isMissingApiRoute } from "@/lib/api";
 import {
   buildAttendanceImportTemplateCsv,
   importAttendanceFromWorkbook,
@@ -15,16 +15,25 @@ import { downloadBlob } from "@/lib/template-pdf";
 
 /**
  * Multipart POSTs through Next.js `/hrm-backend` or same-origin `/api` rewrites
- * return HTTP 405. Prefer the real IIS/API origin when one is available.
+ * return HTTP 405 on live. Always prefer the tenant IIS origin when we have one.
  */
 function attendanceImportApiBase(): string | undefined {
   if (typeof window === "undefined") return undefined;
+  const direct = tenantBackendUrl() || getAssetBaseUrl();
   const base = getApiBaseUrl();
   if (base === "/hrm-backend" || base === "") {
-    const direct = getAssetBaseUrl() || API_ASSET_BASE_URL;
-    return direct || undefined;
+    return direct || API_ASSET_BASE_URL || undefined;
   }
-  return undefined;
+  return base;
+}
+
+function shouldFallbackToBrowserImport(err: unknown): boolean {
+  if (isMissingApiRoute(err)) return true;
+  if (err instanceof ApiHttpError) {
+    return [404, 405, 413, 415, 501, 502, 503].includes(err.status);
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return /cannot reach api|failed to fetch|networkerror|load failed|cors|timed out|entity too large|method not allowed|not found/i.test(msg);
 }
 
 interface Props {
@@ -115,7 +124,7 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
         baseUrl: attendanceImportApiBase(),
       });
     } catch (err) {
-      if (!isMissingApiRoute(err)) throw err;
+      if (!shouldFallbackToBrowserImport(err)) throw err;
       setProgress("Saving attendance rows…");
       return importAttendanceFromWorkbook(workbook, (done, total) => {
         setProgress(`Saving ${done} of ${total} attendance rows…`);
@@ -133,14 +142,14 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
         <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-600">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="font-medium text-slate-700">Required Excel columns</p>
+              <p className="font-medium text-slate-700">Same fields as Log Attendance</p>
               <p className="mt-2 text-xs">
-                Your sheet must include <strong>Employee Code</strong> and <strong>Date</strong> column headers.
-                Optional: Punch In, Punch Out, Status, Remarks.
+                Required: <strong>Employee Code</strong> (or Employee Name) and <strong>Date</strong>.
+                Optional: Punch In, Punch Out, Type, Remarks — the same values you enter when logging attendance manually.
               </p>
               <p className="mt-2 text-xs text-slate-500">
-                Save as Excel Workbook (.xlsx). Employee code must match an active employee. Existing records for the same employee and date are updated.
-                Night shifts can use the same Date with Punch Out after midnight (e.g. In 22:00, Out 06:00).
+                Save as Excel Workbook (.xlsx). Type can be Present, Absent, Late, Half Day, or On Leave.
+                Times can be 08:30 or 8.30. Existing records for the same employee and date are updated.
               </p>
             </div>
             <Button
@@ -197,6 +206,14 @@ export function ImportAttendanceModal({ open, onClose, onImported }: Props) {
             <p className="mt-1 text-xs text-slate-500">
               Created {result.created}, updated {result.updated}, skipped {result.skipped} of {result.totalRows} rows.
             </p>
+            {result.mappedColumns && Object.keys(result.mappedColumns).length > 0 ? (
+              <p className="mt-2 text-xs text-slate-500">
+                Mapped columns:{" "}
+                {Object.entries(result.mappedColumns)
+                  .map(([field, header]) => `${field} ← ${header}`)
+                  .join(" · ")}
+              </p>
+            ) : null}
             {(result.created + result.updated) > 0 && (
               <p className="mt-2 text-xs text-slate-500">
                 Payroll uses these records. Open the salary batch, choose Import Attendance & Leave, then Calculate so no-pay and overtime follow this sheet.

@@ -14,27 +14,45 @@ export interface AttendanceImportUploadResult {
   skipped: number;
   totalRows: number;
   results: AttendanceImportRowResult[];
+  mappedColumns?: Record<string, string>;
 }
 
 const STATUSES = ["Present", "Absent", "Late", "Half Day", "On Leave"] as const;
+const FIELD_EMPLOYEE_CODE = "Employee Code";
+const FIELD_EMPLOYEE_NAME = "Employee Name";
+const FIELD_DATE = "Date";
+const FIELD_PUNCH_IN = "Punch In";
+const FIELD_PUNCH_OUT = "Punch Out";
+const FIELD_TYPE = "Type";
+const FIELD_REMARKS = "Remarks";
+const FIELD_ORDER = [
+  FIELD_DATE,
+  FIELD_EMPLOYEE_CODE,
+  FIELD_PUNCH_IN,
+  FIELD_PUNCH_OUT,
+  FIELD_TYPE,
+  FIELD_EMPLOYEE_NAME,
+  FIELD_REMARKS,
+] as const;
 
 const COLUMN_ALIASES: Record<string, string[]> = {
-  "Employee Code": [
+  [FIELD_EMPLOYEE_CODE]: [
     "Employee Code", "Emp Code", "EmployeeCode", "Employee ID", "Employee No", "Emp No",
-    "Employee Number", "Emp Number", "Code", "EmpCode", "PIN", "Enroll Number", "Enroll No",
-    "User ID", "AC-No", "AC No", "Badge", "Badge ID",
+    "Employee Number", "Emp Number", "EmpCode", "PIN", "Enroll Number", "Enroll No",
+    "User ID", "AC-No", "AC No", "Badge", "Badge ID", "Code",
   ],
-  Date: ["Date", "Attendance Date", "Work Date", "Att Date", "Day", "Punch Date", "Workday"],
-  "Punch In": [
-    "Punch In", "PunchIn", "In Time", "Time In", "Check In", "CheckIn", "In",
-    "Punch In Time", "Start Time", "Start", "Clock In", "ClockIn", "First In",
+  [FIELD_EMPLOYEE_NAME]: ["Employee Name", "Emp Name", "Full Name", "Name", "Employee"],
+  [FIELD_DATE]: ["Date", "Attendance Date", "Work Date", "Att Date", "Punch Date", "Workday", "Day"],
+  [FIELD_PUNCH_IN]: [
+    "Punch In", "PunchIn", "In Time", "Time In", "Check In", "CheckIn",
+    "Punch In Time", "Start Time", "Clock In", "ClockIn", "First In", "In",
   ],
-  "Punch Out": [
-    "Punch Out", "PunchOut", "Out Time", "Time Out", "Check Out", "CheckOut", "Out",
-    "Punch Out Time", "End Time", "End", "Clock Out", "ClockOut", "Last Out",
+  [FIELD_PUNCH_OUT]: [
+    "Punch Out", "PunchOut", "Out Time", "Time Out", "Check Out", "CheckOut",
+    "Punch Out Time", "End Time", "Clock Out", "ClockOut", "Last Out", "Out",
   ],
-  Status: ["Status", "Attendance Status", "Type", "Attendance Type", "Attendance"],
-  Remarks: ["Remarks", "Notes", "Comment", "Comments", "Note"],
+  [FIELD_TYPE]: ["Type", "Status", "Attendance Status", "Attendance Type", "Att Status"],
+  [FIELD_REMARKS]: ["Remarks", "Notes", "Comment", "Comments", "Note"],
 };
 
 type SheetCell = string | number | boolean | Date | null | undefined;
@@ -44,6 +62,8 @@ interface EmployeeRow {
   id: string;
   employeeCode?: string | null;
   fingerprintId?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
 }
 
 interface AttendanceRow {
@@ -53,7 +73,7 @@ interface AttendanceRow {
 }
 
 export function buildAttendanceImportTemplateCsv(): Blob {
-  const header = "Employee Code,Date,Punch In,Punch Out,Status,Remarks";
+  const header = "Employee Code,Date,Punch In,Punch Out,Type,Remarks";
   const sample = "EMP-0001,2026-07-01,08:30,17:30,Present,";
   return new Blob([`${header}\n${sample}\n`], { type: "text/csv;charset=utf-8" });
 }
@@ -66,13 +86,13 @@ export async function importAttendanceFromWorkbook(
   const layout = findLayout(grid);
   if (!layout) {
     throw new Error(
-      "Could not find attendance data. Include Employee Code and Date column headers (optional: Punch In, Punch Out, Status, Remarks).",
+      "Could not find attendance data. Include Employee Code (or Employee Name) and Date column headers (optional: Punch In, Punch Out, Type, Remarks).",
     );
   }
 
   const parsed = parseRows(grid, layout);
   if (parsed.length === 0) {
-    return { created: 0, updated: 0, skipped: 0, totalRows: 0, results: [] };
+    return { created: 0, updated: 0, skipped: 0, totalRows: 0, results: [], mappedColumns: layout.mappedColumns };
   }
 
   const employees = await loadAllEmployees();
@@ -92,15 +112,15 @@ export async function importAttendanceFromWorkbook(
 
   const work = parsed.map((row, index) => async () => {
     const errors: string[] = [];
-    if (!row.employeeCode) errors.push("Employee code is required.");
+    if (!row.employeeCode && !row.employeeName) errors.push("Employee code or name is required.");
     if (!row.date) errors.push("Date is required or invalid.");
 
-    const employee = row.employeeCode ? resolveEmployee(employeeLookup, row.employeeCode) : undefined;
-    if (row.employeeCode && !employee) errors.push("Employee not found.");
+    const employee = resolveEmployee(employeeLookup, row.employeeCode, row.employeeName);
+    if ((row.employeeCode || row.employeeName) && !employee) errors.push("Employee not found.");
 
     const status = normalizeStatus(row.status);
     if (status == null) {
-      errors.push(`Invalid status '${row.status}'. Use: ${STATUSES.join(", ")}.`);
+      errors.push(`Invalid type '${row.status}'. Use: ${STATUSES.join(", ")}.`);
     }
 
     let punchIn = row.date ? parseDateTime(row.date, row.punchIn) : null;
@@ -124,7 +144,7 @@ export async function importAttendanceFromWorkbook(
       skipped += 1;
       results[index] = {
         row: row.excelRow,
-        employeeCode: row.employeeCode,
+        employeeCode: row.employeeCode || row.employeeName,
         date: row.date ? toIsoDate(row.date) : null,
         status: "Skipped",
         errors,
@@ -181,7 +201,7 @@ export async function importAttendanceFromWorkbook(
       skipped += 1;
       results[index] = {
         row: row.excelRow,
-        employeeCode: row.employeeCode,
+        employeeCode: row.employeeCode || row.employeeName,
         date: dateIso,
         status: "Skipped",
         errors: [err instanceof Error ? err.message : "Could not save this row."],
@@ -190,7 +210,7 @@ export async function importAttendanceFromWorkbook(
   });
 
   await runPool(work, 6, onProgress);
-  return { created, updated, skipped, totalRows: parsed.length, results };
+  return { created, updated, skipped, totalRows: parsed.length, results, mappedColumns: layout.mappedColumns };
 }
 
 async function readWorkbookGrid(file: File): Promise<SheetGrid> {
@@ -257,23 +277,38 @@ function splitDelimitedLine(line: string, delimiter: string): string[] {
   return cells;
 }
 
-function findLayout(grid: SheetGrid): { headerRow: number; columns: Record<string, number> } | null {
+function findLayout(grid: SheetGrid): {
+  headerRow: number;
+  columns: Record<string, number>;
+  mappedColumns: Record<string, string>;
+} | null {
   const scanTo = Math.min(grid.length, 20);
   for (let r = 0; r < scanTo; r++) {
     const headerMap = buildHeaderMap(grid[r] ?? []);
-    const empCol = resolveColumn(headerMap, "Employee Code");
-    const dateCol = resolveColumn(headerMap, "Date");
-    if (empCol != null && dateCol != null) {
+    const resolved = resolveColumns(headerMap);
+    const empCol = resolved.get(FIELD_EMPLOYEE_CODE);
+    const nameCol = resolved.get(FIELD_EMPLOYEE_NAME);
+    const dateCol = resolved.get(FIELD_DATE);
+    if ((empCol != null || nameCol != null) && dateCol != null) {
+      const headerByCol = new Map<number, string>();
+      headerMap.forEach((col, header) => headerByCol.set(col, header));
+      const mappedColumns: Record<string, string> = {};
+      resolved.forEach((col, field) => {
+        const header = headerByCol.get(col);
+        if (header) mappedColumns[field] = header;
+      });
       return {
         headerRow: r,
         columns: {
-          employeeCode: empCol,
+          employeeCode: empCol ?? -1,
+          employeeName: nameCol ?? -1,
           date: dateCol,
-          punchIn: resolveColumn(headerMap, "Punch In") ?? -1,
-          punchOut: resolveColumn(headerMap, "Punch Out") ?? -1,
-          status: resolveColumn(headerMap, "Status") ?? -1,
-          remarks: resolveColumn(headerMap, "Remarks") ?? -1,
+          punchIn: resolved.get(FIELD_PUNCH_IN) ?? -1,
+          punchOut: resolved.get(FIELD_PUNCH_OUT) ?? -1,
+          status: resolved.get(FIELD_TYPE) ?? -1,
+          remarks: resolved.get(FIELD_REMARKS) ?? -1,
         },
+        mappedColumns,
       };
     }
   }
@@ -289,26 +324,57 @@ function buildHeaderMap(row: SheetCell[]): Map<string, number> {
   return map;
 }
 
-function resolveColumn(headerMap: Map<string, number>, logicalName: string): number | null {
-  const aliases = COLUMN_ALIASES[logicalName] ?? [];
-  for (const alias of aliases) {
-    const key = normalizeHeader(alias);
-    if (headerMap.has(key)) return headerMap.get(key)!;
+function resolveColumns(headerMap: Map<string, number>): Map<string, number> {
+  const assigned = new Map<string, number>();
+  const used = new Set<number>();
+  for (const field of FIELD_ORDER) {
+    const match = bestHeader(headerMap, COLUMN_ALIASES[field] ?? [], used);
+    if (match == null) continue;
+    assigned.set(field, match);
+    used.add(match);
   }
-  for (const [key, col] of headerMap.entries()) {
-    for (const alias of aliases) {
-      const normalizedAlias = normalizeHeader(alias);
-      if (normalizedAlias.length < 4) continue;
-      if (key.includes(normalizedAlias) || normalizedAlias.includes(key)) return col;
+  return assigned;
+}
+
+function bestHeader(headerMap: Map<string, number>, aliases: string[], used: Set<number>): number | null {
+  let bestCol: number | null = null;
+  let bestScore = 0;
+  for (const [header, col] of headerMap.entries()) {
+    if (used.has(col)) continue;
+    const score = scoreHeader(header, aliases);
+    if (score > bestScore) {
+      bestScore = score;
+      bestCol = col;
     }
   }
-  return null;
+  return bestScore > 0 ? bestCol : null;
+}
+
+function scoreHeader(header: string, aliases: string[]): number {
+  const headerKey = normalizeHeader(header);
+  if (!headerKey) return 0;
+  const headerTokens = headerKey.split(" ").filter(Boolean);
+  let best = 0;
+  for (const alias of aliases) {
+    const aliasKey = normalizeHeader(alias);
+    if (!aliasKey) continue;
+    const aliasTokens = aliasKey.split(" ").filter(Boolean);
+    if (headerKey === aliasKey) return 1000 + aliasKey.length;
+    if (aliasTokens.length === 1 && aliasKey.length < 6) continue;
+    if (aliasTokens.length > 0 && aliasTokens.every((token) => headerTokens.includes(token))) {
+      const extra = headerTokens.length - aliasTokens.length;
+      const score = 200 + aliasKey.length - extra * 50;
+      if (score > best) best = score;
+    }
+  }
+  return best;
 }
 
 function parseRows(grid: SheetGrid, layout: { headerRow: number; columns: Record<string, number> }) {
   const rows: {
     excelRow: number;
     employeeCode: string;
+    employeeName: string;
     date: Date | null;
     punchIn: string;
     punchOut: string;
@@ -319,15 +385,17 @@ function parseRows(grid: SheetGrid, layout: { headerRow: number; columns: Record
   for (let r = layout.headerRow + 1; r < grid.length; r++) {
     const row = grid[r] ?? [];
     const employeeCode = cellText(row[layout.columns.employeeCode]);
+    const employeeName = cellText(row[layout.columns.employeeName]);
     const date = parseDateCell(row[layout.columns.date]);
     const punchIn = cellText(row[layout.columns.punchIn]);
     const punchOut = cellText(row[layout.columns.punchOut]);
     const status = cellText(row[layout.columns.status]);
     const remarks = cellText(row[layout.columns.remarks]);
-    if (!employeeCode && !date && !punchIn && !punchOut && !status && !remarks) continue;
+    if (!employeeCode && !employeeName && !date && !punchIn && !punchOut && !status && !remarks) continue;
     rows.push({
       excelRow: r + 1,
       employeeCode,
+      employeeName,
       date,
       punchIn,
       punchOut,
@@ -343,6 +411,7 @@ function normalizeHeader(raw: SheetCell): string {
     .replace(/\uFEFF/g, "")
     .replace(/\u00A0/g, " ")
     .replace(/\u200B/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
@@ -391,29 +460,71 @@ function parseDateTime(date: Date, raw: string): Date | null {
 
   const timeMatch = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\s*$/i.exec(s);
   if (timeMatch) {
-    let hours = Number(timeMatch[1]);
-    const minutes = Number(timeMatch[2]);
-    const ampm = timeMatch[4]?.toLowerCase();
-    if (ampm === "pm" && hours < 12) hours += 12;
-    if (ampm === "am" && hours === 12) hours = 0;
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, Number(timeMatch[3] || 0));
+    return clockOnDate(date, Number(timeMatch[1]), Number(timeMatch[2]), Number(timeMatch[3] || 0), timeMatch[4]);
   }
 
-  const fraction = Number(s);
-  if (Number.isFinite(fraction) && fraction >= 0 && fraction < 1) {
-    const totalSeconds = Math.round(fraction * 24 * 60 * 60);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, seconds);
+  const dotted = /^(\d{1,2})[.\-](\d{2})(?:[.\-](\d{2}))?\s*(am|pm)?$/i.exec(s);
+  if (dotted) {
+    return clockOnDate(date, Number(dotted[1]), Number(dotted[2]), Number(dotted[3] || 0), dotted[4]);
+  }
+
+  const compact = /^(\d{3,4})$/.exec(s);
+  if (compact) {
+    const hmm = Number(compact[1]);
+    const hours = Math.floor(hmm / 100);
+    const minutes = hmm % 100;
+    if (hours < 24 && minutes < 60) return clockOnDate(date, hours, minutes, 0);
+  }
+
+  const n = Number(s);
+  if (Number.isFinite(n) && n >= 0 && n < 2958466) {
+    if (n < 1) {
+      const totalSeconds = Math.round(n * 24 * 60 * 60);
+      return clockOnDate(date, Math.floor(totalSeconds / 3600), Math.floor((totalSeconds % 3600) / 60), totalSeconds % 60);
+    }
+    const hours = Math.trunc(n);
+    const minutes = Math.round((n - hours) * 100);
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      return clockOnDate(date, hours, minutes, 0);
+    }
   }
 
   return null;
 }
 
+function clockOnDate(date: Date, hours: number, minutes: number, seconds: number, ampm?: string): Date | null {
+  let h = hours;
+  const mer = ampm?.toLowerCase();
+  if (mer === "pm" && h < 12) h += 12;
+  if (mer === "am" && h === 12) h = 0;
+  if (h < 0 || h > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), h, minutes, seconds);
+}
+
 function normalizeStatus(raw: string): string | null {
   if (!raw.trim()) return "Present";
-  return STATUSES.find((s) => s.toLowerCase() === raw.trim().toLowerCase()) ?? null;
+  const compact = raw.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  switch (compact) {
+    case "present":
+    case "p":
+      return "Present";
+    case "absent":
+    case "a":
+    case "abs":
+      return "Absent";
+    case "late":
+    case "l":
+      return "Late";
+    case "halfday":
+    case "hd":
+    case "half":
+      return "Half Day";
+    case "onleave":
+    case "leave":
+      return "On Leave";
+    default:
+      return null;
+  }
 }
 
 function startOfDay(d: Date): Date {
@@ -454,14 +565,33 @@ function employeeAliases(code: string | null | undefined): string[] {
   return [...aliases].filter(Boolean);
 }
 
-function buildEmployeeLookup(employees: EmployeeRow[]): { codeMap: Map<string, EmployeeRow>; fingerprintMap: Map<string, EmployeeRow> } {
+function employeeNameKeys(firstName?: string | null, lastName?: string | null): string[] {
+  const first = normalizeHeader(firstName);
+  const last = normalizeHeader(lastName);
+  if (first && last) return [`${first} ${last}`, `${last} ${first}`];
+  if (first) return [first];
+  if (last) return [last];
+  return [];
+}
+
+function buildEmployeeLookup(employees: EmployeeRow[]): {
+  codeMap: Map<string, EmployeeRow>;
+  fingerprintMap: Map<string, EmployeeRow>;
+  nameMap: Map<string, EmployeeRow[]>;
+} {
   const codeMap = new Map<string, EmployeeRow>();
   const fingerprintMap = new Map<string, EmployeeRow>();
+  const nameMap = new Map<string, EmployeeRow[]>();
   const codeKeys = new Set<string>();
   for (const employee of employees) {
     for (const alias of employeeAliases(employee.employeeCode)) {
       codeKeys.add(alias);
       if (!codeMap.has(alias)) codeMap.set(alias, employee);
+    }
+    for (const name of employeeNameKeys(employee.firstName, employee.lastName)) {
+      const list = nameMap.get(name) ?? [];
+      list.push(employee);
+      nameMap.set(name, list);
     }
   }
   for (const employee of employees) {
@@ -470,27 +600,43 @@ function buildEmployeeLookup(employees: EmployeeRow[]): { codeMap: Map<string, E
       if (!fingerprintMap.has(alias)) fingerprintMap.set(alias, employee);
     }
   }
-  return { codeMap, fingerprintMap };
+  return { codeMap, fingerprintMap, nameMap };
 }
 
 function resolveEmployee(
-  lookup: { codeMap: Map<string, EmployeeRow>; fingerprintMap: Map<string, EmployeeRow> },
+  lookup: {
+    codeMap: Map<string, EmployeeRow>;
+    fingerprintMap: Map<string, EmployeeRow>;
+    nameMap: Map<string, EmployeeRow[]>;
+  },
   code: string,
+  name?: string,
 ): EmployeeRow | undefined {
-  const key = code.trim();
+  const key = (code ?? "").trim();
+  if (key) {
+    const keys = [key.toLowerCase(), ...employeeAliases(key)];
+    const trimmedZeros = key.replace(/^0+/, "").toLowerCase();
+    if (trimmedZeros) keys.push(trimmedZeros);
+    for (const alias of keys) {
+      const hit = lookup.codeMap.get(alias);
+      if (hit) return hit;
+    }
+    for (const alias of keys) {
+      const hit = lookup.fingerprintMap.get(alias);
+      if (hit) return hit;
+    }
+    const byCodeName = uniqueNameMatch(lookup.nameMap, key);
+    if (byCodeName) return byCodeName;
+  }
+  return uniqueNameMatch(lookup.nameMap, name);
+}
+
+function uniqueNameMatch(nameMap: Map<string, EmployeeRow[]>, raw?: string): EmployeeRow | undefined {
+  const key = normalizeHeader(raw);
   if (!key) return undefined;
-  const keys = [key.toLowerCase(), ...employeeAliases(key)];
-  const trimmedZeros = key.replace(/^0+/, "").toLowerCase();
-  if (trimmedZeros) keys.push(trimmedZeros);
-  for (const alias of keys) {
-    const hit = lookup.codeMap.get(alias);
-    if (hit) return hit;
-  }
-  for (const alias of keys) {
-    const hit = lookup.fingerprintMap.get(alias);
-    if (hit) return hit;
-  }
-  return undefined;
+  const matches = nameMap.get(key) ?? [];
+  const unique = [...new Map(matches.map((row) => [row.id, row])).values()];
+  return unique.length === 1 ? unique[0] : undefined;
 }
 
 async function loadAllEmployees(): Promise<EmployeeRow[]> {

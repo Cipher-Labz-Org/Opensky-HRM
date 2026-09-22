@@ -287,4 +287,7 @@ public class BankSlipRowDto
     public string? BankCode { get; set; }
     public string? BranchCode { get; set; }
     public string? BranchLocation { get; set; }
+    public string? NationalId { get; set; }
+    public string? Phone { get; set; }
+    public string? Email { get; set; }
 }

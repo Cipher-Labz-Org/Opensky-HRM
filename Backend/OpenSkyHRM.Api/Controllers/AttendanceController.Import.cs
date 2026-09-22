@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,38 +12,12 @@ namespace OpenSkyHRM.Api.Controllers;
 
 public partial class AttendanceController
 {
-    private static readonly string[] AttendanceImportStatuses =
-        ["Present", "Absent", "Late", "Half Day", "On Leave"];
-
-    private static readonly Dictionary<string, string[]> AttendanceImportColumnAliases = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Employee Code"] =
-        [
-            "Employee Code", "Emp Code", "EmployeeCode", "Employee ID", "Employee No", "Emp No",
-            "Employee Number", "Emp Number", "Code", "EmpCode", "PIN", "Enroll Number", "Enroll No",
-            "User ID", "AC-No", "AC No", "Badge", "Badge ID",
-        ],
-        ["Date"] = ["Date", "Attendance Date", "Work Date", "Att Date", "Day", "Punch Date", "Workday"],
-        ["Punch In"] =
-        [
-            "Punch In", "PunchIn", "In Time", "Time In", "Check In", "CheckIn", "In",
-            "Punch In Time", "Start Time", "Start", "Clock In", "ClockIn", "First In",
-        ],
-        ["Punch Out"] =
-        [
-            "Punch Out", "PunchOut", "Out Time", "Time Out", "Check Out", "CheckOut", "Out",
-            "Punch Out Time", "End Time", "End", "Clock Out", "ClockOut", "Last Out",
-        ],
-        ["Status"] = ["Status", "Attendance Status", "Type", "Attendance Type", "Attendance"],
-        ["Remarks"] = ["Remarks", "Notes", "Comment", "Comments", "Note"],
-    };
-
     [HttpGet("import-template")]
     public IActionResult DownloadAttendanceImportTemplate()
     {
         using var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add("Attendance");
-        string[] headers = ["Employee Code", "Date", "Punch In", "Punch Out", "Status", "Remarks"];
+        string[] headers = ["Employee Code", "Date", "Punch In", "Punch Out", "Type", "Remarks"];
         for (var i = 0; i < headers.Length; i++)
         {
             ws.Cell(1, i + 1).Value = headers[i];
@@ -59,11 +32,11 @@ public partial class AttendanceController
         ws.Cell(2, 5).Value = "Present";
         ws.Cell(2, 6).Value = "";
 
-        var refWs = wb.Worksheets.Add("Status values");
-        refWs.Cell(1, 1).Value = "Allowed Status";
+        var refWs = wb.Worksheets.Add("Type values");
+        refWs.Cell(1, 1).Value = "Allowed Type";
         refWs.Cell(1, 1).Style.Font.Bold = true;
-        for (var i = 0; i < AttendanceImportStatuses.Length; i++)
-            refWs.Cell(i + 2, 1).Value = AttendanceImportStatuses[i];
+        for (var i = 0; i < AttendanceImportColumns.AllowedStatuses.Length; i++)
+            refWs.Cell(i + 2, 1).Value = AttendanceImportColumns.AllowedStatuses[i];
         refWs.Columns().AdjustToContents();
         ws.Columns().AdjustToContents();
 
@@ -101,6 +74,7 @@ public partial class AttendanceController
             .ToListAsync();
         var employeeByCode = new Dictionary<string, (Guid Id, string? EmployeeCode)>(StringComparer.OrdinalIgnoreCase);
         var employeeByFingerprint = new Dictionary<string, (Guid Id, string? EmployeeCode)>(StringComparer.OrdinalIgnoreCase);
+        var employeeByName = new Dictionary<string, List<(Guid Id, string? EmployeeCode)>>(StringComparer.OrdinalIgnoreCase);
         foreach (var employee in employees)
         {
             BiometricEmployeeResolver.IndexSpreadsheetLookups(
@@ -109,6 +83,15 @@ public partial class AttendanceController
                 employee.EmployeeCode,
                 employee.FingerprintId,
                 (employee.Id, employee.EmployeeCode));
+            foreach (var nameKey in AttendanceImportEmployeeNames(employee.FirstName, employee.LastName))
+            {
+                if (!employeeByName.TryGetValue(nameKey, out var matches))
+                {
+                    matches = [];
+                    employeeByName[nameKey] = matches;
+                }
+                matches.Add((employee.Id, employee.EmployeeCode));
+            }
         }
 
         var allowedUpdateIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
@@ -125,27 +108,29 @@ public partial class AttendanceController
             {
                 message =
                     "Could not find attendance data. Download the attendance template and keep header columns for " +
-                    "Employee Code and Date (optional: Punch In, Punch Out, Status, Remarks).",
+                    "Employee Code and Date (optional: Punch In, Punch Out, Type, Remarks).",
             });
         }
 
-        var (ws, headerRow, headerMap) = layout.Value;
-        var empCol = ResolveImportColumn(headerMap, "Employee Code");
-        var dateCol = ResolveImportColumn(headerMap, "Date");
-        if (empCol is null || dateCol is null)
+        var (ws, headerRow, headerMap, columns) = layout.Value;
+        var empCol = AttendanceImportColumns.Column(columns, AttendanceImportColumns.EmployeeCode);
+        var nameCol = AttendanceImportColumns.Column(columns, AttendanceImportColumns.EmployeeName);
+        var dateCol = AttendanceImportColumns.Column(columns, AttendanceImportColumns.Date);
+        if ((empCol is null && nameCol is null) || dateCol is null)
         {
             return BadRequest(new
             {
                 message =
-                    "Missing required columns. Include employee code and date headers " +
-                    "(e.g. Employee Code, Date, Punch In, Punch Out, Status).",
+                    "Missing required columns. Include employee code (or employee name) and date headers " +
+                    "(e.g. Employee Code, Date, Punch In, Punch Out, Type).",
             });
         }
 
-        var punchInCol = ResolveImportColumn(headerMap, "Punch In");
-        var punchOutCol = ResolveImportColumn(headerMap, "Punch Out");
-        var statusCol = ResolveImportColumn(headerMap, "Status");
-        var remarksCol = ResolveImportColumn(headerMap, "Remarks");
+        var punchInCol = AttendanceImportColumns.Column(columns, AttendanceImportColumns.PunchIn);
+        var punchOutCol = AttendanceImportColumns.Column(columns, AttendanceImportColumns.PunchOut);
+        var statusCol = AttendanceImportColumns.Column(columns, AttendanceImportColumns.Status);
+        var remarksCol = AttendanceImportColumns.Column(columns, AttendanceImportColumns.Remarks);
+        var mappedColumns = DescribeMappedColumns(headerMap, columns);
 
         string? Cell(IXLRow row, int? col)
         {
@@ -163,51 +148,54 @@ public partial class AttendanceController
                 continue;
 
             var empCode = Cell(row, empCol);
+            var empName = Cell(row, nameCol);
             var date = DateCell(row);
             var statusRaw = Cell(row, statusCol);
             var remarks = Cell(row, remarksCol);
+            var empLabel = empCode ?? empName ?? "";
 
             var errors = new List<string>();
-            if (string.IsNullOrWhiteSpace(empCode))
-                errors.Add("Employee code is required.");
+            if (string.IsNullOrWhiteSpace(empCode) && string.IsNullOrWhiteSpace(empName))
+                errors.Add("Employee code or name is required.");
             if (!date.HasValue)
                 errors.Add("Date is required or invalid.");
 
             if (errors.Count > 0)
             {
                 skipped++;
-                results.Add(new AttendanceImportRowResult(r, empCode ?? "", date, "Skipped", errors));
+                results.Add(new AttendanceImportRowResult(r, empLabel, date, "Skipped", errors));
                 continue;
             }
 
-            if (!TryResolveImportEmployee(employeeByCode, employeeByFingerprint, empCode, out var employee))
+            if (!TryResolveImportEmployee(
+                    employeeByCode, employeeByFingerprint, employeeByName, empCode, empName, out var employee, out var resolveError))
             {
                 skipped++;
-                results.Add(new AttendanceImportRowResult(r, empCode, date, "Skipped", ["Employee not found."]));
+                results.Add(new AttendanceImportRowResult(r, empLabel, date, "Skipped", [resolveError ?? "Employee not found."]));
                 continue;
             }
 
             if (allowedUpdateIds != null && !allowedUpdateIds.Contains(employee.Id))
             {
                 skipped++;
-                results.Add(new AttendanceImportRowResult(r, empCode, date, "Skipped", ["You do not have permission to update this employee."]));
+                results.Add(new AttendanceImportRowResult(r, empLabel, date, "Skipped", ["You do not have permission to update this employee."]));
                 continue;
             }
 
             if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employee.Id, "Update"))
             {
                 skipped++;
-                results.Add(new AttendanceImportRowResult(r, empCode, date, "Skipped", ["You do not have permission to update this employee."]));
+                results.Add(new AttendanceImportRowResult(r, empLabel, date, "Skipped", ["You do not have permission to update this employee."]));
                 continue;
             }
 
-            var status = NormalizeAttendanceStatus(statusRaw);
+            var status = AttendanceImportColumns.NormalizeStatus(statusRaw);
             if (status is null)
             {
                 skipped++;
                 results.Add(new AttendanceImportRowResult(
-                    r, empCode, date, "Skipped",
-                    [$"Invalid status '{statusRaw}'. Use: {string.Join(", ", AttendanceImportStatuses)}."]));
+                    r, empLabel, date, "Skipped",
+                    [$"Invalid type '{statusRaw}'. Use: {string.Join(", ", AttendanceImportColumns.AllowedStatuses)}."]));
                 continue;
             }
 
@@ -219,7 +207,7 @@ public partial class AttendanceController
             if (punchIn.HasValue && punchOut.HasValue && punchOut <= punchIn)
             {
                 skipped++;
-                results.Add(new AttendanceImportRowResult(r, empCode, date, "Skipped", ["Punch Out must be after Punch In."]));
+                results.Add(new AttendanceImportRowResult(r, empLabel, date, "Skipped", ["Punch Out must be after Punch In."]));
                 continue;
             }
 
@@ -234,14 +222,21 @@ public partial class AttendanceController
 
             if (existing is not null)
             {
-                existing.PunchIn = punchIn;
-                existing.PunchOut = punchOut;
-                existing.WorkedHours = workedHours;
-                existing.Status = status;
-                existing.Remarks = string.IsNullOrWhiteSpace(remarks) ? existing.Remarks : remarks.Trim();
+                if (punchInCol is not null) existing.PunchIn = punchIn;
+                if (punchOutCol is not null) existing.PunchOut = punchOut;
+                if (punchInCol is not null || punchOutCol is not null)
+                {
+                    if (existing.PunchIn.HasValue && existing.PunchOut.HasValue)
+                        existing.WorkedHours = Math.Round((decimal)(existing.PunchOut.Value - existing.PunchIn.Value).TotalHours, 2);
+                    else if (workedHours.HasValue)
+                        existing.WorkedHours = workedHours;
+                }
+                if (statusCol is not null) existing.Status = status;
+                if (remarksCol is not null && !string.IsNullOrWhiteSpace(remarks))
+                    existing.Remarks = remarks.Trim();
                 existing.Source = "Import";
                 updated++;
-                results.Add(new AttendanceImportRowResult(r, empCode, date, "Updated", []));
+                results.Add(new AttendanceImportRowResult(r, empLabel, date, "Updated", []));
             }
             else
             {
@@ -257,14 +252,14 @@ public partial class AttendanceController
                     Source = "Import",
                 });
                 created++;
-                results.Add(new AttendanceImportRowResult(r, empCode, date, "Created", []));
+                results.Add(new AttendanceImportRowResult(r, empLabel, date, "Created", []));
             }
         }
 
         if (created > 0 || updated > 0)
             await _db.SaveChangesAsync();
 
-        return Ok(new AttendanceImportUploadResult(created, updated, skipped, results.Count, results));
+        return Ok(new AttendanceImportUploadResult(created, updated, skipped, results.Count, results, mappedColumns));
     }
 
     private const string AttendanceImportUnreadableMessage =
@@ -306,7 +301,7 @@ public partial class AttendanceController
     private static IActionResult BadRequestResult(string message) =>
         new BadRequestObjectResult(new { message });
 
-    private static (IXLWorksheet Worksheet, int HeaderRow, Dictionary<string, int> HeaderMap)? FindAttendanceImportLayout(
+    private static (IXLWorksheet Worksheet, int HeaderRow, Dictionary<string, int> HeaderMap, IReadOnlyDictionary<string, int> Columns)? FindAttendanceImportLayout(
         XLWorkbook wb)
     {
         foreach (var sheet in wb.Worksheets)
@@ -315,11 +310,11 @@ public partial class AttendanceController
             for (var r = 1; r <= lastRow; r++)
             {
                 var headerMap = BuildImportHeaderMap(sheet, r);
-                if (ResolveImportColumn(headerMap, "Employee Code").HasValue
-                    && ResolveImportColumn(headerMap, "Date").HasValue)
-                {
-                    return (sheet, r, headerMap);
-                }
+                var columns = AttendanceImportColumns.Resolve(headerMap);
+                var hasEmployee = AttendanceImportColumns.Column(columns, AttendanceImportColumns.EmployeeCode).HasValue
+                    || AttendanceImportColumns.Column(columns, AttendanceImportColumns.EmployeeName).HasValue;
+                if (hasEmployee && AttendanceImportColumns.Column(columns, AttendanceImportColumns.Date).HasValue)
+                    return (sheet, r, headerMap, columns);
             }
         }
 
@@ -432,17 +427,83 @@ public partial class AttendanceController
     private static bool TryResolveImportEmployee(
         Dictionary<string, (Guid Id, string? EmployeeCode)> byEmployeeCode,
         Dictionary<string, (Guid Id, string? EmployeeCode)> byFingerprint,
+        Dictionary<string, List<(Guid Id, string? EmployeeCode)>> byName,
         string? empCode,
-        out (Guid Id, string? EmployeeCode) employee)
+        string? empName,
+        out (Guid Id, string? EmployeeCode) employee,
+        out string? error)
     {
         employee = default;
+        error = null;
         var key = empCode?.Trim();
-        if (string.IsNullOrEmpty(key))
-            return false;
+        if (!string.IsNullOrEmpty(key))
+        {
+            if (TryResolveImportAlias(byEmployeeCode, key, out employee))
+                return true;
+            if (TryResolveImportAlias(byFingerprint, key, out employee))
+                return true;
+            if (TryResolveImportName(byName, key, out employee, out error))
+                return error is null;
+        }
 
-        if (TryResolveImportAlias(byEmployeeCode, key, out employee))
-            return true;
-        return TryResolveImportAlias(byFingerprint, key, out employee);
+        if (TryResolveImportName(byName, empName, out employee, out error))
+            return error is null;
+
+        error ??= "Employee not found.";
+        return false;
+    }
+
+    private static bool TryResolveImportName(
+        Dictionary<string, List<(Guid Id, string? EmployeeCode)>> byName,
+        string? raw,
+        out (Guid Id, string? EmployeeCode) employee,
+        out string? error)
+    {
+        employee = default;
+        error = null;
+        var key = AttendanceImportColumns.NormalizeHeader(raw);
+        if (string.IsNullOrEmpty(key) || !byName.TryGetValue(key, out var matches) || matches.Count == 0)
+            return false;
+        var distinct = matches.DistinctBy(m => m.Id).ToList();
+        if (distinct.Count > 1)
+        {
+            error = $"Multiple employees match '{raw?.Trim()}'.";
+            return false;
+        }
+
+        employee = distinct[0];
+        return true;
+    }
+
+    private static IEnumerable<string> AttendanceImportEmployeeNames(string? firstName, string? lastName)
+    {
+        var first = AttendanceImportColumns.NormalizeHeader(firstName);
+        var last = AttendanceImportColumns.NormalizeHeader(lastName);
+        if (!string.IsNullOrEmpty(first) && !string.IsNullOrEmpty(last))
+        {
+            yield return $"{first} {last}";
+            yield return $"{last} {first}";
+        }
+        else if (!string.IsNullOrEmpty(first))
+            yield return first;
+        else if (!string.IsNullOrEmpty(last))
+            yield return last;
+    }
+
+    private static Dictionary<string, string> DescribeMappedColumns(
+        Dictionary<string, int> headerMap,
+        IReadOnlyDictionary<string, int> columns)
+    {
+        var headerByCol = headerMap
+            .GroupBy(p => p.Value)
+            .ToDictionary(g => g.Key, g => g.First().Key);
+        var described = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in columns)
+        {
+            if (headerByCol.TryGetValue(pair.Value, out var header))
+                described[pair.Key] = header;
+        }
+        return described;
     }
 
     private static bool TryResolveImportAlias(
@@ -463,42 +524,12 @@ public partial class AttendanceController
         return !string.IsNullOrEmpty(trimmedZeros) && lookup.TryGetValue(trimmedZeros, out employee);
     }
 
-    private static int? ResolveImportColumn(Dictionary<string, int> headerMap, string logicalName)
-    {
-        if (!AttendanceImportColumnAliases.TryGetValue(logicalName, out var aliases))
-            return null;
-
-        foreach (var alias in aliases)
-        {
-            var key = NormalizeImportHeaderKey(alias);
-            if (headerMap.TryGetValue(key, out var col))
-                return col;
-        }
-
-        foreach (var pair in headerMap)
-        {
-            foreach (var alias in aliases)
-            {
-                var normalizedAlias = NormalizeImportHeaderKey(alias);
-                if (normalizedAlias.Length < 4)
-                    continue;
-                if (pair.Key.Contains(normalizedAlias, StringComparison.OrdinalIgnoreCase)
-                    || normalizedAlias.Contains(pair.Key, StringComparison.OrdinalIgnoreCase))
-                {
-                    return pair.Value;
-                }
-            }
-        }
-
-        return null;
-    }
-
     private static Dictionary<string, int> BuildImportHeaderMap(IXLWorksheet ws, int headerRow)
     {
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (var c = 1; c <= (ws.LastColumnUsed()?.ColumnNumber() ?? 0); c++)
         {
-            var key = NormalizeImportHeaderKey(GetCellTrimmedDisplayText(ws.Cell(headerRow, c)));
+            var key = AttendanceImportColumns.NormalizeHeader(GetCellTrimmedDisplayText(ws.Cell(headerRow, c)));
             if (!string.IsNullOrEmpty(key))
                 headerMap[key] = c;
         }
@@ -516,16 +547,6 @@ public partial class AttendanceController
         }
 
         return true;
-    }
-
-    private static string? NormalizeAttendanceStatus(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-            return "Present";
-
-        var trimmed = raw.Trim();
-        return AttendanceImportStatuses.FirstOrDefault(s =>
-            s.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
     }
 
     private static DateTime? ParseImportDateCell(IXLRow row, int column)
@@ -558,33 +579,14 @@ public partial class AttendanceController
         if (cell.DataType == XLDataType.DateTime)
             return DateTime.SpecifyKind(attendanceDate.Date.Add(cell.GetDateTime().TimeOfDay), DateTimeKind.Unspecified);
 
-        if (cell.DataType == XLDataType.Number && cell.TryGetValue<double>(out var oaDate) && oaDate is >= 0 and < 2958466)
+        if (cell.DataType == XLDataType.Number && cell.TryGetValue<double>(out var oaDate))
         {
-            try
-            {
-                if (oaDate < 1)
-                    return DateTime.SpecifyKind(attendanceDate.Date.Add(TimeSpan.FromDays(oaDate)), DateTimeKind.Unspecified);
-                if (Math.Abs(oaDate - Math.Truncate(oaDate)) > 1e-9)
-                    return DateTime.SpecifyKind(attendanceDate.Date.Add(DateTime.FromOADate(oaDate).TimeOfDay), DateTimeKind.Unspecified);
-            }
-            catch (ArgumentException)
-            {
-                /* fall through */
-            }
+            var tod = ExcelImportDateParser.FromExcelNumber(oaDate);
+            if (tod is not null)
+                return DateTime.SpecifyKind(attendanceDate.Date.Add(tod.Value), DateTimeKind.Unspecified);
         }
 
         return ExcelImportDateParser.CombineAttendanceDateAndPunch(attendanceDate, GetCellTrimmedDisplayText(cell));
-    }
-
-    private static string NormalizeImportHeaderKey(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return "";
-        var s = raw.Trim();
-        s = s.Replace("\uFEFF", "", StringComparison.Ordinal);
-        s = s.Replace("\u00A0", " ", StringComparison.Ordinal);
-        s = s.Replace("\u200B", "", StringComparison.Ordinal);
-        s = Regex.Replace(s, @"\s+", " ", RegexOptions.CultureInvariant).Trim();
-        return s;
     }
 
     private static string? GetCellTrimmedDisplayText(IXLCell cell)
@@ -636,5 +638,6 @@ public partial class AttendanceController
         int Updated,
         int Skipped,
         int TotalRows,
-        List<AttendanceImportRowResult> Results);
+        List<AttendanceImportRowResult> Results,
+        Dictionary<string, string>? MappedColumns = null);
 }
