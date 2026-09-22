@@ -27,6 +27,10 @@ internal static class AttendancePunchPolicyEvaluator
         if (mode == AttendanceCheckInModes.Open)
             return new AttendancePunchPolicy();
 
+        // Desktop header punch records attendance without a mobile QR/geofence scan.
+        if (string.Equals(dto.Source?.Trim(), "Web", StringComparison.OrdinalIgnoreCase))
+            return new AttendancePunchPolicy();
+
         var employee = await db.Employees.AsNoTracking()
             .FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted)
             ?? throw new InvalidOperationException("Employee not found.");

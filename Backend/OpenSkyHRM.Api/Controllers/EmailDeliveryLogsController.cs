@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Api.Filters;
 
 namespace OpenSkyHRM.Api.Controllers;
 
@@ -9,6 +10,7 @@ namespace OpenSkyHRM.Api.Controllers;
 /// </summary>
 [Authorize]
 [ApiController]
+[RequireLicensedModule("EmailDeliveryLog")]
 [Route("api/email-delivery-logs")]
 public class EmailDeliveryLogsController : ControllerBase
 {

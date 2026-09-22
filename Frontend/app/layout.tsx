@@ -5,6 +5,7 @@ import "./globals.css";
 import { APP_NAME } from "@/config/constants";
 import { AuthProvider } from "@/contexts/auth-context";
 import { TenantProvider } from "@/contexts/tenant-context";
+import { VendorModuleAccessPanel } from "@/components/licensing/VendorModuleAccessPanel";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -28,7 +29,10 @@ export default function RootLayout({
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <body className="min-h-screen font-sans antialiased" suppressHydrationWarning>
         <TenantProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            {children}
+            <VendorModuleAccessPanel />
+          </AuthProvider>
         </TenantProvider>
       </body>
     </html>

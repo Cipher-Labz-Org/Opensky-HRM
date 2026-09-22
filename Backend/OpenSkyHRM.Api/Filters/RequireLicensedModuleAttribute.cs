@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain.Security;
 
 namespace OpenSkyHRM.Api.Filters;
 
@@ -24,7 +25,9 @@ public sealed class RequireLicensedModuleAttribute : Attribute, IAsyncAuthorizat
             return;
 
         var licensing = context.HttpContext.RequestServices.GetRequiredService<ILicensingService>();
-        if (await licensing.IsModuleLicensedAsync(ModuleCode, context.HttpContext.RequestAborted))
+        var effective = await licensing.GetEffectiveModuleCodesAsync(context.HttpContext.RequestAborted);
+        var allowed = LicensedModuleAccess.CodesThatUnlock(ModuleCode);
+        if (allowed.Any(code => effective.Contains(code, StringComparer.Ordinal)))
             return;
 
         context.Result = new ObjectResult(new { code = "MODULE_NOT_LICENSED", module = ModuleCode })

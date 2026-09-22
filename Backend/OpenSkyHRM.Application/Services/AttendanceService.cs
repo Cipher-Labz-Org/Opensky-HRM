@@ -67,10 +67,11 @@ public class AttendanceService : IAttendanceService
             var employeeIdsFromRecords = rawItems.Select(r => r.EmployeeId).Distinct().ToList();
             var rosterAssignments = await LoadRosterAssignmentsAsync(employeeIdsFromRecords);
             var onLeaveSet = await GetApprovedLeaveDatesAsync(employeeIdsFromRecords, from, to);
-            var realDtos = rawItems
-                .Select(a => MapToDto(a, rosterAssignments, onLeaveSet.Contains((a.EmployeeId, a.Date))))
-                .Where(dto => MatchesAttendanceDtoFilters(dto, statusFilter, sourceFilter))
-                .ToList();
+            var realDtos = CollapseToFirstInLastOut(
+                rawItems
+                    .Select(a => MapToDto(a, rosterAssignments, onLeaveSet.Contains((a.EmployeeId, a.Date))))
+                    .Where(dto => MatchesAttendanceDtoFilters(dto, statusFilter, sourceFilter))
+                    .ToList());
 
             var leaveOnlySet = includeLeaveOnlyRows
                 ? await GetLeaveOnlyDatesAsync(from, to, employeeId, allowedEmployeeIds, recordsSet, departmentId, locationId)
@@ -103,10 +104,11 @@ public class AttendanceService : IAttendanceService
         var pageRosters = await LoadRosterAssignmentsAsync(pageEmployeeIds);
         var pageOnLeave = await GetApprovedLeaveDatesAsync(pageEmployeeIds, from, to);
         var dtos = SortAttendanceDtos(
-            pageItems
-                .Select(a => MapToDto(a, pageRosters, pageOnLeave.Contains((a.EmployeeId, a.Date))))
-                .Where(dto => MatchesAttendanceDtoFilters(dto, statusFilter, sourceFilter))
-                .ToList(),
+            CollapseToFirstInLastOut(
+                pageItems
+                    .Select(a => MapToDto(a, pageRosters, pageOnLeave.Contains((a.EmployeeId, a.Date))))
+                    .Where(dto => MatchesAttendanceDtoFilters(dto, statusFilter, sourceFilter))
+                    .ToList()),
             sortBy,
             sortDir);
 
@@ -487,60 +489,135 @@ public class AttendanceService : IAttendanceService
         var isOut = dto.Type.Equals("out", StringComparison.OrdinalIgnoreCase);
         var source = string.IsNullOrWhiteSpace(dto.Source) ? "Mobile" : dto.Source.Trim();
 
-        if (isOut)
-        {
-            var existing = await _db.Set<AttendanceRecord>()
-                .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
-                .Where(a => a.EmployeeId == employeeId && a.Date == today && a.PunchOut == null && !a.IsDeleted)
-                .OrderByDescending(a => a.PunchIn ?? DateTime.MinValue)
-                .FirstOrDefaultAsync();
+        var dayRows = await _db.Set<AttendanceRecord>()
+            .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
+            .Where(a => a.EmployeeId == employeeId && a.Date == today && !a.IsDeleted)
+            .OrderBy(a => a.PunchIn ?? DateTime.MaxValue)
+            .ThenBy(a => a.CreatedAt)
+            .ToListAsync();
 
-            if (existing != null)
-            {
-                existing.PunchOut = now;
-                existing.WorkedHours = Math.Round((decimal)(now - (existing.PunchIn ?? now)).TotalHours, 2);
-                if (dto.Latitude.HasValue) existing.Latitude = dto.Latitude;
-                if (dto.Longitude.HasValue) existing.Longitude = dto.Longitude;
-                if (punchPolicy.ResolvedPlace != null) existing.AttendancePlaceId = punchPolicy.ResolvedPlace.Id;
-                await ApplyAttendancePunchMetaAsync(existing, dto, source);
-                await _db.SaveChangesAsync();
-                var rosters = await _db.Set<RosterAssignment>()
-                    .Include(ra => ra.RosterTemplate).ThenInclude(rt => rt.DefaultShiftPattern)
-                    .Where(ra => ra.EmployeeId == employeeId).ToListAsync();
-                return MapToDto(existing, rosters, onLeaveToday);
-            }
-
+        if (dayRows.Count == 0 && isOut)
             throw new InvalidOperationException("There is no open check-in to check out from.");
+
+        var record = MergeDayRecords(dayRows, employeeId, today, source);
+        if (record.Employee == null)
+        {
+            await _db.Entry(record).Reference(a => a.Employee).LoadAsync();
+            if (record.Employee != null)
+                await _db.Entry(record.Employee).Reference(e => e.ShiftPattern).LoadAsync();
         }
 
-        var hasOpen = await _db.Set<AttendanceRecord>()
-            .AnyAsync(a => a.EmployeeId == employeeId && a.Date == today && a.PunchOut == null && !a.IsDeleted);
-        if (hasOpen)
-            throw new InvalidOperationException("Check out before recording another check-in.");
-
-        var newRecord = new AttendanceRecord
+        if (isOut)
         {
-            EmployeeId = employeeId,
-            Date = today,
-            PunchIn = now,
-            PunchOut = null,
-            Status = "Present",
-            Source = source,
-            Latitude = dto.Latitude,
-            Longitude = dto.Longitude,
-            AttendancePlaceId = punchPolicy.ResolvedPlace?.Id,
-        };
-        await ApplyAttendancePunchMetaAsync(newRecord, dto, source);
-        _db.Set<AttendanceRecord>().Add(newRecord);
+            if (!record.PunchIn.HasValue)
+                throw new InvalidOperationException("There is no open check-in to check out from.");
+
+            if (!record.PunchOut.HasValue || now > record.PunchOut.Value)
+                record.PunchOut = now;
+            ApplyFiloWorkedHours(record);
+        }
+        else
+        {
+            if (!record.PunchIn.HasValue || now < record.PunchIn.Value)
+                record.PunchIn = now;
+            // Currently in: keep first punch-in; last out is applied on the next punch-out.
+            record.PunchOut = null;
+            record.WorkedHours = null;
+            record.Status = "Present";
+        }
+
+        if (dto.Latitude.HasValue) record.Latitude = dto.Latitude;
+        if (dto.Longitude.HasValue) record.Longitude = dto.Longitude;
+        if (punchPolicy.ResolvedPlace != null) record.AttendancePlaceId = punchPolicy.ResolvedPlace.Id;
+        if (string.IsNullOrWhiteSpace(record.Source) || record.Source == "Mobile")
+            record.Source = source;
+
+        await ApplyAttendancePunchMetaAsync(record, dto, source);
         await _db.SaveChangesAsync();
 
         var full = await _db.Set<AttendanceRecord>()
             .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
-            .FirstAsync(a => a.Id == newRecord.Id);
-        var allRosters = await _db.Set<RosterAssignment>()
+            .FirstAsync(a => a.Id == record.Id);
+        var rosters = await _db.Set<RosterAssignment>()
             .Include(ra => ra.RosterTemplate).ThenInclude(rt => rt.DefaultShiftPattern)
             .Where(ra => ra.EmployeeId == employeeId).ToListAsync();
-        return MapToDto(full, allRosters, onLeaveToday);
+        return MapToDto(full, rosters, onLeaveToday);
+    }
+
+    private AttendanceRecord MergeDayRecords(
+        List<AttendanceRecord> dayRows,
+        Guid employeeId,
+        DateTime today,
+        string source)
+    {
+        if (dayRows.Count == 0)
+        {
+            var created = new AttendanceRecord
+            {
+                EmployeeId = employeeId,
+                Date = today,
+                Status = "Present",
+                Source = source,
+            };
+            _db.Set<AttendanceRecord>().Add(created);
+            return created;
+        }
+
+        var keep = dayRows[0];
+        foreach (var extra in dayRows.Skip(1))
+        {
+            if (extra.PunchIn.HasValue && (!keep.PunchIn.HasValue || extra.PunchIn < keep.PunchIn))
+                keep.PunchIn = extra.PunchIn;
+            if (extra.PunchOut.HasValue && (!keep.PunchOut.HasValue || extra.PunchOut > keep.PunchOut))
+                keep.PunchOut = extra.PunchOut;
+            extra.IsDeleted = true;
+        }
+
+        ApplyFiloWorkedHours(keep);
+        keep.Status = "Present";
+        return keep;
+    }
+
+    private static void ApplyFiloWorkedHours(AttendanceRecord record)
+    {
+        if (record.PunchIn.HasValue && record.PunchOut.HasValue && record.PunchOut.Value > record.PunchIn.Value)
+            record.WorkedHours = Math.Round((decimal)(record.PunchOut.Value - record.PunchIn.Value).TotalHours, 2);
+        else
+            record.WorkedHours = null;
+    }
+
+    private static List<AttendanceRecordDto> CollapseToFirstInLastOut(List<AttendanceRecordDto> items)
+    {
+        if (items.Count <= 1)
+            return items;
+
+        return items
+            .GroupBy(x => (x.EmployeeId, x.Date.Date))
+            .Select(g =>
+            {
+                var rows = g.OrderBy(x => x.PunchIn ?? DateTime.MaxValue).ThenBy(x => x.Id).ToList();
+                var keep = rows[0];
+                DateTime? firstIn = null;
+                DateTime? lastOut = null;
+                foreach (var row in rows)
+                {
+                    if (row.PunchIn.HasValue && (!firstIn.HasValue || row.PunchIn < firstIn))
+                        firstIn = row.PunchIn;
+                    if (row.PunchOut.HasValue && (!lastOut.HasValue || row.PunchOut > lastOut))
+                        lastOut = row.PunchOut;
+                    if (!string.IsNullOrWhiteSpace(row.Source) && string.IsNullOrWhiteSpace(keep.Source))
+                        keep.Source = row.Source;
+                }
+
+                keep.PunchIn = firstIn;
+                keep.PunchOut = lastOut;
+                if (firstIn.HasValue && lastOut.HasValue && lastOut.Value > firstIn.Value)
+                    keep.WorkedHours = Math.Round((decimal)(lastOut.Value - firstIn.Value).TotalHours, 2);
+                else
+                    keep.WorkedHours = null;
+                return keep;
+            })
+            .ToList();
     }
 
     private async Task ApplyAttendancePunchMetaAsync(AttendanceRecord record, PunchRequestDto dto, string source)
@@ -661,17 +738,17 @@ public class AttendanceService : IAttendanceService
 
                     DateTime? earliestIn = null;
                     DateTime? latestOut = null;
-                    decimal dayWorked = 0;
                     foreach (var record in presentRecords)
                     {
                         var punchIn = AttendancePunchTimes.ToApiWallClock(record.PunchIn, record.Source, _clock);
                         var punchOut = AttendancePunchTimes.ToApiWallClock(record.PunchOut, record.Source, _clock);
-                        dayWorked += ShiftAttendanceCalculator.ResolveWorkedHours(record.WorkedHours, punchIn, punchOut);
                         if (punchIn.HasValue && (!earliestIn.HasValue || punchIn.Value < earliestIn.Value))
                             earliestIn = punchIn;
                         if (punchOut.HasValue && (!latestOut.HasValue || punchOut.Value > latestOut.Value))
                             latestOut = punchOut;
                     }
+
+                    var dayWorked = ShiftAttendanceCalculator.ResolveWorkedHours(null, earliestIn, latestOut);
 
                     totalWorked += dayWorked;
                     presentDays++;
@@ -777,17 +854,17 @@ public class AttendanceService : IAttendanceService
 
                 DateTime? earliestIn = null;
                 DateTime? latestOut = null;
-                decimal dayWorked = 0;
                 foreach (var record in presentRecords)
                 {
                     var punchIn = AttendancePunchTimes.ToApiWallClock(record.PunchIn, record.Source, _clock);
                     var punchOut = AttendancePunchTimes.ToApiWallClock(record.PunchOut, record.Source, _clock);
-                    dayWorked += ShiftAttendanceCalculator.ResolveWorkedHours(record.WorkedHours, punchIn, punchOut);
                     if (punchIn.HasValue && (!earliestIn.HasValue || punchIn.Value < earliestIn.Value))
                         earliestIn = punchIn;
                     if (punchOut.HasValue && (!latestOut.HasValue || punchOut.Value > latestOut.Value))
                         latestOut = punchOut;
                 }
+
+                var dayWorked = ShiftAttendanceCalculator.ResolveWorkedHours(null, earliestIn, latestOut);
 
                 var shift = ResolveShiftPattern(emp, empRosters, d);
                 var prePost = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, d, earliestIn, latestOut);

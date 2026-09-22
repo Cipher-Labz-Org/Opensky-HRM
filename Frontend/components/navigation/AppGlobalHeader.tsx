@@ -8,6 +8,7 @@ import { ROUTES } from "@/config/routes";
 import { resolveAssetUrl } from "@/config/constants";
 import { contextualHelpGuideHref } from "@/lib/help-topics";
 import { HeaderCalendarPopover } from "@/components/navigation/HeaderCalendarPopover";
+import { HeaderPunchControl } from "@/components/navigation/HeaderPunchControl";
 import { apiFetch } from "@/lib/api";
 import { isVisibleHeaderNotification, shouldMarkReadFromHeader } from "@/lib/notification-visibility";
 import { OPENSKY_THEME } from "@/lib/opensky-theme";
@@ -27,6 +28,7 @@ export type AppGlobalHeaderUser = {
   username: string;
   email: string;
   employeeName: string | null;
+  employeeId: string | null;
   profileImageUrl: string | null;
   licensedModules?: string[];
 };
@@ -266,6 +268,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
       role="banner"
     >
       <div className="flex items-center gap-0.5 sm:gap-1">
+        <HeaderPunchControl licensedModules={user.licensedModules} />
         <HeaderCalendarPopover iconBtnClass={iconBtn} iconStroke={iconStroke} />
 
         <Popover.Root open={notifOpen} onOpenChange={setNotifOpen}>

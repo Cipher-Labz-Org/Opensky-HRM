@@ -63,7 +63,7 @@ export function CreateAttendanceModal({ open, onClose, onCreated }: Props) {
       punchOut: punchOutTime ? `${dateStr}T${punchOutTime}:00` : null,
       status: attendanceType,
       remarks: fd.get("remarks") || null,
-      source: "Web",
+      source: "Manual",
     };
 
     try {

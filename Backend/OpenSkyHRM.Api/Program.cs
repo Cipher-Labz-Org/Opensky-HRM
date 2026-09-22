@@ -162,7 +162,18 @@ builder.Services.AddAuthentication(options =>
         ClockSkew = TimeSpan.FromMinutes(1)
     };
 });
-builder.Services.AddAuthorization();
+builder.Services.Configure<OpenSkyHRM.Application.Options.VendorLicensingOptions>(
+    builder.Configuration.GetSection(OpenSkyHRM.Application.Options.VendorLicensingOptions.SectionName));
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("VendorLicensing", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireClaim(OpenSkyHRM.Application.Services.VendorLicensingAuthService.TokenUseClaim,
+            OpenSkyHRM.Application.Services.VendorLicensingAuthService.TokenUseValue);
+        policy.RequireRole(OpenSkyHRM.Application.Services.VendorLicensingAuthService.RoleCode);
+    });
+});
 
 // --- Controllers ---
 builder.Services.AddControllers()

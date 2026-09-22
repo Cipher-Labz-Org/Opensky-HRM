@@ -127,25 +127,42 @@ public class LicensingService : ILicensingService
             .Where(e => e.InstanceSubscriptionId == sub.Id && !e.IsDeleted)
             .ToDictionaryAsync(e => e.LicensedModuleId, cancellationToken);
 
-        var dtos = modules.Select(m =>
-        {
-            entByModuleId.TryGetValue(m.Id, out var ent);
-            var enabled = m.IsRequired || ent == null || ent.IsEnabled;
-            return new LicensedModuleAdminDto
+        var byCode = modules
+            .GroupBy(m => m.Code, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var dtos = LicensedModuleAccess.VendorSidebarModules
+            .Select(def =>
             {
-                Id = m.Id,
-                Code = m.Code,
-                DisplayName = m.DisplayName,
-                Category = m.Category,
-                SortOrder = m.SortOrder,
-                IsRequired = m.IsRequired,
-                IsActive = m.IsActive,
-                IsEnabled = enabled
-            };
-        }).ToList();
+                if (!byCode.TryGetValue(def.Code, out var m))
+                    return null;
+
+                entByModuleId.TryGetValue(m.Id, out var ent);
+                var enabled = m.IsRequired || ent == null || ent.IsEnabled;
+                return new LicensedModuleAdminDto
+                {
+                    Id = m.Id,
+                    Code = m.Code,
+                    DisplayName = def.DisplayName,
+                    Category = def.Category,
+                    SortOrder = def.Sort,
+                    IsRequired = m.IsRequired,
+                    IsActive = m.IsActive,
+                    IsEnabled = enabled
+                };
+            })
+            .Where(d => d != null)
+            .Select(d => d!)
+            .ToList();
+
+        var companyName = await _db.SystemSettings
+            .AsNoTracking()
+            .Where(s => s.Key == "CompanyName")
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync(cancellationToken);
 
         return new LicensingAdminDto
         {
+            CompanyName = (companyName ?? string.Empty).Trim(),
             Subscription = MapSubscription(sub),
             Modules = dtos
         };
@@ -177,6 +194,9 @@ public class LicensingService : ILicensingService
 
         foreach (var mod in modules)
         {
+            if (!LicensedModuleAccess.IsVendorSidebarModule(mod.Code))
+                continue;
+
             if (!entByModuleId.TryGetValue(mod.Id, out var ent))
             {
                 ent = new InstanceModuleEntitlement

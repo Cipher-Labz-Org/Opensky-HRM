@@ -2,8 +2,7 @@ namespace OpenSkyHRM.Domain.Security;
 
 /// <summary>
 /// Menu-level modules shown on Roles &amp; permissions. Codes are stored on <c>Permission.Module</c>.
-/// <see cref="RolePermissionModuleDefinition.LicenseAnyOf"/> maps each row to sellable licensed modules
-/// so submenu items (Employee bio, Approvals, User Management, …) appear without extra license SKUs.
+/// <see cref="RolePermissionModuleDefinition.LicenseAnyOf"/> maps each row to sellable licensed modules.
 /// Empty <see cref="RolePermissionModuleDefinition.LicenseAnyOf"/> means always available (Help).
 /// </summary>
 public sealed record RolePermissionModuleDefinition(
@@ -19,33 +18,33 @@ public static class RolePermissionCatalog
     {
         new("Dashboard", "Dashboard", "Core", 10, ["Dashboard"]),
         new("People", "People Hub", "Core", 20, ["People"]),
-        new("EmployeeBio", "Employee bio", "Core", 25, ["People"]),
+        new("EmployeeBio", "Employee bio", "Core", 25, ["EmployeeBio"]),
         new("Recruitment", "Recruitment", "Core", 30, ["Recruitment"]),
-        new("EmployeeTasks", "Employee Tasks", "Core", 40, ["People", "Recruitment", "EmployeeTasks"]),
-        new("EmployeeActions", "Employee Actions", "Core", 50, ["People"]),
+        new("EmployeeTasks", "Employee Tasks", "Core", 40, ["EmployeeTasks"]),
+        new("EmployeeActions", "Employee Actions", "Core", 50, ["EmployeeActions"]),
         new("Onboarding", "Onboarding", "Core", 55, ["Onboarding"]),
         new("Offboarding", "Offboarding", "Core", 56, ["Offboarding"]),
 
         new("Leave", "Leave & Absence", "Workforce", 60, ["Leave"]),
-        new("Approvals", "Approvals", "Workforce", 65, ["Leave", "Attendance"]),
+        new("Approvals", "Approvals", "Workforce", 65, ["Approvals"]),
         new("Attendance", "Time & Attendance", "Workforce", 70, ["Attendance"]),
         new("Payroll", "Payroll", "Workforce", 80, ["Payroll"]),
         new("Performance", "Performance Appraisal", "Workforce", 90, ["Performance"]),
         new("Learning", "Learning & Skills", "Workforce", 100, ["Learning"]),
 
-        new("Reports", "Reports", "Intelligence", 110, ["Analytics"]),
+        new("Reports", "Reports", "Intelligence", 110, ["Reports"]),
         new("OrgStructure", "Org Structure", "Intelligence", 120, ["OrgStructure"]),
         new("Analytics", "Analytics", "Intelligence", 130, ["Analytics"]),
-        new("CompanyProfile", "Company Profile", "Intelligence", 135, ["Settings"]),
+        new("CompanyProfile", "Company Profile", "Intelligence", 135, ["CompanyProfile"]),
         new("Settings", "Policy & Settings", "Intelligence", 140, ["Settings"]),
         new("Billing", "Billing", "Intelligence", 150, ["Billing"]),
         new("AiAssistant", "OpenSky AI", "Intelligence", 155, ["AiAssistant"]),
 
-        new("EmailTemplates", "Email & letter templates", "Audit & Compliance", 160, ["Settings"]),
-        new("EmailDeliveryLog", "Email delivery log", "Audit & Compliance", 170, ["Settings"]),
+        new("EmailTemplates", "Email & letter templates", "Audit & Compliance", 160, ["EmailTemplates"]),
+        new("EmailDeliveryLog", "Email delivery log", "Audit & Compliance", 170, ["EmailDeliveryLog"]),
 
         new("Administration", "Data Import / Export", "Administration", 180, ["Administration"]),
-        new("UserManagement", "User Management", "Administration", 190, ["Administration"]),
+        new("UserManagement", "User Management", "Administration", 190, ["UserManagement"]),
 
         new("Help", "Help & guides", "Help", 200, []),
     };

@@ -6,6 +6,7 @@ using OpenSkyHRM.Application.Services;
 using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
+using OpenSkyHRM.Domain.Security;
 using OpenSkyHRM.Persistence;
 using OpenSkyHRM.Persistence.Seeders;
 using Xunit;
@@ -50,7 +51,7 @@ public class LicensingServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             svc.UpdateEntitlementsAsync(new UpdateModuleEntitlementsDto
             {
-                EnabledOptionalModuleCodes = new List<string> { "People" }
+                EnabledOptionalModuleCodes = new List<string> { "Dashboard" }
             }));
     }
 
@@ -65,9 +66,9 @@ public class LicensingServiceTests
 
         var codes = await svc.GetEffectiveModuleCodesAsync();
         Assert.Contains("Dashboard", codes);
-        Assert.Contains("People", codes);
-        Assert.Contains("Settings", codes);
-        Assert.Contains("Billing", codes);
+        Assert.DoesNotContain("People", codes);
+        Assert.DoesNotContain("Settings", codes);
+        Assert.DoesNotContain("Billing", codes);
         Assert.DoesNotContain("Payroll", codes);
     }
 
@@ -127,15 +128,60 @@ public class LicensingServiceTests
 
         var codes = (await svc.GetLicensedModulesForRoleAssignmentAsync()).Select(m => m.Module).ToList();
         Assert.Contains("Dashboard", codes);
-        Assert.Contains("People", codes);
-        Assert.Contains("EmployeeBio", codes);
-        Assert.Contains("Settings", codes);
-        Assert.Contains("CompanyProfile", codes);
-        Assert.Contains("EmailTemplates", codes);
         Assert.Contains("Help", codes);
+        Assert.DoesNotContain("People", codes);
+        Assert.DoesNotContain("Settings", codes);
+        Assert.DoesNotContain("Billing", codes);
+        Assert.DoesNotContain("EmployeeBio", codes);
+        Assert.DoesNotContain("CompanyProfile", codes);
+        Assert.DoesNotContain("EmailTemplates", codes);
         Assert.DoesNotContain("Payroll", codes);
         Assert.DoesNotContain("Approvals", codes);
         Assert.DoesNotContain("UserManagement", codes);
         Assert.DoesNotContain("Reports", codes);
+    }
+
+    [Fact]
+    public async Task Seeder_Includes_Independent_Sidebar_Modules()
+    {
+        var (db, svc) = await CreateSutAsync();
+        var catalog = await db.LicensedModules.Select(m => m.Code).ToListAsync();
+        Assert.Contains("EmployeeBio", catalog);
+        Assert.Contains("EmployeeActions", catalog);
+        Assert.Contains("Approvals", catalog);
+        Assert.Contains("Reports", catalog);
+        Assert.Contains("CompanyProfile", catalog);
+        Assert.Contains("EmailTemplates", catalog);
+        Assert.Contains("EmailDeliveryLog", catalog);
+        Assert.Contains("UserManagement", catalog);
+
+        var codes = await svc.GetEffectiveModuleCodesAsync();
+        Assert.Contains("EmployeeBio", codes);
+        Assert.Contains("Approvals", codes);
+        Assert.Contains("Reports", codes);
+        Assert.Contains("UserManagement", codes);
+    }
+
+    [Fact]
+    public async Task GetAdminStateAsync_Returns_Only_Sidebar_Modules()
+    {
+        var (_, svc) = await CreateSutAsync();
+        var admin = await svc.GetAdminStateAsync();
+        var codes = admin.Modules.Select(m => m.Code).ToList();
+        var labels = admin.Modules.Select(m => m.DisplayName).ToList();
+
+        Assert.Equal(LicensedModuleAccess.VendorSidebarModules.Select(m => m.Code), codes);
+        Assert.Contains("People Hub", labels);
+        Assert.Contains("Employee bio", labels);
+        Assert.Contains("Leave & Absence", labels);
+        Assert.Contains("Time & Attendance", labels);
+        Assert.Contains("Performance Appraisal", labels);
+        Assert.Contains("Learning & Skills", labels);
+        Assert.Contains("Email & letter templates", labels);
+        Assert.Contains("Data Import / Export", labels);
+        Assert.DoesNotContain("Onboarding", codes);
+        Assert.DoesNotContain("Offboarding", codes);
+        Assert.DoesNotContain("AiAssistant", codes);
+        Assert.DoesNotContain(labels, l => l.Contains("Unlock", StringComparison.OrdinalIgnoreCase));
     }
 }
