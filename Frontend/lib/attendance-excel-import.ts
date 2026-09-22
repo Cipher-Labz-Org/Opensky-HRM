@@ -103,9 +103,20 @@ export async function importAttendanceFromWorkbook(
       errors.push(`Invalid status '${row.status}'. Use: ${STATUSES.join(", ")}.`);
     }
 
-    const punchIn = row.date ? parseDateTime(row.date, row.punchIn) : null;
-    const punchOut = row.date ? parseDateTime(row.date, row.punchOut) : null;
-    if (punchIn && punchOut && punchOut <= punchIn) {
+    let punchIn = row.date ? parseDateTime(row.date, row.punchIn) : null;
+    let punchOut = row.date ? parseDateTime(row.date, row.punchOut) : null;
+    // Overnight / next-day clock-out (same Date column as shift start).
+    if (punchIn && punchOut && punchOut.getTime() < punchIn.getTime()) {
+      punchOut = new Date(
+        punchOut.getFullYear(),
+        punchOut.getMonth(),
+        punchOut.getDate() + 1,
+        punchOut.getHours(),
+        punchOut.getMinutes(),
+        punchOut.getSeconds()
+      );
+    }
+    if (punchIn && punchOut && punchOut.getTime() <= punchIn.getTime()) {
       errors.push("Punch Out must be after Punch In.");
     }
 

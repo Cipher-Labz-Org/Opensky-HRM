@@ -213,6 +213,9 @@ public partial class AttendanceController
 
             var punchIn = ParseImportPunch(row, punchInCol, date!.Value);
             var punchOut = ParseImportPunch(row, punchOutCol, date.Value);
+            if (punchIn.HasValue && punchOut.HasValue)
+                punchOut = ExcelImportDateParser.ApplyOvernightPunchOutIfNeeded(punchIn.Value, punchOut.Value);
+
             if (punchIn.HasValue && punchOut.HasValue && punchOut <= punchIn)
             {
                 skipped++;
