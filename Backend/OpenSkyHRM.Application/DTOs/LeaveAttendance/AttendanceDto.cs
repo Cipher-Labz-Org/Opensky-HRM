@@ -47,6 +47,7 @@ public class UpdateAttendanceRecordDto
     public DateTime? PunchOut { get; set; }
     public string? Status { get; set; }
     public string? Remarks { get; set; }
+    public string? Source { get; set; }
 }
 
 public class AttendanceSummaryDto

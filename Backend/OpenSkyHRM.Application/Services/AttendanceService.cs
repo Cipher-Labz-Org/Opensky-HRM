@@ -33,6 +33,8 @@ public class AttendanceService : IAttendanceService
         var from = fromDate?.Date ?? today;
         var to = toDate?.Date ?? today;
         if (to < from) to = from;
+        // Inclusive calendar range: Date may carry a time-of-day from older rows / imports.
+        var toExclusive = to.AddDays(1);
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -50,7 +52,7 @@ public class AttendanceService : IAttendanceService
         var query = _db.Set<AttendanceRecord>()
             .AsNoTracking()
             .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
-            .Where(a => a.Date >= from && a.Date <= to);
+            .Where(a => a.Date >= from && a.Date < toExclusive);
 
         if (employeeId.HasValue)
             query = query.Where(a => a.EmployeeId == employeeId.Value);
@@ -392,7 +394,10 @@ public class AttendanceService : IAttendanceService
     private IQueryable<AttendanceRecord> BuildAttendanceQuery(
         DateTime from, DateTime to, Guid? employeeId, IReadOnlyList<Guid>? allowedEmployeeIds)
     {
-        var query = _db.Set<AttendanceRecord>().AsNoTracking().Where(a => a.Date >= from && a.Date <= to);
+        var fromDay = from.Date;
+        var toExclusive = to.Date.AddDays(1);
+        var query = _db.Set<AttendanceRecord>().AsNoTracking()
+            .Where(a => a.Date >= fromDay && a.Date < toExclusive);
 
         if (employeeId.HasValue)
             query = query.Where(a => a.EmployeeId == employeeId.Value);
@@ -447,6 +452,7 @@ public class AttendanceService : IAttendanceService
         if (dto.PunchOut.HasValue) entity.PunchOut = dto.PunchOut;
         if (dto.Status != null) entity.Status = dto.Status;
         if (dto.Remarks != null) entity.Remarks = dto.Remarks;
+        if (!string.IsNullOrWhiteSpace(dto.Source)) entity.Source = dto.Source.Trim();
 
         if (entity.PunchIn.HasValue && entity.PunchOut.HasValue)
             entity.WorkedHours = Math.Round((decimal)(entity.PunchOut.Value - entity.PunchIn.Value).TotalHours, 2);
@@ -670,7 +676,7 @@ public class AttendanceService : IAttendanceService
     {
         var attendanceQuery = _db.Set<AttendanceRecord>()
             .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
-            .Where(a => a.Date >= from.Date && a.Date <= to.Date);
+            .Where(a => a.Date >= from.Date && a.Date < to.Date.AddDays(1));
 
         if (employeeId.HasValue)
             attendanceQuery = attendanceQuery.Where(a => a.EmployeeId == employeeId.Value);
@@ -799,7 +805,7 @@ public class AttendanceService : IAttendanceService
     {
         var attendanceQuery = _db.Set<AttendanceRecord>()
             .Include(a => a.Employee).ThenInclude(e => e.ShiftPattern)
-            .Where(a => a.Date >= from.Date && a.Date <= to.Date);
+            .Where(a => a.Date >= from.Date && a.Date < to.Date.AddDays(1));
 
         if (employeeId.HasValue)
             attendanceQuery = attendanceQuery.Where(a => a.EmployeeId == employeeId.Value);

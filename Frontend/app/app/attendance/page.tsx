@@ -9,6 +9,7 @@ import { DatePickerField, DateTimePickerField, FormErrorAlert, FormSelect, Table
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { CreateAttendanceModal } from "@/components/forms/CreateAttendanceModal";
 import { ImportAttendanceModal } from "@/components/forms/ImportAttendanceModal";
+import type { AttendanceImportUploadResult } from "@/lib/attendance-excel-import";
 import { EmployeeSearchCombobox, type EmployeeSearchPick } from "@/components/workforce/EmployeeSearchCombobox";
 import { OtNopayPanel } from "@/components/workforce/OtNopayPanel";
 import { apiFetch } from "@/lib/api";
@@ -481,6 +482,17 @@ function fmtTimeSpan(ts: string | null): string {
 
 function todayLocalIso(date: Date = new Date()): string {
   return formatLocalDateToIso(date);
+}
+
+/** Min/max calendar dates from a successful Excel import (yyyy-MM-dd). */
+function importedAttendanceDateRange(result: AttendanceImportUploadResult): { from: string; to: string } | null {
+  const dates = (result.results ?? [])
+    .filter((r) => r.status === "Created" || r.status === "Updated")
+    .map((r) => (r.date ?? "").slice(0, 10))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
+  if (dates.length === 0) return null;
+  return { from: dates[0], to: dates[dates.length - 1] };
 }
 
 // ──────────────────────────── Page ────────────────────────────
@@ -1328,7 +1340,24 @@ function AttendanceListTab() {
       <ImportAttendanceModal
         open={showImport}
         onClose={() => setShowImport(false)}
-        onImported={() => load()}
+        onImported={(result) => {
+          const range = importedAttendanceDateRange(result);
+          const nextFrom = range?.from ?? filterFrom;
+          const nextTo = range?.to ?? filterTo;
+          setFilterFrom(nextFrom);
+          setFilterTo(nextTo);
+          setAppliedFrom(nextFrom);
+          setAppliedTo(nextTo);
+          setAppliedSource("");
+          setFilterSource("");
+          setPage(1);
+          load({
+            pageNum: 1,
+            from: nextFrom,
+            to: nextTo,
+            source: "",
+          });
+        }}
       />
 
       <InlinePageAlert message={error} />
