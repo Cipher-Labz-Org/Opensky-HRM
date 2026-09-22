@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Payroll;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
@@ -686,6 +687,23 @@ public class PayrollService : IPayrollService
             OtMultiplier = decimal.TryParse(await _settings.GetAsync("Payroll_OT_Multiplier"), out var mul) ? mul : 1.5m,
             ApitTaxMode = PayrollCalculationEngine.NormalizeApitTaxMode(
                 await _settings.GetAsync("Payroll_APIT_TaxMode")),
+            SalaryPeriodStartDay = ParseSalaryPeriodDay(
+                await _settings.GetAsync("Payroll_SalaryPeriod_StartDay"), PayrollSalaryPeriod.DefaultStartDay),
+            SalaryPeriodEndDay = ParseSalaryPeriodDay(
+                await _settings.GetAsync("Payroll_SalaryPeriod_EndDay"), PayrollSalaryPeriod.DefaultEndDay),
+            OtComponentCode = PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.OtComponentKey),
+                PayrollComponentMapping.DefaultOtCode),
+            NopayComponentCode = PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.NopayComponentKey),
+                PayrollComponentMapping.DefaultNopayCode),
+            PoyaComponentCode = PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.PoyaComponentKey),
+                PayrollComponentMapping.DefaultPoyaCode),
+            BaseComponentCode = PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.BaseComponentKey),
+                PayrollComponentMapping.DefaultBaseCode),
+            WorkingHoursComponentCode = (await _settings.GetAsync(PayrollComponentMapping.WorkingHoursComponentKey) ?? "").Trim(),
         };
     }
 
@@ -702,7 +720,50 @@ public class PayrollService : IPayrollService
             string.IsNullOrWhiteSpace(dto.ApitTaxMode)
                 ? await _settings.GetAsync("Payroll_APIT_TaxMode")
                 : dto.ApitTaxMode);
+
+        dto.SalaryPeriodStartDay = PayrollSalaryPeriod.NormalizeDay(
+            dto.SalaryPeriodStartDay > 0 ? dto.SalaryPeriodStartDay : PayrollSalaryPeriod.DefaultStartDay);
+        dto.SalaryPeriodEndDay = PayrollSalaryPeriod.NormalizeDay(
+            dto.SalaryPeriodEndDay > 0 ? dto.SalaryPeriodEndDay : PayrollSalaryPeriod.DefaultEndDay);
+        await _settings.SetAsync("Payroll_SalaryPeriod_StartDay", dto.SalaryPeriodStartDay.ToString());
+        await _settings.SetAsync("Payroll_SalaryPeriod_EndDay", dto.SalaryPeriodEndDay.ToString());
+
+        dto.OtComponentCode = await PersistMappedComponentAsync(
+            PayrollComponentMapping.OtComponentKey, dto.OtComponentCode, PayrollComponentMapping.DefaultOtCode);
+        dto.NopayComponentCode = await PersistMappedComponentAsync(
+            PayrollComponentMapping.NopayComponentKey, dto.NopayComponentCode, PayrollComponentMapping.DefaultNopayCode);
+        dto.PoyaComponentCode = await PersistMappedComponentAsync(
+            PayrollComponentMapping.PoyaComponentKey, dto.PoyaComponentCode, PayrollComponentMapping.DefaultPoyaCode);
+        dto.BaseComponentCode = await PersistMappedComponentAsync(
+            PayrollComponentMapping.BaseComponentKey, dto.BaseComponentCode, PayrollComponentMapping.DefaultBaseCode);
+        dto.WorkingHoursComponentCode = (dto.WorkingHoursComponentCode ?? "").Trim();
+        await _settings.SetAsync(PayrollComponentMapping.WorkingHoursComponentKey, dto.WorkingHoursComponentCode);
+        if (!string.IsNullOrWhiteSpace(dto.WorkingHoursComponentCode))
+            await EnsureComponentCodeExistsAsync(dto.WorkingHoursComponentCode);
+
         return dto;
+    }
+
+    private static int ParseSalaryPeriodDay(string? raw, int fallback)
+    {
+        if (!int.TryParse(raw, out var day))
+            return fallback;
+        return PayrollSalaryPeriod.NormalizeDay(day);
+    }
+
+    private async Task<string> PersistMappedComponentAsync(string settingKey, string? code, string fallback)
+    {
+        var normalized = PayrollComponentMapping.NormalizeCode(code, fallback);
+        await EnsureComponentCodeExistsAsync(normalized);
+        await _settings.SetAsync(settingKey, normalized);
+        return normalized;
+    }
+
+    private async Task EnsureComponentCodeExistsAsync(string code)
+    {
+        var exists = await _db.CompensationComponents.AnyAsync(c => c.Code == code && c.IsActive);
+        if (!exists)
+            throw new InvalidOperationException($"Compensation component '{code}' was not found or is inactive.");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

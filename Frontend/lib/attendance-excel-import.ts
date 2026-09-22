@@ -105,8 +105,8 @@ export async function importAttendanceFromWorkbook(
 
     let punchIn = row.date ? parseDateTime(row.date, row.punchIn) : null;
     let punchOut = row.date ? parseDateTime(row.date, row.punchOut) : null;
-    // Overnight / next-day clock-out (same Date column as shift start).
-    if (punchIn && punchOut && punchOut.getTime() < punchIn.getTime()) {
+    // Overnight / 24h next-day clock-out (same Date column as shift start; equal times = 24h).
+    if (punchIn && punchOut && punchOut.getTime() <= punchIn.getTime()) {
       punchOut = new Date(
         punchOut.getFullYear(),
         punchOut.getMonth(),

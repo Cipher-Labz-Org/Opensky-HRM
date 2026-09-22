@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.Payroll;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
@@ -53,8 +54,11 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
         var periodTo = (batch.EffectiveTo ?? batch.EffectiveFrom).Date;
 
         var otSettings = await LoadOtSettingsAsync();
-        var otComponent = await _db.CompensationComponents.FirstOrDefaultAsync(c => c.Code == "OT" && c.IsActive)
-            ?? throw new InvalidOperationException("OT compensation component not found.");
+        var mapping = await LoadComponentMappingAsync();
+        var otComponent = await _db.CompensationComponents
+                .FirstOrDefaultAsync(c => c.Code == mapping.OtComponentCode && c.IsActive)
+            ?? throw new InvalidOperationException(
+                $"OT compensation component '{mapping.OtComponentCode}' not found. Map it under Payroll Settings.");
 
         var attendanceRows = await _attendance.CalculateOvertimeNopayAsync(
             periodFrom, periodTo, includeEmployeeIds: selectedIds);
@@ -63,7 +67,9 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
         var leaveNopayDays = await GetUnpaidLeaveDaysAsync(selectedIds, periodFrom, periodTo);
         var poyaDaysByEmp = await PayrollPoyaAttendance.GetDaysWorkedByEmployeeAsync(
             _db, selectedIds, periodFrom, periodTo);
-        var basicByEmp = await GetBasicPayByEmployeeAsync(selectedIds, periodFrom, periodTo);
+        var basicByEmp = await GetBasePayByEmployeeAsync(selectedIds, periodFrom, periodTo, mapping.BaseComponentCode);
+        var workingHoursByEmp = await GetWorkingHoursByEmployeeAsync(
+            selectedIds, periodFrom, periodTo, mapping.WorkingHoursComponentCode);
         var employees = await _db.Employees
             .Where(e => selectedIds.Contains(e.Id))
             .ToDictionaryAsync(e => e.Id);
@@ -73,6 +79,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
         {
             attendanceByEmp.TryGetValue(empId, out var att);
             basicByEmp.TryGetValue(empId, out var basic);
+            workingHoursByEmp.TryGetValue(empId, out var mappedHours);
             leaveNopayDays.TryGetValue(empId, out var leaveDays);
             poyaDaysByEmp.TryGetValue(empId, out var poyaDays);
             employees.TryGetValue(empId, out var emp);
@@ -82,11 +89,12 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
             var otOutdated = att?.OvertimeHoursOutdated ?? false;
             var attendanceNopay = att?.NopayDays ?? 0;
             var totalNopay = attendanceNopay + leaveDays;
+            var divisor = mappedHours > 0 ? mappedHours : otSettings.Divisor;
 
             decimal otAmount = 0m;
-            if (otApproved && approvedHours > 0 && basic > 0 && otSettings.Divisor > 0)
+            if (otApproved && approvedHours > 0 && basic > 0 && divisor > 0)
                 otAmount = PayrollCalculationEngine.CalculateOtAmount(
-                    basic, otSettings.Divisor, otSettings.Multiplier, approvedHours);
+                    basic, divisor, otSettings.Multiplier, approvedHours);
 
             string? warning = null;
             if ((att?.OvertimeHours ?? 0) > 0 && !otApproved)
@@ -98,7 +106,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
             else if (otOutdated)
                 warning = "Approved OT hours are outdated — re-approve in Attendance/Approvals.";
             else if (otApproved && approvedHours > 0 && basic <= 0)
-                warning = "No BASIC salary found for OT rate calculation.";
+                warning = $"No '{mapping.BaseComponentCode}' salary found for OT rate calculation.";
 
             lines.Add(new PayrollAttendanceImportLineDto
             {
@@ -237,19 +245,19 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
         return result;
     }
 
-    private async Task<Dictionary<Guid, decimal>> GetBasicPayByEmployeeAsync(
-        IReadOnlyList<Guid> employeeIds, DateTime periodFrom, DateTime periodTo)
+    private async Task<Dictionary<Guid, decimal>> GetBasePayByEmployeeAsync(
+        IReadOnlyList<Guid> employeeIds, DateTime periodFrom, DateTime periodTo, string baseComponentCode)
     {
-        var basicComponent = await _db.CompensationComponents
-            .FirstOrDefaultAsync(c => c.Code == "BASIC" && c.IsActive);
+        var baseComponent = await _db.CompensationComponents
+            .FirstOrDefaultAsync(c => c.Code == baseComponentCode && c.IsActive);
 
-        if (basicComponent == null)
+        if (baseComponent == null)
             return new Dictionary<Guid, decimal>();
 
         var rows = await _db.EmployeeCompensations
             .Where(ec => ec.IsActive && ec.BatchId == null
                 && employeeIds.Contains(ec.EmployeeId)
-                && ec.ComponentId == basicComponent.Id
+                && ec.ComponentId == baseComponent.Id
                 && ec.EffectiveFrom.Date <= periodTo
                 && (ec.EffectiveTo == null || ec.EffectiveTo.Value.Date >= periodFrom))
             .Select(ec => new { ec.EmployeeId, ec.Amount })
@@ -257,6 +265,42 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
 
         return rows.GroupBy(r => r.EmployeeId)
             .ToDictionary(g => g.Key, g => g.First().Amount);
+    }
+
+    private async Task<Dictionary<Guid, decimal>> GetWorkingHoursByEmployeeAsync(
+        IReadOnlyList<Guid> employeeIds, DateTime periodFrom, DateTime periodTo, string? workingHoursComponentCode)
+    {
+        if (string.IsNullOrWhiteSpace(workingHoursComponentCode))
+            return new Dictionary<Guid, decimal>();
+
+        var component = await _db.CompensationComponents
+            .FirstOrDefaultAsync(c => c.Code == workingHoursComponentCode && c.IsActive);
+        if (component == null)
+            return new Dictionary<Guid, decimal>();
+
+        var rows = await _db.EmployeeCompensations
+            .Where(ec => ec.IsActive && ec.BatchId == null
+                && employeeIds.Contains(ec.EmployeeId)
+                && ec.ComponentId == component.Id
+                && ec.EffectiveFrom.Date <= periodTo
+                && (ec.EffectiveTo == null || ec.EffectiveTo.Value.Date >= periodFrom))
+            .Select(ec => new { ec.EmployeeId, ec.Amount })
+            .ToListAsync();
+
+        return rows.GroupBy(r => r.EmployeeId)
+            .ToDictionary(g => g.Key, g => g.First().Amount);
+    }
+
+    private async Task<(string OtComponentCode, string BaseComponentCode, string WorkingHoursComponentCode)> LoadComponentMappingAsync()
+    {
+        return (
+            PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.OtComponentKey),
+                PayrollComponentMapping.DefaultOtCode),
+            PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.BaseComponentKey),
+                PayrollComponentMapping.DefaultBaseCode),
+            (await _settings.GetAsync(PayrollComponentMapping.WorkingHoursComponentKey) ?? "").Trim());
     }
 
     private async Task<(decimal Divisor, decimal Multiplier)> LoadOtSettingsAsync()

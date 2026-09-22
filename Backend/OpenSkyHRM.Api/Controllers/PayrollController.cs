@@ -559,7 +559,16 @@ public class PayrollController : ControllerBase
 
     [HttpPut("settings")]
     public async Task<IActionResult> UpdateSettings([FromBody] PayrollSettingsDto dto)
-        => Ok(await _payrollService.UpdatePayrollSettingsAsync(dto));
+    {
+        try
+        {
+            return Ok(await _payrollService.UpdatePayrollSettingsAsync(dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 
     // ── Bulk Import ───────────────────────────────────────────────────
 

@@ -11,7 +11,7 @@ import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCom
 import { UserAdvancedPermissionsPanel } from "@/components/user-management/UserAdvancedPermissionsPanel";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
-import { formatDateTime } from "@/lib/date-utils";
+import { formatUtcInstantAsBusinessDateTime } from "@/lib/date-utils";
 import { resolveRolePermissionModules } from "@/lib/role-permission-modules";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import {
@@ -536,7 +536,7 @@ export default function UserManagementPage() {
                         </span>
                       </td>
                       <td className="px-6 py-3 text-xs text-slate-500">
-                        {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : "Never"}
+                        {u.lastLoginAt ? formatUtcInstantAsBusinessDateTime(u.lastLoginAt) : "Never"}
                       </td>
                       <td className="px-6 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">

@@ -101,6 +101,18 @@ public static class PayrollComponentSeeder
         ("Payroll_OT_HourlyDivisor", "208", "Hourly rate divisor for OT (BASIC / divisor × multiplier × hours)"),
         ("Payroll_OT_Multiplier", "1.5", "OT pay multiplier (e.g. 1.5 for time-and-a-half)"),
         ("Payroll_APIT_TaxMode", "Exact", "APIT tax mode: Monthly, Annual, or Exact (all environments)"),
+        ("Payroll_SalaryPeriod_StartDay", "1", "Day of month salary attendance period starts (1–31)"),
+        ("Payroll_SalaryPeriod_EndDay", "31", "Day of month salary attendance period ends (1–31); if less than start day, starts previous month"),
+        (PayrollComponentMapping.OtComponentKey, PayrollComponentMapping.DefaultOtCode,
+            "Compensation component code that receives imported overtime pay"),
+        (PayrollComponentMapping.NopayComponentKey, PayrollComponentMapping.DefaultNopayCode,
+            "Compensation component code for no-pay deduction (uses NOPAY_DAYS)"),
+        (PayrollComponentMapping.PoyaComponentKey, PayrollComponentMapping.DefaultPoyaCode,
+            "Compensation component code for Poya day pay (uses POYA_DAYS)"),
+        (PayrollComponentMapping.BaseComponentKey, PayrollComponentMapping.DefaultBaseCode,
+            "Base earning component used in OT / no-pay / Poya day-rate formulas"),
+        (PayrollComponentMapping.WorkingHoursComponentKey, PayrollComponentMapping.DefaultWorkingHoursCode,
+            "Optional component whose amount is monthly working hours (OT divisor); empty uses Payroll_OT_HourlyDivisor"),
     ];
 
     /// <summary>

@@ -403,12 +403,14 @@ public class PayrollCalculationEngine
         }
 
         var poyaAssignment = empComp.FirstOrDefault(ec =>
-            PayrollPoyaComponent.IsMatch(ec.Component?.Code, ec.Component?.Name));
+            PayrollComponentMapping.IsPoyaComponent(ec.Component?.Code, ec.Component?.Name, rates.PoyaComponentCode));
         resolvedValues["POYA_DAYS"] = PayrollPoyaComponent.ResolveDays(poyaAssignment?.Amount, poyaDaysWorked);
 
         // Load typed amounts first so formulas like BASIC1 / WORKING_DAYS work
         // even when the formula component is listed before its inputs.
-        SeedAssignmentValues(resolvedValues, allComponents, empComp);
+        SeedAssignmentValues(resolvedValues, allComponents, empComp, rates);
+        AliasMappedBaseAsBasic(resolvedValues, rates.BaseComponentCode);
+        AliasMappedWorkingHours(resolvedValues, rates.WorkingHoursComponentCode);
 
         var lines = new List<PayStatementLine>();
         decimal taxableRegular = 0;
@@ -420,9 +422,10 @@ public class PayrollCalculationEngine
         foreach (var comp in OrderComponentsForEvaluation(
                      allComponents.Where(c => c.Category != ComponentCategory.Statutory)))
         {
-            var isPoya = PayrollPoyaComponent.IsMatch(comp.Code, comp.Name);
+            var isPoya = PayrollComponentMapping.IsPoyaComponent(comp.Code, comp.Name, rates.PoyaComponentCode);
+            var isNopay = PayrollComponentMapping.IsNopayComponent(comp.Code, rates.NopayComponentCode);
             var assignment = empComp.FirstOrDefault(ec => ec.ComponentId == comp.Id);
-            if (assignment is null && string.IsNullOrEmpty(comp.FormulaExpression) && !isPoya) continue;
+            if (assignment is null && string.IsNullOrEmpty(comp.FormulaExpression) && !isPoya && !isNopay) continue;
 
             decimal amount;
             if (isPoya && assignment != null && PayrollPoyaComponent.IsLumpSumPay(assignment.Amount))
@@ -436,6 +439,13 @@ public class PayrollCalculationEngine
                         ? PayrollPoyaComponent.FormulaExpression
                         : comp.FormulaExpression,
                     resolvedValues, rates, comp.RoundResult);
+            }
+            else if (isNopay)
+            {
+                var formula = string.IsNullOrEmpty(comp.FormulaExpression)
+                    ? "BASIC / 30 * NOPAY_DAYS"
+                    : comp.FormulaExpression;
+                amount = EvaluateFormula(formula, resolvedValues, rates, comp.RoundResult);
             }
             else if (!string.IsNullOrEmpty(comp.FormulaExpression))
             {
@@ -455,7 +465,7 @@ public class PayrollCalculationEngine
             amount = ApplyComponentRounding(amount, comp.RoundResult);
 
             resolvedValues[comp.Code] = amount;
-            if (IsBasicComponentCode(comp.Code))
+            if (PayrollComponentMapping.IsBaseComponent(comp.Code, rates.BaseComponentCode))
                 resolvedValues["BASIC"] = amount;
             AccumulateEarningsBases(comp, amount, ref taxableRegular, ref taxableLump, ref epfEarnings, ref etfEarnings);
 
@@ -479,13 +489,15 @@ public class PayrollCalculationEngine
                 continue;
 
             var comp = assignment.Component;
-            var isPoya = PayrollPoyaComponent.IsMatch(comp.Code, comp.Name);
+            var isPoya = PayrollComponentMapping.IsPoyaComponent(comp.Code, comp.Name, rates.PoyaComponentCode);
             if (isPoya)
+                continue;
+            if (PayrollComponentMapping.IsNopayComponent(comp.Code, rates.NopayComponentCode))
                 continue;
 
             var amount = ApplyComponentRounding(assignment.Amount, comp.RoundResult);
             resolvedValues[comp.Code] = amount;
-            if (IsBasicComponentCode(comp.Code))
+            if (PayrollComponentMapping.IsBaseComponent(comp.Code, rates.BaseComponentCode))
                 resolvedValues["BASIC"] = amount;
             AccumulateEarningsBases(comp, amount, ref taxableRegular, ref taxableLump, ref epfEarnings, ref etfEarnings);
 
@@ -643,8 +655,12 @@ public class PayrollCalculationEngine
     internal static void SeedAssignmentValues(
         Dictionary<string, decimal> resolvedValues,
         IEnumerable<CompensationComponent> components,
-        IEnumerable<EmployeeCompensation> empComp)
+        IEnumerable<EmployeeCompensation> empComp,
+        PayrollRates? rates = null)
     {
+        var poyaCode = rates?.PoyaComponentCode ?? PayrollComponentMapping.DefaultPoyaCode;
+        var baseCode = rates?.BaseComponentCode ?? PayrollComponentMapping.DefaultBaseCode;
+
         foreach (var comp in components)
         {
             if (comp.Category == ComponentCategory.Statutory)
@@ -654,14 +670,32 @@ public class PayrollCalculationEngine
             if (assignment is null)
                 continue;
 
-            if (PayrollPoyaComponent.IsMatch(comp.Code, comp.Name)
+            if (PayrollComponentMapping.IsPoyaComponent(comp.Code, comp.Name, poyaCode)
                 && !PayrollPoyaComponent.IsLumpSumPay(assignment.Amount))
                 continue;
 
             resolvedValues[comp.Code] = assignment.Amount;
-            if (IsBasicComponentCode(comp.Code))
+            if (PayrollComponentMapping.IsBaseComponent(comp.Code, baseCode))
                 resolvedValues["BASIC"] = assignment.Amount;
         }
+    }
+
+    internal static void AliasMappedBaseAsBasic(Dictionary<string, decimal> resolvedValues, string baseComponentCode)
+    {
+        var mapped = PayrollComponentMapping.NormalizeCode(baseComponentCode, PayrollComponentMapping.DefaultBaseCode);
+        if (resolvedValues.TryGetValue(mapped, out var amount) && amount > 0)
+            resolvedValues["BASIC"] = amount;
+    }
+
+    internal static void AliasMappedWorkingHours(Dictionary<string, decimal> resolvedValues, string? workingHoursComponentCode)
+    {
+        if (string.IsNullOrWhiteSpace(workingHoursComponentCode))
+            return;
+        if (!resolvedValues.TryGetValue(workingHoursComponentCode.Trim(), out var hours) || hours <= 0)
+            return;
+        resolvedValues["WORKING_HOURS"] = hours;
+        if (!resolvedValues.ContainsKey("HOURS_PER_MONTH"))
+            resolvedValues["HOURS_PER_MONTH"] = hours;
     }
 
     /// <summary>
@@ -1765,6 +1799,19 @@ public class PayrollCalculationEngine
             EtfEmployerRate = NormalizePayrollRate(
                 decimal.TryParse(await _settings.GetAsync("Payroll_ETF_EmployerRate"), out var etf) ? etf : 0.03m),
             ApitTaxMode = NormalizeApitTaxMode(await _settings.GetAsync("Payroll_APIT_TaxMode")),
+            OtComponentCode = PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.OtComponentKey),
+                PayrollComponentMapping.DefaultOtCode),
+            NopayComponentCode = PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.NopayComponentKey),
+                PayrollComponentMapping.DefaultNopayCode),
+            PoyaComponentCode = PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.PoyaComponentKey),
+                PayrollComponentMapping.DefaultPoyaCode),
+            BaseComponentCode = PayrollComponentMapping.NormalizeCode(
+                await _settings.GetAsync(PayrollComponentMapping.BaseComponentKey),
+                PayrollComponentMapping.DefaultBaseCode),
+            WorkingHoursComponentCode = (await _settings.GetAsync(PayrollComponentMapping.WorkingHoursComponentKey) ?? "").Trim(),
         };
     }
 }
@@ -1775,4 +1822,9 @@ public class PayrollRates
     public decimal EpfEmployerRate { get; set; } = 0.12m;
     public decimal EtfEmployerRate { get; set; } = 0.03m;
     public string ApitTaxMode { get; set; } = "Exact";
+    public string OtComponentCode { get; set; } = PayrollComponentMapping.DefaultOtCode;
+    public string NopayComponentCode { get; set; } = PayrollComponentMapping.DefaultNopayCode;
+    public string PoyaComponentCode { get; set; } = PayrollComponentMapping.DefaultPoyaCode;
+    public string BaseComponentCode { get; set; } = PayrollComponentMapping.DefaultBaseCode;
+    public string WorkingHoursComponentCode { get; set; } = PayrollComponentMapping.DefaultWorkingHoursCode;
 }
