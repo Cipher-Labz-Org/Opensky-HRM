@@ -36,7 +36,7 @@ Enterprise HRIS (Human Resource Information System) with a **Next.js** frontend 
 
 ---
 
-## Architecture
+## Architecture.
 
 ```
 Browser (Next.js)
