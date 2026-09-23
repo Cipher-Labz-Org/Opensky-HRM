@@ -2734,6 +2734,7 @@ function RosterTab() {
   const [editAssignFrom, setEditAssignFrom] = useState("");
   const [editAssignTo, setEditAssignTo] = useState("");
   const [savingAssign, setSavingAssign] = useState(false);
+  const [removingId, setRemovingId] = useState("");
 
   // Bulk assign state
   const [bulkModal, setBulkModal] = useState(false);
@@ -2880,10 +2881,29 @@ function RosterTab() {
   }
 
   async function deleteAssignment(a: RosterAssignmentItem) {
-    if (!(await appConfirm(`Remove roster assignment for ${a.employeeName}?`))) return;
+    const assignmentId = a.id;
+    if (!assignmentId) {
+      setError("This assignment has no id, so it cannot be removed. Refresh and try again.");
+      return;
+    }
+    const ok = await appConfirm(`Remove the roster assignment for ${a.employeeName || "this employee"}?`, {
+      title: "Remove roster assignment",
+      confirmLabel: "Remove",
+      variant: "danger",
+    });
+    if (!ok) return;
     setError(null);
-    try { await apiFetch(`/api/roster/assignments/${a.id}`, { method: "DELETE" }); loadAssignments(); }
-    catch (err) { setError(err instanceof Error ? err.message : "Delete failed"); }
+    setRemovingId(assignmentId);
+    setAssignments((prev) => prev.filter((row) => row.id !== assignmentId));
+    try {
+      await apiFetch(`/api/roster/assignments/${assignmentId}`, { method: "DELETE" });
+      loadAssignments();
+    } catch (err) {
+      loadAssignments();
+      setError(err instanceof Error ? err.message : "Could not remove this roster assignment.");
+    } finally {
+      setRemovingId("");
+    }
   }
 
   // ── Bulk assign helpers ──
@@ -3183,7 +3203,14 @@ function RosterTab() {
                       <td className="px-4 py-3">
                         <div className="flex gap-2">
                           <button type="button" onClick={() => openAssignEdit(a)} className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">Edit</button>
-                          <button type="button" onClick={() => deleteAssignment(a)} className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100">Remove</button>
+                          <button
+                            type="button"
+                            disabled={removingId === a.id}
+                            onClick={() => void deleteAssignment(a)}
+                            className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                          >
+                            {removingId === a.id ? "Removing…" : "Remove"}
+                          </button>
                         </div>
                       </td>
                     </tr>

@@ -25,9 +25,10 @@ import {
   COMMERCIAL_BANK_SALARY_GL_CODE,
   buildCommercialBankOneToManyFile,
   commercialBankAccountNumber,
+  commercialBankFileAccount,
   commercialBankSalaryNarratives,
   createCommercialBankDownload,
-  formatCommercialBankAmount,
+  formatCommercialBankFileAmount,
   triggerFileDownload,
 } from "@/lib/commercial-bank-one-to-many";
 import {
@@ -1090,10 +1091,25 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
 
 /* ═══════════════════════════ COMPONENTS ═══════════════════════════ */
 
+function componentMatchesQuery(c: Component, q: string) {
+  return (
+    textIncludes(c.name, q) ||
+    textIncludes(c.code, q) ||
+    textIncludes(c.type, q) ||
+    textIncludes(formatComponentType(c.type), q) ||
+    textIncludes(c.category, q) ||
+    textIncludes(c.formulaExpression, q) ||
+    textIncludes(c.description, q) ||
+    textIncludes(epfEtfKindLabel(c), q) ||
+    textIncludes(c.isActive ? "active" : "inactive", q)
+  );
+}
+
 function ComponentsTab() {
   const [components, setComponents] = useState<Component[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Component | null>(null);
   const [deletingId, setDeletingId] = useState("");
@@ -1131,64 +1147,134 @@ function ComponentsTab() {
     }
   }
 
-  const componentsPager = useClientPagination(components);
+  const searchQuery = search.trim().toLowerCase();
+  const filteredComponents = useMemo(
+    () => (searchQuery ? components.filter((c) => componentMatchesQuery(c, searchQuery)) : components),
+    [components, searchQuery],
+  );
+  const componentsPager = useClientPagination(filteredComponents);
 
   if (loading) return <Loading />;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-800">Compensation Components</h2>
-        <Button onClick={() => { setEditing(null); setShowForm(true); }}>+ Add Component</Button>
-      </div>
-
-      {loadError ? (
-        <InlinePageAlert message={loadError} />
-      ) : components.length === 0 ? (
-        <EmptyState text="No components defined yet. Add your first component." />
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full text-left text-sm">
-            <thead><tr className="border-b bg-slate-50 text-xs text-slate-500">
-              <th className="px-4 py-3 font-medium">Name</th><th className="px-4 py-3 font-medium">Code</th>
-              <th className="px-4 py-3 font-medium">Type</th><th className="px-4 py-3 font-medium">Category</th>
-              <th className="px-4 py-3 font-medium">Taxable</th><th className="px-4 py-3 font-medium">EPF & ETF</th>
-              <th className="px-4 py-3 font-medium">Formula</th>
-              <th className="px-4 py-3 font-medium">Order</th><th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Actions</th>
-            </tr></thead>
-            <tbody>
-              {componentsPager.pageItems.map(c => (
-                <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                  <td className="px-4 py-3 font-medium text-slate-700">{c.name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.code}</td>
-                  <td className="px-4 py-3 text-slate-600">{formatComponentType(c.type)}</td>
-                  <td className="px-4 py-3 text-slate-600">{c.category}</td>
-                  <td className="px-4 py-3">{c.isTaxable ? <span className="text-amber-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
-                  <td className="px-4 py-3">{epfEtfKindLabel(c) === "No" ? <span className="text-slate-400">No</span> : <span className="text-sky-600">{epfEtfKindLabel(c)}</span>}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.formulaExpression || "—"}</td>
-                  <td className="px-4 py-3 text-slate-500">{c.sortOrder}</td>
-                  <td className="px-4 py-3">{c.isActive ? <span className="text-green-600">Active</span> : <span className="text-slate-400">Inactive</span>}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-1">
-                      <button onClick={() => handleEdit(c)} className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50">Edit</button>
-                      <button
-                        type="button"
-                        disabled={deletingId === c.id}
-                        onClick={() => void handleDelete(c.id)}
-                        className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        {deletingId === c.id ? "Deleting…" : "Delete"}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <TablePagination page={componentsPager.page} totalPages={componentsPager.totalPages} totalCount={componentsPager.totalCount} pageSize={componentsPager.pageSize} onPageChange={componentsPager.setPage} />
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)]">
+        <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white px-6 py-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-900">Compensation Components</h2>
+              <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                {searchQuery
+                  ? `${filteredComponents.length} of ${components.length} components`
+                  : `${components.length} component${components.length === 1 ? "" : "s"}`}
+              </p>
+            </div>
+            <Button className="h-[42px] shrink-0" onClick={() => { setEditing(null); setShowForm(true); }}>
+              + Add Component
+            </Button>
+          </div>
+          <div className="mt-5">
+            <label htmlFor="payroll-component-search" className={labelCls}>
+              Search
+            </label>
+            <div className="relative">
+              <svg
+                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+                aria-hidden
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input
+                id="payroll-component-search"
+                type="text"
+                autoComplete="off"
+                className={`${inputCls} h-[42px] !mb-0 rounded-xl border-slate-200/90 bg-white py-2.5 pl-10 pr-10 shadow-sm placeholder:text-slate-400`}
+                placeholder="Search name, code, type, or category…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              {search ? (
+                <button
+                  type="button"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
-      )}
+
+        {loadError ? (
+          <div className="px-6 py-4">
+            <InlinePageAlert message={loadError} />
+          </div>
+        ) : components.length === 0 ? (
+          <div className="px-6 py-14">
+            <EmptyState text="No components defined yet. Add your first component." />
+          </div>
+        ) : filteredComponents.length === 0 ? (
+          <div className="px-6 py-14">
+            <EmptyState text={`No components match "${search.trim()}".`} />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/90 text-xs text-slate-500">
+                  <th className="px-4 py-3 font-medium">Name</th>
+                  <th className="px-4 py-3 font-medium">Code</th>
+                  <th className="px-4 py-3 font-medium">Type</th>
+                  <th className="px-4 py-3 font-medium">Category</th>
+                  <th className="px-4 py-3 font-medium">Taxable</th>
+                  <th className="px-4 py-3 font-medium">EPF & ETF</th>
+                  <th className="px-4 py-3 font-medium">Formula</th>
+                  <th className="px-4 py-3 font-medium">Order</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {componentsPager.pageItems.map((c) => (
+                  <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    <td className="px-4 py-3 font-medium text-slate-700">{c.name}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.code}</td>
+                    <td className="px-4 py-3 text-slate-600">{formatComponentType(c.type)}</td>
+                    <td className="px-4 py-3 text-slate-600">{c.category}</td>
+                    <td className="px-4 py-3">{c.isTaxable ? <span className="text-amber-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
+                    <td className="px-4 py-3">{epfEtfKindLabel(c) === "No" ? <span className="text-slate-400">No</span> : <span className="text-sky-600">{epfEtfKindLabel(c)}</span>}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.formulaExpression || "—"}</td>
+                    <td className="px-4 py-3 text-slate-500">{c.sortOrder}</td>
+                    <td className="px-4 py-3">{c.isActive ? <span className="text-green-600">Active</span> : <span className="text-slate-400">Inactive</span>}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1">
+                        <button onClick={() => handleEdit(c)} className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50">Edit</button>
+                        <button
+                          type="button"
+                          disabled={deletingId === c.id}
+                          onClick={() => void handleDelete(c.id)}
+                          className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {deletingId === c.id ? "Deleting…" : "Delete"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <TablePagination page={componentsPager.page} totalPages={componentsPager.totalPages} totalCount={componentsPager.totalCount} pageSize={componentsPager.pageSize} onPageChange={componentsPager.setPage} />
+          </div>
+        )}
+      </div>
 
       {showForm && <ComponentFormModal editing={editing} onClose={() => setShowForm(false)} onSaved={load} />}
     </div>
@@ -3695,6 +3781,26 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
   const pager = useClientPagination(sortedStatements);
   const selectedCount = selected.size;
   const allSelected = sortedStatements.length > 0 && sortedStatements.every((s) => selected.has(s.id));
+  const slipBatchOpts = useMemo<FormSelectOption[]>(
+    () => [
+      { value: "", label: "Select a batch" },
+      ...batches.map((b) => ({
+        value: b.id,
+        label: `${b.batchCode} · ${MONTHS[b.month - 1]} ${b.year} · ${statusLabel[b.status] ?? b.status}`,
+      })),
+    ],
+    [batches],
+  );
+  const slipCompanyBankOpts = useMemo<FormSelectOption[]>(
+    () =>
+      companyAccounts.length === 0
+        ? [{ value: "", label: "Select a company bank" }]
+        : companyAccounts.map((account, index) => ({
+            value: String(index),
+            label: companyBankAccountLabel(account, index),
+          })),
+    [companyAccounts],
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -3885,7 +3991,7 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
       return;
     }
 
-    const file = createCommercialBankDownload(built.content);
+    const file = createCommercialBankDownload(built.content, selectedBatch.month, selectedBatch.year);
     setReadyFile({ url: file.url, filename: file.filename });
     triggerFileDownload(file.url, file.filename);
     const parts = [
@@ -4129,73 +4235,52 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
       <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)]">
         <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white px-6 py-5">
           <h2 className="text-xl font-semibold tracking-tight text-slate-900">Slip Generate</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-500">
-            {commercialBankSelected
-              ? "Commercial Bank downloads the Combiz One-to-Many text file (account, amount, salary narrative, GL 784001)."
-              : sampathBankSelected
-                ? "Sampath Bank downloads the salary deposit text file (SAL_MON, name, account, bank/branch, amount, SBA or SLI)."
-                : excelBankSelected
-                  ? "This bank has no dedicated slip yet, so the download is a salary Excel sheet (employee, account, bank/branch, amount, and narrative)."
-                  : "Download the bank file from an approved payroll run. Choose the batch and company bank, then download."}
+          <p className="mt-1 text-sm leading-relaxed text-slate-500">
+            Choose a payroll batch and company bank, then download the bank file.
           </p>
-          <div className="mt-5 flex w-full flex-col gap-3 lg:flex-row lg:items-end">
-            <div className="min-w-0 flex-1">
-              <label htmlFor="slip-generate-batch" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Payroll batch
+          <div className="mt-5 flex w-full flex-wrap items-end gap-3">
+            <div className="min-w-[240px] flex-1">
+              <label htmlFor="slip-generate-batch" className={labelCls}>
+                Payroll Batch
               </label>
-              <select
+              <FormSelect
                 id="slip-generate-batch"
-                className={inputCls + " min-h-10 w-full !mb-0 rounded-lg border-slate-200/90 bg-white py-2.5"}
                 value={batchId}
-                onChange={(e) => setBatchId(e.target.value)}
-              >
-                <option value="">Select a batch</option>
-                {batches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.batchCode} · {MONTHS[b.month - 1]} {b.year} · {statusLabel[b.status] ?? b.status}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setBatchId}
+                options={slipBatchOpts}
+                placeholder="Select a batch"
+              />
             </div>
-            <div className="min-w-0 flex-1">
-              <label htmlFor="slip-generate-company-account" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Company bank account
+            <div className="min-w-[240px] flex-1">
+              <label htmlFor="slip-generate-company-account" className={labelCls}>
+                Company Bank Account
               </label>
-              <select
+              <FormSelect
                 id="slip-generate-company-account"
-                className={inputCls + " min-h-10 w-full !mb-0 rounded-lg border-slate-200/90 bg-white py-2.5"}
                 value={companyAccountIndex}
-                onChange={(e) => setCompanyAccountIndex(e.target.value)}
-              >
-                {companyAccounts.length === 0 ? (
-                  <option value="">Select a company bank</option>
-                ) : (
-                  companyAccounts.map((account, index) => (
-                    <option key={`${account.accountNo}-${index}`} value={String(index)}>
-                      {companyBankAccountLabel(account, index)}
-                    </option>
-                  ))
-                )}
-              </select>
-              {companyAccountsError ? (
-                <p className="mt-1.5 text-xs text-amber-700">
-                  {companyAccountsError}{" "}
-                  <a href="/app/company-profile" className="font-semibold text-[#256aa3] hover:underline">
-                    Open Company Profile
-                  </a>
-                </p>
-              ) : null}
+                onValueChange={setCompanyAccountIndex}
+                options={slipCompanyBankOpts}
+                placeholder="Select a company bank"
+                disabled={companyAccounts.length === 0}
+                clearable={companyAccounts.length > 0}
+              />
             </div>
-            <div className="flex shrink-0">
-              <Button
-                className="min-h-10 rounded-lg px-4"
-                disabled={generating || selectedCount === 0 || !selectedBatch || !selectedCompanyAccount || !canDownloadBankFile}
-                onClick={() => void generateBankSlips(selected)}
-              >
-                {generating ? "Generating…" : excelBankSelected ? "Download .xlsx" : "Download .txt"}
-              </Button>
-            </div>
+            <Button
+              className="h-[42px] shrink-0 px-4"
+              disabled={generating || selectedCount === 0 || !selectedBatch || !selectedCompanyAccount || !canDownloadBankFile}
+              onClick={() => void generateBankSlips(selected)}
+            >
+              {generating ? "Generating…" : excelBankSelected ? "Download .xlsx" : "Download .txt"}
+            </Button>
           </div>
+          {companyAccountsError ? (
+            <p className="mt-2 text-xs text-amber-700">
+              {companyAccountsError}{" "}
+              <a href="/app/company-profile" className="font-semibold text-[#256aa3] hover:underline">
+                Open Company Profile
+              </a>
+            </p>
+          ) : null}
           {selectedCompanyAccount ? (
             <p className="mt-3 text-xs text-slate-500">
               Downloads as {bankSlipFormatLabel(selectedCompanyAccount.bankName)}.
@@ -4349,7 +4434,7 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
                     const destBranch = sampathBranchCode(slip?.branchCode);
                     const salaryRef = sampathSalaryRef(selectedBatch?.month ?? stmt.month);
                     const sampathAccount = sampathFileAccount(slip?.accountNumber);
-                    const commercialAccount = commercialBankAccountNumber(slip?.accountNumber);
+                    const commercialAccount = commercialBankFileAccount(slip?.accountNumber);
                     const commercialNarratives = selectedBatch
                       ? commercialBankSalaryNarratives(selectedBatch.month, selectedBatch.year)
                       : commercialBankSalaryNarratives(stmt.month, stmt.year);
@@ -4372,8 +4457,8 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
                           <td className="px-4 py-3 font-mono text-slate-800">
                             {commercialAccount || <span className="font-sans text-amber-700">Missing</span>}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-800">
-                            {formatCommercialBankAmount(Number(stmt.netPay))}
+                          <td className="whitespace-pre px-4 py-3 text-right font-mono tabular-nums text-slate-800">
+                            {formatCommercialBankFileAmount(Number(stmt.netPay))}
                           </td>
                           <td className="px-4 py-3 text-slate-700">{commercialNarratives.longNarrative}</td>
                           <td className="px-4 py-3 text-slate-700">{commercialNarratives.shortNarrative}</td>

@@ -25,10 +25,12 @@ public class RosterController : ControllerBase
 
     private async Task<bool> CanManageRosterAsync()
     {
-        if (User.IsInRole("ADMIN")) return true;
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
         return allowedIds == null;
     }
+
+    private Task<bool> CanManageAssignmentAsync(Guid employeeId) =>
+        PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId, "Update");
 
     [HttpGet("templates")]
     public async Task<IActionResult> GetTemplates([FromQuery] bool includeInactive = false)
@@ -167,7 +169,9 @@ public class RosterController : ControllerBase
     [HttpDelete("assignments/{id:guid}")]
     public async Task<IActionResult> DeleteAssignment(Guid id)
     {
-        if (!await CanManageRosterAsync()) return Forbid();
+        var existing = await _rosterService.GetAssignmentByIdAsync(id);
+        if (existing is null) return NotFound();
+        if (!await CanManageAssignmentAsync(existing.EmployeeId)) return Forbid();
         var deleted = await _rosterService.DeleteAssignmentAsync(id);
         return deleted ? NoContent() : NotFound();
     }
