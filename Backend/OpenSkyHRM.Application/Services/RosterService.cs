@@ -207,6 +207,7 @@ public class RosterService : IRosterService
     {
         var query = _db.Set<RosterAssignment>()
             .Include(a => a.Employee)
+            .Where(a => !a.IsDeleted)
             .AsQueryable();
 
         if (employeeId.HasValue)
@@ -324,11 +325,13 @@ public class RosterService : IRosterService
 
     public async Task<bool> DeleteAssignmentAsync(Guid id)
     {
-        var entity = await _db.Set<RosterAssignment>().IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == id);
-        if (entity is null) return false;
-        entity.IsDeleted = true;
-        await _db.SaveChangesAsync();
-        return true;
+        var updated = await _db.Set<RosterAssignment>()
+            .IgnoreQueryFilters()
+            .Where(x => x.Id == id && !x.IsDeleted)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.IsDeleted, true)
+                .SetProperty(x => x.UpdatedAt, DateTime.UtcNow));
+        return updated > 0;
     }
 
     public async Task<BulkAssignmentResultDto> BulkCreateAssignmentsAsync(BulkCreateRosterAssignmentDto dto)

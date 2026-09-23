@@ -9,10 +9,6 @@ export type CommercialBankSalaryRow = {
   netPay: number;
 };
 
-function pad2(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
 function monthAbbr(month: number): string {
   return MONTH_ABBR[month - 1] ?? String(month).padStart(3, "0");
 }
@@ -34,8 +30,20 @@ function sanitizeField(value: string): string {
   return value.replace(/\|/g, " ").replace(/\r?\n/g, " ").trim();
 }
 
+export const COMMERCIAL_ACCOUNT_WIDTH = 12;
+export const COMMERCIAL_AMOUNT_WIDTH = 12;
+export const COMMERCIAL_LONG_NARRATIVE_WIDTH = 28;
+export const COMMERCIAL_SHORT_NARRATIVE_WIDTH = 12;
+
 export function commercialBankAccountNumber(accountNumber?: string | null): string {
   return (accountNumber ?? "").replace(/[\s-]/g, "").trim();
+}
+
+/** Combiz One-to-Many account: 12 digits, leading zeros. */
+export function commercialBankFileAccount(accountNumber?: string | null): string {
+  const digits = commercialBankAccountNumber(accountNumber);
+  if (!digits) return "";
+  return digits.length >= COMMERCIAL_ACCOUNT_WIDTH ? digits : digits.padStart(COMMERCIAL_ACCOUNT_WIDTH, "0");
 }
 
 export function formatCommercialBankAmount(amount: number): string {
@@ -43,9 +51,16 @@ export function formatCommercialBankAmount(amount: number): string {
   return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction}`;
 }
 
-export function commercialBankOneToManyFileName(now: Date = new Date()): string {
-  const stamp = `${pad2(now.getDate())}${pad2(now.getMonth() + 1)}${String(now.getFullYear()).slice(-2)}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
-  return `One-To-Many-File-${stamp}.txt`;
+export function formatCommercialBankFileAmount(amount: number): string {
+  return formatCommercialBankAmount(amount).padStart(COMMERCIAL_AMOUNT_WIDTH, " ");
+}
+
+function padField(value: string, width: number): string {
+  return value.slice(0, width).padEnd(width, " ");
+}
+
+export function commercialBankOneToManyFileName(month: number, year: number): string {
+  return `Commercial-Salary-${monthAbbr(month)}-${year}.txt`;
 }
 
 export function buildCommercialBankOneToManyLine(
@@ -56,10 +71,10 @@ export function buildCommercialBankOneToManyLine(
 ): string {
   const period = commercialBankSalaryNarratives(month, year);
   return [
-    sanitizeField(accountNumber),
-    formatCommercialBankAmount(amount),
-    sanitizeField(period.longNarrative),
-    sanitizeField(period.shortNarrative),
+    commercialBankFileAccount(accountNumber),
+    formatCommercialBankFileAmount(amount),
+    padField(sanitizeField(period.longNarrative), COMMERCIAL_LONG_NARRATIVE_WIDTH),
+    padField(sanitizeField(period.shortNarrative), COMMERCIAL_SHORT_NARRATIVE_WIDTH),
     COMMERCIAL_BANK_SALARY_GL_CODE,
     COMMERCIAL_BANK_SALARY_GL_DESCRIPTION,
   ].join("|");
@@ -87,8 +102,12 @@ export function buildCommercialBankOneToManyFile(
   };
 }
 
-export function createCommercialBankDownload(content: string, now: Date = new Date()): { filename: string; url: string } {
-  const filename = commercialBankOneToManyFileName(now);
+export function createCommercialBankDownload(
+  content: string,
+  month: number,
+  year: number,
+): { filename: string; url: string } {
+  const filename = commercialBankOneToManyFileName(month, year);
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   return { filename, url: URL.createObjectURL(blob) };
 }
@@ -104,8 +123,8 @@ export function triggerFileDownload(url: string, filename: string): void {
   window.setTimeout(() => a.remove(), 1500);
 }
 
-export function downloadCommercialBankOneToManyFile(content: string, now: Date = new Date()): string {
-  const { filename, url } = createCommercialBankDownload(content, now);
+export function downloadCommercialBankOneToManyFile(content: string, month: number, year: number): string {
+  const { filename, url } = createCommercialBankDownload(content, month, year);
   triggerFileDownload(url, filename);
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   return filename;
