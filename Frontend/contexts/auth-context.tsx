@@ -9,7 +9,7 @@ import {
 } from "@/config/constants";
 import { resolveHttpErrorMessage } from "@/lib/api-errors";
 
-const PROFILE_FETCH_MS = 10_000;
+const PROFILE_FETCH_MS = 25_000;
 const LOGIN_FETCH_MS = 20_000;
 
 /** Match role codes and display names returned by different API shapes / legacy data. */
@@ -106,6 +106,8 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 const AUTH_TOKEN_KEY = "auth_token";
+/** Cached profile from login / last successful /me — avoids blocking the app shell on cold load. */
+const AUTH_USER_KEY = "auth_user";
 /** Small marker for Next.js middleware. JWTs with permissions exceed the ~4KB cookie limit. */
 const AUTH_OK_COOKIE = "auth_ok";
 /** Rotates on each login; stable across refresh within the same browser session. */
@@ -146,6 +148,21 @@ function readStoredToken(): string | null {
   return localStorage.getItem(AUTH_TOKEN_KEY) ?? sessionStorage.getItem(AUTH_TOKEN_KEY);
 }
 
+function authUsesLocalStorage(): boolean {
+  return typeof window !== "undefined" && Boolean(localStorage.getItem(AUTH_TOKEN_KEY));
+}
+
+function readStoredProfile(): UserProfile | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(AUTH_USER_KEY) ?? sessionStorage.getItem(AUTH_USER_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as UserProfile;
+  } catch {
+    return null;
+  }
+}
+
 function persistAuthToken(token: string, rememberMe: boolean) {
   if (rememberMe) {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
@@ -155,6 +172,22 @@ function persistAuthToken(token: string, rememberMe: boolean) {
     localStorage.removeItem(AUTH_TOKEN_KEY);
   }
   writeAuthSessionCookie(rememberMe);
+}
+
+function persistAuthProfile(user: UserProfile, rememberMe: boolean) {
+  const json = JSON.stringify(user);
+  if (rememberMe) {
+    localStorage.setItem(AUTH_USER_KEY, json);
+    sessionStorage.removeItem(AUTH_USER_KEY);
+  } else {
+    sessionStorage.setItem(AUTH_USER_KEY, json);
+    localStorage.removeItem(AUTH_USER_KEY);
+  }
+}
+
+function clearStoredProfile() {
+  localStorage.removeItem(AUTH_USER_KEY);
+  sessionStorage.removeItem(AUTH_USER_KEY);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -169,6 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     localStorage.removeItem(AUTH_TOKEN_KEY);
     sessionStorage.removeItem(AUTH_TOKEN_KEY);
+    clearStoredProfile();
     clearAuthBrowserCookies();
   }, []);
 
@@ -213,7 +247,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setToken(stored);
-    writeAuthSessionCookie(Boolean(localStorage.getItem(AUTH_TOKEN_KEY)));
+    writeAuthSessionCookie(authUsesLocalStorage());
+
+    const cachedProfile = readStoredProfile();
+    if (cachedProfile) {
+      ensureAuthVisitId();
+      setUser(cachedProfile);
+      setIsLoading(false);
+    }
 
     const bootstrapId = ++authBootstrapId.current;
     fetchProfile(stored)
@@ -222,12 +263,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (profile) {
           ensureAuthVisitId();
           setUser(profile);
-        } else {
+          persistAuthProfile(profile, authUsesLocalStorage());
+        } else if (!cachedProfile) {
           clearAuth();
         }
       })
       .finally(() => {
-        if (bootstrapId === authBootstrapId.current) setIsLoading(false);
+        if (bootstrapId === authBootstrapId.current && !cachedProfile) setIsLoading(false);
       });
   }, [fetchProfile, clearAuth]);
 
@@ -235,7 +277,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const t = token ?? readStoredToken();
     if (!t) return;
     const profile = await fetchProfile(t);
-    if (profile) setUser(profile);
+    if (profile) {
+      setUser(profile);
+      persistAuthProfile(profile, authUsesLocalStorage());
+    }
   }, [fetchProfile, token]);
 
   const login = async (username: string, password: string, rememberMe = true): Promise<UserProfile> => {
@@ -291,9 +336,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Invalid response from server.");
     }
     persistAuthToken(data.token, rememberMe);
+    persistAuthProfile(data.user, rememberMe);
     rotateAuthVisitId();
     setToken(data.token);
     setUser(data.user);
+    setIsLoading(false);
     return data.user;
   };
 

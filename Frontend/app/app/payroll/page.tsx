@@ -153,8 +153,22 @@ const DEFAULT_PAYROLL_SETTINGS: Settings = {
 };
 
 function clampDay(day: number | undefined, fallback: number): number {
-  if (!Number.isFinite(day) || !day || day < 1) return fallback;
+  if (day === undefined || !Number.isFinite(day) || day < 1) return fallback;
   return Math.min(31, Math.floor(day));
+}
+
+/** Allow typing multi-digit day values; clamp on blur / save. */
+function sanitizeSalaryPeriodDayInput(raw: string): string {
+  return raw.replace(/\D/g, "").slice(0, 2);
+}
+
+function salaryPeriodDayFromField(raw: string, fallback: number): number {
+  const n = parseInt(raw, 10);
+  return clampDay(Number.isFinite(n) ? n : undefined, fallback);
+}
+
+function formatSalaryPeriodDayField(n: number | undefined, fallback: number): string {
+  return String(clampDay(n, fallback));
 }
 
 function monthDateRange(
@@ -4937,8 +4951,8 @@ function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
-  const [periodStartDay, setPeriodStartDay] = useState(1);
-  const [periodEndDay, setPeriodEndDay] = useState(31);
+  const [periodStartDay, setPeriodStartDay] = useState("1");
+  const [periodEndDay, setPeriodEndDay] = useState("31");
   const [otComponentCode, setOtComponentCode] = useState("OT");
   const [nopayComponentCode, setNopayComponentCode] = useState("NOPAY");
   const [poyaComponentCode, setPoyaComponentCode] = useState("POYA");
@@ -4955,8 +4969,8 @@ function SettingsTab() {
         if (cancelled) return;
         setSettings(s);
         setComponents(comps.filter((c) => c.isActive !== false));
-        setPeriodStartDay(clampDay(s.salaryPeriodStartDay, 1));
-        setPeriodEndDay(clampDay(s.salaryPeriodEndDay, 31));
+        setPeriodStartDay(formatSalaryPeriodDayField(s.salaryPeriodStartDay, 1));
+        setPeriodEndDay(formatSalaryPeriodDayField(s.salaryPeriodEndDay, 31));
         setOtComponentCode(s.otComponentCode || "OT");
         setNopayComponentCode(s.nopayComponentCode || "NOPAY");
         setPoyaComponentCode(s.poyaComponentCode || "POYA");
@@ -4989,8 +5003,8 @@ function SettingsTab() {
       otHourlyDivisor: Number(fd.get("otHourlyDivisor")) || 208,
       otMultiplier: Number(fd.get("otMultiplier")) || 1.5,
       apitTaxMode: String(fd.get("apitTaxMode") || settings?.apitTaxMode || "Exact"),
-      salaryPeriodStartDay: clampDay(Number(fd.get("salaryPeriodStartDay")), 1),
-      salaryPeriodEndDay: clampDay(Number(fd.get("salaryPeriodEndDay")), 31),
+      salaryPeriodStartDay: salaryPeriodDayFromField(periodStartDay, 1),
+      salaryPeriodEndDay: salaryPeriodDayFromField(periodEndDay, 31),
       otComponentCode,
       nopayComponentCode,
       poyaComponentCode,
@@ -5000,8 +5014,8 @@ function SettingsTab() {
     try {
       const result = await apiFetch<Settings>("/api/payroll/settings", { method: "PUT", body: JSON.stringify(payload) });
       setSettings(result);
-      setPeriodStartDay(clampDay(result.salaryPeriodStartDay, 1));
-      setPeriodEndDay(clampDay(result.salaryPeriodEndDay, 31));
+      setPeriodStartDay(formatSalaryPeriodDayField(result.salaryPeriodStartDay, 1));
+      setPeriodEndDay(formatSalaryPeriodDayField(result.salaryPeriodEndDay, 31));
       setOtComponentCode(result.otComponentCode || "OT");
       setNopayComponentCode(result.nopayComponentCode || "NOPAY");
       setPoyaComponentCode(result.poyaComponentCode || "POYA");
@@ -5020,8 +5034,8 @@ function SettingsTab() {
   const previewRange = monthDateRange(
     previewNow.getMonth() + 1,
     previewNow.getFullYear(),
-    periodStartDay,
-    periodEndDay,
+    salaryPeriodDayFromField(periodStartDay, 1),
+    salaryPeriodDayFromField(periodEndDay, 31),
   );
   const previewLabel = `${MONTHS[previewNow.getMonth()]} ${previewNow.getFullYear()}`;
 
@@ -5079,24 +5093,28 @@ function SettingsTab() {
                 <label className={labelCls}>From day</label>
                 <input
                   name="salaryPeriodStartDay"
-                  type="number"
-                  min={1}
-                  max={31}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={2}
                   className={inputCls}
                   value={periodStartDay}
-                  onChange={(e) => setPeriodStartDay(clampDay(Number(e.target.value), 1))}
+                  onChange={(e) => setPeriodStartDay(sanitizeSalaryPeriodDayInput(e.target.value))}
+                  onBlur={() => setPeriodStartDay(formatSalaryPeriodDayField(salaryPeriodDayFromField(periodStartDay, 1), 1))}
                 />
               </div>
               <div>
                 <label className={labelCls}>To day</label>
                 <input
                   name="salaryPeriodEndDay"
-                  type="number"
-                  min={1}
-                  max={31}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={2}
                   className={inputCls}
                   value={periodEndDay}
-                  onChange={(e) => setPeriodEndDay(clampDay(Number(e.target.value), 31))}
+                  onChange={(e) => setPeriodEndDay(sanitizeSalaryPeriodDayInput(e.target.value))}
+                  onBlur={() => setPeriodEndDay(formatSalaryPeriodDayField(salaryPeriodDayFromField(periodEndDay, 31), 31))}
                 />
               </div>
             </div>

@@ -117,14 +117,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     getPeopleReadScope,
     getLeaveReadScope,
     hasRole,
-    refreshProfile,
   } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  useEffect(() => {
-    if (isLoading || !isAuthenticated) return;
-    void refreshProfile();
-  }, [isLoading, isAuthenticated, refreshProfile]);
 
   useEffect(() => {
     if (isLoading || !user) return;

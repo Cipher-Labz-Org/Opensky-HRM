@@ -43,12 +43,15 @@ public class AuthController : ControllerBase
     {
         try
         {
-            var companyName = (await _systemSettings.GetAsync("CompanyName") ?? "").Trim();
-            var logo = (await _systemSettings.GetAsync("CompanyLogoUrl") ?? "").Trim();
-            var scaleRaw = (await _systemSettings.GetAsync("CompanyLogoLoginScale") ?? "").Trim();
-            var offsetXRaw = (await _systemSettings.GetAsync("CompanyLogoLoginOffsetX") ?? "").Trim();
-            var offsetYRaw = (await _systemSettings.GetAsync("CompanyLogoLoginOffsetY") ?? "").Trim();
-            var fitRaw = (await _systemSettings.GetAsync("CompanyLogoLoginFit") ?? "").Trim().ToLowerInvariant();
+            var settings = await _systemSettings.GetAllAsync();
+            static string S(IReadOnlyDictionary<string, string> map, string key) =>
+                map.TryGetValue(key, out var v) ? v : "";
+            var companyName = S(settings, "CompanyName").Trim();
+            var logo = S(settings, "CompanyLogoUrl").Trim();
+            var scaleRaw = S(settings, "CompanyLogoLoginScale").Trim();
+            var offsetXRaw = S(settings, "CompanyLogoLoginOffsetX").Trim();
+            var offsetYRaw = S(settings, "CompanyLogoLoginOffsetY").Trim();
+            var fitRaw = S(settings, "CompanyLogoLoginFit").Trim().ToLowerInvariant();
             _ = int.TryParse(scaleRaw, out var scale);
             _ = int.TryParse(offsetXRaw, out var offsetX);
             _ = int.TryParse(offsetYRaw, out var offsetY);

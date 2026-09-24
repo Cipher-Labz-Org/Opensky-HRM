@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 
 namespace OpenSkyHRM.Persistence.Seeders;
@@ -263,6 +264,28 @@ public static class LeaveSeeder
     /// <summary>Ensures Sick Leave has a Shop &amp; Office display rule (for DBs created before this rule existed).</summary>
     public static async Task EnsureShopOfficeSickLeaveRuleAsync(AppDbContext context)
         => await EnsureShopOfficeRuleForLeaveTypeAsync(context, "LT-SIC", "ShopOfficeSick");
+
+    /// <summary>Idempotent system settings for optional pre-permanency casual leave accrual (0.5 day / month).</summary>
+    public static async Task EnsureCasualLeaveNewHireAccrualSettingsAsync(AppDbContext context)
+    {
+        var defaults = new (string Key, string Value, string Description)[]
+        {
+            (
+                CasualLeaveNewHireAccrualSettings.EnabledKey,
+                "false",
+                "When true, pre-permanency employees accrue 0.5 casual leave day per completed month from join until Date of Permanency (Shop & Office)"),
+        };
+
+        foreach (var (key, value, description) in defaults)
+        {
+            if (await context.SystemSettings.FindAsync(key) is not null)
+                continue;
+
+            context.SystemSettings.Add(new SystemSetting { Key = key, Value = value, Description = description });
+        }
+
+        await context.SaveChangesAsync();
+    }
 
     /// <summary>
     /// Ensures Annual and Casual leave have Shop &amp; Office Act entitlement rules

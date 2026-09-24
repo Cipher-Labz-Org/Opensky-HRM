@@ -448,11 +448,16 @@ public class AttendanceService : IAttendanceService
             .FirstOrDefaultAsync(a => a.Id == id);
         if (entity is null) return null;
 
-        if (dto.PunchIn.HasValue) entity.PunchIn = dto.PunchIn;
-        if (dto.PunchOut.HasValue) entity.PunchOut = dto.PunchOut;
         if (dto.Status != null) entity.Status = dto.Status;
         if (dto.Remarks != null) entity.Remarks = dto.Remarks;
         if (!string.IsNullOrWhiteSpace(dto.Source)) entity.Source = dto.Source.Trim();
+
+        // Edit / Log Attendance send Asia/Colombo wall clock (no offset). Store as Unspecified
+        // so MapToDto does not treat them as UTC device punches (+5:30 shift).
+        if (dto.PunchIn.HasValue)
+            entity.PunchIn = AttendancePunchTimes.AsWallClock(dto.PunchIn.Value);
+        if (dto.PunchOut.HasValue)
+            entity.PunchOut = AttendancePunchTimes.AsWallClock(dto.PunchOut.Value);
 
         if (entity.PunchIn.HasValue && entity.PunchOut.HasValue)
             entity.WorkedHours = Math.Round((decimal)(entity.PunchOut.Value - entity.PunchIn.Value).TotalHours, 2);
