@@ -17,6 +17,26 @@ import {
 } from "@/components/dashboard/DashboardUi";
 import { DASH_CHART, OPENSKY_THEME } from "@/lib/opensky-theme";
 import { formatRecruitmentActivityDescription } from "@/lib/recruitment-activity";
+import { useAuth } from "@/contexts/auth-context";
+
+const DASH_METRIC_TIMEOUT_MS = 35_000;
+const DASH_METRIC_RETRIES = 1;
+const DASH_RETRY_DELAY_MS = 2_000;
+
+async function fetchDashboardMetric<T>(endpoint: string): Promise<T | null> {
+  for (let attempt = 0; attempt <= DASH_METRIC_RETRIES; attempt++) {
+    try {
+      return await apiFetch<T>(endpoint, { timeoutMs: DASH_METRIC_TIMEOUT_MS });
+    } catch {
+      if (attempt < DASH_METRIC_RETRIES) {
+        await new Promise((resolve) => window.setTimeout(resolve, DASH_RETRY_DELAY_MS));
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
+}
 
 const T = OPENSKY_THEME;
 
@@ -99,16 +119,18 @@ interface DepartmentRow {
 }
 
 export default function DashboardPage() {
+  const { token, isLoading: authLoading } = useAuth();
   const [myTasks, setMyTasks] = useState<MyTask[]>([]);
   const [completing, setCompleting] = useState<string | null>(null);
 
   const [activeCount, setActiveCount] = useState<number | null>(null);
   const [terminatedCount, setTerminatedCount] = useState<number | null>(null);
+  const [activeCountLoading, setActiveCountLoading] = useState(true);
+  const [terminatedCountLoading, setTerminatedCountLoading] = useState(true);
   const [leaveDash, setLeaveDash] = useState<LeaveDashboardDto | null>(null);
   const [recruitDash, setRecruitDash] = useState<RecruitmentDashboardDto | null>(null);
   const [businessUnits, setBusinessUnits] = useState<BusinessUnitRow[]>([]);
   const [departments, setDepartments] = useState<DepartmentRow[]>([]);
-  const [dashLoading, setDashLoading] = useState(true);
 
   const loadMyTasks = useCallback(async () => {
     try {
@@ -119,35 +141,40 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const loadDashboardMetrics = useCallback(async () => {
-    setDashLoading(true);
-    try {
-      const [activeRes, termRes, leave, recruit, bus, depts] = await Promise.all([
-        apiFetch<{ totalCount: number }>("/api/employees?pageSize=1&excludeTerminated=true").catch(() => null),
-        apiFetch<{ totalCount: number }>("/api/employees?pageSize=1&status=Terminated").catch(() => null),
-        apiFetch<LeaveDashboardDto>("/api/leave/dashboard").catch(() => null),
-        apiFetch<RecruitmentDashboardDto>("/api/recruitment/dashboard").catch(() => null),
-        apiFetch<BusinessUnitRow[]>("/api/organization/business-units").catch(() => []),
-        apiFetch<DepartmentRow[]>("/api/organization/departments").catch(() => []),
-      ]);
-      setActiveCount(activeRes?.totalCount ?? null);
-      setTerminatedCount(termRes?.totalCount ?? null);
-      setLeaveDash(leave);
-      setRecruitDash(recruit);
-      setBusinessUnits(Array.isArray(bus) ? bus : []);
-      setDepartments(Array.isArray(depts) ? depts : []);
-    } finally {
-      setDashLoading(false);
-    }
-  }, []);
+  const loadDashboardMetrics = useCallback(() => {
+    if (!token) return;
+
+    setActiveCountLoading(true);
+    setTerminatedCountLoading(true);
+
+    void fetchDashboardMetric<{ totalCount: number }>("/api/employees?pageSize=1&excludeTerminated=true")
+      .then((activeRes) => setActiveCount(activeRes?.totalCount ?? null))
+      .finally(() => setActiveCountLoading(false));
+
+    void fetchDashboardMetric<{ totalCount: number }>("/api/employees?pageSize=1&status=Terminated")
+      .then((termRes) => setTerminatedCount(termRes?.totalCount ?? null))
+      .finally(() => setTerminatedCountLoading(false));
+
+    void fetchDashboardMetric<LeaveDashboardDto>("/api/leave/dashboard").then(setLeaveDash);
+    void fetchDashboardMetric<RecruitmentDashboardDto>("/api/recruitment/dashboard").then(setRecruitDash);
+
+    void fetchDashboardMetric<BusinessUnitRow[]>("/api/organization/business-units").then((bus) =>
+      setBusinessUnits(Array.isArray(bus) ? bus : []),
+    );
+    void fetchDashboardMetric<DepartmentRow[]>("/api/organization/departments").then((depts) =>
+      setDepartments(Array.isArray(depts) ? depts : []),
+    );
+  }, [token]);
 
   useEffect(() => {
+    if (authLoading || !token) return;
     loadMyTasks();
-  }, [loadMyTasks]);
+  }, [authLoading, token, loadMyTasks]);
 
   useEffect(() => {
+    if (authLoading || !token) return;
     loadDashboardMetrics();
-  }, [loadDashboardMetrics]);
+  }, [authLoading, token, loadDashboardMetrics]);
 
   useEffect(() => {
     function scrollToBirthdays() {
@@ -214,10 +241,11 @@ export default function DashboardPage() {
       {
         label: "Active employees",
         value: formatInt(activeCount),
+        loading: activeCountLoading,
         sub:
           activeCount != null
             ? "Non-terminated headcount"
-            : dashLoading
+            : activeCountLoading
               ? "Loading..."
               : "Unable to load (check People access)",
       },
@@ -240,13 +268,14 @@ export default function DashboardPage() {
       {
         label: "Terminated (records)",
         value: formatInt(terminatedCount),
+        loading: terminatedCountLoading,
         sub:
           terminatedCount != null && activeCount != null && activeCount + terminatedCount > 0
             ? `${((terminatedCount / (activeCount + terminatedCount)) * 100).toFixed(1)}% of all employee records`
             : "Historical terminations in system",
       },
     ],
-    [activeCount, terminatedCount, leaveDash, recruitDash, dashLoading]
+    [activeCount, terminatedCount, activeCountLoading, terminatedCountLoading, leaveDash, recruitDash]
   );
 
   const quickLinks = [
@@ -343,7 +372,7 @@ export default function DashboardPage() {
           }
           badge={<DashboardBrandBadge />}
         />
-        <DashboardKpiGrid items={kpis} loading={dashLoading} />
+        <DashboardKpiGrid items={kpis} />
         </div>
       </div>
 
