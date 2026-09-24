@@ -1105,6 +1105,9 @@ function AttendanceListTab() {
           punchOut: (fd.get("punchOut") as string) || null,
           status: (fd.get("status") as string) || null,
           remarks: (fd.get("remarks") as string) || null,
+          // Edit UI enters Asia/Colombo wall clock. Web/Mobile punches store UTC;
+          // keep Source as Manual so the list does not add +5:30 again.
+          source: "Manual",
         }),
       });
       setEditModal(false);

@@ -4770,7 +4770,11 @@ export default function EmployeeDetailPage() {
               <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
                 <div><label className={labelClass}>Joined Date *</label><DatePickerField name="joinDate" required className={inputClass} value={jobFormJoinDate} onChange={setJobFormJoinDate} /></div>
                 <div><label className={labelClass}>Probation End Date</label><DatePickerField name="probationEndDate" className={inputClass} value={jobFormProbationEnd} onChange={setJobFormProbationEnd} /></div>
-                <div><label className={labelClass}>Date of Permanency</label><DatePickerField name="dateOfPermanency" className={inputClass} value={jobFormPermanency} onChange={setJobFormPermanency} /></div>
+                <div>
+                  <label className={labelClass}>Date of Permanency</label>
+                  <DatePickerField name="dateOfPermanency" className={inputClass} value={jobFormPermanency} onChange={setJobFormPermanency} placeholder="Set when confirmed" />
+                  <p className="mt-1 text-xs text-slate-500">Optional until confirmed. Leave entitlements after permanency use this date only (not probation end).</p>
+                </div>
                 <div><label className={labelClass}>Job Title</label><FormSelect name="jobTitleId" defaultValue={emp.jobTitleId ?? ""} placeholder="— None —" options={[{ value: "", label: "— None —" }, ...jobTitleOptions.map((j) => ({ value: j.id, label: j.name }))]} /></div>
                 <div><label className={labelClass}>Department *</label><FormSelect name="departmentId" required clearable={false} defaultValue={emp.departmentId} options={departmentOptions.map((d) => ({ value: d.id, label: d.name }))} /></div>
                 <div><label className={labelClass}>Employment Type *</label><FormSelect name="employmentType" required clearable={false} defaultValue={emp.employmentType} options={jobEmploymentTypeSelectOptions} /></div>

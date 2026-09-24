@@ -146,6 +146,13 @@ public class SystemSettingsController : ControllerBase
             });
         }
 
+        if (string.Equals(key, CasualLeaveNewHireAccrualSettings.EnabledKey, StringComparison.OrdinalIgnoreCase)
+            && !CasualLeaveNewHireAccrualSettings.IsEnabled(dto.Value)
+            && !string.Equals(dto.Value.Trim(), "false", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { message = "Use true or false for casual leave new-hire accrual." });
+        }
+
         await _service.SetAsync(key, dto.Value);
         return Ok(new { key, value = dto.Value });
     }

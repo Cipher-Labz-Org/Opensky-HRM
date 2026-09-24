@@ -57,6 +57,10 @@ export default function SettingsPage() {
   const [approvalLevels, setApprovalLevels] = useState(1);
   const [approvalConfigSaving, setApprovalConfigSaving] = useState(false);
 
+  const [casualNewHireHalfDayEnabled, setCasualNewHireHalfDayEnabled] = useState(false);
+  const [casualNewHireSaving, setCasualNewHireSaving] = useState(false);
+  const [casualNewHireMsg, setCasualNewHireMsg] = useState("");
+
   const [openAiEnabled, setOpenAiEnabled] = useState(false);
   const [openAiSidekickEnabled, setOpenAiSidekickEnabled] = useState(true);
   const [openAiModel, setOpenAiModel] = useState("gpt-4o-mini");
@@ -107,6 +111,8 @@ export default function SettingsPage() {
     if (prefix !== undefined) setCodePrefix(prefix);
     setAttendanceCheckInMode(getSystemSetting(settings, "AttendanceCheckInMode") ?? "BusinessUnitQr");
     setCompanyName(getSystemSetting(settings, "CompanyName") ?? "");
+    const casualAccrual = getSystemSetting(settings, "CasualLeaveNewHireHalfDayAccrualEnabled");
+    setCasualNewHireHalfDayEnabled(casualAccrual === "true");
   }
 
   useEffect(() => {
@@ -248,6 +254,23 @@ export default function SettingsPage() {
       const res = await apiFetch<{ levels: number }>("/api/leave/approval-config", { method: "PUT", body: JSON.stringify({ levels }) });
       setApprovalLevels(res.levels);
     } catch { /* ignore */ } finally { setApprovalConfigSaving(false); }
+  }
+
+  async function saveCasualNewHireAccrualSettings() {
+    setCasualNewHireSaving(true);
+    setCasualNewHireMsg("");
+    try {
+      await apiFetch("/api/system-settings/CasualLeaveNewHireHalfDayAccrualEnabled", {
+        method: "PUT",
+        body: JSON.stringify({ value: String(casualNewHireHalfDayEnabled) }),
+      });
+      setCasualNewHireMsg("Saved. Run leave balance recalculate for balances to refresh.");
+      setTimeout(() => setCasualNewHireMsg(""), 5000);
+    } catch (err) {
+      setCasualNewHireMsg(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setCasualNewHireSaving(false);
+    }
   }
 
   async function saveAttendanceCheckInMode() {
@@ -430,6 +453,38 @@ export default function SettingsPage() {
               ? "Supervisor approves → Approved"
               : "Supervisor approves (L1) → Second approver (L2) → Approved"}
           </p>
+        </div>
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <p className="text-sm font-semibold text-slate-800">New hire casual leave (0.5 day / month)</p>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            When enabled, employees accrue 0.5 casual leave day per completed month from <strong>join date</strong> until the day before{" "}
+            <strong>Date of Permanency</strong> (leave that field empty until HR confirms permanency; it is not auto-filled from probation).
+            After you set Date of Permanency, casual leave follows the
+            Sri Lanka Shop &amp; Office Act (pro-rated 7 days for the rest of the joining year, then 7 days per calendar year).
+            Annual leave still uses permanency and join quarter per the Act. Default is off.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-4">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={casualNewHireHalfDayEnabled}
+                onChange={(e) => setCasualNewHireHalfDayEnabled(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Enable monthly 0.5-day accrual for new employees
+            </label>
+            <button
+              type="button"
+              onClick={() => void saveCasualNewHireAccrualSettings()}
+              disabled={casualNewHireSaving}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:border-slate-300 disabled:opacity-60"
+            >
+              {casualNewHireSaving ? "Saving…" : "Save accrual settings"}
+            </button>
+          </div>
+          {casualNewHireMsg ? (
+            <p className="mt-2 text-xs text-slate-600">{casualNewHireMsg}</p>
+          ) : null}
         </div>
       </div>
 

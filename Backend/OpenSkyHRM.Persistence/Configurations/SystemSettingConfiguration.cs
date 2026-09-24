@@ -45,6 +45,12 @@ public class SystemSettingConfiguration : IEntityTypeConfiguration<SystemSetting
                 Key = "AttendanceCheckInMode",
                 Value = "BusinessUnitQr",
                 Description = "Attendance check-in policy: Open, LocationGeofence, BusinessUnitQr, BusinessUnitGeofence, Hybrid"
+            },
+            new SystemSetting
+            {
+                Key = "CasualLeaveNewHireHalfDayAccrualEnabled",
+                Value = "false",
+                Description = "When true, pre-permanency employees accrue 0.5 casual leave day per completed month from join until Date of Permanency (Shop & Office)"
             }
         );
     }

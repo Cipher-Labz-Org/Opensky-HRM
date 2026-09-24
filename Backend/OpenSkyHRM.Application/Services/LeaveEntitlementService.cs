@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
@@ -20,6 +21,7 @@ public class LeaveEntitlementService : ILeaveEntitlementService
         if (employee is null) return new EntitlementResult(0, 0);
 
         var asOfForYear = AsOfUtcForEntitlementYear(year, DateTime.UtcNow.Date);
+        var casualNewHireAccrual = await LoadCasualNewHireAccrualOptionsAsync();
 
         var rules = await _db.LeaveEntitlementRules
             .Include(r => r.LeaveType)
@@ -65,7 +67,8 @@ public class LeaveEntitlementService : ILeaveEntitlementService
                 asOfUtcDate: asOfForYear,
                 dateOfPermanency: employee.DateOfPermanency,
                 probationEndDate: employee.ProbationEndDate,
-                employmentType: employee.EmploymentType);
+                employmentType: employee.EmploymentType,
+                casualNewHireAccrual: casualNewHireAccrual);
 
             if (existing != null)
             {
@@ -133,11 +136,29 @@ public class LeaveEntitlementService : ILeaveEntitlementService
         if (employee is null) return null;
 
         var asOf = AsOfUtcForEntitlementYear(year, DateTime.UtcNow.Date);
+        var casualNewHireAccrual = await LoadCasualNewHireAccrualOptionsAsync();
         var al = CalculateShopOfficeAnnual(
             employee.JoinDate, year, asOf,
             employee.EmploymentType, employee.DateOfPermanency, employee.ProbationEndDate);
-        var cl = CalculateShopOfficeCasual(employee.JoinDate, year, asOf);
+        var cl = CalculateShopOfficeCasual(
+            employee.JoinDate,
+            year,
+            asOf,
+            casualNewHireAccrual,
+            employee.DateOfPermanency,
+            employee.ProbationEndDate,
+            employee.EmploymentType);
         return new ShopOfficeLeaveEntitlementDto(year, al, cl);
+    }
+
+    private async Task<CasualLeaveNewHireAccrualOptions> LoadCasualNewHireAccrualOptionsAsync()
+    {
+        var raw = await _db.SystemSettings
+            .AsNoTracking()
+            .Where(s => s.Key == CasualLeaveNewHireAccrualSettings.EnabledKey)
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync();
+        return CasualLeaveNewHireAccrualSettings.Parse(raw);
     }
 
     public async Task<List<EntitlementRuleDto>> GetRulesAsync()
@@ -230,14 +251,17 @@ public class LeaveEntitlementService : ILeaveEntitlementService
         DateTime? asOfUtcDate = null,
         DateTime? dateOfPermanency = null,
         DateTime? probationEndDate = null,
-        string? employmentType = null)
+        string? employmentType = null,
+        CasualLeaveNewHireAccrualOptions? casualNewHireAccrual = null)
     {
         var asOf = (asOfUtcDate ?? DateTime.UtcNow.Date);
+        var accrual = casualNewHireAccrual ?? CasualLeaveNewHireAccrualSettings.Disabled;
         return ruleType switch
         {
             "ChildOrderBased" => CalculateChildOrderEntitlement(ruleConfigJson),
             "ShopOfficeAnnual" => CalculateShopOfficeAnnual(joinDate, forYear, asOf, employmentType, dateOfPermanency, probationEndDate),
-            "ShopOfficeCasual" => CalculateShopOfficeCasual(joinDate, forYear, asOf),
+            "ShopOfficeCasual" => CalculateShopOfficeCasual(
+                joinDate, forYear, asOf, accrual, dateOfPermanency, probationEndDate, employmentType),
             "ShopOfficeSick" => CalculateShopOfficeSickEntitlement(ruleConfigJson),
             _ => CalculateServiceYearEntitlement(joinDate, forYear, ruleConfigJson, asOf),
         };
@@ -339,8 +363,8 @@ public class LeaveEntitlementService : ILeaveEntitlementService
     }
 
     /// <summary>
-    /// Annual leave: (1) none in the joining calendar year and none while on probation; (2) after permanent, first eligible calendar year = join-quarter proration; then 14.
-    /// Permanent effective date: <paramref name="dateOfPermanency"/>, else day after <paramref name="probationEndDate"/>, else join if not a probation employment type.
+    /// Annual leave: (1) none in the joining calendar year; (2) after manual <paramref name="dateOfPermanency"/>, first eligible calendar year = join-quarter proration; then 14.
+    /// No automatic permanent date from probation end or employment type — HR must set Date of Permanency on the employee profile.
     /// </summary>
     public static decimal CalculateShopOfficeAnnual(
         DateTime joinDate,
@@ -362,7 +386,7 @@ public class LeaveEntitlementService : ILeaveEntitlementService
         if (forYear == join.Year)
             return 0;
 
-        var permanentFrom = TryGetPermanentEffectiveDateUtc(join, employmentType, dateOfPermanency, probationEndDate);
+        var permanentFrom = TryGetPermanentEffectiveDateUtc(dateOfPermanency);
         if (!permanentFrom.HasValue)
             return 0;
 
@@ -384,25 +408,13 @@ public class LeaveEntitlementService : ILeaveEntitlementService
         => CalculateShopOfficeAnnual(joinDate, forYear, asOfUtcDate, null, null, null);
 
     /// <summary>
-    /// First calendar date the employee counts as permanent for annual leave. <see langword="null"/> if still on probation with no end date.
-    /// Order: permanency date → day after probation end → join date if employment type is not probation.
+    /// Permanent date for Shop &amp; Office leave — only when HR sets <see cref="Entities.Employee.DateOfPermanency"/> on the profile.
     /// </summary>
-    public static DateTime? TryGetPermanentEffectiveDateUtc(
-        DateTime joinDateUtc,
-        string? employmentType,
-        DateTime? dateOfPermanency,
-        DateTime? probationEndDate)
+    public static DateTime? TryGetPermanentEffectiveDateUtc(DateTime? dateOfPermanency)
     {
-        if (dateOfPermanency.HasValue)
-            return ToUtcDateOnly(dateOfPermanency.Value);
-
-        if (probationEndDate.HasValue)
-            return ToUtcDateOnly(probationEndDate.Value).AddDays(1);
-
-        if (!IsProbationEmploymentType(employmentType))
-            return ToUtcDateOnly(joinDateUtc);
-
-        return null;
+        if (!dateOfPermanency.HasValue)
+            return null;
+        return ToUtcDateOnly(dateOfPermanency.Value);
     }
 
     /// <summary>True for <see cref="EmploymentType.FullTimeProbation"/> or any code ending with "Probation" (case-insensitive).</summary>
@@ -432,10 +444,18 @@ public class LeaveEntitlementService : ILeaveEntitlementService
     }
 
     /// <summary>
-    /// Casual leave: joining year 0.5 day per completed calendar month from join (cap 7); 7 days per later calendar year.
-    /// Completed months: join month counts only if join is on the 1st; partial join month does not count.
+    /// Shop &amp; Office casual leave. Later calendar years: 7 days.
+    /// Joining year: optional pre-permanency 0.5 day per completed month from join through day before permanent date (company setting);
+    /// after manual <paramref name="dateOfPermanency"/> on the employee profile, pro-rated 7 days for the remainder of the year.
     /// </summary>
-    public static decimal CalculateShopOfficeCasual(DateTime joinDate, int forYear, DateTime asOfUtcDate)
+    public static decimal CalculateShopOfficeCasual(
+        DateTime joinDate,
+        int forYear,
+        DateTime asOfUtcDate,
+        CasualLeaveNewHireAccrualOptions accrualOptions,
+        DateTime? dateOfPermanency = null,
+        DateTime? probationEndDate = null,
+        string? employmentType = null)
     {
         var join = ToUtcDateOnly(joinDate);
         var asOf = ToUtcDateOnly(asOfUtcDate);
@@ -451,9 +471,75 @@ public class LeaveEntitlementService : ILeaveEntitlementService
         if (forYear > join.Year)
             return 7;
 
-        var completed = CountCompletedCalendarMonthsFromJoin(join, periodEnd);
-        var raw = completed * 0.5m;
-        return raw > 7 ? 7 : raw;
+        var permanentFrom = TryGetPermanentEffectiveDateUtc(dateOfPermanency);
+
+        if (!accrualOptions.Enabled)
+        {
+            if (permanentFrom.HasValue && periodEnd >= permanentFrom.Value && permanentFrom.Value.Year == forYear)
+                return ProRatedShopOfficeCasualSevenForYear(permanentFrom.Value, forYear, periodEnd);
+            return 0;
+        }
+
+        decimal total = 0;
+
+        var prePermanencyEnd = periodEnd;
+        if (permanentFrom.HasValue)
+        {
+            if (periodEnd < permanentFrom.Value)
+                prePermanencyEnd = periodEnd;
+            else if (permanentFrom.Value > join)
+                prePermanencyEnd = permanentFrom.Value.AddDays(-1);
+            else
+                prePermanencyEnd = join.AddDays(-1);
+        }
+
+        if (prePermanencyEnd >= join)
+        {
+            var completed = CountCompletedCalendarMonthsFromJoin(join, prePermanencyEnd);
+            total += completed * 0.5m;
+        }
+
+        if (permanentFrom.HasValue && periodEnd >= permanentFrom.Value && permanentFrom.Value.Year == forYear)
+            total += ProRatedShopOfficeCasualSevenForYear(permanentFrom.Value, forYear, periodEnd);
+
+        return total > 7 ? 7 : total;
+    }
+
+    /// <summary>Backward-compatible overload (accrual off; no permanency signals).</summary>
+    public static decimal CalculateShopOfficeCasual(DateTime joinDate, int forYear, DateTime asOfUtcDate)
+        => CalculateShopOfficeCasual(joinDate, forYear, asOfUtcDate, CasualLeaveNewHireAccrualSettings.Disabled);
+
+    /// <summary>Pro-rated 7 casual days from permanent date through <paramref name="periodEndInclusive"/> in <paramref name="forYear"/>.</summary>
+    public static decimal ProRatedShopOfficeCasualSevenForYear(
+        DateTime permanentFromUtc,
+        int forYear,
+        DateTime periodEndInclusiveUtc)
+    {
+        var perm = ToUtcDateOnly(permanentFromUtc);
+        var end = ToUtcDateOnly(periodEndInclusiveUtc);
+        if (perm.Year > forYear || end.Year < forYear)
+            return 0;
+
+        var yearStart = new DateTime(forYear, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var effectiveStart = perm > yearStart ? perm : yearStart;
+        if (end < effectiveStart)
+            return 0;
+
+        var months = CountCalendarMonthsInclusive(effectiveStart, end);
+        if (months <= 0)
+            return 0;
+
+        return Math.Round(7m * months / 12m, 2, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>Inclusive calendar months spanned from start through end (same month = 1).</summary>
+    public static int CountCalendarMonthsInclusive(DateTime startUtcDate, DateTime endUtcDate)
+    {
+        var start = ToUtcDateOnly(startUtcDate);
+        var end = ToUtcDateOnly(endUtcDate);
+        if (end < start)
+            return 0;
+        return (end.Year - start.Year) * 12 + (end.Month - start.Month) + 1;
     }
 
     /// <summary>
