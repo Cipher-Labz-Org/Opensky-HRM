@@ -53,7 +53,7 @@ export function DashboardKpiGrid({
   items,
   loading,
 }: {
-  items: Array<{ label: string; value: string; sub: string }>;
+  items: Array<{ label: string; value: string; sub: string; loading?: boolean }>;
   loading?: boolean;
 }) {
   return (
@@ -70,7 +70,7 @@ export function DashboardKpiGrid({
               {kpi.label}
             </div>
             <div className="mt-2 text-3xl font-bold leading-none" style={{ color: tone.value }}>
-              {loading && kpi.value === "—" ? "..." : kpi.value}
+              {(kpi.loading ?? loading) && kpi.value === "—" ? "..." : kpi.value}
             </div>
             <p className="mt-2 text-[11px] leading-snug" style={{ color: T.muted }}>
               {kpi.sub}
