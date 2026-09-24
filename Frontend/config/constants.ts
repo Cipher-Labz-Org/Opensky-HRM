@@ -51,14 +51,23 @@ function isProductionAppHost(hostname: string): boolean {
 }
 
 /**
+ * Tenant sites on *.openskyhrm.com use same-origin `/api/*` (server proxies to that tenant's IIS backend).
+ * Avoids browser → Cloudflare HTTP/3 (QUIC) failures on *backend.openskyhrm.com and CORS.
+ * HTTP-only backends always use the proxy (mixed-content).
+ */
+function tenantUsesSameOriginApi(hostname: string): boolean {
+  if (!isProductionAppHost(hostname)) return false;
+  if (tenantBackendRequiresBrowserProxy(hostname)) return true;
+  return getBackendUrlForHostname(hostname) != null;
+}
+
+/**
  * API base URL for browser `fetch` calls.
- * Registered tenants (mbkh, gamma, …) call their IIS backend directly — avoids Vercel
- * proxying to private/local IPs (DNS_HOSTNAME_RESOLVED_PRIVATE).
  */
 export function getApiBaseUrl(): string {
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
-    if (tenantBackendRequiresBrowserProxy(hostname)) return "";
+    if (tenantUsesSameOriginApi(hostname)) return "";
     const backend = getBackendUrlForHostname(hostname);
     if (backend) return backend;
     if (isProductionAppHost(hostname)) return "";
@@ -79,8 +88,8 @@ export function tenantBackendUrl(): string | null {
 }
 
 /**
- * Resolve `/uploads/...` (or absolute URL) to the correct backend origin per tenant.
- * Tenant hosts must load files from their IIS API — not Vercel's single API_URL rewrite.
+ * Resolve `/uploads/...` (or absolute URL) for the current host.
+ * Tenant *.openskyhrm.com uses same-origin `/uploads/*` (proxied like `/api/*`).
  */
 export function resolveAssetUrl(path: string | null | undefined, cacheBuster?: number | string): string | null {
   const raw = path?.trim() ?? "";
@@ -92,7 +101,7 @@ export function resolveAssetUrl(path: string | null | undefined, cacheBuster?: n
 
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
-    if (tenantBackendRequiresBrowserProxy(hostname)) {
+    if (tenantBackendRequiresBrowserProxy(hostname) || tenantUsesSameOriginApi(hostname)) {
       url = normalized;
     } else {
       const backend = getBackendUrlForHostname(hostname);
@@ -119,8 +128,7 @@ export function resolveAssetUrl(path: string | null | undefined, cacheBuster?: n
 
 /**
  * Auth endpoints (login, branding, forgot-password) for browser `fetch`.
- * Tenant hosts call their IIS backend directly (see getApiBaseUrl) — Vercel cannot
- * reliably proxy to customer backends. Non-tenant Vercel deploys use same-origin `/api/*`.
+ * Uses same-origin `/api/*` on tenant *.openskyhrm.com hosts (see getApiBaseUrl).
  */
 export function resolveAuthApiPath(path: string): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;

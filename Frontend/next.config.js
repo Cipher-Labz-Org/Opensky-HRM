@@ -30,10 +30,8 @@ const nextConfig = {
     }
 
     return {
-      // Tenant domains (mbkh.openskyhrm.com, gamma.openskyhrm.com) call their IIS
-      // backends DIRECTLY from the browser via getApiBaseUrl() — no Vercel proxy needed.
-      // beforeFiles tenant rewrites were removed: Vercel cannot proxy to private IPs
-      // (DNS_HOSTNAME_RESOLVED_PRIVATE) and the direct-call approach bypasses that entirely.
+      // Tenant *.openskyhrm.com sites use app/api/[...path] + tenant-server (not these rewrites).
+      // Non-tenant Vercel deploys fall back to /api → API_URL below.
       afterFiles: [
         {
           source: "/hrm-backend/:path*",
