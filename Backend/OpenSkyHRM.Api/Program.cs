@@ -702,7 +702,7 @@ public sealed class ApiDateTimeJsonConverter : JsonConverter<DateTime>
                 throw new JsonException("Expected a date/time string.");
 
             var trimmed = s.Trim();
-            var hasOffset = trimmed.EndsWith('Z', StringComparison.OrdinalIgnoreCase)
+            var hasOffset = trimmed.EndsWith("Z", StringComparison.OrdinalIgnoreCase)
                 || System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"[+-]\d{2}:\d{2}$");
 
             if (hasOffset)
