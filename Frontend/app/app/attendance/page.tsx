@@ -1190,6 +1190,14 @@ function AttendanceListTab() {
     <div className="space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex flex-wrap items-end gap-3">
+          <div className="w-40 shrink-0">
+            <label className={labelClass}>From</label>
+            <DatePickerField value={filterFrom} onChange={onFilterFromChange} max={filterTo || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
+          </div>
+          <div className="w-40 shrink-0">
+            <label className={labelClass}>To</label>
+            <DatePickerField value={filterTo} onChange={onFilterToChange} min={filterFrom || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
+          </div>
           <form
             className="flex items-end gap-2 shrink-0"
             onSubmit={(e) => {
@@ -1212,14 +1220,6 @@ function AttendanceListTab() {
               Search
             </Button>
           </form>
-          <div className="w-40 shrink-0">
-            <label className={labelClass}>From</label>
-            <DatePickerField value={filterFrom} onChange={onFilterFromChange} max={filterTo || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
-          </div>
-          <div className="w-40 shrink-0">
-            <label className={labelClass}>To</label>
-            <DatePickerField value={filterTo} onChange={onFilterToChange} min={filterFrom || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
-          </div>
           <button
             type="button"
             onClick={toggleAdvancedFilters}
