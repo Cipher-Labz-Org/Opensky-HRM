@@ -695,8 +695,26 @@ public sealed class ApiDateTimeJsonConverter : JsonConverter<DateTime>
 {
     public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var s = reader.GetString();
+            if (string.IsNullOrWhiteSpace(s))
+                throw new JsonException("Expected a date/time string.");
+
+            var trimmed = s.Trim();
+            var hasOffset = trimmed.EndsWith('Z', StringComparison.OrdinalIgnoreCase)
+                || System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"[+-]\d{2}:\d{2}$");
+
+            if (hasOffset)
+                return DateTime.Parse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+
+            if (DateTime.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.None, out var wall))
+                return DateTime.SpecifyKind(wall, DateTimeKind.Unspecified);
+
+            throw new JsonException($"Could not parse date/time: {trimmed}");
+        }
+
         var dt = reader.GetDateTime();
-        // Preserve Unspecified for round-trip with legacy timestamp columns (wall time).
         return dt;
     }
 

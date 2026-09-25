@@ -417,8 +417,8 @@ public class AttendanceService : IAttendanceService
         {
             EmployeeId = dto.EmployeeId,
             Date = dto.Date.Date,
-            PunchIn = dto.PunchIn,
-            PunchOut = dto.PunchOut,
+            PunchIn = dto.PunchIn.HasValue ? AttendancePunchTimes.AsWallClock(dto.PunchIn.Value) : null,
+            PunchOut = dto.PunchOut.HasValue ? AttendancePunchTimes.AsWallClock(dto.PunchOut.Value) : null,
             WorkedHours = workedHours,
             Status = dto.Status,
             Remarks = dto.Remarks,
