@@ -13,11 +13,14 @@ workflows:
       groups:
         - app_store_credentials
 
-      # Requires an App Store profile for com.cipherlabz.openskyhrm in Code signing identities.
-      # OpenSky SFA AppStore Profile (com.openskylabs.sfa) cannot sign OpenSky HRM.
+      # Fetch by reference name (Codemagic UI). Auto bundle-id match fails until an App Store
+      # profile for com.cipherlabz.openskyhrm is uploaded — add one in Apple Developer, then
+      # Fetch profiles and optionally switch to distribution_type + bundle_identifier.
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.cipherlabz.openskyhrm
+        provisioning_profiles:
+          - OpenSky SFA AppStore Profile
+        certificates:
+          - OpenSky SFA Distribution P12
 
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
@@ -36,42 +39,27 @@ workflows:
           set -e
           npm ci
 
-      # 2. Validate profile + team (profiles installed at workflow start)
-      - name: Prepare Apple team and validate provisioning profile
+      # 2. Apple team for Expo prebuild (profiles installed at workflow start)
+      - name: Prepare Apple team for Expo prebuild
         script: |
           set -e
           if [ -n "$APPLE_TEAM_ID" ]; then
             echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$CM_ENV"
           fi
           PROV_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          MATCHING_PROFILE=""
           for f in "$PROV_DIR"/*.mobileprovision; do
             [ -f "$f" ] || continue
             APP_ID=$(security cms -D -i "$f" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
-            TEAM=$(security cms -D -i "$f" | plutil -extract TeamIdentifier.0 raw - 2>/dev/null || true)
-            echo "Found profile $(basename "$f"): application-identifier=$APP_ID team=$TEAM"
+            echo "Installed profile $(basename "$f"): $APP_ID"
             case "$APP_ID" in
               *".${BUNDLE_ID}"|*"${BUNDLE_ID}")
-                MATCHING_PROFILE="$f"
-                echo "APPLE_TEAM_ID=$TEAM" >> "$CM_ENV"
-                echo "Using team $TEAM for bundle $BUNDLE_ID"
-                break
+                echo "Profile matches HRM bundle ${BUNDLE_ID}."
+                ;;
+              *)
+                echo "WARNING: Profile is not for ${BUNDLE_ID}. Create an App Store profile for HRM in Apple Developer and Fetch profiles in Codemagic."
                 ;;
             esac
           done
-          if [ -z "$MATCHING_PROFILE" ]; then
-            echo "ERROR: No provisioning profile for bundle id ${BUNDLE_ID}."
-            echo ""
-            echo "Codemagic only has the SFA profile (com.openskylabs.sfa). HRM uses ${BUNDLE_ID}."
-            echo ""
-            echo "Fix in Apple Developer (team ${APPLE_TEAM_ID}):"
-            echo "  1. Identifiers — ensure App ID ${BUNDLE_ID} exists."
-            echo "  2. Profiles — + → App Store Connect → select ${BUNDLE_ID} → your Distribution cert → Generate."
-            echo ""
-            echo "Then in Codemagic → Code signing identities → iOS provisioning profiles → Fetch profiles"
-            echo "→ download the App Store profile for ${BUNDLE_ID} (any reference name)."
-            exit 1
-          fi
 
       # 3. Generate native iOS project
       - name: Generate native iOS project
