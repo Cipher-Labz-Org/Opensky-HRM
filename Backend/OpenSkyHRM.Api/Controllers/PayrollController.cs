@@ -469,7 +469,7 @@ public class PayrollController : ControllerBase
         try
         {
             var result = await _payrollService.ReviewBatchAsync(id, User.Identity?.Name ?? "System");
-            return result is null ? NotFound() : Ok(result);
+            return result is null ? NotFound(new { message = "Batch not found." }) : Ok(result);
         }
         catch (InvalidOperationException ex)
         {
@@ -483,7 +483,7 @@ public class PayrollController : ControllerBase
         try
         {
             var result = await _payrollService.ReturnBatchToCalculatedAsync(id);
-            return result is null ? NotFound() : Ok(result);
+            return result is null ? NotFound(new { message = "Batch not found." }) : Ok(result);
         }
         catch (InvalidOperationException ex)
         {
@@ -497,7 +497,7 @@ public class PayrollController : ControllerBase
         try
         {
             var result = await _payrollService.ApproveBatchAsync(id, User.Identity?.Name ?? "System");
-            return result is null ? NotFound() : Ok(result);
+            return result is null ? NotFound(new { message = "Batch not found." }) : Ok(result);
         }
         catch (InvalidOperationException ex)
         {
@@ -511,7 +511,7 @@ public class PayrollController : ControllerBase
         try
         {
             var result = await _payrollService.FinalizeBatchAsync(id);
-            return result is null ? NotFound() : Ok(result);
+            return result is null ? NotFound(new { message = "Batch not found." }) : Ok(result);
         }
         catch (InvalidOperationException ex)
         {
@@ -522,8 +522,13 @@ public class PayrollController : ControllerBase
     [HttpDelete("batches/{id:guid}")]
     public async Task<IActionResult> DeleteBatch(Guid id)
     {
-        var ok = await _payrollService.DeleteBatchAsync(id);
-        return ok ? NoContent() : BadRequest(new { message = "Only Draft batches can be deleted." });
+        return await _payrollService.DeleteBatchAsync(id) switch
+        {
+            DeletePayrollBatchOutcome.Deleted => NoContent(),
+            DeletePayrollBatchOutcome.NotFound => NotFound(new { message = "Batch not found." }),
+            DeletePayrollBatchOutcome.NotAllowed => BadRequest(new { message = "Only draft or pending-review batches can be deleted." }),
+            _ => BadRequest(new { message = "Could not delete batch." }),
+        };
     }
 
     // ── Pay Statements ───────────────────────────────────────────────

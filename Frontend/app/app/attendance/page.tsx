@@ -13,7 +13,13 @@ import type { AttendanceImportUploadResult } from "@/lib/attendance-excel-import
 import { EmployeeSearchCombobox, type EmployeeSearchPick } from "@/components/workforce/EmployeeSearchCombobox";
 import { OtNopayPanel } from "@/components/workforce/OtNopayPanel";
 import { apiFetch } from "@/lib/api";
-import { formatBusinessTime, formatDate, formatDateTime } from "@/lib/date-utils";
+import {
+  businessDateTimePayload,
+  businessDateTimeToLocalInput,
+  formatBusinessTime,
+  formatDate,
+  formatDateTime,
+} from "@/lib/date-utils";
 import { tenantBackendUrl } from "@/config/constants";
 import { formatLocalDateToIso, applyFromDateInRange, applyToDateInRange, isValidIsoDateRange } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
@@ -1101,8 +1107,8 @@ function AttendanceListTab() {
       await apiFetch(`/api/attendance/${editingRecord.id}`, {
         method: "PUT",
         body: JSON.stringify({
-          punchIn: (fd.get("punchIn") as string) || null,
-          punchOut: (fd.get("punchOut") as string) || null,
+          punchIn: businessDateTimePayload(fd.get("punchIn") as string),
+          punchOut: businessDateTimePayload(fd.get("punchOut") as string),
           status: (fd.get("status") as string) || null,
           remarks: (fd.get("remarks") as string) || null,
           // Edit UI enters Asia/Colombo wall clock. Web/Mobile punches store UTC;
@@ -1190,6 +1196,14 @@ function AttendanceListTab() {
     <div className="space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex flex-wrap items-end gap-3">
+          <div className="w-40 shrink-0">
+            <label className={labelClass}>From</label>
+            <DatePickerField value={filterFrom} onChange={onFilterFromChange} max={filterTo || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
+          </div>
+          <div className="w-40 shrink-0">
+            <label className={labelClass}>To</label>
+            <DatePickerField value={filterTo} onChange={onFilterToChange} min={filterFrom || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
+          </div>
           <form
             className="flex items-end gap-2 shrink-0"
             onSubmit={(e) => {
@@ -1212,14 +1226,6 @@ function AttendanceListTab() {
               Search
             </Button>
           </form>
-          <div className="w-40 shrink-0">
-            <label className={labelClass}>From</label>
-            <DatePickerField value={filterFrom} onChange={onFilterFromChange} max={filterTo || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
-          </div>
-          <div className="w-40 shrink-0">
-            <label className={labelClass}>To</label>
-            <DatePickerField value={filterTo} onChange={onFilterToChange} min={filterFrom || undefined} className={`${filterControlClass} w-full rounded-lg py-0`} />
-          </div>
           <button
             type="button"
             onClick={toggleAdvancedFilters}
@@ -1451,7 +1457,7 @@ function AttendanceListTab() {
                 <label className={labelClass}>Punch In</label>
                 <DateTimePickerField
                   name="punchIn"
-                  defaultValue={editingRecord.punchIn ? editingRecord.punchIn.slice(0, 16) : ""}
+                  defaultValue={businessDateTimeToLocalInput(editingRecord.punchIn)}
                   className={inputClass}
                   rowClassName="sm:col-span-1"
                 />
@@ -1460,7 +1466,7 @@ function AttendanceListTab() {
                 <label className={labelClass}>Punch Out</label>
                 <DateTimePickerField
                   name="punchOut"
-                  defaultValue={editingRecord.punchOut ? editingRecord.punchOut.slice(0, 16) : ""}
+                  defaultValue={businessDateTimeToLocalInput(editingRecord.punchOut)}
                   className={inputClass}
                   rowClassName="sm:col-span-1"
                 />

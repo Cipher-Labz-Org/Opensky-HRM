@@ -551,13 +551,19 @@ public class PayrollService : IPayrollService
         return MapBatchDto(batch);
     }
 
-    public async Task<bool> DeleteBatchAsync(Guid id)
+    public async Task<DeletePayrollBatchOutcome> DeleteBatchAsync(Guid id)
     {
-        var entity = await _db.PayrollBatches.FindAsync(id);
-        if (entity is null || (entity.Status != BatchStatus.Draft && entity.Status != BatchStatus.Calculated)) return false;
+        var entity = await _db.PayrollBatches
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(b => b.Id == id);
+        if (entity is null) return DeletePayrollBatchOutcome.NotFound;
+        if (entity.IsDeleted) return DeletePayrollBatchOutcome.Deleted;
+        if (entity.Status != BatchStatus.Draft && entity.Status != BatchStatus.Calculated)
+            return DeletePayrollBatchOutcome.NotAllowed;
+
         entity.IsDeleted = true;
         await _db.SaveChangesAsync();
-        return true;
+        return DeletePayrollBatchOutcome.Deleted;
     }
 
     // ── Pay Statements ───────────────────────────────────────────────
