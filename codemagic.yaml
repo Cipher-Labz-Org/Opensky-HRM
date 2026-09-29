@@ -65,7 +65,7 @@ workflows:
       - name: Generate native iOS project
         script: |
           set -e
-          npx expo prebuild --platform ios
+          npx expo prebuild --platform ios --clean
 
       # 4. Resolve Xcode workspace and scheme
       - name: Resolve Xcode workspace and scheme
@@ -131,23 +131,64 @@ workflows:
           echo "Apple Team ID: ${APPLE_TEAM_ID:-not set}"
 
           PBX="ios/$XCODE_SCHEME.xcodeproj/project.pbxproj"
+          PLIST="ios/$XCODE_SCHEME/Info.plist"
           if [ ! -f "$PBX" ]; then
             echo "ERROR: Xcode project not found at $PBX"
             exit 1
           fi
 
+          echo "Bundle IDs in Xcode project before signing:"
+          grep "PRODUCT_BUNDLE_IDENTIFIER" "$PBX" | head -20 || true
+
+          if [ -f "$PLIST" ]; then
+            /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PLIST" \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$PLIST"
+          fi
+
+          sed -i.bak "s/PRODUCT_BUNDLE_IDENTIFIER = com.cipherlabz.openskyhrm;/PRODUCT_BUNDLE_IDENTIFIER = ${BUNDLE_ID};/g" "$PBX"
           sed -i.bak 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBX"
           if [ -n "$APPLE_TEAM_ID" ]; then
-            sed -i.bak "s/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = $APPLE_TEAM_ID;/g" "$PBX"
-            sed -i.bak "s/DEVELOPMENT_TEAM = ;/DEVELOPMENT_TEAM = $APPLE_TEAM_ID;/g" "$PBX"
+            sed -i.bak "s/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = ${APPLE_TEAM_ID};/g" "$PBX"
+            sed -i.bak "s/DEVELOPMENT_TEAM = ;/DEVELOPMENT_TEAM = ${APPLE_TEAM_ID};/g" "$PBX"
           fi
 
-          xcode-project use-profiles --project "ios/$XCODE_SCHEME.xcodeproj"
+          xcode-project use-profiles --project "ios/$XCODE_SCHEME.xcodeproj" || true
 
-          if ! grep -q "PROVISIONING_PROFILE" "$PBX"; then
-            echo "ERROR: No PROVISIONING_PROFILE set on Xcode project after use-profiles."
+          PROFILE_NAME=""
+          PROV_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          for f in "$PROV_DIR"/*.mobileprovision; do
+            [ -f "$f" ] || continue
+            APP_ID=$(security cms -D -i "$f" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
+            case "$APP_ID" in
+              *".${BUNDLE_ID}"|*"${BUNDLE_ID}")
+                PROFILE_NAME=$(security cms -D -i "$f" | plutil -extract Name raw - 2>/dev/null || true)
+                echo "Matched mobileprovision: $PROFILE_NAME ($APP_ID)"
+                break
+                ;;
+            esac
+          done
+
+          if [ -z "$PROFILE_NAME" ]; then
+            echo "ERROR: No installed provisioning profile for bundle id ${BUNDLE_ID}."
             exit 1
           fi
+
+          if ! grep -q "PROVISIONING_PROFILE_SPECIFIER = \"${PROFILE_NAME}\"" "$PBX"; then
+            echo "Applying provisioning profile manually: ${PROFILE_NAME}"
+            sed -i.bak "s/PROVISIONING_PROFILE_SPECIFIER = \"[^\"]*\";/PROVISIONING_PROFILE_SPECIFIER = \"${PROFILE_NAME}\";/g" "$PBX"
+            sed -i.bak "s/PROVISIONING_PROFILE_SPECIFIER = \"\";/PROVISIONING_PROFILE_SPECIFIER = \"${PROFILE_NAME}\";/g" "$PBX"
+          fi
+
+          sed -i.bak 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "Apple Distribution";/g' "$PBX"
+          sed -i.bak 's/"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = "iPhone Developer";/"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";/g' "$PBX"
+
+          if ! grep -q "PROVISIONING_PROFILE_SPECIFIER" "$PBX"; then
+            echo "ERROR: PROVISIONING_PROFILE_SPECIFIER not set on Xcode project."
+            exit 1
+          fi
+
+          echo "Signing settings after configuration:"
+          grep -E "PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_IDENTITY" "$PBX" | head -30 || true
 
       # 8. Increment build number
       - name: Increment iOS build number
