@@ -13,7 +13,7 @@ workflows:
       groups:
         - app_store_credentials
 
-      # Matches OpenSky SFA AppStore Profile in Codemagic (com.openskylabs.sfa).
+      # Matches OpenSky SFA AppStore Profile in Codemagic (com.openskylabz.sfa).
       # To use com.cipherlabz.openskyhrm instead, create an App Store profile for that App ID
       # in Apple Developer, Fetch profiles in Codemagic, and revert bundleIdentifier in app.json.
       ios_signing:
@@ -23,8 +23,8 @@ workflows:
           - OpenSky SFA Distribution P12
 
       vars:
-        BUNDLE_ID: com.openskylabs.sfa
-        APPLE_TEAM_ID: XL576229TS
+        BUNDLE_ID: com.openskylabz.sfa
+        APPLE_TEAM_ID: XL576225TB
         APP_STORE_APPLE_ID: "0"
 
       node: v20
@@ -164,7 +164,7 @@ workflows:
                 APP_ID=$(security cms -D -i "$f" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
                 PROFILE_LABEL=$(security cms -D -i "$f" | plutil -extract Name raw - 2>/dev/null || true)
                 case "$APP_ID" in
-                  *com.openskylabs.sfa*)
+                  *com.openskylabz.sfa*|*com.openskylabs.sfa*)
                     PROFILE_NAME="$PROFILE_LABEL"
                     PROFILE_BUNDLE="${APP_ID#*.}"
                     echo "Using SFA profile fallback: $PROFILE_NAME"

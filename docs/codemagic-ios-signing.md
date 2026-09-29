@@ -2,8 +2,8 @@
 
 | Item | Current value |
 | --- | --- |
-| **iOS bundle ID (Mobile / Codemagic)** | `com.openskylabs.sfa` |
-| **Apple Team ID** | `XL576229TS` |
+| **iOS bundle ID (Mobile / Codemagic)** | `com.openskylabz.sfa` |
+| **Apple Team ID** | `XL576225TB` |
 | **Codemagic profile** | `OpenSky SFA AppStore Profile` |
 | **Codemagic certificate** | `OpenSky SFA Distribution P12` |
 
