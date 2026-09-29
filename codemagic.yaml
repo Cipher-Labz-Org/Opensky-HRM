@@ -1,90 +1,172 @@
-# OpenSky HRM — Expo React Native iOS (app in Mobile/).
-#
-# One-time Codemagic + Apple setup: docs/codemagic-ios-signing.md
-# Reference names below MUST match Code signing identities in Codemagic UI.
+# OpenSky HRM — Expo React Native iOS
+# App source: Mobile/
 
 workflows:
   opensky-hrm-ios:
     name: OpenSky HRM iOS
     max_build_duration: 120
     instance_type: mac_mini_m2
+
     working_directory: Mobile
+
     environment:
       groups:
         - app_store_credentials
+
       ios_signing:
-        provisioning_profiles:
-          - OpenSky SFA AppStore Profile
-        certificates:
-          - OpenSky_HRM_Distribution
+        distribution_type: app_store
+        bundle_identifier: com.cipherlabz.openskyhrm
+
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
-        APP_STORE_APPLE_ID: 0
+        APP_STORE_APPLE_ID: "0"
+
       node: v20
       xcode: latest
       cocoapods: default
+
     scripts:
+
+      # 1. Install JavaScript dependencies
       - name: Install npm dependencies
         script: |
+          set -e
           npm ci
-      - name: Generate native iOS project (Expo prebuild)
+
+      # 2. Generate native iOS project
+      - name: Generate native iOS project
         script: |
+          set -e
           npx expo prebuild --platform ios
+
+      # 3. Resolve Xcode workspace and scheme
       - name: Resolve Xcode workspace and scheme
         script: |
           set -e
+
           WORKSPACE_PATH=$(find ios -maxdepth 1 -name "*.xcworkspace" | head -1)
+
           if [ -z "$WORKSPACE_PATH" ]; then
-            echo "No .xcworkspace under ios/. Expo prebuild may have failed."
+            echo "ERROR: No .xcworkspace found under ios/"
+            echo "Expo prebuild may have failed."
             exit 1
           fi
+
           XCODE_WORKSPACE=$(basename "$WORKSPACE_PATH")
           XCODE_SCHEME="${XCODE_WORKSPACE%.xcworkspace}"
+
           echo "XCODE_WORKSPACE=$XCODE_WORKSPACE" >> "$CM_ENV"
           echo "XCODE_SCHEME=$XCODE_SCHEME" >> "$CM_ENV"
-          echo "Using workspace=$XCODE_WORKSPACE scheme=$XCODE_SCHEME"
+
+          echo "Using workspace: $XCODE_WORKSPACE"
+          echo "Using scheme: $XCODE_SCHEME"
+
+      # 4. Set App Store export compliance
       - name: Set Info.plist export compliance
         script: |
           set -e
+
           PLIST="ios/$XCODE_SCHEME/Info.plist"
+
           if [ ! -f "$PLIST" ]; then
             PLIST=$(find ios -name Info.plist | head -1)
           fi
-          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST" \
-            || /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST"
+
+          if [ ! -f "$PLIST" ]; then
+            echo "ERROR: Info.plist not found."
+            exit 1
+          fi
+
+          echo "Using Info.plist: $PLIST"
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :ITSAppUsesNonExemptEncryption bool false" \
+            "$PLIST" \
+            || /usr/libexec/PlistBuddy \
+            -c "Set :ITSAppUsesNonExemptEncryption false" \
+            "$PLIST"
+
+      # 5. Install CocoaPods
       - name: Install CocoaPods dependencies
-        script: |
-          cd ios && pod install
-      - name: Set up code signing on Xcode project
-        script: |
-          xcode-project use-profiles
-      - name: Increment iOS build number
         script: |
           set -e
           cd ios
+          pod install
+
+      # 6. Configure iOS code signing
+      - name: Set up code signing
+        script: |
+          set -e
+
+          echo "Configuring iOS code signing..."
+          echo "Bundle ID: $BUNDLE_ID"
+
+          xcode-project use-profiles
+
+      # 7. Increment build number
+      - name: Increment iOS build number
+        script: |
+          set -e
+
+          cd ios
+
           if [ -z "$APP_STORE_APPLE_ID" ] || [ "$APP_STORE_APPLE_ID" = "0" ]; then
-            echo "APP_STORE_APPLE_ID not set; using Codemagic BUILD_NUMBER=$BUILD_NUMBER"
+
+            echo "APP_STORE_APPLE_ID not set."
+            echo "Using Codemagic BUILD_NUMBER=$BUILD_NUMBER"
+
             agvtool new-version -all "$BUILD_NUMBER"
+
           else
-            LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID")
+
+            echo "Getting latest App Store build number..."
+
+            LATEST_BUILD_NUMBER=$(
+              app-store-connect get-latest-app-store-build-number \
+                "$APP_STORE_APPLE_ID"
+            )
+
             if [ -z "$LATEST_BUILD_NUMBER" ]; then
+
+              echo "No previous build found."
+              echo "Using BUILD_NUMBER=$BUILD_NUMBER"
+
               agvtool new-version -all "$BUILD_NUMBER"
+
             else
-              agvtool new-version -all $(($LATEST_BUILD_NUMBER + 1))
+
+              NEW_BUILD_NUMBER=$(($LATEST_BUILD_NUMBER + 1))
+
+              echo "Latest build: $LATEST_BUILD_NUMBER"
+              echo "New build: $NEW_BUILD_NUMBER"
+
+              agvtool new-version -all "$NEW_BUILD_NUMBER"
+
             fi
           fi
-      - name: Build App Store ipa
+
+      # 8. Build IPA
+      - name: Build App Store IPA
         script: |
+          set -e
+
+          echo "Building IPA..."
+          echo "Workspace: ios/$XCODE_WORKSPACE"
+          echo "Scheme: $XCODE_SCHEME"
+
           xcode-project build-ipa \
             --workspace "ios/$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME"
+
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
+
     publishing:
       app_store_connect:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+
         submit_to_testflight: true
         submit_to_app_store: false
