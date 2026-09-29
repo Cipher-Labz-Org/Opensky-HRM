@@ -24,8 +24,6 @@ workflows:
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
         APP_STORE_APPLE_ID: "0"
-        # Apple Developer → Membership → Team ID (required for Expo prebuild / Xcode signing).
-        APPLE_TEAM_ID: ""
 
       node: v20
       xcode: latest
@@ -39,17 +37,40 @@ workflows:
           set -e
           npm ci
 
-      # 2. Generate native iOS project
+      # 2. Validate profile + team (profiles installed at workflow start)
+      - name: Prepare Apple team and validate provisioning profile
+        script: |
+          set -e
+          PROV_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          MATCHING_PROFILE=""
+          for f in "$PROV_DIR"/*.mobileprovision; do
+            [ -f "$f" ] || continue
+            APP_ID=$(security cms -D -i "$f" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
+            TEAM=$(security cms -D -i "$f" | plutil -extract TeamIdentifier.0 raw - 2>/dev/null || true)
+            echo "Found profile $(basename "$f"): application-identifier=$APP_ID team=$TEAM"
+            case "$APP_ID" in
+              *".${BUNDLE_ID}"|*"${BUNDLE_ID}")
+                MATCHING_PROFILE="$f"
+                echo "APPLE_TEAM_ID=$TEAM" >> "$CM_ENV"
+                echo "Using team $TEAM for bundle $BUNDLE_ID"
+                break
+                ;;
+            esac
+          done
+          if [ -z "$MATCHING_PROFILE" ]; then
+            echo "ERROR: No provisioning profile for bundle id ${BUNDLE_ID}."
+            echo "Upload an App Store profile for ${BUNDLE_ID} in Codemagic Code signing identities"
+            echo "(reference: OpenSky SFA AppStore Profile must contain this bundle id, not only an SFA app id)."
+            exit 1
+          fi
+
+      # 3. Generate native iOS project
       - name: Generate native iOS project
         script: |
           set -e
-          if [ -z "$APPLE_TEAM_ID" ]; then
-            echo "WARNING: APPLE_TEAM_ID is not set in Codemagic env vars."
-            echo "Add your 10-character Apple Team ID under Application environment variables."
-          fi
           npx expo prebuild --platform ios
 
-      # 3. Resolve Xcode workspace and scheme
+      # 4. Resolve Xcode workspace and scheme
       - name: Resolve Xcode workspace and scheme
         script: |
           set -e
@@ -71,7 +92,7 @@ workflows:
           echo "Using workspace: $XCODE_WORKSPACE"
           echo "Using scheme: $XCODE_SCHEME"
 
-      # 4. Set App Store export compliance
+      # 5. Set App Store export compliance
       - name: Set Info.plist export compliance
         script: |
           set -e
@@ -96,43 +117,38 @@ workflows:
             -c "Set :ITSAppUsesNonExemptEncryption false" \
             "$PLIST"
 
-      # 5. Install CocoaPods
+      # 6. Install CocoaPods
       - name: Install CocoaPods dependencies
         script: |
           set -e
           cd ios
           pod install
 
-      # 6. Configure iOS code signing
+      # 7. Configure iOS code signing
       - name: Set up code signing
         script: |
           set -e
 
           echo "Configuring iOS code signing..."
           echo "Bundle ID: $BUNDLE_ID"
+          echo "Apple Team ID: ${APPLE_TEAM_ID:-not set}"
 
-          # Apply signing only to the app .xcodeproj (not dependency projects under node_modules).
-          xcode-project use-profiles --project "ios/"*.xcodeproj
-
-      - name: Verify provisioning profile bundle ID
-        script: |
-          set -e
-          PROFILE=$(find "$HOME/Library/MobileDevice/Provisioning Profiles" -name "*.mobileprovision" 2>/dev/null | head -1)
-          if [ -z "$PROFILE" ]; then
-            echo "WARNING: No provisioning profile on disk after use-profiles."
-            exit 0
-          fi
-          APP_ID=$(security cms -D -i "$PROFILE" 2>/dev/null | plutil -extract Entitlements.application-identifier raw -o - - 2>/dev/null || true)
-          echo "Profile application-identifier: ${APP_ID:-unknown}"
-          EXPECT="TeamIdentifier.$BUNDLE_ID"
-          if [ -n "$APP_ID" ] && [[ "$APP_ID" != *"$BUNDLE_ID"* ]]; then
-            echo "ERROR: Provisioning profile does not include bundle ID $BUNDLE_ID."
-            echo "OpenSky SFA AppStore Profile may be for a different app."
-            echo "In Apple Developer, create an App Store profile for com.cipherlabz.openskyhrm and upload it to Codemagic."
+          PBX="ios/$XCODE_SCHEME.xcodeproj/project.pbxproj"
+          if [ ! -f "$PBX" ]; then
+            echo "ERROR: Xcode project not found at $PBX"
             exit 1
           fi
 
-      # 7. Increment build number
+          sed -i.bak 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBX"
+
+          xcode-project use-profiles --project "ios/$XCODE_SCHEME.xcodeproj"
+
+          if ! grep -q "PROVISIONING_PROFILE" "$PBX"; then
+            echo "ERROR: No PROVISIONING_PROFILE set on Xcode project after use-profiles."
+            exit 1
+          fi
+
+      # 8. Increment build number
       - name: Increment iOS build number
         script: |
           set -e
@@ -174,7 +190,7 @@ workflows:
             fi
           fi
 
-      # 8. Build IPA
+      # 9. Build IPA
       - name: Build App Store IPA
         script: |
           set -e
@@ -186,7 +202,7 @@ workflows:
           xcode-project build-ipa \
             --workspace "ios/$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME" \
-            --archive-flags="-destination 'generic/platform=iOS'"
+            --archive-flags="-allowProvisioningUpdates"
 
     artifacts:
       - build/ios/ipa/*.ipa
