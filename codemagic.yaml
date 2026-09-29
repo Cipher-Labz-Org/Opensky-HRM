@@ -13,16 +13,15 @@ workflows:
       groups:
         - app_store_credentials
 
-      # Auto match fails until Codemagic has an App Store profile for com.cipherlabz.openskyhrm.
-      # Reference strings must match Code signing identities exactly.
+      # Requires an App Store profile for com.cipherlabz.openskyhrm in Code signing identities.
+      # OpenSky SFA AppStore Profile (com.openskylabs.sfa) cannot sign OpenSky HRM.
       ios_signing:
-        provisioning_profiles:
-          - OpenSky SFA AppStore Profile
-        certificates:
-          - OpenSky SFA Distribution P12
+        distribution_type: app_store
+        bundle_identifier: com.cipherlabz.openskyhrm
 
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
+        APPLE_TEAM_ID: XL576229TS
         APP_STORE_APPLE_ID: "0"
 
       node: v20
@@ -41,6 +40,9 @@ workflows:
       - name: Prepare Apple team and validate provisioning profile
         script: |
           set -e
+          if [ -n "$APPLE_TEAM_ID" ]; then
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$CM_ENV"
+          fi
           PROV_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           MATCHING_PROFILE=""
           for f in "$PROV_DIR"/*.mobileprovision; do
@@ -59,8 +61,15 @@ workflows:
           done
           if [ -z "$MATCHING_PROFILE" ]; then
             echo "ERROR: No provisioning profile for bundle id ${BUNDLE_ID}."
-            echo "Upload an App Store profile for ${BUNDLE_ID} in Codemagic Code signing identities"
-            echo "(reference: OpenSky SFA AppStore Profile must contain this bundle id, not only an SFA app id)."
+            echo ""
+            echo "Codemagic only has the SFA profile (com.openskylabs.sfa). HRM uses ${BUNDLE_ID}."
+            echo ""
+            echo "Fix in Apple Developer (team ${APPLE_TEAM_ID}):"
+            echo "  1. Identifiers — ensure App ID ${BUNDLE_ID} exists."
+            echo "  2. Profiles — + → App Store Connect → select ${BUNDLE_ID} → your Distribution cert → Generate."
+            echo ""
+            echo "Then in Codemagic → Code signing identities → iOS provisioning profiles → Fetch profiles"
+            echo "→ download the App Store profile for ${BUNDLE_ID} (any reference name)."
             exit 1
           fi
 
