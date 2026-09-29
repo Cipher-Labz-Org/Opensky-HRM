@@ -14,7 +14,7 @@ workflows:
         - app_store_credentials
       ios_signing:
         provisioning_profiles:
-          - OpenSky_HRM_AppStore
+          - OpenSky SFA AppStore Profile
         certificates:
           - OpenSky_HRM_Distribution
       vars:

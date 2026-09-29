@@ -6,8 +6,10 @@ Bundle ID (do not change): `com.cipherlabz.openskyhrm`
 
 | Reference name | What to upload/fetch |
 | --- | --- |
-| `OpenSky_HRM_AppStore` | App Store provisioning profile for `com.cipherlabz.openskyhrm` |
+| `OpenSky SFA AppStore Profile` | App Store provisioning profile (must be for bundle **`com.cipherlabz.openskyhrm`**) |
 | `OpenSky_HRM_Distribution` | Apple **Distribution** certificate (.p12 in Codemagic) |
+
+If Codemagic lists a different profile reference, update `provisioning_profiles` in `codemagic.yaml` to that **exact** string (Team settings → Code signing identities → iOS provisioning profiles).
 
 ## 1. App Store Connect API key (Team)
 
@@ -38,7 +40,9 @@ Under **App Store profiles**, find:
 | Certificate | Apple Distribution (green check in Codemagic) |
 | Team | CIPHER LABZ (PRIVATE) LIMITED |
 
-Select it, reference name **`OpenSky_HRM_AppStore`**, click **Download selected**.
+Select it, set the reference name to match `codemagic.yaml` (currently **`OpenSky SFA AppStore Profile`**), click **Download selected**.
+
+The reference name is only a Codemagic label; the profile must still be an **App Store** profile for **`com.cipherlabz.openskyhrm`**. A profile for another bundle ID (e.g. another OpenSky app) will fail at Xcode signing.
 
 ### If the bundle ID is missing in Fetch profiles
 
@@ -49,7 +53,7 @@ Create the profile in Apple Developer:
 3. App ID: **`com.cipherlabz.openskyhrm`**
 4. Select your **Apple Distribution** certificate
 5. Name the profile (e.g. `OpenSky HRM App Store`), **Generate**, download `.mobileprovision`
-6. In Codemagic: **Upload** profile with reference **`OpenSky_HRM_AppStore`**
+6. In Codemagic: **Upload** profile; use the same reference name as in `codemagic.yaml`
 
 ## 4. Application env vars
 
