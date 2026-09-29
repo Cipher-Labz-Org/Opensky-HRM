@@ -127,38 +127,68 @@ workflows:
           set -e
 
           echo "Configuring iOS code signing..."
-          echo "Bundle ID: $BUNDLE_ID"
+          echo "Bundle ID (yaml var): $BUNDLE_ID"
           echo "Apple Team ID: ${APPLE_TEAM_ID:-not set}"
 
-          keychain initialize
-          keychain add-certificates
-
-          echo "Available code signing identities:"
+          echo "Available code signing identities (Codemagic keychain):"
           security find-identity -v -p codesigning || true
+
+          PROFILE_NAME=""
+          PROFILE_BUNDLE=""
+          for PROV_DIR in \
+            "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            [ -d "$PROV_DIR" ] || continue
+            for f in "$PROV_DIR"/*.mobileprovision; do
+              [ -f "$f" ] || continue
+              APP_ID=$(security cms -D -i "$f" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
+              PROFILE_LABEL=$(security cms -D -i "$f" | plutil -extract Name raw - 2>/dev/null || true)
+              echo "Found profile: $PROFILE_LABEL ($APP_ID)"
+              case "$APP_ID" in
+                *".${BUNDLE_ID}"|*"${BUNDLE_ID}")
+                  PROFILE_NAME="$PROFILE_LABEL"
+                  PROFILE_BUNDLE="${APP_ID#*.}"
+                  break 2
+                  ;;
+              esac
+            done
+          done
+
+          if [ -z "$PROFILE_NAME" ]; then
+            for PROV_DIR in \
+              "$HOME/Library/MobileDevice/Provisioning Profiles" \
+              "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+              [ -d "$PROV_DIR" ] || continue
+              for f in "$PROV_DIR"/*.mobileprovision; do
+                [ -f "$f" ] || continue
+                APP_ID=$(security cms -D -i "$f" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
+                PROFILE_LABEL=$(security cms -D -i "$f" | plutil -extract Name raw - 2>/dev/null || true)
+                case "$APP_ID" in
+                  *com.openskylabs.sfa*)
+                    PROFILE_NAME="$PROFILE_LABEL"
+                    PROFILE_BUNDLE="${APP_ID#*.}"
+                    echo "Using SFA profile fallback: $PROFILE_NAME"
+                    break 2
+                    ;;
+                esac
+              done
+            done
+          fi
+
+          if [ -z "$PROFILE_NAME" ] || [ -z "$PROFILE_BUNDLE" ]; then
+            echo "ERROR: No App Store provisioning profile found for ${BUNDLE_ID}."
+            echo "Upload/Fetch OpenSky SFA AppStore Profile in Codemagic Code signing identities."
+            exit 1
+          fi
+
+          export BUNDLE_ID="$PROFILE_BUNDLE"
+          echo "BUNDLE_ID=$PROFILE_BUNDLE" >> "$CM_ENV"
+          echo "Signing with bundle $BUNDLE_ID and profile $PROFILE_NAME"
 
           PLIST="ios/$XCODE_SCHEME/Info.plist"
           if [ -f "$PLIST" ]; then
             /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PLIST" \
               || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$PLIST"
-          fi
-
-          PROFILE_NAME=""
-          PROV_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          for f in "$PROV_DIR"/*.mobileprovision; do
-            [ -f "$f" ] || continue
-            APP_ID=$(security cms -D -i "$f" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
-            case "$APP_ID" in
-              *".${BUNDLE_ID}"|*"${BUNDLE_ID}")
-                PROFILE_NAME=$(security cms -D -i "$f" | plutil -extract Name raw - 2>/dev/null || true)
-                echo "Matched mobileprovision: $PROFILE_NAME ($APP_ID)"
-                break
-                ;;
-            esac
-          done
-
-          if [ -z "$PROFILE_NAME" ]; then
-            echo "ERROR: No installed provisioning profile for bundle id ${BUNDLE_ID}."
-            exit 1
           fi
 
           export PROVISIONING_PROFILE_NAME="$PROFILE_NAME"
