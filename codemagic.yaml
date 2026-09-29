@@ -1,12 +1,7 @@
-# OpenSky HRM — Expo React Native iOS (app lives in Mobile/, not repo root).
+# OpenSky HRM — Expo React Native iOS (app in Mobile/).
 #
-# Codemagic setup (one-time):
-# 1. Team settings → Integrations → App Store Connect API key (recommended), OR
-#    use Application env vars in group app_store_credentials (see publishing below).
-# 2. Application env var APP_STORE_APPLE_ID = numeric Apple ID from App Store Connect
-#    (My Apps → OpenSky HRM → App Information → Apple ID).
-# 3. Code signing: enable iOS automatic code signing for bundle com.cipherlabz.openskyhrm.
-# 4. Push this file, then click "Check for configuration file" in Codemagic.
+# One-time Codemagic + Apple setup: docs/codemagic-ios-signing.md
+# Reference names below MUST match Code signing identities in Codemagic UI.
 
 workflows:
   opensky-hrm-ios:
@@ -18,11 +13,12 @@ workflows:
       groups:
         - app_store_credentials
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.cipherlabz.openskyhrm
+        provisioning_profiles:
+          - OpenSky_HRM_AppStore
+        certificates:
+          - OpenSky_HRM_Distribution
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
-        # Replace in Codemagic UI if unset — numeric App Store Connect app id, not bundle id.
         APP_STORE_APPLE_ID: 0
       node: v20
       xcode: latest
