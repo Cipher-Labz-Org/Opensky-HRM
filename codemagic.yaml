@@ -1,4 +1,4 @@
-# OpenSky HRM — Expo React Native iOS
+﻿# OpenSky HRM - Expo React Native iOS
 # App source: Mobile/
 
 workflows:
@@ -13,9 +13,13 @@ workflows:
       groups:
         - app_store_credentials
 
+      # Auto match fails until Codemagic has an App Store profile for com.cipherlabz.openskyhrm.
+      # Reference strings must match Code signing identities exactly.
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.cipherlabz.openskyhrm
+        provisioning_profiles:
+          - OpenSky SFA AppStore Profile
+        certificates:
+          - OpenSky_HRM_Distribution
 
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
