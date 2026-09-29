@@ -14,6 +14,9 @@ function apiReachabilityHint(): string {
 /** Abort hanging requests so pages do not spin forever if the API stalls. */
 const DEFAULT_API_TIMEOUT_MS = 45_000;
 
+/** Payroll calculate / import can exceed 45s on tenant IIS — match Vercel proxy maxDuration. */
+export const PAYROLL_LONG_REQUEST_MS = 300_000;
+
 function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("auth_token") ?? sessionStorage.getItem("auth_token");

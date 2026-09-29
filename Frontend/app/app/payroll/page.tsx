@@ -3,7 +3,7 @@
 import { appAlert, appConfirm } from "@/components/ui/appDialogs";
 import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiHttpError, PAYROLL_LONG_REQUEST_MS } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
@@ -200,6 +200,20 @@ function monthDateRange(
 function pagedItems<T>(result: PagedResult<T> | null | undefined): T[] {
   if (!result) return [];
   return result.items ?? result.Items ?? [];
+}
+
+/** API may return PascalCase property names on some hosts. */
+function normalizeBatch(raw: Batch & { Id?: string; BatchCode?: string; CreatedAt?: string }): Batch {
+  return {
+    ...raw,
+    id: raw.id || raw.Id || "",
+    batchCode: raw.batchCode || raw.BatchCode || "",
+    createdAt: raw.createdAt || raw.CreatedAt || "",
+  };
+}
+
+function normalizeBatches(items: Batch[]): Batch[] {
+  return items.map((b) => normalizeBatch(b as Batch & { Id?: string; BatchCode?: string; CreatedAt?: string }));
 }
 
 function textIncludes(value: string | null | undefined, q: string) {
@@ -791,7 +805,7 @@ function DashboardTab({ onOpenTab }: { onOpenTab: (t: Tab) => void }) {
     setSettingsError("");
 
     const batchesReq = apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=20")
-      .then((b) => setBatches(sortBatchesNewestFirst(pagedItems(b))))
+      .then((b) => setBatches(sortBatchesNewestFirst(normalizeBatches(pagedItems(b)))))
       .catch((err) => {
         setBatches([]);
         setBatchesError(err instanceof Error ? err.message : "Could not load payroll batches.");
@@ -1465,7 +1479,7 @@ function EmployeeSalaryTab() {
       .catch(() => {});
     apiFetch<Settings>("/api/payroll/settings").then(setPayrollSettings).catch(() => {});
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200").then(d => {
-      const items = sortBatchesNewestFirst(pagedItems(d));
+      const items = sortBatchesNewestFirst(normalizeBatches(pagedItems(d)));
       setBatches(items);
       const open = items.find((b) => b.status === "Draft" || b.status === "Calculated")
         ?? items.find((b) => isOpenPayrollBatch(b.status));
@@ -2631,7 +2645,7 @@ function VariableEntryTab() {
 
   useEffect(() => {
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200").then(d => {
-      const list = d.items ?? [];
+      const list = normalizeBatches(pagedItems(d));
       setBatches(list);
       if (list.length > 0) setSelectedBatchId(list[0].id);
     }).catch(() => {});
@@ -2849,7 +2863,7 @@ function PayrollRunTab() {
     setLoading(true);
     setLoadError("");
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200")
-      .then(d => setBatches(sortBatchesNewestFirst(pagedItems(d))))
+      .then(d => setBatches(sortBatchesNewestFirst(normalizeBatches(pagedItems(d)))))
       .catch((err) => {
         setBatches([]);
         setLoadError(err instanceof Error ? err.message : "Could not load payroll batches.");
@@ -2859,9 +2873,20 @@ function PayrollRunTab() {
 
   async function refreshBatches() {
     const d = await apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200");
-    const items = sortBatchesNewestFirst(pagedItems(d));
+    const items = sortBatchesNewestFirst(normalizeBatches(pagedItems(d)));
     setBatches(items);
     return items;
+  }
+
+  function dropBatchFromList(batchId: string) {
+    setBatches((prev) => prev.filter((b) => b.id !== batchId));
+    setSelectedBatch((current) => (current?.id === batchId ? null : current));
+  }
+
+  function isBatchMissingError(err: unknown): boolean {
+    if (err instanceof ApiHttpError && err.status === 404) return true;
+    const msg = err instanceof Error ? err.message : String(err);
+    return /batch not found/i.test(msg);
   }
 
   useEffect(() => { load(); }, [load]);
@@ -2875,7 +2900,10 @@ function PayrollRunTab() {
           setActionLoading(null);
           return;
         }
-        await apiFetch(`/api/payroll/batches/${batchId}/calculate`, { method: "POST" });
+        await apiFetch(`/api/payroll/batches/${batchId}/calculate`, {
+          method: "POST",
+          timeoutMs: PAYROLL_LONG_REQUEST_MS,
+        });
         const items = await refreshBatches();
         const updated = items.find(b => b.id === batchId);
         if (updated) await viewBatchDetails(updated);
@@ -2885,44 +2913,81 @@ function PayrollRunTab() {
           setActionLoading(null);
           return;
         }
-        await apiFetch(`/api/payroll/batches/${batchId}/review`, { method: "PUT" });
+        await apiFetch(`/api/payroll/batches/${batchId}/review`, {
+          method: "PUT",
+          timeoutMs: PAYROLL_LONG_REQUEST_MS,
+        });
       } else if (action === "return") {
         if (!(await appConfirm("Send this batch back to Calculated so it can be recalculated?"))) {
           setActionLoading(null);
           return;
         }
-        await apiFetch(`/api/payroll/batches/${batchId}/return`, { method: "PUT" });
+        await apiFetch(`/api/payroll/batches/${batchId}/return`, {
+          method: "PUT",
+          timeoutMs: PAYROLL_LONG_REQUEST_MS,
+        });
       } else if (action === "approve") {
         if (!(await appConfirm("Approve this salary batch? Pay slips will lock using the last Calculate totals — save Employee Salary and run Calculate (or Sync from Employee Salary) first so EPF and allowances match."))) {
           setActionLoading(null);
           return;
         }
-        await apiFetch(`/api/payroll/batches/${batchId}/approve`, { method: "PUT" });
+        await apiFetch(`/api/payroll/batches/${batchId}/approve`, {
+          method: "PUT",
+          timeoutMs: PAYROLL_LONG_REQUEST_MS,
+        });
       } else if (action === "finalize") {
         if (!(await appConfirm("Finalize this payroll batch? Payslips will be locked for this period. Only continue if payroll is ready for release."))) {
           setActionLoading(null);
           return;
         }
-        await apiFetch(`/api/payroll/batches/${batchId}/finalize`, { method: "PUT" });
+        await apiFetch(`/api/payroll/batches/${batchId}/finalize`, {
+          method: "PUT",
+          timeoutMs: PAYROLL_LONG_REQUEST_MS,
+        });
       } else if (action === "delete") {
         if (!(await appConfirm("Delete this batch?"))) { setActionLoading(null); return; }
-        await apiFetch(`/api/payroll/batches/${batchId}`, { method: "DELETE" });
-        setSelectedBatch(null);
-        await refreshBatches();
+        try {
+          await apiFetch(`/api/payroll/batches/${batchId}`, {
+            method: "DELETE",
+            timeoutMs: PAYROLL_LONG_REQUEST_MS,
+          });
+        } catch (err: unknown) {
+          if (!isBatchMissingError(err)) throw err;
+        }
+        dropBatchFromList(batchId);
+        await refreshBatches().catch(() => {});
         return;
       }
       const items = await refreshBatches();
       const updated = items.find(b => b.id === batchId);
       if (updated) await viewBatchDetails(updated);
     } catch (err: unknown) {
-      await appAlert(err instanceof Error ? err.message : "Action failed");
+      const msg = err instanceof Error ? err.message : "Action failed";
+      if (isBatchMissingError(err)) {
+        dropBatchFromList(batchId);
+        await refreshBatches().catch(() => {});
+        return;
+      }
+      await appAlert(msg);
     } finally { setActionLoading(null); }
   }
 
   async function viewBatchDetails(batch: Batch) {
+    const id = batch.id?.trim();
+    if (!id) {
+      await appAlert("This payroll batch is missing an id. Refresh the page and try again.");
+      return;
+    }
     setSelectedBatch(batch);
-    const data = await apiFetch<Statement[]>(`/api/payroll/batches/${batch.id}/statements`);
-    setBatchStatements(Array.isArray(data) ? data : []);
+    try {
+      const data = await apiFetch<Statement[]>(`/api/payroll/batches/${id}/statements`, {
+        timeoutMs: PAYROLL_LONG_REQUEST_MS,
+      });
+      setBatchStatements(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setBatchStatements([]);
+      await appAlert(err instanceof Error ? err.message : "Could not load batch details.");
+    }
   }
 
   if (loading) return <Loading />;
@@ -3045,7 +3110,9 @@ function ImportAttendanceLeaveModal({
   useEffect(() => {
     setLoading(true);
     setError("");
-    apiFetch<AttendanceImportPreview>(`/api/payroll/batches/${batch.id}/import-attendance-leave/preview`)
+    apiFetch<AttendanceImportPreview>(`/api/payroll/batches/${batch.id}/import-attendance-leave/preview`, {
+      timeoutMs: PAYROLL_LONG_REQUEST_MS,
+    })
       .then(setPreview)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load preview"))
       .finally(() => setLoading(false));
@@ -3055,7 +3122,10 @@ function ImportAttendanceLeaveModal({
     setImporting(true);
     setError("");
     try {
-      await apiFetch(`/api/payroll/batches/${batch.id}/import-attendance-leave`, { method: "POST" });
+      await apiFetch(`/api/payroll/batches/${batch.id}/import-attendance-leave`, {
+        method: "POST",
+        timeoutMs: PAYROLL_LONG_REQUEST_MS,
+      });
       onImported();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
@@ -3821,7 +3891,7 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
     setLoadError("");
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200")
       .then((d) => {
-        const items = sortBatchesNewestFirst(pagedItems(d)).filter((b) => b.status !== "Draft");
+        const items = sortBatchesNewestFirst(normalizeBatches(pagedItems(d))).filter((b) => b.status !== "Draft");
         setBatches(items);
       })
       .catch((err) => {
@@ -4603,7 +4673,7 @@ function PayStatementsTab() {
 
   useEffect(() => {
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200")
-      .then((d) => setBatches(sortBatchesNewestFirst(pagedItems(d))))
+      .then((d) => setBatches(sortBatchesNewestFirst(normalizeBatches(pagedItems(d)))))
       .catch(() => setBatches([]));
   }, []);
 

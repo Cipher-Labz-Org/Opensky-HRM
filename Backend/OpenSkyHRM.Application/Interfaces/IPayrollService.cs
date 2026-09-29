@@ -3,6 +3,13 @@ using OpenSkyHRM.Application.DTOs.Payroll;
 
 namespace OpenSkyHRM.Application.Interfaces;
 
+public enum DeletePayrollBatchOutcome
+{
+    Deleted,
+    NotFound,
+    NotAllowed,
+}
+
 public interface IPayrollService
 {
     // Compensation Components
@@ -34,7 +41,7 @@ public interface IPayrollService
     Task<PayrollBatchDto?> ApproveBatchAsync(Guid id, string approvedBy);
     Task<PayrollBatchDto?> ReturnBatchToCalculatedAsync(Guid id);
     Task<PayrollBatchDto?> FinalizeBatchAsync(Guid id);
-    Task<bool> DeleteBatchAsync(Guid id);
+    Task<DeletePayrollBatchOutcome> DeleteBatchAsync(Guid id);
 
     // Pay Statements
     Task<PagedResult<PayStatementDto>> GetStatementsAsync(int page = 1, int pageSize = 20, Guid? employeeId = null, string? search = null, IReadOnlyList<Guid>? allowedEmployeeIds = null, Guid? batchId = null);

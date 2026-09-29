@@ -89,6 +89,21 @@ export async function nextResponseFromUpstream(res: Response): Promise<NextRespo
   return new NextResponse(body, { status: res.status, headers });
 }
 
+/** Upstream timeout for tenant API proxy (Vercel route handlers). */
+export function upstreamTimeoutMsForApiSegments(segments: string[]): number {
+  const root = (segments[0] ?? "").toLowerCase();
+  if (root === "bulkupload") return 300_000;
+
+  const path = segments.join("/").toLowerCase();
+  if (path === "payroll/batches/sync-from-employee-salary") return 300_000;
+  if (path.startsWith("payroll/batches/")) {
+    if (path.includes("/calculate") || path.includes("/import-attendance-leave")) {
+      return 300_000;
+    }
+  }
+  return 45_000;
+}
+
 /** Proxy an incoming Next.js request to the tenant IIS backend. */
 export async function proxyTenantRequest(
   req: NextRequest,

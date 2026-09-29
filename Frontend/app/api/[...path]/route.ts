@@ -1,6 +1,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { backendBaseForRequest, proxyTenantRequest } from "@/lib/tenant-server";
+import {
+  backendBaseForRequest,
+  proxyTenantRequest,
+  upstreamTimeoutMsForApiSegments,
+} from "@/lib/tenant-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -11,11 +15,9 @@ async function handle(req: NextRequest, context: RouteContext): Promise<NextResp
   const segments = context.params.path ?? [];
   const backendPath = `/api/${segments.join("/")}`;
   const query = req.nextUrl.search;
-  const isBulkUpload = (segments[0] ?? "").toLowerCase() === "bulkupload";
-
   try {
     return await proxyTenantRequest(req, `${backendPath}${query}`, {
-      timeoutMs: isBulkUpload ? 300_000 : 45_000,
+      timeoutMs: upstreamTimeoutMsForApiSegments(segments),
     });
   } catch (err) {
     console.error(`[api/${segments.join("/")}] upstream unreachable:`, err);

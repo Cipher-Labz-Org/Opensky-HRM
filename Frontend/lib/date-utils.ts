@@ -41,7 +41,10 @@ export function businessDateTimeToLocalInput(value: string | null | undefined): 
   }
 
   const wall = trimmed.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
-  if (wall) return `${wall[1]}T${wall[2]}`;
+  if (wall) return `${wall[1]}T${wall[2]}:${wall[3]}`;
+
+  const hourOnly = trimmed.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})(?:$|[^:\d])/);
+  if (hourOnly) return `${hourOnly[1]}T${hourOnly[2]}:00`;
 
   return trimmed.slice(0, 16);
 }
@@ -51,6 +54,7 @@ export function businessDateTimePayload(value: string | null | undefined): strin
   const local = businessDateTimeToLocalInput(value);
   if (!local) return null;
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local)) return `${local}:00`;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(local)) return `${local}:00:00`;
   return local;
 }
 
