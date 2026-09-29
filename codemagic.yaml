@@ -13,9 +13,9 @@ workflows:
       groups:
         - app_store_credentials
 
-      # Fetch by reference name (Codemagic UI). Auto bundle-id match fails until an App Store
-      # profile for com.cipherlabz.openskyhrm is uploaded — add one in Apple Developer, then
-      # Fetch profiles and optionally switch to distribution_type + bundle_identifier.
+      # Matches OpenSky SFA AppStore Profile in Codemagic (com.openskylabs.sfa).
+      # To use com.cipherlabz.openskyhrm instead, create an App Store profile for that App ID
+      # in Apple Developer, Fetch profiles in Codemagic, and revert bundleIdentifier in app.json.
       ios_signing:
         provisioning_profiles:
           - OpenSky SFA AppStore Profile
@@ -23,7 +23,7 @@ workflows:
           - OpenSky SFA Distribution P12
 
       vars:
-        BUNDLE_ID: com.cipherlabz.openskyhrm
+        BUNDLE_ID: com.openskylabs.sfa
         APPLE_TEAM_ID: XL576229TS
         APP_STORE_APPLE_ID: "0"
 
@@ -137,6 +137,10 @@ workflows:
           fi
 
           sed -i.bak 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBX"
+          if [ -n "$APPLE_TEAM_ID" ]; then
+            sed -i.bak "s/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = $APPLE_TEAM_ID;/g" "$PBX"
+            sed -i.bak "s/DEVELOPMENT_TEAM = ;/DEVELOPMENT_TEAM = $APPLE_TEAM_ID;/g" "$PBX"
+          fi
 
           xcode-project use-profiles --project "ios/$XCODE_SCHEME.xcodeproj"
 
