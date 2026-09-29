@@ -24,6 +24,8 @@ workflows:
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
         APP_STORE_APPLE_ID: "0"
+        # Apple Developer → Membership → Team ID (required for Expo prebuild / Xcode signing).
+        APPLE_TEAM_ID: ""
 
       node: v20
       xcode: latest
@@ -41,6 +43,10 @@ workflows:
       - name: Generate native iOS project
         script: |
           set -e
+          if [ -z "$APPLE_TEAM_ID" ]; then
+            echo "WARNING: APPLE_TEAM_ID is not set in Codemagic env vars."
+            echo "Add your 10-character Apple Team ID under Application environment variables."
+          fi
           npx expo prebuild --platform ios
 
       # 3. Resolve Xcode workspace and scheme
@@ -105,7 +111,26 @@ workflows:
           echo "Configuring iOS code signing..."
           echo "Bundle ID: $BUNDLE_ID"
 
-          xcode-project use-profiles
+          # Apply signing only to the app .xcodeproj (not dependency projects under node_modules).
+          xcode-project use-profiles --project "ios/"*.xcodeproj
+
+      - name: Verify provisioning profile bundle ID
+        script: |
+          set -e
+          PROFILE=$(find "$HOME/Library/MobileDevice/Provisioning Profiles" -name "*.mobileprovision" 2>/dev/null | head -1)
+          if [ -z "$PROFILE" ]; then
+            echo "WARNING: No provisioning profile on disk after use-profiles."
+            exit 0
+          fi
+          APP_ID=$(security cms -D -i "$PROFILE" 2>/dev/null | plutil -extract Entitlements.application-identifier raw -o - - 2>/dev/null || true)
+          echo "Profile application-identifier: ${APP_ID:-unknown}"
+          EXPECT="TeamIdentifier.$BUNDLE_ID"
+          if [ -n "$APP_ID" ] && [[ "$APP_ID" != *"$BUNDLE_ID"* ]]; then
+            echo "ERROR: Provisioning profile does not include bundle ID $BUNDLE_ID."
+            echo "OpenSky SFA AppStore Profile may be for a different app."
+            echo "In Apple Developer, create an App Store profile for com.cipherlabz.openskyhrm and upload it to Codemagic."
+            exit 1
+          fi
 
       # 7. Increment build number
       - name: Increment iOS build number
@@ -160,7 +185,8 @@ workflows:
 
           xcode-project build-ipa \
             --workspace "ios/$XCODE_WORKSPACE" \
-            --scheme "$XCODE_SCHEME"
+            --scheme "$XCODE_SCHEME" \
+            --archive-flags="-destination 'generic/platform=iOS'"
 
     artifacts:
       - build/ios/ipa/*.ipa
