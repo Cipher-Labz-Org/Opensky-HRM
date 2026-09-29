@@ -19,7 +19,7 @@ workflows:
         provisioning_profiles:
           - OpenSky SFA AppStore Profile
         certificates:
-          - OpenSky_HRM_Distribution
+          - OpenSky SFA Distribution P12
 
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
