@@ -20,5 +20,5 @@ The iOS binary is signed with the **SFA** App Store profile already in Codemagic
 
 ## Env vars
 
-- `app_store_credentials` — TestFlight upload API key.
+- Group **`app_store_connect`** with `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_KEY_IDENTIFIER`, `APP_STORE_CONNECT_PUBLISHER_PRIVATE_KEY` (TestFlight upload).
 - `APP_STORE_APPLE_ID` — numeric Apple ID for the **same bundle ID** you ship (optional).

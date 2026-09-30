@@ -10,8 +10,9 @@ workflows:
     working_directory: Mobile
 
     environment:
+      # Must match the group name in Codemagic → Application → Environment variables.
       groups:
-        - app_store_credentials
+        - app_store_connect
 
       # Matches OpenSky SFA AppStore Profile in Codemagic (com.openskylabz.sfa).
       # To use com.cipherlabz.openskyhrm instead, create an App Store profile for that App ID
@@ -259,7 +260,7 @@ workflows:
 
     publishing:
       app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        api_key: $APP_STORE_CONNECT_PUBLISHER_PRIVATE_KEY
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
 
