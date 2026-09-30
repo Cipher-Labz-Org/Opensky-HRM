@@ -9,15 +9,21 @@
 
 Source of truth for bundle ID: **`Mobile/app.json`** → `expo.ios.bundleIdentifier` (not `codemagic.yaml` alone). YAML `BUNDLE_ID` must match; CI verifies after `expo prebuild`.
 
-## Codemagic signing
+## Codemagic signing (fixes “No matching profiles found for bundle identifier”)
+
+1. **Apple Developer** → Profiles → **+** → App Store Connect → App ID **`com.cipherlabz.openskyhrm`** → your Distribution cert → Generate.
+2. **Codemagic** → Team settings → Code signing identities → **iOS provisioning profiles** → **Fetch profiles** → select HRM profile → reference name **`OpenSky_HRM_AppStore`** → **Download selected**.
+3. Certificate **`OpenSky SFA Distribution P12`** (same team) is already referenced in `codemagic.yaml`.
 
 ```yaml
 ios_signing:
-  distribution_type: app_store
-  bundle_identifier: com.cipherlabz.openskyhrm
+  provisioning_profiles:
+    - OpenSky_HRM_AppStore
+  certificates:
+    - OpenSky SFA Distribution P12
 ```
 
-Fetch an **App Store** provisioning profile for **`com.cipherlabz.openskyhrm`** in **Code signing identities** (same team distribution cert as SFA is fine).
+Until step 2 is done, the build fails at **Set up code signing identities** or at script step 9.
 
 ## Environment group
 

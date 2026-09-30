@@ -14,10 +14,15 @@ workflows:
       groups:
         - app_store_connect
 
-      # OpenSky HRM — requires App Store profile for com.cipherlabz.openskyhrm in Code signing identities.
+      # Reference names must match Codemagic → Code signing identities exactly.
+      # Create App Store profile for com.cipherlabz.openskyhrm in Apple Developer, then
+      # Fetch profiles → reference name: OpenSky_HRM_AppStore → Download selected.
+      # (OpenSky SFA AppStore Profile is for com.openskylabz.sfa — do not use for HRM.)
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.cipherlabz.openskyhrm
+        provisioning_profiles:
+          - OpenSky_HRM_AppStore
+        certificates:
+          - OpenSky SFA Distribution P12
 
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
@@ -183,7 +188,8 @@ workflows:
             echo "ERROR: No App Store provisioning profile found for ${BUNDLE_ID}."
             echo "Apple Developer → Profiles → App Store profile for com.cipherlabz.openskyhrm"
             echo "Codemagic → Code signing identities → Fetch profiles → Download selected."
-            echo "Do not use OpenSky SFA (com.openskylabz.sfa) for this workflow."
+            echo "Create App Store profile for com.cipherlabz.openskyhrm in Apple Developer."
+            echo "Codemagic → Code signing identities → Fetch profiles → reference: OpenSky_HRM_AppStore"
             exit 1
           fi
 
