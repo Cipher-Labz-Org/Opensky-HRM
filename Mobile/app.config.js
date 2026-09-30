@@ -8,7 +8,7 @@ module.exports = {
     ...expo,
     ios: {
       ...expo.ios,
-      // Bundle ID comes from app.json only (not process.env.BUNDLE_ID).
+      // iOS bundle ID: app.json only (com.cipherlabz.openskyhrm). Do not override from env.
       // Set APPLE_TEAM_ID in Codemagic (Apple Developer → Membership).
       ...(process.env.APPLE_TEAM_ID
         ? { appleTeamId: process.env.APPLE_TEAM_ID.trim() }

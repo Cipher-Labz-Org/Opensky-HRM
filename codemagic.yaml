@@ -14,15 +14,11 @@ workflows:
       groups:
         - app_store_connect
 
-      # Reference names must match Codemagic → Code signing identities exactly.
-      # Create App Store profile for com.cipherlabz.openskyhrm in Apple Developer, then
-      # Fetch profiles → reference name: OpenSky_HRM_AppStore → Download selected.
-      # (OpenSky SFA AppStore Profile is for com.openskylabz.sfa — do not use for HRM.)
+      # Codemagic picks the App Store profile + cert for this bundle from Code signing identities
+      # (e.g. OpenSky_HRM_AppStore_2026 for com.cipherlabz.openskyhrm).
       ios_signing:
-        provisioning_profiles:
-          - OpenSky_HRM_AppStore
-        certificates:
-          - OpenSky SFA Distribution P12
+        distribution_type: app_store
+        bundle_identifier: com.cipherlabz.openskyhrm
 
       vars:
         BUNDLE_ID: com.cipherlabz.openskyhrm
@@ -58,7 +54,7 @@ workflows:
                 echo "Profile matches HRM bundle ${BUNDLE_ID}."
                 ;;
               *)
-                echo "WARNING: Profile is not for ${BUNDLE_ID}. Create an App Store profile for HRM in Apple Developer and Fetch profiles in Codemagic."
+                echo "Note: other profile (not ${BUNDLE_ID}): $APP_ID"
                 ;;
             esac
           done
@@ -186,10 +182,7 @@ workflows:
 
           if [ -z "$PROFILE_NAME" ] || [ -z "$PROFILE_BUNDLE" ]; then
             echo "ERROR: No App Store provisioning profile found for ${BUNDLE_ID}."
-            echo "Apple Developer → Profiles → App Store profile for com.cipherlabz.openskyhrm"
-            echo "Codemagic → Code signing identities → Fetch profiles → Download selected."
-            echo "Create App Store profile for com.cipherlabz.openskyhrm in Apple Developer."
-            echo "Codemagic → Code signing identities → Fetch profiles → reference: OpenSky_HRM_AppStore"
+            echo "Codemagic → Code signing identities → ensure App Store profile for com.cipherlabz.openskyhrm is downloaded."
             exit 1
           fi
 
