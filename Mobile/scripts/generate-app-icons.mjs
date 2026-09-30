@@ -9,13 +9,45 @@ const source = path.join(assetsDir, "opensky-hrm-waves-source.png");
 const ICON_SIZE = 1024;
 const SPLASH_LOGO = 512;
 const FAVICON = 48;
+const BG = { r: 255, g: 255, b: 255, alpha: 1 };
+const BG_HEX = "#FFFFFF";
+
+/** Turn logo black background / gaps into white; keep saturated wave colors. */
+async function wavesOnWhite() {
+  const { data, info } = await sharp(source)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { width, height, channels } = info;
+  for (let i = 0; i < data.length; i += channels) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const chroma = max - min;
+    const isBlackOrGrayBg = max < 72 && chroma < 28;
+    if (isBlackOrGrayBg) {
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+      if (channels === 4) data[i + 3] = 255;
+    }
+  }
+
+  return sharp(data, { raw: { width, height, channels } }).png().toBuffer();
+}
 
 /** @param {number} size */
 async function squareIcon(size, paddingRatio = 0.12) {
   const padding = Math.round(size * paddingRatio);
   const inner = size - padding * 2;
-  const logo = await sharp(source)
-    .resize(inner, inner, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 1 } })
+  const onWhite = await wavesOnWhite();
+  const logo = await sharp(onWhite)
+    .trim({ threshold: 15 })
+    .resize(inner, inner, { fit: "contain", background: BG })
+    .flatten({ background: BG_HEX })
     .png()
     .toBuffer();
 
@@ -24,7 +56,7 @@ async function squareIcon(size, paddingRatio = 0.12) {
       width: size,
       height: size,
       channels: 4,
-      background: { r: 0, g: 0, b: 0, alpha: 1 },
+      background: BG,
     },
   })
     .composite([{ input: logo, gravity: "center" }])
@@ -54,7 +86,7 @@ await sharp(icon1024)
   .resize(ICON_SIZE, ICON_SIZE)
   .toFile(path.join(assetsDir, "android-icon-foreground.png"));
 
-await solidBackground(ICON_SIZE, "#000000").then((buf) =>
+await solidBackground(ICON_SIZE, BG_HEX).then((buf) =>
   sharp(buf).toFile(path.join(assetsDir, "android-icon-background.png")),
 );
 
