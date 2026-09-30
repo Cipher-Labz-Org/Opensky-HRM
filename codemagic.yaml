@@ -59,7 +59,12 @@ workflows:
             esac
           done
 
-      # 3. Generate native iOS project
+      - name: Verify Expo SDK dependency versions
+        script: |
+          set -e
+          npx expo install --check
+
+      # 3. Generate native iOS project (--clean avoids stale native frameworks vs node_modules)
       - name: Generate native iOS project
         script: |
           set -e
