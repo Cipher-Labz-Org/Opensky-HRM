@@ -14,17 +14,13 @@ workflows:
       groups:
         - app_store_connect
 
-      # Matches OpenSky SFA AppStore Profile in Codemagic (com.openskylabz.sfa).
-      # To use com.cipherlabz.openskyhrm instead, create an App Store profile for that App ID
-      # in Apple Developer, Fetch profiles in Codemagic, and revert bundleIdentifier in app.json.
+      # OpenSky HRM — requires App Store profile for com.cipherlabz.openskyhrm in Code signing identities.
       ios_signing:
-        provisioning_profiles:
-          - OpenSky SFA AppStore Profile
-        certificates:
-          - OpenSky SFA Distribution P12
+        distribution_type: app_store
+        bundle_identifier: com.cipherlabz.openskyhrm
 
       vars:
-        BUNDLE_ID: com.openskylabz.sfa
+        BUNDLE_ID: com.cipherlabz.openskyhrm
         APPLE_TEAM_ID: XL576225TB
         APP_STORE_APPLE_ID: "0"
 
@@ -67,6 +63,34 @@ workflows:
         script: |
           set -e
           npx expo prebuild --platform ios --clean
+
+      - name: Verify Expo iOS bundle identifier
+        script: |
+          set -e
+
+          echo "Expected Bundle ID:"
+          echo "$BUNDLE_ID"
+
+          ACTUAL_BUNDLE_ID=$(npx expo config --type public --json | node -e '
+            let data = "";
+            process.stdin.on("data", (d) => { data += d; });
+            process.stdin.on("end", () => {
+              const config = JSON.parse(data);
+              console.log(config.ios?.bundleIdentifier || "");
+            });
+          ')
+
+          echo "Expo Bundle ID:"
+          echo "$ACTUAL_BUNDLE_ID"
+
+          if [ "$ACTUAL_BUNDLE_ID" != "$BUNDLE_ID" ]; then
+            echo "ERROR: Expo Bundle ID does not match BUNDLE_ID."
+            echo "Expected: $BUNDLE_ID"
+            echo "Actual:   $ACTUAL_BUNDLE_ID"
+            exit 1
+          fi
+
+          echo "Bundle ID verified successfully."
 
       # 4. Resolve Xcode workspace and scheme
       - name: Resolve Xcode workspace and scheme
@@ -155,35 +179,19 @@ workflows:
             done
           done
 
-          if [ -z "$PROFILE_NAME" ]; then
-            for PROV_DIR in \
-              "$HOME/Library/MobileDevice/Provisioning Profiles" \
-              "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
-              [ -d "$PROV_DIR" ] || continue
-              for f in "$PROV_DIR"/*.mobileprovision; do
-                [ -f "$f" ] || continue
-                APP_ID=$(security cms -D -i "$f" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
-                PROFILE_LABEL=$(security cms -D -i "$f" | plutil -extract Name raw - 2>/dev/null || true)
-                case "$APP_ID" in
-                  *com.openskylabz.sfa*|*com.openskylabs.sfa*)
-                    PROFILE_NAME="$PROFILE_LABEL"
-                    PROFILE_BUNDLE="${APP_ID#*.}"
-                    echo "Using SFA profile fallback: $PROFILE_NAME"
-                    break 2
-                    ;;
-                esac
-              done
-            done
-          fi
-
           if [ -z "$PROFILE_NAME" ] || [ -z "$PROFILE_BUNDLE" ]; then
             echo "ERROR: No App Store provisioning profile found for ${BUNDLE_ID}."
-            echo "Upload/Fetch OpenSky SFA AppStore Profile in Codemagic Code signing identities."
+            echo "Apple Developer → Profiles → App Store profile for com.cipherlabz.openskyhrm"
+            echo "Codemagic → Code signing identities → Fetch profiles → Download selected."
+            echo "Do not use OpenSky SFA (com.openskylabz.sfa) for this workflow."
             exit 1
           fi
 
-          export BUNDLE_ID="$PROFILE_BUNDLE"
-          echo "BUNDLE_ID=$PROFILE_BUNDLE" >> "$CM_ENV"
+          if [ "$PROFILE_BUNDLE" != "$BUNDLE_ID" ]; then
+            echo "ERROR: Profile bundle ($PROFILE_BUNDLE) does not match BUNDLE_ID ($BUNDLE_ID)."
+            exit 1
+          fi
+
           echo "Signing with bundle $BUNDLE_ID and profile $PROFILE_NAME"
 
           PLIST="ios/$XCODE_SCHEME/Info.plist"

@@ -1,24 +1,36 @@
-# Codemagic iOS code signing — OpenSky HRM (Mobile)
+# Codemagic iOS — OpenSky HRM
 
-| Item | Current value |
+| Item | Value |
 | --- | --- |
-| **iOS bundle ID (Mobile / Codemagic)** | `com.openskylabz.sfa` |
+| **App name (Expo)** | OpenSky HRM |
+| **iOS bundle ID** | `com.cipherlabz.openskyhrm` |
 | **Apple Team ID** | `XL576225TB` |
-| **Codemagic profile** | `OpenSky SFA AppStore Profile` |
-| **Codemagic certificate** | `OpenSky SFA Distribution P12` |
+| **Not this app** | OpenSky SFA → `com.openskylabz.sfa` |
 
-The iOS binary is signed with the **SFA** App Store profile already in Codemagic. That profile is for **`com.openskylabs.sfa`**, not `com.cipherlabz.openskyhrm`.
+Source of truth for bundle ID: **`Mobile/app.json`** → `expo.ios.bundleIdentifier` (not `codemagic.yaml` alone). YAML `BUNDLE_ID` must match; CI verifies after `expo prebuild`.
 
-**App Store Connect** must have an app whose bundle ID is **`com.openskylabs.sfa`** (or you must change signing — below).
+## Codemagic signing
 
-## Switch back to `com.cipherlabz.openskyhrm`
+```yaml
+ios_signing:
+  distribution_type: app_store
+  bundle_identifier: com.cipherlabz.openskyhrm
+```
 
-1. Apple Developer → create **App Store** provisioning profile for App ID **`com.cipherlabz.openskyhrm`**.
-2. Codemagic → **Fetch profiles** → download that profile.
-3. In repo: set `Mobile/app.json` → `ios.bundleIdentifier` to `com.cipherlabz.openskyhrm` and `codemagic.yaml` → `BUNDLE_ID` to match.
-4. Point `ios_signing.provisioning_profiles` at the new profile reference (or use `distribution_type: app_store` + `bundle_identifier`).
+Fetch an **App Store** provisioning profile for **`com.cipherlabz.openskyhrm`** in **Code signing identities** (same team distribution cert as SFA is fine).
 
-## Env vars
+## Environment group
 
-- Group **`app_store_connect`** with `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_KEY_IDENTIFIER`, `APP_STORE_CONNECT_PUBLISHER_PRIVATE_KEY` (TestFlight upload).
-- `APP_STORE_APPLE_ID` — numeric Apple ID for the **same bundle ID** you ship (optional).
+Group name: **`app_store_connect`**
+
+| Variable |
+| --- |
+| `APP_STORE_CONNECT_ISSUER_ID` |
+| `APP_STORE_CONNECT_KEY_IDENTIFIER` |
+| `APP_STORE_CONNECT_PUBLISHER_PRIVATE_KEY` |
+
+Optional: `APP_STORE_APPLE_ID` — numeric Apple ID for **OpenSky HRM** in App Store Connect.
+
+## TestFlight “Feedback Email” errors
+
+If publishing fails on beta review contact info, complete **TestFlight → Test Information** for **OpenSky HRM** in App Store Connect, or set `submit_to_testflight: false` until ready.
