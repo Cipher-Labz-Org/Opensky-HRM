@@ -77,6 +77,8 @@ const SYSTEM_EMAIL_KEYS = new Set([
   "Email_LeaveApplication",
   "Email_LeaveApplicationSupervisor",
   "Email_LeaveApplicationCovering",
+  "Email_LeaveApproved",
+  "Email_LeaveRejected",
   "Email_RecruitmentOffer",
   "Email_RecruitmentInterviewCandidate",
   "Email_RecruitmentInterviewInterviewer",

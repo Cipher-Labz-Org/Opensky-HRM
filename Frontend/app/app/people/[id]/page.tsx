@@ -1426,7 +1426,7 @@ export default function EmployeeDetailPage() {
   );
 
   const draftHasDirectSupervisor = useMemo(
-    () => draftSupervisors.some((s) => s.reportingMethod === "Direct"),
+    () => draftSupervisors.some((s) => s.reportingMethod === "Direct" || s.reportingMethod === "Both"),
     [draftSupervisors],
   );
 

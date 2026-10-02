@@ -168,7 +168,8 @@ public class LeaveService : ILeaveService
         if (!employee.IsTopOfHierarchy)
         {
             var hasDirectSupervisor = await _db.Set<EmployeeSupervisor>()
-                .AnyAsync(s => !s.IsDeleted && s.EmployeeId == dto.EmployeeId && s.ReportingMethod == "Direct");
+                .AnyAsync(s => !s.IsDeleted && s.EmployeeId == dto.EmployeeId
+                    && (s.ReportingMethod == "Direct" || s.ReportingMethod == "Both"));
 
             if (!hasDirectSupervisor)
                 throw new InvalidOperationException("Cannot apply for leave: no direct supervisor is assigned. Please contact HR to assign a supervisor.");
@@ -409,6 +410,9 @@ public class LeaveService : ILeaveService
 
         await _db.SaveChangesAsync();
 
+        if (request.Status == ApprovalStatus.Approved)
+            await NotifyLeaveDecisionToEmployeeAsync(request, approved: true);
+
         return await GetLeaveRequestByIdAsync(id);
     }
 
@@ -445,6 +449,8 @@ public class LeaveService : ILeaveService
         request.ApproverId = approverId;
         request.ApproverRemarks = dto.Remarks;
         await _db.SaveChangesAsync();
+
+        await NotifyLeaveDecisionToEmployeeAsync(request, approved: false);
 
         return await GetLeaveRequestByIdAsync(id);
     }
@@ -522,6 +528,73 @@ public class LeaveService : ILeaveService
             bal.Used = Math.Max(0, bal.Used - request.TotalDays);
     }
 
+    private async Task NotifyLeaveDecisionToEmployeeAsync(LeaveRequest request, bool approved)
+    {
+        var decision = approved ? "approved" : "rejected";
+        try
+        {
+            var employee = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == request.EmployeeId && !e.IsDeleted);
+            if (employee is null) return;
+
+            var employeeEmail = await ResolveLeaveNotificationEmailAsync(employee.Id, employee.Email, employee.OtherEmail);
+            if (string.IsNullOrWhiteSpace(employeeEmail))
+            {
+                _logger.LogInformation(
+                    "Leave request {LeaveRequestId} {Decision}; no employee email (no work or login email).",
+                    request.Id, decision);
+                return;
+            }
+
+            var leaveType = await _db.Set<LeaveType>().AsNoTracking()
+                .Where(t => t.Id == request.LeaveTypeId)
+                .Select(t => t.Name)
+                .FirstOrDefaultAsync() ?? "Leave";
+
+            string? approverName = null;
+            if (request.ApproverId.HasValue)
+            {
+                approverName = await _db.Employees.AsNoTracking()
+                    .Where(e => e.Id == request.ApproverId.Value && !e.IsDeleted)
+                    .Select(e => e.FirstName + " " + e.LastName)
+                    .FirstOrDefaultAsync();
+            }
+
+            if (approved)
+            {
+                await _emailService.SendLeaveApprovedToEmployeeAsync(
+                    employeeEmail,
+                    employee.FullName,
+                    leaveType,
+                    request.StartDate,
+                    request.EndDate,
+                    request.TotalDays,
+                    request.ApproverRemarks,
+                    approverName);
+            }
+            else
+            {
+                await _emailService.SendLeaveRejectedToEmployeeAsync(
+                    employeeEmail,
+                    employee.FullName,
+                    leaveType,
+                    request.StartDate,
+                    request.EndDate,
+                    request.TotalDays,
+                    request.ApproverRemarks,
+                    approverName);
+            }
+
+            _logger.LogInformation(
+                "Leave request {LeaveRequestId} {Decision} email sent to {Email}.",
+                request.Id, decision, employeeEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Leave request {LeaveRequestId} {Decision}; employee email failed.", request.Id, decision);
+        }
+    }
+
     private async Task NotifyLeaveCancellationRequestAsync(LeaveRequest request)
     {
         try
@@ -539,7 +612,7 @@ public class LeaveService : ILeaveService
                 var supervisor = await _db.Employees.AsNoTracking()
                     .FirstOrDefaultAsync(e => e.Id == supervisorId && !e.IsDeleted);
                 if (supervisor is null) continue;
-                var supervisorEmail = await ResolveLeaveNotificationEmailAsync(supervisor.Id, supervisor.Email);
+                var supervisorEmail = await ResolveLeaveNotificationEmailAsync(supervisor.Id, supervisor.Email, supervisor.OtherEmail);
                 if (string.IsNullOrWhiteSpace(supervisorEmail)) continue;
                 await _emailService.SendLeaveApplicationToSupervisorAsync(
                     supervisorEmail,
@@ -550,7 +623,8 @@ public class LeaveService : ILeaveService
                     request.EndDate,
                     request.TotalDays,
                     "Cancellation requested",
-                    request.ApproverRemarks);
+                    request.ApproverRemarks,
+                    request.Id);
             }
         }
         catch (Exception ex)
@@ -559,11 +633,17 @@ public class LeaveService : ILeaveService
         }
     }
 
-    /// <summary>Work email on the employee record, or login email from a user linked to that employee.</summary>
-    private async Task<string?> ResolveLeaveNotificationEmailAsync(Guid employeeId, string? employeeWorkEmail)
+    /// <summary>Work email on the employee record, then personal email, then login email.</summary>
+    private async Task<string?> ResolveLeaveNotificationEmailAsync(
+        Guid employeeId, string? employeeWorkEmail, string? personalEmail = null)
     {
-        if (!string.IsNullOrWhiteSpace(employeeWorkEmail))
-            return employeeWorkEmail.Trim();
+        var work = EmployeeEmailHelper.ToDisplayEmail(employeeWorkEmail);
+        if (!string.IsNullOrWhiteSpace(work))
+            return work;
+
+        var personal = EmployeeEmailHelper.ToDisplayEmail(personalEmail);
+        if (!string.IsNullOrWhiteSpace(personal))
+            return personal;
 
         var userEmail = await _db.Users.AsNoTracking()
             .Where(u => u.EmployeeId == employeeId && !u.IsDeleted && !string.IsNullOrWhiteSpace(u.Email))
@@ -572,7 +652,7 @@ public class LeaveService : ILeaveService
             .Select(u => u.Email)
             .FirstOrDefaultAsync();
 
-        return string.IsNullOrWhiteSpace(userEmail) ? null : userEmail.Trim();
+        return EmployeeEmailHelper.ToDisplayEmail(userEmail);
     }
 
     private async Task NotifyLeaveApplicationRecipientsAsync(
@@ -598,11 +678,59 @@ public class LeaveService : ILeaveService
             }
         }
 
-        var employeeEmail = await ResolveLeaveNotificationEmailAsync(employee.Id, employee.Email);
+        var supervisorIds = await GetLeaveNotifySupervisorIdsAsync(employee.Id);
+        if (supervisorIds.Count == 0)
+        {
+            _logger.LogInformation(
+                "Leave request {LeaveRequestId} created; no supervisor email (no supervisor assigned).",
+                created.Id);
+        }
+
+        foreach (var supervisorId in supervisorIds)
+        {
+            if (supervisorId == employee.Id) continue;
+            var supervisor = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == supervisorId && !e.IsDeleted);
+            if (supervisor is null) continue;
+            var supervisorEmail = await ResolveLeaveNotificationEmailAsync(supervisor.Id, supervisor.Email, supervisor.OtherEmail);
+            if (string.IsNullOrWhiteSpace(supervisorEmail))
+            {
+                _logger.LogInformation(
+                    "Leave request {LeaveRequestId} created; supervisor {SupervisorId} has no work, personal, or login email.",
+                    created.Id, supervisor.Id);
+                continue;
+            }
+
+            // Always send the approval mail, even if this address already received the employee confirmation.
+            try
+            {
+                await _emailService.SendLeaveApplicationToSupervisorAsync(
+                    supervisorEmail,
+                    supervisor.FullName,
+                    employee.FullName,
+                    leaveType,
+                    created.StartDate,
+                    created.EndDate,
+                    created.TotalDays,
+                    created.Status.ToString(),
+                    created.Reason,
+                    created.Id);
+                sent.Add(supervisorEmail.Trim());
+                _logger.LogInformation(
+                    "Leave request {LeaveRequestId} supervisor email sent to {Email}.",
+                    created.Id, supervisorEmail);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Leave request {LeaveRequestId} saved but supervisor email to {Email} failed.", created.Id, supervisorEmail);
+            }
+        }
+
+        var employeeEmail = await ResolveLeaveNotificationEmailAsync(employee.Id, employee.Email, employee.OtherEmail);
         if (string.IsNullOrWhiteSpace(employeeEmail))
         {
             _logger.LogInformation(
-                "Leave request {LeaveRequestId} created; no employee confirmation email (no work or login email).",
+                "Leave request {LeaveRequestId} created; no employee confirmation email (no work, personal, or login email).",
                 created.Id);
         }
         else
@@ -619,44 +747,6 @@ public class LeaveService : ILeaveService
                     created.Reason));
         }
 
-        if (!employee.IsTopOfHierarchy)
-        {
-            var supervisorIds = await GetLeaveNotifySupervisorIdsAsync(employee.Id);
-            if (supervisorIds.Count == 0)
-            {
-                _logger.LogInformation(
-                    "Leave request {LeaveRequestId} created; no supervisor email (no supervisor assigned).",
-                    created.Id);
-            }
-
-            foreach (var supervisorId in supervisorIds)
-            {
-                var supervisor = await _db.Employees.AsNoTracking()
-                    .FirstOrDefaultAsync(e => e.Id == supervisorId && !e.IsDeleted);
-                if (supervisor is null) continue;
-                var supervisorEmail = await ResolveLeaveNotificationEmailAsync(supervisor.Id, supervisor.Email);
-                if (string.IsNullOrWhiteSpace(supervisorEmail))
-                {
-                    _logger.LogInformation(
-                        "Leave request {LeaveRequestId} created; supervisor {SupervisorId} has no work or login email.",
-                        created.Id, supervisor.Id);
-                    continue;
-                }
-
-                await TrySendAsync(supervisorEmail, "supervisor", () =>
-                    _emailService.SendLeaveApplicationToSupervisorAsync(
-                        supervisorEmail,
-                        supervisor.FullName,
-                        employee.FullName,
-                        leaveType,
-                        created.StartDate,
-                        created.EndDate,
-                        created.TotalDays,
-                        created.Status.ToString(),
-                        created.Reason));
-            }
-        }
-
         var covering = await ResolveCoverageEmployeeAsync(employee.Id, coverageEmployeeId, created.CoveragePerson);
         if (covering is null)
         {
@@ -669,7 +759,7 @@ public class LeaveService : ILeaveService
             return;
         }
 
-        var coveringEmail = await ResolveLeaveNotificationEmailAsync(covering.Id, covering.Email);
+        var coveringEmail = await ResolveLeaveNotificationEmailAsync(covering.Id, covering.Email, covering.OtherEmail);
         if (string.IsNullOrWhiteSpace(coveringEmail))
         {
             _logger.LogInformation(
@@ -699,22 +789,19 @@ public class LeaveService : ILeaveService
             .ToListAsync();
 
         var ids = links
-            .Where(x => string.Equals(x.ReportingMethod, "Direct", StringComparison.OrdinalIgnoreCase))
+            .Where(x => ReportingChain.IsDirectMethod(x.ReportingMethod))
             .Select(x => x.SupervisorId)
             .Distinct()
             .ToList();
         if (ids.Count == 0)
             ids = links.Select(x => x.SupervisorId).Distinct().ToList();
 
-        if (ids.Count == 0)
-        {
-            var managerId = await _db.Employees.AsNoTracking()
-                .Where(e => e.Id == employeeId && !e.IsDeleted)
-                .Select(e => e.ManagerId)
-                .FirstOrDefaultAsync();
-            if (managerId.HasValue)
-                ids.Add(managerId.Value);
-        }
+        var managerId = await _db.Employees.AsNoTracking()
+            .Where(e => e.Id == employeeId && !e.IsDeleted)
+            .Select(e => e.ManagerId)
+            .FirstOrDefaultAsync();
+        if (managerId.HasValue && managerId.Value != employeeId && !ids.Contains(managerId.Value))
+            ids.Add(managerId.Value);
 
         return ids;
     }
@@ -763,11 +850,19 @@ public class LeaveService : ILeaveService
 
     private async Task<Guid?> GetDirectSupervisorIdAsync(Guid employeeId)
     {
-        var id = await _db.Set<EmployeeSupervisor>()
-            .Where(es => !es.IsDeleted && es.EmployeeId == employeeId && es.ReportingMethod == "Direct")
-            .Select(es => es.SupervisorId)
-            .FirstOrDefaultAsync();
+        var links = await _db.Set<EmployeeSupervisor>()
+            .Where(es => !es.IsDeleted && es.EmployeeId == employeeId)
+            .Select(es => new { es.SupervisorId, es.ReportingMethod, es.CreatedAt })
+            .ToListAsync();
+
+        var id = links
+            .Where(x => ReportingChain.IsDirectMethod(x.ReportingMethod))
+            .OrderByDescending(x => string.Equals(x.ReportingMethod, "Direct", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(x => x.CreatedAt)
+            .Select(x => x.SupervisorId)
+            .FirstOrDefault();
         if (id != default) return id;
+
         var emp = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted);
         return emp?.ManagerId;
     }

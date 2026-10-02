@@ -139,7 +139,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (isAuthenticated) return;
     // Intentionally omit `usePathname` from deps — pathname changes on every client navigation and
     // would re-run this effect, causing repeated `location.replace` loops while auth state settles.
-    const path = typeof window !== "undefined" ? window.location.pathname : "/";
+    const path = typeof window !== "undefined"
+      ? `${window.location.pathname}${window.location.search}`
+      : "/";
     const next = `/login${path && path !== "/" ? `?redirect=${encodeURIComponent(path)}` : ""}`;
     // Hard navigation avoids a stuck spinner when client-side routing does not complete.
     window.location.replace(next);

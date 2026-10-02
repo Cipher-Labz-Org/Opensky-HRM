@@ -182,13 +182,16 @@ public class EmailService : IEmailService
     }
 
     public async Task SendLeaveApplicationToSupervisorAsync(string toEmail, string supervisorName, string employeeName,
-        string leaveTypeName, DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason)
+        string leaveTypeName, DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason,
+        Guid? leaveRequestId = null)
     {
         var safeSupervisor = WebUtility.HtmlEncode(supervisorName);
         var safeName = WebUtility.HtmlEncode(employeeName);
         var safeType = WebUtility.HtmlEncode(leaveTypeName);
         var safeStatus = WebUtility.HtmlEncode(status);
         var safeReason = string.IsNullOrWhiteSpace(reason) ? "—" : WebUtility.HtmlEncode(reason);
+        var approvalUrl = ResolveLeaveApprovalPageUrl(leaveRequestId);
+        var safeApprovalUrl = WebUtility.HtmlEncode(approvalUrl ?? "");
         var start = startDate.ToString("dd MMM yyyy");
         var end = endDate.ToString("dd MMM yyyy");
         var days = totalDays.ToString("F1");
@@ -203,6 +206,7 @@ public class EmailService : IEmailService
             ["{{TotalDays}}"] = days,
             ["{{Status}}"] = safeStatus,
             ["{{Reason}}"] = safeReason,
+            ["{{ApprovalUrl}}"] = safeApprovalUrl,
         };
 
         const string defaultSubject = "{{EmployeeName}} submitted a leave request";
@@ -211,7 +215,9 @@ public class EmailService : IEmailService
             bodyReplacements,
             defaultSubject,
             bodyReplacements,
-            () => BuildLeaveApplicationSupervisorHtml(supervisorName, employeeName, leaveTypeName, startDate, endDate, totalDays, status, reason));
+            () => BuildLeaveApplicationSupervisorHtml(supervisorName, employeeName, leaveTypeName, startDate, endDate, totalDays, status, reason, approvalUrl));
+
+        body = EnsureLeaveApprovalShortcut(body, approvalUrl);
 
         await SendHtmlEmailAsync(toEmail, supervisorName, subject, body, CategoryLeaveApplication);
     }
@@ -249,6 +255,84 @@ public class EmailService : IEmailService
             () => BuildLeaveApplicationCoveringHtml(coveringPersonName, employeeName, leaveTypeName, startDate, endDate, totalDays, status, reason));
 
         await SendHtmlEmailAsync(toEmail, coveringPersonName, subject, body, CategoryLeaveApplication);
+    }
+
+    public async Task SendLeaveApprovedToEmployeeAsync(string toEmail, string employeeName, string leaveTypeName,
+        DateTime startDate, DateTime endDate, decimal totalDays, string? remarks, string? approverName)
+    {
+        await SendLeaveDecisionToEmployeeAsync(
+            TransactionalEmailTemplateSeeder.LeaveApprovedKey,
+            "Leave request approved",
+            toEmail,
+            employeeName,
+            leaveTypeName,
+            startDate,
+            endDate,
+            totalDays,
+            remarks,
+            approverName,
+            approved: true);
+    }
+
+    public async Task SendLeaveRejectedToEmployeeAsync(string toEmail, string employeeName, string leaveTypeName,
+        DateTime startDate, DateTime endDate, decimal totalDays, string? remarks, string? approverName)
+    {
+        await SendLeaveDecisionToEmployeeAsync(
+            TransactionalEmailTemplateSeeder.LeaveRejectedKey,
+            "Leave request rejected",
+            toEmail,
+            employeeName,
+            leaveTypeName,
+            startDate,
+            endDate,
+            totalDays,
+            remarks,
+            approverName,
+            approved: false);
+    }
+
+    private async Task SendLeaveDecisionToEmployeeAsync(
+        string templateKey,
+        string defaultSubject,
+        string toEmail,
+        string employeeName,
+        string leaveTypeName,
+        DateTime startDate,
+        DateTime endDate,
+        decimal totalDays,
+        string? remarks,
+        string? approverName,
+        bool approved)
+    {
+        var safeName = WebUtility.HtmlEncode(employeeName);
+        var safeType = WebUtility.HtmlEncode(leaveTypeName);
+        var safeRemarks = string.IsNullOrWhiteSpace(remarks) ? "—" : WebUtility.HtmlEncode(remarks);
+        var safeApprover = string.IsNullOrWhiteSpace(approverName) ? "your supervisor" : WebUtility.HtmlEncode(approverName);
+        var status = approved ? "Approved" : "Rejected";
+        var start = startDate.ToString("dd MMM yyyy");
+        var end = endDate.ToString("dd MMM yyyy");
+        var days = totalDays.ToString("F1");
+
+        var bodyReplacements = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["{{EmployeeName}}"] = safeName,
+            ["{{LeaveTypeName}}"] = safeType,
+            ["{{StartDate}}"] = start,
+            ["{{EndDate}}"] = end,
+            ["{{TotalDays}}"] = days,
+            ["{{Status}}"] = status,
+            ["{{Remarks}}"] = safeRemarks,
+            ["{{ApproverName}}"] = safeApprover,
+        };
+
+        var (subject, body) = await ResolveTransactionalEmailAsync(
+            templateKey,
+            bodyReplacements,
+            defaultSubject,
+            bodyReplacements,
+            () => BuildLeaveDecisionHtml(employeeName, leaveTypeName, startDate, endDate, totalDays, remarks, approverName, approved));
+
+        await SendHtmlEmailAsync(toEmail, employeeName, subject, body, CategoryLeaveApplication);
     }
 
     public async Task SendTrainingAssignedAsync(string toEmail, string employeeName, string courseTitle,
@@ -773,8 +857,85 @@ public class EmailService : IEmailService
 </html>";
     }
 
+    private string? ResolvePublicWebBaseUrl()
+    {
+        var candidates = new[]
+        {
+            _config["App:PublicWebBaseUrl"],
+            _config["Recruitment:CareersBaseUrl"],
+        };
+
+        var trimmed = candidates
+            .Select(v => v?.Trim().TrimEnd('/'))
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Cast<string>()
+            .ToList();
+
+        var publicUrl = trimmed.FirstOrDefault(v => !IsLoopbackWebUrl(v));
+        if (!string.IsNullOrWhiteSpace(publicUrl))
+            return publicUrl;
+        if (trimmed.Count > 0)
+            return trimmed[0];
+
+        var corsOrigins = _config.GetSection("Cors:Origins").Get<string[]>();
+        var localFrontend = corsOrigins?.FirstOrDefault(o =>
+            o.Contains("localhost:3000", StringComparison.OrdinalIgnoreCase)
+            || o.Contains("127.0.0.1:3000", StringComparison.OrdinalIgnoreCase));
+        return string.IsNullOrWhiteSpace(localFrontend) ? null : localFrontend.Trim().TrimEnd('/');
+    }
+
+    private static bool IsLoopbackWebUrl(string url)
+    {
+        return url.Contains("localhost", StringComparison.OrdinalIgnoreCase)
+            || url.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string? ResolveLeaveApprovalPageUrl(Guid? leaveRequestId)
+    {
+        var baseUrl = ResolvePublicWebBaseUrl();
+        if (string.IsNullOrWhiteSpace(baseUrl)) return null;
+
+        var url = $"{baseUrl}/app/approvals?tab=leave&waiting=1";
+        if (leaveRequestId.HasValue && leaveRequestId.Value != Guid.Empty)
+            url += $"&requestId={leaveRequestId.Value:D}";
+        return url;
+    }
+
+    private static string BuildLeaveApprovalButtonHtml(string approvalUrl)
+    {
+        var safeUrl = WebUtility.HtmlEncode(approvalUrl);
+        return $@"
+      <p style=""margin: 24px 0 8px; text-align: center;"">
+        <a href=""{safeUrl}"" style=""display:inline-block;background:#2B7DE9;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;"">Review waiting approvals</a>
+      </p>
+      <p style=""font-size: 13px; line-height: 1.55; color: #666; margin: 0; text-align: center;"">
+        Sign in with your username and password if prompted, then you will see all leave requests waiting for your approval.
+      </p>";
+    }
+
+    private static string EnsureLeaveApprovalShortcut(string html, string? approvalUrl)
+    {
+        if (string.IsNullOrWhiteSpace(approvalUrl) || string.IsNullOrWhiteSpace(html))
+            return html;
+        if (html.Contains("/app/approvals", StringComparison.OrdinalIgnoreCase))
+            return html;
+
+        var button = BuildLeaveApprovalButtonHtml(approvalUrl);
+        const string footer = "This is an automated message from OpenSky HRM.";
+        var footerIdx = html.IndexOf(footer, StringComparison.OrdinalIgnoreCase);
+        if (footerIdx >= 0)
+        {
+            var footerDiv = html.LastIndexOf("<div", footerIdx, StringComparison.OrdinalIgnoreCase);
+            if (footerDiv >= 0)
+                return html.Insert(footerDiv, button);
+        }
+
+        return html + button;
+    }
+
     private static string BuildLeaveApplicationSupervisorHtml(string supervisorName, string employeeName,
-        string leaveTypeName, DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason)
+        string leaveTypeName, DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason,
+        string? approvalUrl)
     {
         var safeSupervisor = WebUtility.HtmlEncode(supervisorName);
         var safeName = WebUtility.HtmlEncode(employeeName);
@@ -783,6 +944,7 @@ public class EmailService : IEmailService
         var safeReason = string.IsNullOrWhiteSpace(reason) ? "—" : WebUtility.HtmlEncode(reason);
         var start = startDate.ToString("dd MMM yyyy");
         var end = endDate.ToString("dd MMM yyyy");
+        var button = string.IsNullOrWhiteSpace(approvalUrl) ? "" : BuildLeaveApprovalButtonHtml(approvalUrl);
 
         return $@"
 <!DOCTYPE html>
@@ -811,6 +973,58 @@ public class EmailService : IEmailService
       </div>
       <p style=""font-size: 14px; line-height: 1.6; color: #555; margin: 0;"">
         Open Leave &amp; Absence in OpenSky HRM to approve or reject this request.
+      </p>
+      {button}
+    </div>
+    <div style=""background: #f5f6fa; padding: 16px 36px; text-align: center; font-size: 12px; color: #999;"">
+      This is an automated message from OpenSky HRM.
+    </div>
+  </div>
+</body>
+</html>";
+    }
+
+    private static string BuildLeaveDecisionHtml(string employeeName, string leaveTypeName,
+        DateTime startDate, DateTime endDate, decimal totalDays, string? remarks, string? approverName, bool approved)
+    {
+        var safeName = WebUtility.HtmlEncode(employeeName);
+        var safeType = WebUtility.HtmlEncode(leaveTypeName);
+        var safeRemarks = string.IsNullOrWhiteSpace(remarks) ? "—" : WebUtility.HtmlEncode(remarks);
+        var safeApprover = string.IsNullOrWhiteSpace(approverName) ? "your supervisor" : WebUtility.HtmlEncode(approverName);
+        var start = startDate.ToString("dd MMM yyyy");
+        var end = endDate.ToString("dd MMM yyyy");
+        var heading = approved ? "Leave request approved" : "Leave request rejected";
+        var message = approved
+            ? $"Good news — {safeApprover} has approved your leave request."
+            : $"{safeApprover} has rejected your leave request.";
+
+        return $@"
+<!DOCTYPE html>
+<html>
+<head><meta charset=""utf-8""></head>
+<body style=""font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f6fa;"">
+  <div style=""max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);"">
+    <div style=""background: linear-gradient(135deg, #1e3a5f 0%, #2B7DE9 100%); padding: 28px 36px; color: white;"">
+      <h1 style=""margin: 0; font-size: 22px; font-weight: 600;"">{heading}</h1>
+      <p style=""margin: 8px 0 0; opacity: 0.9; font-size: 14px;"">OpenSky HRM</p>
+    </div>
+    <div style=""padding: 28px 36px;"">
+      <p style=""font-size: 16px; margin: 0 0 16px;"">Hi <strong>{safeName}</strong>,</p>
+      <p style=""font-size: 15px; line-height: 1.6; margin: 0 0 20px;"">
+        {message}
+      </p>
+      <div style=""background: #f8f9fe; border-radius: 8px; padding: 18px 22px; margin: 0 0 20px;"">
+        <table style=""width: 100%; border-collapse: collapse; font-size: 14px;"">
+          <tr><td style=""padding: 8px 0; color: #666;"">Leave type</td><td style=""padding: 8px 0; font-weight: 600; text-align: right;"">{safeType}</td></tr>
+          <tr><td style=""padding: 8px 0; color: #666;"">Start</td><td style=""padding: 8px 0; font-weight: 600; text-align: right;"">{start}</td></tr>
+          <tr><td style=""padding: 8px 0; color: #666;"">End</td><td style=""padding: 8px 0; font-weight: 600; text-align: right;"">{end}</td></tr>
+          <tr><td style=""padding: 8px 0; color: #666;"">Total days</td><td style=""padding: 8px 0; font-weight: 600; text-align: right;"">{totalDays:F1}</td></tr>
+          <tr><td style=""padding: 8px 0; color: #666;"">Decided by</td><td style=""padding: 8px 0; font-weight: 600; text-align: right;"">{safeApprover}</td></tr>
+          <tr><td style=""padding: 8px 0; color: #666;"">Remarks</td><td style=""padding: 8px 0; text-align: right;"">{safeRemarks}</td></tr>
+        </table>
+      </div>
+      <p style=""font-size: 14px; line-height: 1.6; color: #555; margin: 0;"">
+        You can review this request in Leave &amp; Absence. If you have questions, contact HR or your supervisor.
       </p>
     </div>
     <div style=""background: #f5f6fa; padding: 16px 36px; text-align: center; font-size: 12px; color: #999;"">

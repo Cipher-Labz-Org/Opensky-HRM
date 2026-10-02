@@ -9,6 +9,8 @@ public static class TransactionalEmailTemplateSeeder
     public const string LeaveApplicationKey = "Email_LeaveApplication";
     public const string LeaveApplicationSupervisorKey = "Email_LeaveApplicationSupervisor";
     public const string LeaveApplicationCoveringKey = "Email_LeaveApplicationCovering";
+    public const string LeaveApprovedKey = "Email_LeaveApproved";
+    public const string LeaveRejectedKey = "Email_LeaveRejected";
     public const string RecruitmentOfferKey = "Email_RecruitmentOffer";
     public const string RecruitmentInterviewCandidateKey = "Email_RecruitmentInterviewCandidate";
     public const string RecruitmentInterviewInterviewerKey = "Email_RecruitmentInterviewInterviewer";
@@ -38,6 +40,11 @@ public static class TransactionalEmailTemplateSeeder
                 IsActive = true,
             });
         }
+        else
+        {
+            var supervisorTemplate = await context.DocumentTemplates.FirstAsync(t => t.TemplateKey == LeaveApplicationSupervisorKey);
+            UpgradeSupervisorApprovalLink(supervisorTemplate);
+        }
 
         if (!await context.DocumentTemplates.AnyAsync(t => t.TemplateKey == LeaveApplicationCoveringKey))
         {
@@ -47,6 +54,30 @@ public static class TransactionalEmailTemplateSeeder
                 TemplateKey = LeaveApplicationCoveringKey,
                 Subject = "You are covering for {{EmployeeName}}",
                 HtmlContent = LeaveApplicationCoveringHtml,
+                IsActive = true,
+            });
+        }
+
+        if (!await context.DocumentTemplates.AnyAsync(t => t.TemplateKey == LeaveApprovedKey))
+        {
+            context.DocumentTemplates.Add(new DocumentTemplate
+            {
+                Name = "Email: Leave request approved",
+                TemplateKey = LeaveApprovedKey,
+                Subject = "Leave request approved",
+                HtmlContent = LeaveApprovedHtml,
+                IsActive = true,
+            });
+        }
+
+        if (!await context.DocumentTemplates.AnyAsync(t => t.TemplateKey == LeaveRejectedKey))
+        {
+            context.DocumentTemplates.Add(new DocumentTemplate
+            {
+                Name = "Email: Leave request rejected",
+                TemplateKey = LeaveRejectedKey,
+                Subject = "Leave request rejected",
+                HtmlContent = LeaveRejectedHtml,
                 IsActive = true,
             });
         }
@@ -88,6 +119,28 @@ public static class TransactionalEmailTemplateSeeder
         }
 
         await context.SaveChangesAsync();
+    }
+
+    private static void UpgradeSupervisorApprovalLink(DocumentTemplate template)
+    {
+        if (string.IsNullOrWhiteSpace(template.HtmlContent))
+            return;
+        if (template.HtmlContent.Contains("{{ApprovalUrl}}", StringComparison.Ordinal)
+            || template.HtmlContent.Contains("/app/approvals", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        const string needle = "Open Leave &amp; Absence in OpenSky HRM to approve or reject this request.";
+        const string replacement = """
+            Open Leave &amp; Absence in OpenSky HRM to approve or reject this request.
+                  </p>
+                  <p style="margin: 24px 0 8px; text-align: center;">
+                    <a href="{{ApprovalUrl}}" style="display:inline-block;background:#2B7DE9;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">Review waiting approvals</a>
+                  </p>
+                  <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 0; text-align: center;">
+                    Sign in with your username and password if prompted, then you will see all leave requests waiting for your approval.
+            """;
+        if (template.HtmlContent.Contains(needle, StringComparison.Ordinal))
+            template.HtmlContent = template.HtmlContent.Replace(needle, replacement);
     }
 
     private const string LeaveApplicationHtml = """
@@ -154,6 +207,12 @@ public static class TransactionalEmailTemplateSeeder
       <p style="font-size: 14px; line-height: 1.6; color: #555; margin: 0;">
         Open Leave &amp; Absence in OpenSky HRM to approve or reject this request.
       </p>
+      <p style="margin: 24px 0 8px; text-align: center;">
+        <a href="{{ApprovalUrl}}" style="display:inline-block;background:#2B7DE9;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">Review waiting approvals</a>
+      </p>
+      <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 0; text-align: center;">
+        Sign in with your username and password if prompted, then you will see all leave requests waiting for your approval.
+      </p>
     </div>
     <div style="background: #f5f6fa; padding: 16px 36px; text-align: center; font-size: 12px; color: #999;">
       This is an automated message from OpenSky HRM.
@@ -190,6 +249,80 @@ public static class TransactionalEmailTemplateSeeder
       </div>
       <p style="font-size: 14px; line-height: 1.6; color: #555; margin: 0;">
         Please be available to cover duties during this period if the request is approved.
+      </p>
+    </div>
+    <div style="background: #f5f6fa; padding: 16px 36px; text-align: center; font-size: 12px; color: #999;">
+      This is an automated message from OpenSky HRM.
+    </div>
+  </div>
+</body>
+</html>
+""";
+
+    private const string LeaveApprovedHtml = """
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f6fa;">
+  <div style="max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+    <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2B7DE9 100%); padding: 28px 36px; color: white;">
+      <h1 style="margin: 0; font-size: 22px; font-weight: 600;">Leave request approved</h1>
+      <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">OpenSky HRM</p>
+    </div>
+    <div style="padding: 28px 36px;">
+      <p style="font-size: 16px; margin: 0 0 16px;">Hi <strong>{{EmployeeName}}</strong>,</p>
+      <p style="font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
+        Good news — <strong>{{ApproverName}}</strong> has approved your leave request.
+      </p>
+      <div style="background: #f8f9fe; border-radius: 8px; padding: 18px 22px; margin: 0 0 20px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+          <tr><td style="padding: 8px 0; color: #666;">Leave type</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{LeaveTypeName}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">Start</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{StartDate}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">End</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{EndDate}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">Total days</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{TotalDays}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">Decided by</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{ApproverName}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">Remarks</td><td style="padding: 8px 0; text-align: right;">{{Remarks}}</td></tr>
+        </table>
+      </div>
+      <p style="font-size: 14px; line-height: 1.6; color: #555; margin: 0;">
+        You can review this request in Leave &amp; Absence. If you have questions, contact HR or your supervisor.
+      </p>
+    </div>
+    <div style="background: #f5f6fa; padding: 16px 36px; text-align: center; font-size: 12px; color: #999;">
+      This is an automated message from OpenSky HRM.
+    </div>
+  </div>
+</body>
+</html>
+""";
+
+    private const string LeaveRejectedHtml = """
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f6fa;">
+  <div style="max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+    <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2B7DE9 100%); padding: 28px 36px; color: white;">
+      <h1 style="margin: 0; font-size: 22px; font-weight: 600;">Leave request rejected</h1>
+      <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">OpenSky HRM</p>
+    </div>
+    <div style="padding: 28px 36px;">
+      <p style="font-size: 16px; margin: 0 0 16px;">Hi <strong>{{EmployeeName}}</strong>,</p>
+      <p style="font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
+        <strong>{{ApproverName}}</strong> has rejected your leave request.
+      </p>
+      <div style="background: #f8f9fe; border-radius: 8px; padding: 18px 22px; margin: 0 0 20px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+          <tr><td style="padding: 8px 0; color: #666;">Leave type</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{LeaveTypeName}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">Start</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{StartDate}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">End</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{EndDate}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">Total days</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{TotalDays}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">Decided by</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">{{ApproverName}}</td></tr>
+          <tr><td style="padding: 8px 0; color: #666;">Remarks</td><td style="padding: 8px 0; text-align: right;">{{Remarks}}</td></tr>
+        </table>
+      </div>
+      <p style="font-size: 14px; line-height: 1.6; color: #555; margin: 0;">
+        You can review this request in Leave &amp; Absence. If you have questions, contact HR or your supervisor.
       </p>
     </div>
     <div style="background: #f5f6fa; padding: 16px 36px; text-align: center; font-size: 12px; color: #999;">

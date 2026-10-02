@@ -54,7 +54,8 @@ export function middleware(request: NextRequest) {
     Boolean(request.cookies.get("auth_token")?.value);
   if (!hasSession && pathname.startsWith("/app")) {
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("redirect", pathname);
+    const next = `${pathname}${request.nextUrl.search}`;
+    loginUrl.searchParams.set("redirect", next);
     return NextResponse.redirect(loginUrl);
   }
 

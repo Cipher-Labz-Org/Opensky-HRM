@@ -110,8 +110,14 @@ function ApprovalsInner() {
           isEmployeeView={false}
           currentEmployeeId={user.employeeId}
           sectionTitle="Leave requests"
-          sectionSubtitle="All employees' leave requests. Filter by department, status, and dates as needed."
+          sectionSubtitle={
+            searchParams.get("waiting") === "1"
+              ? "Leave requests waiting for your approval."
+              : "All employees' leave requests. Filter by department, status, and dates as needed."
+          }
           hideApplyShortcut
+          waitingOnly={searchParams.get("waiting") === "1"}
+          focusRequestId={searchParams.get("requestId")}
         />
       )}
 

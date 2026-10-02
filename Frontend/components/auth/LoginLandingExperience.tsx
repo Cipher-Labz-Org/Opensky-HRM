@@ -3,6 +3,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useAuth } from "../../contexts/auth-context";
 import { ROUTES } from "../../config/routes";
+import { safeAppRedirect } from "@/lib/safe-app-redirect";
 import { fetchCompanyBranding, type CompanyBranding } from "@/lib/company-branding";
 import { LOGIN_THEME } from "@/lib/opensky-theme";
 import { LoginWaveBackground } from "@/components/auth/LoginWaveBackground";
@@ -10,6 +11,12 @@ import { LoginBrandPanel } from "@/components/auth/LoginBrandPanel";
 import { LoginFormCard } from "@/components/auth/LoginFormCard";
 
 type Branding = CompanyBranding;
+
+function resolvePostLoginPath(mustChangePassword: boolean): string {
+  if (mustChangePassword) return ROUTES.changePassword;
+  if (typeof window === "undefined") return ROUTES.dashboard;
+  return safeAppRedirect(new URLSearchParams(window.location.search).get("redirect"));
+}
 
 /**
  * OpenSky-branded sign-in — split layout matching brand mockup.
@@ -48,7 +55,7 @@ export function LoginLandingExperience() {
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated || !user) return;
-    window.location.replace(user.mustChangePassword === true ? ROUTES.changePassword : "/app/dashboard");
+    window.location.replace(resolvePostLoginPath(user.mustChangePassword === true));
   }, [isAuthenticated, isLoading, user]);
 
   if (!mounted || isLoading || isAuthenticated) {
@@ -71,7 +78,7 @@ export function LoginLandingExperience() {
     setSubmitting(true);
     try {
       const profile = await login(username, password, rememberMe);
-      window.location.replace(profile.mustChangePassword === true ? ROUTES.changePassword : "/app/dashboard");
+      window.location.replace(resolvePostLoginPath(profile.mustChangePassword === true));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

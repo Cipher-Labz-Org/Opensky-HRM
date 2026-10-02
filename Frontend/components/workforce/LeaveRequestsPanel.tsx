@@ -76,6 +76,7 @@ const T = OPENSKY_THEME;
 
 const QUICK_STATUS_FILTERS: Array<{ value: string; label: string }> = [
   { value: "", label: "All" },
+  { value: "Waiting", label: "Waiting" },
   { value: "Pending", label: "Pending" },
   { value: "PendingLevel2", label: "Pending L2" },
   { value: "Approved", label: "Approved" },
@@ -161,6 +162,10 @@ export interface LeaveRequestsPanelProps {
   sectionTitle?: string;
   sectionSubtitle?: string;
   hideApplyShortcut?: boolean;
+  /** Show only requests that still need a decision (pending, L2, cancel requested). */
+  waitingOnly?: boolean;
+  /** Highlight this leave request after the list loads. */
+  focusRequestId?: string | null;
 }
 
 export function LeaveRequestsPanel({
@@ -172,6 +177,8 @@ export function LeaveRequestsPanel({
   sectionTitle = "Leave requests",
   sectionSubtitle,
   hideApplyShortcut = false,
+  waitingOnly = false,
+  focusRequestId = null,
 }: LeaveRequestsPanelProps) {
   const [items, setItems] = useState<LeaveRequestRow[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -179,7 +186,7 @@ export function LeaveRequestsPanel({
   const [pageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>(waitingOnly ? "Waiting" : "");
   const [deptFilter, setDeptFilter] = useState<string>("");
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
@@ -242,9 +249,10 @@ export function LeaveRequestsPanel({
     setLoading(true);
     setError(null);
     const params = new URLSearchParams();
-    params.set("page", String(deptFilter ? 1 : page));
-    params.set("pageSize", String(deptFilter ? 500 : pageSize));
-    if (statusFilter) params.set("status", statusFilter);
+    const waitingFilter = statusFilter === "Waiting";
+    params.set("page", String(deptFilter || waitingFilter ? 1 : page));
+    params.set("pageSize", String(deptFilter || waitingFilter ? 500 : pageSize));
+    if (statusFilter && !waitingFilter) params.set("status", statusFilter);
     if (fromDate) params.set("fromDate", fromDate);
     if (toDate) params.set("toDate", toDate);
     if (teamOnly) params.set("excludeSelf", "true");
@@ -252,11 +260,14 @@ export function LeaveRequestsPanel({
       const raw = await apiFetch<PagedLeaveResponse>(`/api/leave/requests?${params}`);
       const norm = normalizePaged(raw);
       let rows = norm.items;
+      if (waitingFilter) {
+        rows = rows.filter((r) => canActOnLeaveStatus(r.status));
+      }
       if (deptFilter) {
         rows = rows.filter((r) => empDeptById.get(r.employeeId) === deptFilter);
       }
       setItems(rows);
-      setTotalCount(deptFilter ? rows.length : norm.totalCount);
+      setTotalCount(deptFilter || waitingFilter ? rows.length : norm.totalCount);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load leave requests");
       setItems([]);
@@ -269,6 +280,13 @@ export function LeaveRequestsPanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!focusRequestId || loading) return;
+    const el = document.getElementById(`leave-request-${focusRequestId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusRequestId, loading, items]);
 
   useEffect(() => {
     setPage(1);
@@ -465,7 +483,15 @@ export function LeaveRequestsPanel({
                 items.map((r) => {
                   const durationLabel = formatLeaveDurationLabel(r.durationKind, r.halfDayPeriod, r.shortLeaveHours);
                   return (
-                  <tr key={r.id} className="transition hover:bg-slate-50/70">
+                  <tr
+                    key={r.id}
+                    id={`leave-request-${r.id}`}
+                    className={`transition hover:bg-slate-50/70 ${
+                      focusRequestId && r.id.toLowerCase() === focusRequestId.toLowerCase()
+                        ? "bg-sky-50 ring-2 ring-inset ring-sky-200"
+                        : ""
+                    }`}
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-[11px] font-bold text-white">

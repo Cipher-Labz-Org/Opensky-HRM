@@ -175,7 +175,9 @@ public class EmployeeService : IEmployeeService
 
         var ids = await _db.Set<EmployeeSupervisor>()
             .AsNoTracking()
-            .Where(s => !s.IsDeleted && s.ReportingMethod == "Direct" && idList.Contains(s.EmployeeId))
+            .Where(s => !s.IsDeleted
+                && (s.ReportingMethod == "Direct" || s.ReportingMethod == "Both")
+                && idList.Contains(s.EmployeeId))
             .Select(s => s.EmployeeId)
             .Distinct()
             .ToListAsync();

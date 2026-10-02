@@ -57,6 +57,7 @@ You will be notified when your request is approved or rejected. If you have ques
       EndDate: "July 5, 2026",
       TotalDays: "5",
       Reason: "Family vacation",
+      ApprovalUrl: "https://app.openskyhrm.com/app/approvals?tab=leave&waiting=1",
     },
     defaultBody: `Hi {{SupervisorName}},
 
@@ -69,7 +70,11 @@ End: {{EndDate}}
 Total days: {{TotalDays}}
 Reason: {{Reason}}
 
-Open Leave & Absence in OpenSky HRM to approve or reject this request.`,
+Open Leave & Absence in OpenSky HRM to approve or reject this request.
+
+Review waiting approvals: {{ApprovalUrl}}
+
+Sign in with your username and password if prompted, then you will see all leave requests waiting for your approval.`,
   },
   Email_LeaveApplicationCovering: {
     module: "Leave",
@@ -100,6 +105,66 @@ Total days: {{TotalDays}}
 Reason: {{Reason}}
 
 Please be available to cover duties during this period if the request is approved.`,
+  },
+  Email_LeaveApproved: {
+    module: "Leave",
+    category: "Approval",
+    description: "Tells the employee that their leave request was approved.",
+    trigger: "Supervisor or approver approves a leave request.",
+    recipients: ["Employee"],
+    senderProfile: "OpenSky HRM notifications",
+    defaultSamples: {
+      EmployeeName: "Alex Morgan",
+      LeaveTypeName: "Annual leave",
+      StartDate: "July 1, 2026",
+      EndDate: "July 5, 2026",
+      TotalDays: "5",
+      ApproverName: "Sam Rivera",
+      Remarks: "Approved. Enjoy your time off.",
+      Status: "Approved",
+    },
+    defaultBody: `Hi {{EmployeeName}},
+
+Good news — {{ApproverName}} has approved your leave request.
+
+Leave type: {{LeaveTypeName}}
+Start: {{StartDate}}
+End: {{EndDate}}
+Total days: {{TotalDays}}
+Decided by: {{ApproverName}}
+Remarks: {{Remarks}}
+
+You can review this request in Leave & Absence. If you have questions, contact HR or your supervisor.`,
+  },
+  Email_LeaveRejected: {
+    module: "Leave",
+    category: "Approval",
+    description: "Tells the employee that their leave request was rejected.",
+    trigger: "Supervisor or approver rejects a leave request.",
+    recipients: ["Employee"],
+    senderProfile: "OpenSky HRM notifications",
+    defaultSamples: {
+      EmployeeName: "Alex Morgan",
+      LeaveTypeName: "Annual leave",
+      StartDate: "July 1, 2026",
+      EndDate: "July 5, 2026",
+      TotalDays: "5",
+      ApproverName: "Sam Rivera",
+      Remarks: "Team coverage is not available that week.",
+      Status: "Rejected",
+    },
+    defaultBody: `Hi {{EmployeeName}},
+
+{{ApproverName}} has rejected your leave request.
+
+Leave type: {{LeaveTypeName}}
+Start: {{StartDate}}
+End: {{EndDate}}
+Total days: {{TotalDays}}
+Decided by: {{ApproverName}}
+Remarks: {{Remarks}}
+
+You can review this request in Leave & Absence. If you have questions, contact HR or your supervisor.`,
   },
   Email_RecruitmentOffer: {
     module: "Recruitment",

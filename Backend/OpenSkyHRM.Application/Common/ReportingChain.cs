@@ -184,7 +184,7 @@ public static class ReportingChain
         return parents;
     }
 
-    private static bool IsDirectMethod(string? method)
+    public static bool IsDirectMethod(string? method)
         => string.Equals(method, "Direct", StringComparison.OrdinalIgnoreCase)
            || string.Equals(method, "Both", StringComparison.OrdinalIgnoreCase);
 }

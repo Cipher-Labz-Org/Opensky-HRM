@@ -14,11 +14,20 @@ public interface IEmailService
 
     /// <summary>Notifies the employee's supervisor that a leave request is waiting for approval.</summary>
     Task SendLeaveApplicationToSupervisorAsync(string toEmail, string supervisorName, string employeeName,
-        string leaveTypeName, DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason);
+        string leaveTypeName, DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason,
+        Guid? leaveRequestId = null);
 
     /// <summary>Notifies the covering person that they are named on a leave request.</summary>
     Task SendLeaveApplicationToCoveringPersonAsync(string toEmail, string coveringPersonName, string employeeName,
         string leaveTypeName, DateTime startDate, DateTime endDate, decimal totalDays, string status, string? reason);
+
+    /// <summary>Tells the employee that their leave request was approved.</summary>
+    Task SendLeaveApprovedToEmployeeAsync(string toEmail, string employeeName, string leaveTypeName,
+        DateTime startDate, DateTime endDate, decimal totalDays, string? remarks, string? approverName);
+
+    /// <summary>Tells the employee that their leave request was rejected.</summary>
+    Task SendLeaveRejectedToEmployeeAsync(string toEmail, string employeeName, string leaveTypeName,
+        DateTime startDate, DateTime endDate, decimal totalDays, string? remarks, string? approverName);
 
     Task SendTrainingAssignedAsync(string toEmail, string employeeName, string courseTitle, DateTime? dueDate);
 
