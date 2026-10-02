@@ -152,7 +152,10 @@ export function buildSampathCeftsSlipsRows(rows: SampathCeftsSlipsRow[]): {
     }
     const bankCode = sampathBankCode(row.bankCode, row.bankName);
     const branchCode = sampathBranchCode(row.branchCode);
-    if (!bankCode || !branchCode) missingBankOrBranch += 1;
+    if (!bankCode || !branchCode) {
+      missingBankOrBranch += 1;
+      continue;
+    }
     data.push([
       (row.companyRef ?? "").trim(),
       (row.beneficiaryName ?? "").trim(),

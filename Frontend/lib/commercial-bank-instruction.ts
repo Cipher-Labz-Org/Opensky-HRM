@@ -113,7 +113,7 @@ export function buildCommercialInstructionRows(
   let skipped = 0;
   let missingBankOrBranch = 0;
 
-  for (const [index, row] of rows.entries()) {
+  for (const row of rows) {
     const accountNumber = commercialInstructionAccount(row.accountNumber);
     if (!accountNumber || !Number.isFinite(row.amount)) {
       skipped += 1;
@@ -123,9 +123,10 @@ export function buildCommercialInstructionRows(
     const destBranch = sampathBranchCode(row.branchCode);
     if (!destBank || !destBranch || !originatingBank || !originatingBranch || !originatingAccount) {
       missingBankOrBranch += 1;
+      continue;
     }
     data.push([
-      String(index).padStart(5, "0"),
+      String(data.length).padStart(5, "0"),
       destBank,
       destBranch,
       accountNumber,

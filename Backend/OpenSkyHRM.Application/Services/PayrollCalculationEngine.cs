@@ -966,6 +966,8 @@ public class PayrollCalculationEngine
 
     internal static string NormalizeApitTaxMode(string? mode)
     {
+        if (string.IsNullOrWhiteSpace(mode))
+            return ApitTaxModeMonthly;
         if (string.Equals(mode, ApitTaxModeMonthly, StringComparison.OrdinalIgnoreCase))
             return ApitTaxModeMonthly;
         if (string.Equals(mode, ApitTaxModeAnnual, StringComparison.OrdinalIgnoreCase)
@@ -1821,7 +1823,7 @@ public class PayrollRates
     public decimal EpfEmployeeRate { get; set; } = 0.08m;
     public decimal EpfEmployerRate { get; set; } = 0.12m;
     public decimal EtfEmployerRate { get; set; } = 0.03m;
-    public string ApitTaxMode { get; set; } = "Exact";
+    public string ApitTaxMode { get; set; } = "Monthly";
     public string OtComponentCode { get; set; } = PayrollComponentMapping.DefaultOtCode;
     public string NopayComponentCode { get; set; } = PayrollComponentMapping.DefaultNopayCode;
     public string PoyaComponentCode { get; set; } = PayrollComponentMapping.DefaultPoyaCode;
