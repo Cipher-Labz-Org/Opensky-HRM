@@ -30,7 +30,6 @@ function sanitizeField(value: string): string {
   return value.replace(/\|/g, " ").replace(/\r?\n/g, " ").trim();
 }
 
-export const COMMERCIAL_ACCOUNT_WIDTH = 12;
 export const COMMERCIAL_AMOUNT_WIDTH = 12;
 export const COMMERCIAL_LONG_NARRATIVE_WIDTH = 28;
 export const COMMERCIAL_SHORT_NARRATIVE_WIDTH = 12;
@@ -39,11 +38,9 @@ export function commercialBankAccountNumber(accountNumber?: string | null): stri
   return (accountNumber ?? "").replace(/[\s-]/g, "").trim();
 }
 
-/** Combiz One-to-Many account: 12 digits, leading zeros. */
+/** Account number as stored, without added leading zeros. */
 export function commercialBankFileAccount(accountNumber?: string | null): string {
-  const digits = commercialBankAccountNumber(accountNumber);
-  if (!digits) return "";
-  return digits.length >= COMMERCIAL_ACCOUNT_WIDTH ? digits : digits.padStart(COMMERCIAL_ACCOUNT_WIDTH, "0");
+  return commercialBankAccountNumber(accountNumber);
 }
 
 export function formatCommercialBankAmount(amount: number): string {

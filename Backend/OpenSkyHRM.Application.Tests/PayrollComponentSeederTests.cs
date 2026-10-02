@@ -63,7 +63,46 @@ public class PayrollComponentSeederTests
 
         var taxMode = await db.SystemSettings.FindAsync("Payroll_APIT_TaxMode");
         Assert.NotNull(taxMode);
-        Assert.Equal("Exact", taxMode.Value);
+        Assert.Equal("Monthly", taxMode.Value);
+    }
+
+    [Theory]
+    [InlineData("Exact")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task EnsureAsync_RewritesExactOrBlankApitTaxModeToMonthly(string stored)
+    {
+        var (db, _) = CreateSut();
+        db.SystemSettings.Add(new OpenSkyHRM.Domain.Entities.SystemSetting
+        {
+            Key = "Payroll_APIT_TaxMode",
+            Value = stored,
+        });
+        await db.SaveChangesAsync();
+
+        await PayrollComponentSeeder.EnsureAsync(db);
+
+        var taxMode = await db.SystemSettings.FindAsync("Payroll_APIT_TaxMode");
+        Assert.NotNull(taxMode);
+        Assert.Equal("Monthly", taxMode.Value);
+    }
+
+    [Fact]
+    public async Task EnsureAsync_LeavesAnnualApitTaxModeUnchanged()
+    {
+        var (db, _) = CreateSut();
+        db.SystemSettings.Add(new OpenSkyHRM.Domain.Entities.SystemSetting
+        {
+            Key = "Payroll_APIT_TaxMode",
+            Value = "Annual",
+        });
+        await db.SaveChangesAsync();
+
+        await PayrollComponentSeeder.EnsureAsync(db);
+
+        var taxMode = await db.SystemSettings.FindAsync("Payroll_APIT_TaxMode");
+        Assert.NotNull(taxMode);
+        Assert.Equal("Annual", taxMode.Value);
     }
 
     [Fact]

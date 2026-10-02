@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { DatePickerField } from "@/components/ui";
 import { FormSelect } from "@/components/ui/FormSelect";
-import { applyFromDateInRange, applyToDateInRange, formatLocalDateToIso } from "@/lib/datePickerIso";
+import { formatLocalDateToIso, parseIsoDateToLocal } from "@/lib/datePickerIso";
 import { formatDateTime } from "@/lib/date-utils";
 import { formatInt } from "@/lib/workspace-charts";
 import { getReportIconPaths } from "@/lib/report-icons";
@@ -15,7 +15,7 @@ import { getApiBaseUrl } from "@/config/constants";
 import { useAuth } from "@/contexts/auth-context";
 import { filterLookupsByAllowedIds } from "@/lib/people-scope-filters";
 import { sanitizeSearchInput } from "@/lib/input-validation";
-import { ReportParametersSearchBar } from "@/components/reports/ReportParametersSearchBar";
+import { ReportParametersSearchBar, type ReportPeriodSection } from "@/components/reports/ReportParametersSearchBar";
 import {
   EMPLOYEE_MASTER_GROUP_BY_OPTIONS,
   groupReportRowsByColumn,
@@ -40,6 +40,7 @@ interface ReportCategory { key: string; name: string; icon: string; reports: Rep
 interface DepartmentOption { id: string; name: string; }
 interface LocationOption { id: string; name: string; }
 interface GradeOption { id: string; name: string; }
+interface EmployeeNameOption { id: string; fullName: string; }
 interface EmployeeStatusOption { id: string; name: string; code: string; }
 interface ReportResult { reportName: string; generatedAt: string; columns: string[]; rows: Record<string, unknown>[]; totalRows: number; }
 
@@ -57,7 +58,7 @@ function getReportCell(row: Record<string, unknown>, column: string): unknown {
 }
 
 /** Query keys mirrored in the address bar for shareable report links. */
-const REPORT_URL_FILTER_KEYS = ["departmentId", "locationId", "employeeName", "status", "gradeId", "from", "to", "year", "month", "date"] as const;
+const REPORT_URL_FILTER_KEYS = ["departmentId", "locationId", "employeeId", "employeeName", "status", "gradeId", "from", "to", "year", "month", "date"] as const;
 
 const EMPLOYEE_MASTER_REPORT_KEY = "employee-master";
 
@@ -116,6 +117,7 @@ function mergeUrlFiltersIntoReportParams(
   if (!item) return merged;
   if (item.supportsDepartmentFilter && url.departmentId) merged.departmentId = url.departmentId;
   if (item.supportsDepartmentFilter && url.locationId) merged.locationId = url.locationId;
+  if (item.supportsDepartmentFilter && url.employeeId) merged.employeeId = url.employeeId;
   if (item.supportsDepartmentFilter && url.employeeName) merged.employeeName = url.employeeName;
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && url.status) merged.status = url.status;
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && url.gradeId) merged.gradeId = url.gradeId;
@@ -156,6 +158,26 @@ function filterParamsForUrlSig(params: Record<string, string>): Record<string, s
   return out;
 }
 
+function formatReportDay(iso: string): string {
+  const d = parseIsoDateToLocal(iso);
+  if (!d) return iso;
+  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatReportMonth(month: string): string {
+  const n = Number(month);
+  if (!n || n < 1 || n > 12) return month;
+  return new Date(2000, n - 1, 1).toLocaleString(undefined, { month: "long" });
+}
+
+type ReportPeriodValues = {
+  from: string;
+  to: string;
+  year: string;
+  month: string;
+  date: string;
+};
+
 function canonicalFilterSig(filters: Record<string, string>): string {
   return Object.keys(filters)
     .sort()
@@ -175,6 +197,7 @@ function buildReportUrlQuery(
   if (!item) return qs.toString();
   if (item.supportsDepartmentFilter && mergedParams.departmentId) qs.set("departmentId", mergedParams.departmentId);
   if (item.supportsDepartmentFilter && mergedParams.locationId) qs.set("locationId", mergedParams.locationId);
+  if (item.supportsDepartmentFilter && mergedParams.employeeId) qs.set("employeeId", mergedParams.employeeId);
   if (item.supportsDepartmentFilter && mergedParams.employeeName) qs.set("employeeName", mergedParams.employeeName);
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && mergedParams.status) qs.set("status", mergedParams.status);
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && mergedParams.gradeId) qs.set("gradeId", mergedParams.gradeId);
@@ -292,9 +315,11 @@ export default function ReportsPage() {
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [locations, setLocations] = useState<LocationOption[]>([]);
   const [grades, setGrades] = useState<GradeOption[]>([]);
+  const [employees, setEmployees] = useState<EmployeeNameOption[]>([]);
   const [employeeStatuses, setEmployeeStatuses] = useState<EmployeeStatusOption[]>([]);
   const [filterDepartmentId, setFilterDepartmentId] = useState("");
   const [filterLocationId, setFilterLocationId] = useState("");
+  const [filterEmployeeId, setFilterEmployeeId] = useState("");
   const [filterEmployeeName, setFilterEmployeeName] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterGradeId, setFilterGradeId] = useState("");
@@ -303,11 +328,19 @@ export default function ReportsPage() {
   const [filterYear, setFilterYear] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
   const [filterDate, setFilterDate] = useState("");
+  const periodFiltersRef = useRef<ReportPeriodValues>({
+    from: "",
+    to: "",
+    year: "",
+    month: "",
+    date: "",
+  });
   const [reportGroupBy, setReportGroupBy] = useState<ReportGroupByKey | null>(null);
   const [collapsedReportGroups, setCollapsedReportGroups] = useState<Set<string>>(new Set());
   const pendingFiltersRef = useRef({
     departmentId: "",
     locationId: "",
+    employeeId: "",
     employeeName: "",
     status: "",
     gradeId: "",
@@ -339,6 +372,9 @@ export default function ReportsPage() {
     apiFetch<GradeOption[]>("/api/organization/grades")
       .then((rows) => setGrades(Array.isArray(rows) ? rows.map((g) => ({ id: g.id, name: g.name })) : []))
       .catch(() => setGrades([]));
+    apiFetch<{ items: EmployeeNameOption[] }>("/api/employees/lookup?pageSize=200&excludeTerminated=true")
+      .then((res) => setEmployees(Array.isArray(res?.items) ? res.items.map((e) => ({ id: e.id, fullName: e.fullName })) : []))
+      .catch(() => setEmployees([]));
     apiFetch<EmployeeStatusOption[]>("/api/organization/employee-statuses")
       .then((rows) => setEmployeeStatuses(Array.isArray(rows) ? rows : []))
       .catch(() => setEmployeeStatuses([]));
@@ -358,11 +394,12 @@ export default function ReportsPage() {
     pendingFiltersRef.current = {
       departmentId: filterDepartmentId,
       locationId: filterLocationId,
+      employeeId: filterEmployeeId,
       employeeName: filterEmployeeName,
       status: filterStatus,
       gradeId: filterGradeId,
     };
-  }, [filterDepartmentId, filterLocationId, filterEmployeeName, filterStatus, filterGradeId]);
+  }, [filterDepartmentId, filterLocationId, filterEmployeeId, filterEmployeeName, filterStatus, filterGradeId]);
 
   useEffect(() => {
     return () => {
@@ -373,26 +410,44 @@ export default function ReportsPage() {
   function syncFilterInputsFromParams(params: Record<string, string>) {
     setFilterDepartmentId(params.departmentId ?? "");
     setFilterLocationId(params.locationId ?? "");
+    setFilterEmployeeId(params.employeeId ?? "");
     setFilterEmployeeName(params.employeeName ?? "");
     setFilterStatus(params.status ?? "");
     setFilterGradeId(params.gradeId ?? "");
-    setFilterFrom(params.from ?? "");
-    setFilterTo(params.to ?? "");
-    setFilterYear(params.year ?? "");
-    setFilterMonth(params.month ?? "");
-    setFilterDate(params.date ?? "");
+    const period: ReportPeriodValues = {
+      from: params.from ?? "",
+      to: params.to ?? "",
+      year: params.year ?? "",
+      month: params.month ?? "",
+      date: params.date ?? "",
+    };
+    periodFiltersRef.current = period;
+    setFilterFrom(period.from);
+    setFilterTo(period.to);
+    setFilterYear(period.year);
+    setFilterMonth(period.month);
+    setFilterDate(period.date);
+  }
+
+  function commitPeriod(next: Partial<ReportPeriodValues>, apply = true) {
+    periodFiltersRef.current = { ...periodFiltersRef.current, ...next };
+    if (next.from !== undefined) setFilterFrom(next.from);
+    if (next.to !== undefined) setFilterTo(next.to);
+    if (next.year !== undefined) setFilterYear(next.year);
+    if (next.month !== undefined) setFilterMonth(next.month);
+    if (next.date !== undefined) setFilterDate(next.date);
+    if (apply) scheduleReportFilterApply();
   }
 
   function onReportFromChange(v: string) {
-    const { from, to } = applyFromDateInRange(v, filterTo);
-    setFilterFrom(from);
-    setFilterTo(to);
+    // Keep To as the user left it. Reload only after To is chosen.
+    commitPeriod({ from: v }, false);
   }
 
   function onReportToChange(v: string) {
-    const { from, to } = applyToDateInRange(filterFrom, v);
-    setFilterFrom(from);
-    setFilterTo(to);
+    const from = periodFiltersRef.current.from;
+    const rangeReady = Boolean(from && v && from <= v);
+    commitPeriod({ to: v }, rangeReady);
   }
 
   function collectParamsFromForm(
@@ -400,15 +455,22 @@ export default function ReportsPage() {
     overrides?: Partial<{
       departmentId: string;
       locationId: string;
+      employeeId: string;
       employeeName: string;
       status: string;
       gradeId: string;
+      from: string;
+      to: string;
+      year: string;
+      month: string;
+      date: string;
     }>,
   ): Record<string, string> {
     const p: Record<string, string> = {};
     if (!item) return p;
     const departmentId = overrides?.departmentId ?? filterDepartmentId;
     const locationId = overrides?.locationId ?? filterLocationId;
+    const employeeId = overrides?.employeeId ?? filterEmployeeId;
     const employeeName = overrides?.employeeName ?? filterEmployeeName;
     const status = overrides?.status ?? filterStatus;
     const gradeId = overrides?.gradeId ?? filterGradeId;
@@ -416,23 +478,32 @@ export default function ReportsPage() {
       p.departmentId = departmentId.trim();
     if (item.supportsDepartmentFilter && locationId.trim())
       p.locationId = locationId.trim();
+    if (item.supportsDepartmentFilter && employeeId.trim())
+      p.employeeId = employeeId.trim();
     if (item.supportsDepartmentFilter && employeeName.trim())
       p.employeeName = employeeName.trim();
     if (item.key === EMPLOYEE_MASTER_REPORT_KEY && status.trim())
       p.status = status.trim();
     if (item.key === EMPLOYEE_MASTER_REPORT_KEY && gradeId.trim())
       p.gradeId = gradeId.trim();
+    const period = periodFiltersRef.current;
     const mode = item.periodFilterMode || "none";
     if (mode === "dateRange") {
-      if (filterFrom) p.from = filterFrom;
-      if (filterTo) p.to = filterTo;
+      const from = overrides?.from ?? period.from;
+      const to = overrides?.to ?? period.to;
+      if (from) p.from = from;
+      if (to) p.to = to;
     } else if (mode === "yearMonth") {
-      if (filterYear) p.year = filterYear;
-      if (filterMonth) p.month = filterMonth;
+      const year = overrides?.year ?? period.year;
+      const month = overrides?.month ?? period.month;
+      if (year) p.year = year;
+      if (month) p.month = month;
     } else if (mode === "singleDate") {
-      if (filterDate) p.date = filterDate;
+      const date = overrides?.date ?? period.date;
+      if (date) p.date = date;
     } else if (mode === "monthOnly") {
-      if (filterMonth) p.month = filterMonth;
+      const month = overrides?.month ?? period.month;
+      if (month) p.month = month;
     }
     return p;
   }
@@ -494,6 +565,11 @@ export default function ReportsPage() {
         label: "Location",
         options: visibleLocations.map((l) => ({ value: l.id, label: l.name })),
       },
+      {
+        key: "employeeId",
+        label: "Employee name",
+        options: employees.map((e) => ({ value: e.id, label: e.fullName })),
+      },
     ];
     if (isEmployeeMasterReport) {
       sections.push(
@@ -510,7 +586,7 @@ export default function ReportsPage() {
       );
     }
     return sections;
-  }, [activeReportDef, departments, visibleLocations, employeeStatuses, visibleGrades, isEmployeeMasterReport]);
+  }, [activeReportDef, departments, visibleLocations, employees, employeeStatuses, visibleGrades, isEmployeeMasterReport]);
 
   const reportFilterPills = useMemo<ReportFilterPill[]>(() => {
     const pills: ReportFilterPill[] = [];
@@ -528,6 +604,13 @@ export default function ReportsPage() {
         label: locations.find((l) => l.id === id)?.name ?? "Location",
       });
     }
+    for (const id of splitReportFilterValues(filterEmployeeId)) {
+      pills.push({
+        key: "employeeId",
+        value: id,
+        label: employees.find((e) => e.id === id)?.fullName ?? "Employee",
+      });
+    }
     for (const status of splitReportFilterValues(filterStatus)) {
       pills.push({ key: "status", value: status, label: status });
     }
@@ -539,7 +622,7 @@ export default function ReportsPage() {
       });
     }
     return pills;
-  }, [filterDepartmentId, filterLocationId, filterStatus, filterGradeId, departments, locations, grades]);
+  }, [filterDepartmentId, filterLocationId, filterEmployeeId, filterStatus, filterGradeId, departments, locations, employees, grades]);
 
   function getReportFilterValue(key: ReportParamFilterKey): string {
     return pendingFiltersRef.current[key] ?? "";
@@ -553,6 +636,9 @@ export default function ReportsPage() {
         break;
       case "locationId":
         setFilterLocationId(value);
+        break;
+      case "employeeId":
+        setFilterEmployeeId(value);
         break;
       case "status":
         setFilterStatus(value);
@@ -582,23 +668,184 @@ export default function ReportsPage() {
     void applyReportFilters({ ...pendingFiltersRef.current });
   }
 
+  function defaultPeriodValues(): ReportPeriodValues {
+    const defaults = getDefaultQueryParamsForItem(activeReportDef);
+    return {
+      from: defaults.from ?? "",
+      to: defaults.to ?? "",
+      year: defaults.year ?? "",
+      month: defaults.month ?? "",
+      date: defaults.date ?? "",
+    };
+  }
+
+  function periodIsCustom(): boolean {
+    const defaults = defaultPeriodValues();
+    const mode = activeReportDef?.periodFilterMode || "none";
+    if (mode === "dateRange") return filterFrom !== defaults.from || filterTo !== defaults.to;
+    if (mode === "yearMonth") return filterYear !== defaults.year || filterMonth !== defaults.month;
+    if (mode === "singleDate") return filterDate !== defaults.date;
+    if (mode === "monthOnly") return filterMonth !== defaults.month;
+    return false;
+  }
+
+  function reportPeriodSection(): ReportPeriodSection | null {
+    const mode = activeReportDef?.periodFilterMode || "none";
+    if (!activeReportDef || mode === "none") return null;
+
+    const fieldClass = "h-9 rounded-lg px-2.5 py-1.5 text-xs";
+    const monthOptions = Array.from({ length: 12 }, (_, i) => ({
+      value: String(i + 1),
+      label: new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }),
+    }));
+
+    let label = "Date range";
+    let summary = "";
+    let content: ReactNode = null;
+
+    if (mode === "dateRange") {
+      const fromLabel = filterFrom ? formatReportDay(filterFrom) : "…";
+      const toLabel = filterTo ? formatReportDay(filterTo) : "…";
+      summary = `${fromLabel} – ${toLabel}`;
+      content = (
+        <div className="grid grid-cols-2 gap-2">
+          <p className="col-span-2 text-[10px] text-slate-400">Set From, then To. The report loads when To is set.</p>
+          <div className="min-w-0">
+            <label className="mb-1 block text-[10px] font-medium text-slate-500">From</label>
+            <DatePickerField
+              value={filterFrom}
+              onChange={onReportFromChange}
+              popoverSide="bottom"
+              avoidCollisions={false}
+              className={fieldClass}
+            />
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1 block text-[10px] font-medium text-slate-500">To</label>
+            <DatePickerField
+              value={filterTo}
+              onChange={onReportToChange}
+              min={filterFrom || undefined}
+              popoverSide="bottom"
+              avoidCollisions={false}
+              className={fieldClass}
+            />
+          </div>
+        </div>
+      );
+    } else if (mode === "yearMonth") {
+      label = "Period";
+      summary = `${filterMonth ? formatReportMonth(filterMonth) : "Month"}${filterYear ? ` ${filterYear}` : ""}`;
+      content = (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="min-w-0">
+            <label className="mb-1 block text-[10px] font-medium text-slate-500">Year</label>
+            <input
+              type="number"
+              min={2000}
+              max={2100}
+              value={filterYear}
+              disabled={loading}
+              onChange={(e) => commitPeriod({ year: e.target.value }, false)}
+              onBlur={() => scheduleReportFilterApply()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  scheduleReportFilterApply();
+                }
+              }}
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
+            <FormSelect
+              value={filterMonth}
+              onValueChange={(month) => commitPeriod({ month })}
+              options={monthOptions}
+              clearable={false}
+              disabled={loading}
+              className="h-9 rounded-lg py-1 text-xs"
+            />
+          </div>
+        </div>
+      );
+    } else if (mode === "singleDate") {
+      label = "Date";
+      summary = filterDate ? formatReportDay(filterDate) : "Select date";
+      content = (
+        <div>
+          <label className="mb-1 block text-[10px] font-medium text-slate-500">Date</label>
+          <DatePickerField
+            value={filterDate}
+            onChange={(date) => commitPeriod({ date })}
+            disabled={loading}
+            popoverSide="bottom"
+            avoidCollisions={false}
+            className={fieldClass}
+          />
+        </div>
+      );
+    } else if (mode === "monthOnly") {
+      label = "Month";
+      summary = filterMonth ? formatReportMonth(filterMonth) : "Select month";
+      content = (
+        <div>
+          <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
+          <FormSelect
+            value={filterMonth}
+            onValueChange={(month) => commitPeriod({ month })}
+            options={monthOptions}
+            clearable={false}
+            disabled={loading}
+            className="h-9 rounded-lg py-1 text-xs"
+          />
+        </div>
+      );
+    } else {
+      return null;
+    }
+
+    return {
+      label,
+      summary,
+      pillLabel: summary,
+      onClearPill: periodIsCustom()
+        ? () => {
+            commitPeriod(defaultPeriodValues());
+          }
+        : undefined,
+      content,
+    };
+  }
+
   function handleClearReportFilters() {
     if (filterApplyTimerRef.current) clearTimeout(filterApplyTimerRef.current);
     pendingFiltersRef.current = {
       departmentId: "",
       locationId: "",
+      employeeId: "",
       employeeName: "",
       status: "",
       gradeId: "",
     };
+    const period = defaultPeriodValues();
+    periodFiltersRef.current = period;
+    setFilterFrom(period.from);
+    setFilterTo(period.to);
+    setFilterYear(period.year);
+    setFilterMonth(period.month);
+    setFilterDate(period.date);
     setReportGroupBy(null);
     setCollapsedReportGroups(new Set());
     void applyReportFilters({
       departmentId: "",
       locationId: "",
+      employeeId: "",
       employeeName: "",
       status: "",
       gradeId: "",
+      ...period,
     });
   }
 
@@ -615,17 +862,38 @@ export default function ReportsPage() {
     overrides?: Partial<{
       departmentId: string;
       locationId: string;
+      employeeId: string;
       employeeName: string;
       status: string;
       gradeId: string;
+      from: string;
+      to: string;
+      year: string;
+      month: string;
+      date: string;
     }>,
   ) {
     if (!selectedCategory || !selectedReport) return;
     if (overrides?.departmentId !== undefined) setFilterDepartmentId(overrides.departmentId);
     if (overrides?.locationId !== undefined) setFilterLocationId(overrides.locationId);
+    if (overrides?.employeeId !== undefined) setFilterEmployeeId(overrides.employeeId);
     if (overrides?.employeeName !== undefined) setFilterEmployeeName(overrides.employeeName);
     if (overrides?.status !== undefined) setFilterStatus(overrides.status);
     if (overrides?.gradeId !== undefined) setFilterGradeId(overrides.gradeId);
+    if (overrides?.from !== undefined || overrides?.to !== undefined || overrides?.year !== undefined || overrides?.month !== undefined || overrides?.date !== undefined) {
+      periodFiltersRef.current = {
+        from: overrides?.from ?? periodFiltersRef.current.from,
+        to: overrides?.to ?? periodFiltersRef.current.to,
+        year: overrides?.year ?? periodFiltersRef.current.year,
+        month: overrides?.month ?? periodFiltersRef.current.month,
+        date: overrides?.date ?? periodFiltersRef.current.date,
+      };
+      if (overrides?.from !== undefined) setFilterFrom(overrides.from);
+      if (overrides?.to !== undefined) setFilterTo(overrides.to);
+      if (overrides?.year !== undefined) setFilterYear(overrides.year);
+      if (overrides?.month !== undefined) setFilterMonth(overrides.month);
+      if (overrides?.date !== undefined) setFilterDate(overrides.date);
+    }
     setLoading(true);
     setReportError("");
     setSortCol(null);
@@ -985,105 +1253,32 @@ export default function ReportsPage() {
             (activeReportDef.supportsDepartmentFilter ||
               (activeReportDef.periodFilterMode && activeReportDef.periodFilterMode !== "none")) && (
             <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-3.5">
-              <div className="flex flex-col gap-3">
-                {activeReportDef.supportsDepartmentFilter && (
-                  <ReportParametersSearchBar
-                      employeeSearch={filterEmployeeName}
-                      onEmployeeSearchChange={(value) => setFilterEmployeeName(sanitizeSearchInput(value))}
-                      onApply={() => void applyReportFilters()}
-                      groupBy={reportGroupBy}
-                      onGroupByChange={(key) => {
-                        setReportGroupBy(key);
-                        setCollapsedReportGroups(new Set());
-                      }}
-                      groupByOptions={reportGroupByOptions}
-                      filterSections={reportFilterSections}
-                      filterPills={reportFilterPills}
-                      onFilterChange={handleReportFilterChange}
-                      onRemoveFilter={handleRemoveReportFilter}
-                      activeFilterValues={{
-                        departmentId: filterDepartmentId || undefined,
-                        locationId: filterLocationId || undefined,
-                        status: filterStatus || undefined,
-                        gradeId: filterGradeId || undefined,
-                      }}
-                      onClearAll={handleClearReportFilters}
-                      loading={loading}
-                    />
-                )}
-                {(activeReportDef.periodFilterMode && activeReportDef.periodFilterMode !== "none") && (
-                  <div>
-                    <p className="mb-2 text-[11px] font-medium text-slate-500">Date range</p>
-                    <div className="flex flex-wrap items-end gap-3">
-              {activeReportDef.periodFilterMode === "dateRange" && (
-                <>
-                  <div className="w-[9.5rem] shrink-0">
-                    <label className="mb-1 block text-[10px] font-medium text-slate-500">From</label>
-                    <DatePickerField value={filterFrom} onChange={onReportFromChange} max={filterTo || undefined} className="h-[42px] rounded-lg py-2 text-xs" />
-                  </div>
-                  <div className="w-[9.5rem] shrink-0">
-                    <label className="mb-1 block text-[10px] font-medium text-slate-500">To</label>
-                    <DatePickerField value={filterTo} onChange={onReportToChange} min={filterFrom || undefined} className="h-[42px] rounded-lg py-2 text-xs" />
-                  </div>
-                </>
-              )}
-              {activeReportDef.periodFilterMode === "yearMonth" && (
-                <>
-                  <div className="w-[6rem] shrink-0">
-                    <label className="mb-1 block text-[10px] font-medium text-slate-500">Year</label>
-                    <input
-                      type="number"
-                      min={2000}
-                      max={2100}
-                      value={filterYear}
-                      onChange={(e) => setFilterYear(e.target.value)}
-                      className="h-[42px] w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
-                  <div className="w-[10.5rem] shrink-0">
-                    <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
-                    <FormSelect
-                      value={filterMonth}
-                      onValueChange={setFilterMonth}
-                      options={Array.from({ length: 12 }, (_, i) => ({
-                        value: String(i + 1),
-                        label: new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }),
-                      }))}
-                    />
-                  </div>
-                </>
-              )}
-              {activeReportDef.periodFilterMode === "singleDate" && (
-                <div className="w-[9.5rem] shrink-0">
-                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Date</label>
-                  <DatePickerField value={filterDate} onChange={setFilterDate} className="h-[42px] rounded-lg py-2 text-xs" />
-                </div>
-              )}
-              {activeReportDef.periodFilterMode === "monthOnly" && (
-                <div className="w-[10.5rem] shrink-0">
-                  <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
-                  <FormSelect
-                    value={filterMonth}
-                    onValueChange={setFilterMonth}
-                    options={Array.from({ length: 12 }, (_, i) => ({
-                      value: String(i + 1),
-                      label: new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }),
-                    }))}
-                  />
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => void applyReportFilters()}
-                disabled={loading}
-                className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
-              >
-                Apply filters
-              </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <ReportParametersSearchBar
+                employeeSearch={filterEmployeeName}
+                onEmployeeSearchChange={(value) => setFilterEmployeeName(sanitizeSearchInput(value))}
+                onApply={() => void applyReportFilters()}
+                groupBy={reportGroupBy}
+                onGroupByChange={(key) => {
+                  setReportGroupBy(key);
+                  setCollapsedReportGroups(new Set());
+                }}
+                groupByOptions={reportGroupByOptions}
+                filterSections={reportFilterSections}
+                filterPills={reportFilterPills}
+                onFilterChange={handleReportFilterChange}
+                onRemoveFilter={handleRemoveReportFilter}
+                activeFilterValues={{
+                  departmentId: filterDepartmentId || undefined,
+                  locationId: filterLocationId || undefined,
+                  employeeId: filterEmployeeId || undefined,
+                  status: filterStatus || undefined,
+                  gradeId: filterGradeId || undefined,
+                }}
+                onClearAll={handleClearReportFilters}
+                periodSection={reportPeriodSection()}
+                showEmployeeSearch={Boolean(activeReportDef.supportsDepartmentFilter)}
+                loading={loading}
+              />
             </div>
           )}
 
@@ -1098,7 +1293,7 @@ export default function ReportsPage() {
           {!loading && reportError && (
             <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
               <p className="max-w-md text-sm font-medium text-red-700">{reportError}</p>
-              <p className="mt-2 max-w-md text-xs text-slate-500">Adjust the From / To dates and filters above, then click Apply filters.</p>
+              <p className="mt-2 max-w-md text-xs text-slate-500">Adjust the date range and filters, then click Search.</p>
             </div>
           )}
 

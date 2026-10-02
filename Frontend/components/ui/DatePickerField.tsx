@@ -45,6 +45,10 @@ export type DatePickerFieldProps = {
   className?: string;
   /** Shown when no date is selected. */
   placeholder?: string;
+  /** Where the calendar opens relative to the field. */
+  popoverSide?: "top" | "bottom";
+  /** When false, the calendar stays on `popoverSide` instead of flipping. */
+  avoidCollisions?: boolean;
 };
 
 export function DatePickerField({
@@ -59,6 +63,8 @@ export function DatePickerField({
   required,
   className = "",
   placeholder = "Select date",
+  popoverSide = "bottom",
+  avoidCollisions = true,
 }: DatePickerFieldProps) {
   const isControlled = valueProp !== undefined;
   const [internal, setInternal] = React.useState(defaultValue);
@@ -129,8 +135,10 @@ export function DatePickerField({
         <Popover.Portal>
           <Popover.Content
             className="z-[10050] min-w-[17rem] rounded-2xl border border-[var(--border)] bg-white p-3 shadow-lg outline-none"
+            side={popoverSide}
             sideOffset={6}
             align="start"
+            avoidCollisions={avoidCollisions}
             collisionPadding={12}
             onOpenAutoFocus={(e) => e.preventDefault()}
           >

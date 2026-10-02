@@ -326,6 +326,7 @@ public class ReportService : IReportService
     private static bool HasEmployeeScopeFilters(Dictionary<string, string>? filters) =>
         ParseGuidFilter(filters, "departmentId").Count > 0
         || ParseGuidFilter(filters, "locationId").Count > 0
+        || ParseGuidFilter(filters, "employeeId").Count > 0
         || TryGetEmployeeNameFilter(filters, out _);
 
     private static IQueryable<Employee> ApplyEmployeeNameFilter(IQueryable<Employee> q, string name)
@@ -367,6 +368,9 @@ public class ReportService : IReportService
         var locIds = ParseGuidFilter(filters, "locationId");
         if (locIds.Count > 0)
             q = q.Where(e => e.LocationId != null && locIds.Contains(e.LocationId.Value));
+        var employeeIds = ParseGuidFilter(filters, "employeeId");
+        if (employeeIds.Count > 0)
+            q = q.Where(e => employeeIds.Contains(e.Id));
         if (TryGetEmployeeNameFilter(filters, out var name))
             q = ApplyEmployeeNameFilter(q, name);
         return q;
@@ -382,6 +386,9 @@ public class ReportService : IReportService
         var locIds = ParseGuidFilter(filters, "locationId");
         if (locIds.Count > 0)
             q = q.Where(e => e.LocationId != null && locIds.Contains(e.LocationId.Value));
+        var employeeIds = ParseGuidFilter(filters, "employeeId");
+        if (employeeIds.Count > 0)
+            q = q.Where(e => employeeIds.Contains(e.Id));
         if (TryGetEmployeeNameFilter(filters, out var name))
         {
             q = q.Where(e =>

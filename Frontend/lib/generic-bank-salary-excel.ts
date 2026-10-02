@@ -10,6 +10,10 @@ export const GENERIC_BANK_SALARY_HEADERS = [
   "Branch",
   "Amount",
   "Narrative",
+  "Company Account",
+  "Company Bank",
+  "Company Bank Code",
+  "Company Branch Code",
 ] as const;
 
 export type GenericBankSalaryRow = {
@@ -21,6 +25,10 @@ export type GenericBankSalaryRow = {
   branchCode?: string | null;
   branch?: string | null;
   amount: number;
+  companyAccount?: string | null;
+  companyBank?: string | null;
+  companyBankCode?: string | null;
+  companyBranchCode?: string | null;
 };
 
 function pad2(value: number): string {
@@ -79,6 +87,10 @@ export function buildGenericBankSalaryRows(
       Branch: (row.branch ?? "").trim(),
       Amount: Number(Number(row.amount).toFixed(2)),
       Narrative: narrative,
+      "Company Account": (row.companyAccount ?? "").trim(),
+      "Company Bank": (row.companyBank ?? "").trim(),
+      "Company Bank Code": (row.companyBankCode ?? "").trim(),
+      "Company Branch Code": (row.companyBranchCode ?? "").trim(),
     });
   }
   return { data, included: data.length, skipped };
@@ -106,6 +118,10 @@ export async function createGenericBankSalaryExcelDownload(
     { wch: 12 },
     { wch: 18 },
     { wch: 14 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 22 },
+    { wch: 16 },
     { wch: 18 },
   ];
   const wb = XLSX.utils.book_new();

@@ -77,7 +77,7 @@ const TAX_MODES: { value: ApitTaxMode; label: string }[] = [
 
 function normalizeApitTaxMode(mode?: string): ApitTaxMode {
   const value = (mode ?? "").trim().toLowerCase();
-  if (value === "monthly") return "Monthly";
+  if (!value || value === "monthly") return "Monthly";
   if (value === "annual" || value === "annualy" || value === "annually") return "Annual";
   return "Exact";
 }

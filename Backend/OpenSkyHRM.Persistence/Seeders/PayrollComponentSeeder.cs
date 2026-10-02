@@ -100,7 +100,7 @@ public static class PayrollComponentSeeder
         ("Payroll_ETF_EmployerRate", "0.03", "ETF employer contribution rate"),
         ("Payroll_OT_HourlyDivisor", "208", "Hourly rate divisor for OT (BASIC / divisor × multiplier × hours)"),
         ("Payroll_OT_Multiplier", "1.5", "OT pay multiplier (e.g. 1.5 for time-and-a-half)"),
-        ("Payroll_APIT_TaxMode", "Exact", "APIT tax mode: Monthly, Annual, or Exact (all environments)"),
+        ("Payroll_APIT_TaxMode", "Monthly", "APIT tax mode: Monthly (IRD Table 01), Annual, or Exact"),
         ("Payroll_SalaryPeriod_StartDay", "1", "Day of month salary attendance period starts (1–31)"),
         ("Payroll_SalaryPeriod_EndDay", "31", "Day of month salary attendance period ends (1–31); if less than start day, starts previous month"),
         (PayrollComponentMapping.OtComponentKey, PayrollComponentMapping.DefaultOtCode,
@@ -157,20 +157,36 @@ public static class PayrollComponentSeeder
     {
         foreach (var (key, value, description) in DefaultSystemSettings)
         {
-            if (await context.SystemSettings.FindAsync([key], cancellationToken) is not null)
-                continue;
-
-            context.SystemSettings.Add(new SystemSetting
+            var existing = await context.SystemSettings.FindAsync([key], cancellationToken);
+            if (existing is null)
             {
-                Key = key,
-                Value = value,
-                Description = description,
-            });
+                context.SystemSettings.Add(new SystemSetting
+                {
+                    Key = key,
+                    Value = value,
+                    Description = description,
+                });
+                continue;
+            }
+
+            if (key == "Payroll_APIT_TaxMode" && IsLegacyApitTaxMode(existing.Value))
+            {
+                existing.Value = value;
+                existing.Description = description;
+            }
         }
 
         if (context.ChangeTracker.HasChanges())
             await context.SaveChangesAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Older databases stored Exact, or nothing, as the company APIT mode.
+    /// Salary withholding uses Monthly (IRD Table 01) unless Annual was chosen.
+    /// </summary>
+    private static bool IsLegacyApitTaxMode(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            || string.Equals(value.Trim(), "Exact", StringComparison.OrdinalIgnoreCase);
 
     private static void SyncCatalogMetadata(CompensationComponent match, PayrollComponentDefinition definition)
     {

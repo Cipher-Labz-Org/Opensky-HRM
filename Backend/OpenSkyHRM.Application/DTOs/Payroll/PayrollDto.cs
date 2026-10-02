@@ -186,7 +186,7 @@ public class PayrollSettingsDto
     public decimal OtHourlyDivisor { get; set; } = 208m;
     public decimal OtMultiplier { get; set; } = 1.5m;
     /// <summary>Monthly (Table 01), Annual (12× monthly), or Exact (cumulative from 1 March).</summary>
-    public string ApitTaxMode { get; set; } = "Exact";
+    public string ApitTaxMode { get; set; } = "Monthly";
     /// <summary>Day of month (1–31) when the salary attendance period starts.</summary>
     public int SalaryPeriodStartDay { get; set; } = 1;
     /// <summary>Day of month (1–31) when the salary attendance period ends. If less than start day, period begins in the previous month.</summary>
@@ -214,7 +214,7 @@ public class EmployeeApitSummaryDto
     public decimal MonthlyApit { get; set; }
     public decimal AnnualApit { get; set; }
     public decimal DisplayApit { get; set; }
-    public string ApitTaxMode { get; set; } = "Exact";
+    public string ApitTaxMode { get; set; } = "Monthly";
     public bool BelowMonthlyRelief { get; set; }
     public int TaxYearMonthNumber { get; set; }
     public decimal CumulativeTaxable { get; set; }

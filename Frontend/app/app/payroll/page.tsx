@@ -22,7 +22,6 @@ import {
   type CompanyBankAccount,
 } from "@/lib/company-bank-accounts";
 import {
-  COMMERCIAL_BANK_SALARY_GL_CODE,
   buildCommercialBankOneToManyFile,
   commercialBankAccountNumber,
   commercialBankFileAccount,
@@ -142,7 +141,7 @@ const DEFAULT_PAYROLL_SETTINGS: Settings = {
   etfEmployerRate: 0.03,
   otHourlyDivisor: 208,
   otMultiplier: 1.5,
-  apitTaxMode: "Exact",
+  apitTaxMode: "Monthly",
   salaryPeriodStartDay: 1,
   salaryPeriodEndDay: 31,
   otComponentCode: "OT",
@@ -621,7 +620,7 @@ function calcCumulativeApit(regularTaxable: number, lumpTaxable: number, calenda
 
 function normalizeApitTaxMode(mode?: string): "Monthly" | "Annual" | "Exact" {
   const value = (mode ?? "").trim().toLowerCase();
-  if (value === "monthly") return "Monthly";
+  if (!value || value === "monthly") return "Monthly";
   if (value === "annual" || value === "annualy" || value === "annually") return "Annual";
   return "Exact";
 }
@@ -3803,13 +3802,16 @@ type BankSlipPreview = {
   nic: string;
   phone: string;
   email: string;
+  isCashPayment: boolean;
 };
 
-function previewFromSlipRow(row: Record<string, unknown>): BankSlipPreview {
+function slipFlag(row: Record<string, unknown> | undefined, ...keys: string[]): boolean {
+  return readJsonField(row, ...keys).toLowerCase() === "true";
+}
+
+function previewFromSlipRow(row: Record<string, unknown> | undefined): BankSlipPreview {
   return {
-    accountNumber: sampathAccountNumber(
-      readJsonField(row, "accountNumber", "AccountNumber"),
-    ),
+    accountNumber: sampathAccountNumber(readJsonField(row, "accountNumber", "AccountNumber")),
     bankCode: readJsonField(row, "bankCode", "BankCode"),
     branchCode: readJsonField(row, "branchCode", "BranchCode"),
     bankName: readJsonField(row, "bankName", "BankName"),
@@ -3817,19 +3819,60 @@ function previewFromSlipRow(row: Record<string, unknown>): BankSlipPreview {
     nic: readJsonField(row, "nationalId", "NationalId"),
     phone: readJsonField(row, "phone", "Phone"),
     email: readJsonField(row, "email", "Email"),
+    isCashPayment: slipFlag(row, "isCashPayment", "IsCashPayment"),
   };
 }
 
-function indexSlipPreviews(rows: Array<Record<string, unknown>>): Record<string, BankSlipPreview> {
-  const indexed: Record<string, BankSlipPreview> = {};
-  for (const row of rows) {
-    const preview = previewFromSlipRow(row);
-    if (!preview.accountNumber) continue;
+async function resolveSlipPreviews(
+  statements: Array<{ id: string; employeeId?: string }>,
+  slipRows: Array<Record<string, unknown>>,
+): Promise<Record<string, BankSlipPreview>> {
+  const byStatementId = new Map<string, Record<string, unknown>>();
+  const byEmployeeId = new Map<string, Record<string, unknown>>();
+  for (const row of slipRows) {
     const statementId = readJsonField(row, "statementId", "StatementId").toLowerCase();
     const employeeId = readJsonField(row, "employeeId", "EmployeeId").toLowerCase();
-    if (statementId) indexed[statementId] = preview;
-    if (employeeId) indexed[employeeId] = preview;
+    if (statementId) byStatementId.set(statementId, row);
+    if (employeeId) byEmployeeId.set(employeeId, row);
   }
+
+  const indexed: Record<string, BankSlipPreview> = {};
+  await Promise.all(
+    statements.map(async (stmt) => {
+      const statementKey = String(stmt.id ?? "").toLowerCase();
+      const employeeKey = String(stmt.employeeId ?? "").toLowerCase();
+      const row = (statementKey ? byStatementId.get(statementKey) : undefined)
+        ?? (employeeKey ? byEmployeeId.get(employeeKey) : undefined);
+      const preview = previewFromSlipRow(row);
+      if (!preview.isCashPayment && (!preview.accountNumber || !preview.bankCode || !preview.branchCode) && stmt.employeeId) {
+        try {
+          const accounts = await apiFetch<Array<Record<string, unknown>>>(
+            `/api/employees/${stmt.employeeId}/bank-accounts`,
+          );
+          const latest = Array.isArray(accounts) ? accounts[0] : null;
+          if (latest) {
+            preview.accountNumber = preview.accountNumber || sampathAccountNumber(
+              readJsonField(latest, "accountNumber", "AccountNumber"),
+            );
+            preview.bankCode = preview.bankCode || readJsonField(latest, "bankCode", "BankCode");
+            preview.branchCode = preview.branchCode || readJsonField(latest, "branchCode", "BranchCode");
+            preview.bankName = preview.bankName || readJsonField(latest, "bankName", "BankName");
+            preview.branchLocation = preview.branchLocation || readJsonField(
+              latest,
+              "branchLocation",
+              "BranchLocation",
+              "branchName",
+              "BranchName",
+            );
+          }
+        } catch {
+          /* keep the batch slip row */
+        }
+      }
+      if (statementKey) indexed[statementKey] = preview;
+      if (employeeKey) indexed[employeeKey] = preview;
+    }),
+  );
   return indexed;
 }
 
@@ -3864,7 +3907,8 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
   );
   const pager = useClientPagination(sortedStatements);
   const selectedCount = selected.size;
-  const allSelected = sortedStatements.length > 0 && sortedStatements.every((s) => selected.has(s.id));
+  const bankPayableStatements = sortedStatements.filter((s) => !slipByKey[s.id.toLowerCase()]?.isCashPayment);
+  const allSelected = bankPayableStatements.length > 0 && bankPayableStatements.every((s) => selected.has(s.id));
   const slipBatchOpts = useMemo<FormSelectOption[]>(
     () => [
       { value: "", label: "Select a batch" },
@@ -3967,12 +4011,14 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
       apiFetch<Statement[]>(`/api/payroll/batches/${batchId}/statements`),
       apiFetch<Array<Record<string, unknown>>>(`/api/payroll/batches/${batchId}/bank-slips`).catch(() => []),
     ])
-      .then(([data, slipRows]) => {
+      .then(async ([data, slipRows]) => {
         if (cancelled) return;
         const items = Array.isArray(data) ? data : [];
+        const previews = await resolveSlipPreviews(items, Array.isArray(slipRows) ? slipRows : []);
+        if (cancelled) return;
         setStatements(items);
-        setSelected(new Set(items.map((s) => s.id)));
-        setSlipByKey(indexSlipPreviews(Array.isArray(slipRows) ? slipRows : []));
+        setSlipByKey(previews);
+        setSelected(new Set(items.filter((s) => !previews[s.id.toLowerCase()]?.isCashPayment).map((s) => s.id)));
       })
       .catch(() => {
         if (!cancelled) {
@@ -3990,7 +4036,7 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
   }, [batchId]);
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(sortedStatements.map((s) => s.id)));
+    setSelected(allSelected ? new Set() : new Set(bankPayableStatements.map((s) => s.id)));
   }
 
   function toggleOne(id: string) {
@@ -4002,71 +4048,46 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
     });
   }
 
+  async function loadChosenSlips(chosen: Statement[]) {
+    let slipRows: Array<Record<string, unknown>> = [];
+    try {
+      const rows = await apiFetch<Array<Record<string, unknown>>>(
+        `/api/payroll/batches/${selectedBatch!.id}/bank-slips`,
+      );
+      slipRows = Array.isArray(rows) ? rows : [];
+    } catch {
+      slipRows = [];
+    }
+    const previews = await resolveSlipPreviews(chosen, slipRows);
+    setSlipByKey((prev) => ({ ...prev, ...previews }));
+    return previews;
+  }
+
   async function generateCommercialBankFile(chosen: Statement[]) {
     if (!selectedBatch) return;
     setDownloadNotice("");
     if (readyFile?.url) URL.revokeObjectURL(readyFile.url);
     setReadyFile(null);
 
-    let slipRows: Array<Record<string, unknown>> = [];
-    try {
-      const rows = await apiFetch<Array<Record<string, unknown>>>(
-        `/api/payroll/batches/${selectedBatch.id}/bank-slips`,
-      );
-      slipRows = Array.isArray(rows) ? rows : [];
-    } catch {
-      slipRows = [];
-    }
+    const previews = await loadChosenSlips(chosen);
+    const payable = chosen.filter((stmt) => !previews[stmt.id.toLowerCase()]?.isCashPayment);
+    const cashSkipped = chosen.length - payable.length;
+    const payments = payable.map((stmt) => {
+      const slip = previews[stmt.id.toLowerCase()];
+      return {
+        accountNumber: commercialBankAccountNumber(slip?.accountNumber),
+        netPay: Number(stmt.netPay),
+        beneficiaryName: stmt.employeeName,
+      };
+    });
 
-    const byStatementId = new Map<string, Record<string, unknown>>();
-    const byEmployeeId = new Map<string, Record<string, unknown>>();
-    for (const row of slipRows) {
-      const statementId = String(row.statementId ?? row.StatementId ?? "").toLowerCase();
-      const employeeId = String(row.employeeId ?? row.EmployeeId ?? "").toLowerCase();
-      if (statementId) byStatementId.set(statementId, row);
-      if (employeeId) byEmployeeId.set(employeeId, row);
-    }
-
-    const payments = await Promise.all(
-      chosen.map(async (stmt) => {
-        const statementKey = String(stmt.id ?? "").toLowerCase();
-        const employeeKey = String(stmt.employeeId ?? "").toLowerCase();
-        const row = (statementKey ? byStatementId.get(statementKey) : undefined)
-          ?? (employeeKey ? byEmployeeId.get(employeeKey) : undefined);
-        let accountNumber = commercialBankAccountNumber(
-          readJsonField(row, "accountNumber", "AccountNumber"),
-        );
-        if (!accountNumber && stmt.employeeId) {
-          try {
-            const accounts = await apiFetch<Array<Record<string, unknown>>>(
-              `/api/employees/${stmt.employeeId}/bank-accounts`,
-            );
-            const latest = Array.isArray(accounts) ? accounts[0] : null;
-            if (latest) {
-              accountNumber = commercialBankAccountNumber(
-                readJsonField(latest, "accountNumber", "AccountNumber"),
-              );
-            }
-          } catch {
-            /* keep values from the batch slip row */
-          }
-        }
-        return {
-          beneficiaryName: stmt.employeeName,
-          accountNumber,
-          netPay: Number(stmt.netPay),
-        };
-      }),
-    );
-
-    const built = buildCommercialBankOneToManyFile(
-      payments,
-      selectedBatch.month,
-      selectedBatch.year,
-    );
+    const built = buildCommercialBankOneToManyFile(payments, selectedBatch.month, selectedBatch.year);
     if (built.included === 0) {
-      const missing = payments.filter((row) => !commercialBankAccountNumber(row.accountNumber));
-      const names = missing.map((row) => row.beneficiaryName).filter(Boolean).slice(0, 5);
+      const names = payments
+        .filter((row) => !commercialBankAccountNumber(row.accountNumber))
+        .map((row) => row.beneficiaryName)
+        .filter(Boolean)
+        .slice(0, 5);
       const message = names.length
         ? `Could not build the Commercial Bank file. Add a bank account number for: ${names.join(", ")}.`
         : "Could not build the Commercial Bank file. Each selected employee needs a bank account number.";
@@ -4076,93 +4097,60 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
     }
 
     const file = createCommercialBankDownload(built.content, selectedBatch.month, selectedBatch.year);
-    setReadyFile({ url: file.url, filename: file.filename });
+    setReadyFile(file);
     triggerFileDownload(file.url, file.filename);
     const parts = [
       `File ready: ${file.filename}.`,
       `${built.included} employee${built.included === 1 ? "" : "s"} included.`,
     ];
-    if (built.skipped > 0) {
-      parts.push(`${built.skipped} skipped (no account number).`);
-    }
+    if (cashSkipped > 0) parts.push(`${cashSkipped} cash employee${cashSkipped === 1 ? "" : "s"} left out.`);
+    if (built.skipped > 0) parts.push(`${built.skipped} skipped (no account number).`);
     parts.push("Upload this One-to-Many file in Combiz Bank Master.");
     setDownloadNotice(parts.join(" "));
   }
 
   async function generateSampathBankFile(chosen: Statement[]) {
-    if (!selectedBatch) return;
+    if (!selectedBatch || !selectedCompanyAccount) return;
     setDownloadNotice("");
     if (readyFile?.url) URL.revokeObjectURL(readyFile.url);
     setReadyFile(null);
 
-    let slipRows: Array<Record<string, unknown>> = [];
-    try {
-      const rows = await apiFetch<Array<Record<string, unknown>>>(
-        `/api/payroll/batches/${selectedBatch.id}/bank-slips`,
-      );
-      slipRows = Array.isArray(rows) ? rows : [];
-    } catch {
-      slipRows = [];
+    const companyAccount = sampathAccountNumber(selectedCompanyAccount.accountNo);
+    if (!companyAccount) {
+      const message = "The company bank account needs an account number. Add it in Company Profile.";
+      setDownloadNotice(message);
+      await appAlert(message);
+      return;
     }
 
-    const byStatementId = new Map<string, Record<string, unknown>>();
-    const byEmployeeId = new Map<string, Record<string, unknown>>();
-    for (const row of slipRows) {
-      const statementId = readJsonField(row, "statementId", "StatementId").toLowerCase();
-      const employeeId = readJsonField(row, "employeeId", "EmployeeId").toLowerCase();
-      if (statementId) byStatementId.set(statementId, row);
-      if (employeeId) byEmployeeId.set(employeeId, row);
-    }
-
+    const previews = await loadChosenSlips(chosen);
+    const payable = chosen.filter((stmt) => !previews[stmt.id.toLowerCase()]?.isCashPayment);
+    const cashSkipped = chosen.length - payable.length;
     const salaryRef = sampathSalaryRef(selectedBatch.month);
-    const payments = await Promise.all(
-      chosen.map(async (stmt) => {
-        const statementKey = String(stmt.id ?? "").toLowerCase();
-        const employeeKey = String(stmt.employeeId ?? "").toLowerCase();
-        const row = (statementKey ? byStatementId.get(statementKey) : undefined)
-          ?? (employeeKey ? byEmployeeId.get(employeeKey) : undefined);
-        let accountNumber = sampathAccountNumber(readJsonField(row, "accountNumber", "AccountNumber"));
-        let bankCode = readJsonField(row, "bankCode", "BankCode");
-        let branchCode = readJsonField(row, "branchCode", "BranchCode");
-        let bankName = readJsonField(row, "bankName", "BankName");
-        if ((!accountNumber || !bankCode || !branchCode) && stmt.employeeId) {
-          try {
-            const accounts = await apiFetch<Array<Record<string, unknown>>>(
-              `/api/employees/${stmt.employeeId}/bank-accounts`,
-            );
-            const latest = Array.isArray(accounts) ? accounts[0] : null;
-            if (latest) {
-              accountNumber = accountNumber || sampathAccountNumber(
-                readJsonField(latest, "accountNumber", "AccountNumber"),
-              );
-              bankCode = bankCode || readJsonField(latest, "bankCode", "BankCode");
-              branchCode = branchCode || readJsonField(latest, "branchCode", "BranchCode");
-              bankName = bankName || readJsonField(latest, "bankName", "BankName");
-            }
-          } catch {
-            /* keep values from the batch slip row */
-          }
-        }
-        return {
-          companyRef: salaryRef,
-          beneficiaryName: stmt.employeeName,
-          accountNumber,
-          bankCode,
-          branchCode,
-          bankName,
-          amount: Number(stmt.netPay),
-          remarks: salaryRef,
-        };
-      }),
-    );
+    const payments = payable.map((stmt) => {
+      const slip = previews[stmt.id.toLowerCase()];
+      return {
+        companyRef: salaryRef,
+        beneficiaryName: stmt.employeeName,
+        accountNumber: slip?.accountNumber,
+        bankCode: slip?.bankCode,
+        branchCode: slip?.branchCode,
+        bankName: slip?.bankName,
+        amount: Number(stmt.netPay),
+        remarks: companyAccount,
+      };
+    });
 
     const { content, included, skipped, missingBankOrBranch } = buildSampathCeftsSlipsFile(payments);
     if (included === 0) {
-      const missing = payments.filter((row) => !sampathAccountNumber(row.accountNumber));
-      const names = missing.map((row) => row.beneficiaryName).filter(Boolean).slice(0, 5);
+      const names = payments
+        .filter((row) => !sampathAccountNumber(row.accountNumber) || !sampathBankCode(row.bankCode, row.bankName) || !sampathBranchCode(row.branchCode))
+        .map((row) => row.beneficiaryName)
+        .filter(Boolean)
+        .slice(0, 5);
       const message = names.length
-        ? `Could not build the Sampath Bank file. Add a bank account number for: ${names.join(", ")}.`
-        : "Could not build the Sampath Bank file. Each selected employee needs a bank account number.";
+        ? `Could not build the Sampath Bank file. Add an account number, bank code, and branch code for: ${names.join(", ")}.`
+        : "Could not build the Sampath Bank file. Each selected employee needs an account number, bank code, and branch code.";
       setDownloadNotice(message);
       await appAlert(message);
       return;
@@ -4174,16 +4162,14 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
     const parts = [
       `File ready: ${file.filename}.`,
       `${included} employee${included === 1 ? "" : "s"} included.`,
+      `Company account ${companyAccount} is in the remarks column.`,
     ];
-    if (skipped > 0) {
-      parts.push(`${skipped} skipped (no account number).`);
-    }
+    if (cashSkipped > 0) parts.push(`${cashSkipped} cash employee${cashSkipped === 1 ? "" : "s"} left out.`);
+    if (skipped > 0) parts.push(`${skipped} skipped (no account number).`);
     if (missingBankOrBranch > 0) {
-      parts.push(
-        `${missingBankOrBranch} row${missingBankOrBranch === 1 ? "" : "s"} still need a bank or branch code.`,
-      );
+      parts.push(`${missingBankOrBranch} skipped (missing bank or branch code).`);
     }
-    parts.push("Upload this file in Sampath Vishwa.");
+    parts.push("Upload this file in Sampath Vishwa from that company account.");
     setDownloadNotice(parts.join(" "));
   }
 
@@ -4193,67 +4179,26 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
     if (readyFile?.url) URL.revokeObjectURL(readyFile.url);
     setReadyFile(null);
 
-    let slipRows: Array<Record<string, unknown>> = [];
-    try {
-      const rows = await apiFetch<Array<Record<string, unknown>>>(
-        `/api/payroll/batches/${selectedBatch.id}/bank-slips`,
-      );
-      slipRows = Array.isArray(rows) ? rows : [];
-    } catch {
-      slipRows = [];
-    }
-
-    const byStatementId = new Map<string, Record<string, unknown>>();
-    const byEmployeeId = new Map<string, Record<string, unknown>>();
-    for (const row of slipRows) {
-      const statementId = readJsonField(row, "statementId", "StatementId").toLowerCase();
-      const employeeId = readJsonField(row, "employeeId", "EmployeeId").toLowerCase();
-      if (statementId) byStatementId.set(statementId, row);
-      if (employeeId) byEmployeeId.set(employeeId, row);
-    }
-
-    const payments = await Promise.all(
-      chosen.map(async (stmt) => {
-        const statementKey = String(stmt.id ?? "").toLowerCase();
-        const employeeKey = String(stmt.employeeId ?? "").toLowerCase();
-        const row = (statementKey ? byStatementId.get(statementKey) : undefined)
-          ?? (employeeKey ? byEmployeeId.get(employeeKey) : undefined);
-        let accountNumber = genericBankAccountNumber(readJsonField(row, "accountNumber", "AccountNumber"));
-        let bankCode = readJsonField(row, "bankCode", "BankCode");
-        let branchCode = readJsonField(row, "branchCode", "BranchCode");
-        let bankName = readJsonField(row, "bankName", "BankName");
-        let branch = readJsonField(row, "branchLocation", "BranchLocation");
-        if ((!accountNumber || !bankCode || !branchCode) && stmt.employeeId) {
-          try {
-            const accounts = await apiFetch<Array<Record<string, unknown>>>(
-              `/api/employees/${stmt.employeeId}/bank-accounts`,
-            );
-            const latest = Array.isArray(accounts) ? accounts[0] : null;
-            if (latest) {
-              accountNumber = accountNumber || genericBankAccountNumber(
-                readJsonField(latest, "accountNumber", "AccountNumber"),
-              );
-              bankCode = bankCode || readJsonField(latest, "bankCode", "BankCode");
-              branchCode = branchCode || readJsonField(latest, "branchCode", "BranchCode");
-              bankName = bankName || readJsonField(latest, "bankName", "BankName");
-              branch = branch || readJsonField(latest, "branchLocation", "BranchLocation", "branchName", "BranchName");
-            }
-          } catch {
-            /* keep values from the batch slip row */
-          }
-        }
-        return {
-          employeeCode: stmt.employeeCode,
-          employeeName: stmt.employeeName,
-          bankName,
-          accountNumber,
-          bankCode,
-          branchCode,
-          branch,
-          amount: Number(stmt.netPay),
-        };
-      }),
-    );
+    const previews = await loadChosenSlips(chosen);
+    const payable = chosen.filter((stmt) => !previews[stmt.id.toLowerCase()]?.isCashPayment);
+    const cashSkipped = chosen.length - payable.length;
+    const payments = payable.map((stmt) => {
+      const slip = previews[stmt.id.toLowerCase()];
+      return {
+        employeeCode: stmt.employeeCode,
+        employeeName: stmt.employeeName,
+        bankName: slip?.bankName,
+        accountNumber: slip?.accountNumber,
+        bankCode: slip?.bankCode,
+        branchCode: slip?.branchCode,
+        branch: slip?.branchLocation,
+        amount: Number(stmt.netPay),
+        companyAccount: selectedCompanyAccount.accountNo,
+        companyBank: selectedCompanyAccount.bankName,
+        companyBankCode: selectedCompanyAccount.bankCode,
+        companyBranchCode: selectedCompanyAccount.branchCode,
+      };
+    });
 
     const file = await createGenericBankSalaryExcelDownload(
       payments,
@@ -4278,9 +4223,11 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
       `File ready: ${file.filename}.`,
       `${file.included} employee${file.included === 1 ? "" : "s"} included.`,
     ];
+    if (cashSkipped > 0) parts.push(`${cashSkipped} cash employee${cashSkipped === 1 ? "" : "s"} left out.`);
     if (file.skipped > 0) {
       parts.push(`${file.skipped} skipped (no account number).`);
     }
+    parts.push(`Company account ${selectedCompanyAccount.accountNo || "—"}.`);
     parts.push("Use this Excel sheet for the bank until a dedicated slip format is set up.");
     setDownloadNotice(parts.join(" "));
   }
@@ -4440,23 +4387,17 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
                     </th>
                     {commercialBankSelected ? (
                       <>
-                        <th className="w-[22%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="w-[28%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           Employee
                         </th>
-                        <th className="w-[18%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="w-[22%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           Account no.
                         </th>
-                        <th className="w-[14%] px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="w-[18%] px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           Amount
                         </th>
-                        <th className="w-[24%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           Narrative
-                        </th>
-                        <th className="w-[14%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Short
-                        </th>
-                        <th className="w-[8%] px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          GL
                         </th>
                       </>
                     ) : sampathBankSelected ? (
@@ -4517,17 +4458,20 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
                     const destBank = sampathBankCode(slip?.bankCode, slip?.bankName);
                     const destBranch = sampathBranchCode(slip?.branchCode);
                     const salaryRef = sampathSalaryRef(selectedBatch?.month ?? stmt.month);
-                    const sampathAccount = sampathFileAccount(slip?.accountNumber);
-                    const commercialAccount = commercialBankFileAccount(slip?.accountNumber);
-                    const commercialNarratives = selectedBatch
-                      ? commercialBankSalaryNarratives(selectedBatch.month, selectedBatch.year)
-                      : commercialBankSalaryNarratives(stmt.month, stmt.year);
+                    const sampathAccount = sampathFileAccount(slip?.isCashPayment ? "" : slip?.accountNumber);
+                    const commercialAccount = commercialBankFileAccount(slip?.isCashPayment ? "" : slip?.accountNumber);
+                    const commercialNarratives = commercialBankSalaryNarratives(
+                      selectedBatch?.month ?? stmt.month,
+                      selectedBatch?.year ?? stmt.year,
+                    );
+                    const cashPaid = Boolean(slip?.isCashPayment);
                     return (
                     <tr key={stmt.id} className="border-b border-slate-100 hover:bg-slate-50/70">
                       <td className="px-4 py-3">
                         <input
                           type="checkbox"
-                          checked={selected.has(stmt.id)}
+                          checked={!cashPaid && selected.has(stmt.id)}
+                          disabled={cashPaid}
                           onChange={() => toggleOne(stmt.id)}
                           aria-label={`Select ${stmt.employeeName}`}
                         />
@@ -4536,53 +4480,53 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
                         <>
                           <td className="px-4 py-3">
                             <div className="font-medium text-slate-800">{stmt.employeeName}</div>
-                            <div className="text-xs text-slate-400">{stmt.employeeCode || "—"}</div>
+                            <div className="text-xs text-slate-400">{stmt.employeeCode || "—"}{cashPaid ? " · Cash" : ""}</div>
                           </td>
                           <td className="px-4 py-3 font-mono text-slate-800">
-                            {commercialAccount || <span className="font-sans text-amber-700">Missing</span>}
+                            {cashPaid ? <span className="font-sans text-slate-500">Cash</span> : commercialAccount || <span className="font-sans text-amber-700">Missing</span>}
                           </td>
                           <td className="whitespace-pre px-4 py-3 text-right font-mono tabular-nums text-slate-800">
                             {formatCommercialBankFileAmount(Number(stmt.netPay))}
                           </td>
                           <td className="px-4 py-3 text-slate-700">{commercialNarratives.longNarrative}</td>
-                          <td className="px-4 py-3 text-slate-700">{commercialNarratives.shortNarrative}</td>
-                          <td className="px-4 py-3 font-mono text-slate-700">{COMMERCIAL_BANK_SALARY_GL_CODE}</td>
                         </>
                       ) : sampathBankSelected ? (
                         <>
                           <td className="px-4 py-3 font-mono text-slate-700">{salaryRef}</td>
                           <td className="px-4 py-3">
                             <div className="font-medium text-slate-800">{stmt.employeeName}</div>
-                            <div className="text-xs text-slate-400">{stmt.employeeCode || "—"}</div>
+                            <div className="text-xs text-slate-400">{stmt.employeeCode || "—"}{cashPaid ? " · Cash" : ""}</div>
                           </td>
                           <td className="px-4 py-3 font-mono text-slate-800">
-                            {sampathAccount || <span className="font-sans text-amber-700">Missing</span>}
+                            {cashPaid ? <span className="font-sans text-slate-500">Cash</span> : sampathAccount || <span className="font-sans text-amber-700">Missing</span>}
                           </td>
                           <td className="px-4 py-3 font-mono text-slate-700">
-                            {destBank || <span className="font-sans text-amber-700">Missing</span>}
+                            {cashPaid ? "—" : destBank || <span className="font-sans text-amber-700">Missing</span>}
                           </td>
                           <td className="px-4 py-3 font-mono text-slate-700">
-                            {destBranch || <span className="font-sans text-amber-700">Missing</span>}
+                            {cashPaid ? "—" : destBranch || <span className="font-sans text-amber-700">Missing</span>}
                           </td>
                           <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-800">
                             {formatSampathFileAmount(Number(stmt.netPay))}
                           </td>
-                          <td className="px-4 py-3 font-mono text-slate-700">{salaryRef}</td>
                           <td className="px-4 py-3 font-mono text-slate-700">
-                            {sampathCreditMode(destBank, slip?.bankName)}
+                            {cashPaid ? "—" : sampathAccountNumber(selectedCompanyAccount?.accountNo) || salaryRef}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-slate-700">
+                            {cashPaid ? "Cash" : sampathCreditMode(destBank, slip?.bankName)}
                           </td>
                         </>
                       ) : (
                         <>
                           <td className="px-4 py-3">
                             <div className="font-medium text-slate-800">{stmt.employeeName}</div>
-                            <div className="text-xs text-slate-400">{stmt.employeeCode || "—"}</div>
+                            <div className="text-xs text-slate-400">{stmt.employeeCode || "—"}{cashPaid ? " · Cash" : ""}</div>
                           </td>
                           <td className="px-4 py-3 font-mono text-slate-800">
-                            {genericBankAccountNumber(slip?.accountNumber) || <span className="font-sans text-amber-700">Missing</span>}
+                            {cashPaid ? <span className="font-sans text-slate-500">Cash</span> : genericBankAccountNumber(slip?.accountNumber) || <span className="font-sans text-amber-700">Missing</span>}
                           </td>
                           <td className="px-4 py-3 text-slate-700">
-                            {slip?.bankName || <span className="text-amber-700">Missing</span>}
+                            {cashPaid ? "Cash" : slip?.bankName || <span className="text-amber-700">Missing</span>}
                           </td>
                           <td className="px-4 py-3 font-mono text-slate-700">
                             {slip?.branchCode || slip?.branchLocation || "—"}
@@ -5072,7 +5016,7 @@ function SettingsTab() {
       etfEmployerRate: Number(fd.get("etfEmployerRate")) / 100,
       otHourlyDivisor: Number(fd.get("otHourlyDivisor")) || 208,
       otMultiplier: Number(fd.get("otMultiplier")) || 1.5,
-      apitTaxMode: String(fd.get("apitTaxMode") || settings?.apitTaxMode || "Exact"),
+      apitTaxMode: String(fd.get("apitTaxMode") || settings?.apitTaxMode || "Monthly"),
       salaryPeriodStartDay: salaryPeriodDayFromField(periodStartDay, 1),
       salaryPeriodEndDay: salaryPeriodDayFromField(periodEndDay, 31),
       otComponentCode,
@@ -5144,7 +5088,7 @@ function SettingsTab() {
           </div>
           <div>
             <label className={labelCls}>APIT tax mode</label>
-            <select name="apitTaxMode" className={inputCls} defaultValue={settings?.apitTaxMode ?? "Exact"}>
+            <select name="apitTaxMode" className={inputCls} defaultValue={settings?.apitTaxMode ?? "Monthly"}>
               <option value="Monthly">Monthly</option>
               <option value="Annual">Annual</option>
               <option value="Exact">Expact</option>

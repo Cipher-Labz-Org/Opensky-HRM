@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   joinReportFilterValues,
   reportFilterContains,
@@ -18,6 +18,14 @@ interface GroupByOption {
   label: string;
 }
 
+export interface ReportPeriodSection {
+  label: string;
+  summary?: string;
+  pillLabel?: string;
+  onClearPill?: () => void;
+  content: ReactNode;
+}
+
 interface ReportParametersSearchBarProps {
   employeeSearch: string;
   onEmployeeSearchChange: (value: string) => void;
@@ -31,6 +39,9 @@ interface ReportParametersSearchBarProps {
   onRemoveFilter: (key: ReportParamFilterKey, value?: string) => void;
   activeFilterValues: Partial<Record<ReportParamFilterKey, string>>;
   onClearAll: () => void;
+  periodSection?: ReportPeriodSection | null;
+  /** Employee name search. Hidden when the report cannot filter by employee. */
+  showEmployeeSearch?: boolean;
   loading?: boolean;
 }
 
@@ -61,7 +72,7 @@ function FilterPill({
   variant = "filter",
 }: {
   label: string;
-  onRemove: () => void;
+  onRemove?: () => void;
   removeLabel: string;
   variant?: "group" | "filter";
 }) {
@@ -73,18 +84,27 @@ function FilterPill({
   return (
     <span className={`inline-flex max-w-[160px] items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${styles}`}>
       <span className="truncate">{label}</span>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-current/45 transition hover:bg-black/5 hover:text-current"
-        aria-label={removeLabel}
-      >
-        ×
-      </button>
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-current/45 transition hover:bg-black/5 hover:text-current"
+          aria-label={removeLabel}
+        >
+          ×
+        </button>
+      ) : null}
     </span>
+  );
+}
+
+function isPortaledPicker(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest("[data-radix-popper-content-wrapper], [data-radix-select-content], .opensky-day-picker"),
   );
 }
 
@@ -171,21 +191,26 @@ export function ReportParametersSearchBar({
   onRemoveFilter,
   activeFilterValues,
   onClearAll,
+  periodSection = null,
+  showEmployeeSearch = true,
   loading = false,
 }: ReportParametersSearchBarProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [periodOpen, setPeriodOpen] = useState(true);
   const [expandedFilterKeys, setExpandedFilterKeys] = useState<Set<ReportParamFilterKey>>(new Set());
   const localFilterRef = useRef<Partial<Record<ReportParamFilterKey, string>>>({ ...activeFilterValues });
   const [localFilters, setLocalFilters] = useState<Partial<Record<ReportParamFilterKey, string>>>({
     ...activeFilterValues,
   });
 
-  const hasActiveState = groupBy !== null || filterPills.length > 0 || Boolean(employeeSearch.trim());
-  const activeFilterCount = filterPills.length + (groupBy ? 1 : 0);
+  const periodCustom = Boolean(periodSection?.onClearPill);
+  const hasActiveState = groupBy !== null || filterPills.length > 0 || Boolean(employeeSearch.trim()) || periodCustom;
+  const activeFilterCount = filterPills.length + (groupBy ? 1 : 0) + (periodCustom ? 1 : 0);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
+      if (isPortaledPicker(e.target)) return;
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
@@ -241,7 +266,6 @@ export function ReportParametersSearchBar({
 
   return (
     <div className="relative w-full max-w-2xl" ref={rootRef}>
-      {/* Search bar */}
       <div
         className={`flex h-11 items-center gap-1 rounded-2xl border bg-white px-2 shadow-sm transition-all ${
           menuOpen
@@ -253,7 +277,7 @@ export function ReportParametersSearchBar({
           type="button"
           onClick={toggleMenu}
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition ${
-            menuOpen || groupBy || filterPills.length > 0
+            menuOpen || groupBy || filterPills.length > 0 || periodCustom
               ? "bg-[#2B7DE9] text-white shadow-sm"
               : "text-[#2B7DE9] hover:bg-blue-50"
           }`}
@@ -286,26 +310,37 @@ export function ReportParametersSearchBar({
               removeLabel={`Remove filter ${pill.label}`}
             />
           ))}
-          <input
-            type="text"
-            placeholder="Search employees…"
-            className="min-w-[140px] flex-1 border-0 bg-transparent py-1.5 text-[13px] text-slate-700 outline-none placeholder:text-slate-400"
-            value={employeeSearch}
-            onChange={(e) => onEmployeeSearchChange(e.target.value)}
-            onFocus={() => setMenuOpen(true)}
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                onApply();
-                setMenuOpen(false);
-              }
-              if (e.key === "Escape") setMenuOpen(false);
-            }}
-            disabled={loading}
-          />
+          {showEmployeeSearch ? (
+            <input
+              type="text"
+              placeholder="Search employees…"
+              aria-label="Search employees"
+              className="min-w-[140px] flex-1 border-0 bg-transparent py-1.5 text-[13px] text-slate-700 outline-none placeholder:text-slate-400"
+              value={employeeSearch}
+              onChange={(e) => onEmployeeSearchChange(e.target.value)}
+              onFocus={() => setMenuOpen(true)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  onApply();
+                  setMenuOpen(false);
+                }
+                if (e.key === "Escape") setMenuOpen(false);
+              }}
+              disabled={loading}
+            />
+          ) : (
+            <button
+              type="button"
+              className="min-w-[140px] flex-1 py-1.5 text-left text-[13px] text-slate-400"
+              onClick={() => setMenuOpen(true)}
+            >
+              Filters
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -340,10 +375,8 @@ export function ReportParametersSearchBar({
         )}
       </div>
 
-      {/* Dropdown: Group By | Filters */}
       {menuOpen && (
         <div className="absolute left-0 top-[calc(100%+6px)] z-50 flex w-[min(520px,calc(100vw-2.5rem))] overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-xl shadow-slate-200/60">
-          {/* Group By */}
           {groupByOptions.length > 0 && (
             <div className="flex w-[44%] shrink-0 flex-col border-r border-slate-100">
               <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2.5">
@@ -364,7 +397,6 @@ export function ReportParametersSearchBar({
             </div>
           )}
 
-          {/* Filters */}
           <div className="flex min-w-0 flex-1 flex-col bg-slate-50/40">
             <div className="flex items-center gap-2 border-b border-slate-100 bg-white px-3 py-2.5">
               <svg className="h-3.5 w-3.5 text-slate-500" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" aria-hidden>
@@ -380,8 +412,8 @@ export function ReportParametersSearchBar({
               </div>
             </div>
 
-            <div className="max-h-[320px] overflow-y-auto p-1.5">
-              {filterSections.length === 0 ? (
+            <div className="max-h-[380px] overflow-y-auto p-1.5">
+              {filterSections.length === 0 && !periodSection ? (
                 <p className="px-2 py-3 text-[12px] text-slate-400">No filters available</p>
               ) : (
                 filterSections.map((section) => {
@@ -472,6 +504,32 @@ export function ReportParametersSearchBar({
                     </div>
                   );
                 })
+              )}
+              {periodSection && (
+                <div className="mb-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setPeriodOpen((open) => !open)}
+                    className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition hover:bg-white"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[12.5px] font-medium text-slate-700">{periodSection.label}</div>
+                      {periodSection.summary ? (
+                        <div className="truncate text-[10px] text-[#2B7DE9]">{periodSection.summary}</div>
+                      ) : null}
+                    </div>
+                    <svg
+                      className={`h-3 w-3 shrink-0 text-slate-400 transition-transform duration-200 ${periodOpen ? "rotate-180" : ""}`}
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path d="M10 14l-5-5h10l-5 5z" />
+                    </svg>
+                  </button>
+                  {periodOpen && (
+                    <div className="mb-1 rounded-lg bg-white p-2.5 ring-1 ring-slate-100">{periodSection.content}</div>
+                  )}
+                </div>
               )}
             </div>
 

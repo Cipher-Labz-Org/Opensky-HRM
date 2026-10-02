@@ -1,4 +1,4 @@
-export type ReportParamFilterKey = "departmentId" | "locationId" | "status" | "gradeId";
+export type ReportParamFilterKey = "departmentId" | "locationId" | "employeeId" | "status" | "gradeId";
 
 export type ReportGroupByKey =
   | "department"
