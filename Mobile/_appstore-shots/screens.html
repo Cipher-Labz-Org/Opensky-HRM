@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenSky HRM App Store Screens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy: #0A2540;
+      --sky: #28A9E0;
+      --green: #76B82A;
+      --bg: #F4F8FC;
+      --muted: #5B7087;
+      --border: #D4DEE8;
+      --text: #0A2540;
+      --soft: #EEF4FA;
+      --field: #F3F6F9;
+      --green-soft: #EEF6E4;
+      --sky-soft: #E8F6FC;
+      --warn: #FEF3C7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: #111;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+    }
+    body { display: flex; justify-content: center; }
+    .phone {
+      width: 428px;
+      height: 926px;
+      background: var(--bg);
+      position: relative;
+      overflow: hidden;
+    }
+    .phone.ipad {
+      width: 1032px;
+      height: 1376px;
+    }
+    .status {
+      height: 54px;
+      padding: 14px 28px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      z-index: 5;
+    }
+    .status .time { font-size: 16px; font-weight: 700; letter-spacing: -0.2px; }
+    .island {
+      position: absolute;
+      left: 50%;
+      top: 12px;
+      transform: translateX(-50%);
+      width: 112px;
+      height: 32px;
+      background: #111;
+      border-radius: 20px;
+    }
+    .status-right { display: flex; align-items: center; gap: 6px; }
+    .status-right svg { display: block; }
+    .home-bar {
+      position: absolute;
+      left: 50%;
+      bottom: 8px;
+      transform: translateX(-50%);
+      width: 134px;
+      height: 5px;
+      background: #1c1c1e;
+      border-radius: 99px;
+      z-index: 8;
+    }
+    .content { height: calc(100% - 54px); display: flex; flex-direction: column; }
+    .scroll { flex: 1; overflow: hidden; padding: 6px 20px 0; }
+    .ipad .scroll { padding: 18px 72px 0; }
+    .tabs {
+      height: 86px;
+      background: #fff;
+      box-shadow: 0 -8px 24px rgba(10, 37, 64, 0.08);
+      display: flex;
+      padding: 8px 6px 22px;
+      position: relative;
+      z-index: 4;
+    }
+    .tab {
+      flex: 1;
+      text-align: center;
+      color: #8A97A6;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .tab svg { display: block; margin: 0 auto 3px; }
+    .tab.active { color: var(--green); }
+    .eyebrow {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+      color: var(--muted); text-transform: uppercase;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    .title { font-size: 32px; font-weight: 800; letter-spacing: -0.8px; margin-top: 4px; }
+    .ipad .title { font-size: 40px; }
+    .sub { font-size: 15px; color: var(--muted); margin-top: 2px; }
+    .card {
+      background: #fff; border-radius: 20px;
+      box-shadow: 0 10px 28px rgba(10, 37, 64, 0.06);
+    }
+    .empty {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; text-align: center; padding-bottom: 40px;
+    }
+    .empty-icon {
+      width: 72px; height: 72px; border-radius: 22px; background: #EAF3FA;
+      display: flex; align-items: center; justify-content: center; margin-bottom: 16px;
+    }
+    .empty h3 { font-size: 18px; font-weight: 700; }
+    .empty p { font-size: 14px; color: var(--muted); margin-top: 6px; max-width: 260px; line-height: 1.4; }
+
+    /* Login */
+    .login { background: var(--bg); }
+    .login .content { padding: 8px 22px 0; position: relative; z-index: 2; }
+    .brand { text-align: center; padding-top: 8px; }
+    .brand img { height: 26px; }
+    .tagline { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .login-card {
+      background: #fff; border-radius: 24px; padding: 22px 20px 20px;
+      margin-top: 22px; box-shadow: 0 16px 40px rgba(10, 37, 64, 0.08);
+    }
+    .co-logo {
+      width: 72px; height: 72px; border-radius: 50%; border: 1px solid var(--border);
+      margin: 0 auto 14px; display: flex; align-items: center; justify-content: center;
+      background: #fff;
+    }
+    .co-logo span { text-align: center; line-height: 1.05; }
+    .co-logo .g { font-size: 11px; font-weight: 800; letter-spacing: 1.4px; color: var(--navy); }
+    .co-logo .s { font-size: 6px; letter-spacing: 1.2px; color: var(--navy); font-weight: 700; margin-top: 3px; }
+    .login-card h1 { text-align: center; font-size: 26px; font-weight: 800; }
+    .login-card .desc { text-align: center; color: var(--muted); font-size: 14px; margin: 8px 0 18px; line-height: 1.35; }
+    .label { font-size: 14px; font-weight: 600; margin: 12px 0 8px; }
+    .field {
+      height: 50px; border-radius: 16px; background: var(--field);
+      display: flex; align-items: center; gap: 10px; padding: 0 14px; color: #9AA7B5; font-size: 14px;
+    }
+    .field svg { flex-shrink: 0; }
+    .forgot { text-align: right; color: var(--sky); font-size: 14px; font-weight: 600; margin-top: 12px; }
+    .signin {
+      margin-top: 16px; height: 56px; border-radius: 18px; background: var(--sky);
+      color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px;
+      font-size: 17px; font-weight: 700;
+    }
+    .links { text-align: center; margin-top: 16px; font-size: 14px; color: var(--muted); }
+    .links a, .change { color: var(--sky); font-weight: 600; }
+    .change { text-align: center; margin-top: 10px; font-size: 14px; }
+    .copy { text-align: center; font-size: 12px; color: var(--muted); margin-top: 18px; }
+    .waves { position: absolute; left: 0; right: 0; bottom: 0; height: 168px; z-index: 1; overflow: hidden; }
+    .w1, .w2, .w3 { position: absolute; left: -20%; right: -20%; border-radius: 50% 50% 0 0; }
+    .w1 { bottom: -70px; height: 170px; background: var(--navy); }
+    .w2 { bottom: -80px; height: 140px; background: linear-gradient(90deg, #0A2540, #28A9E0 60%, #5BC4EB); }
+    .w3 { bottom: -90px; height: 120px; background: linear-gradient(90deg, #5FA022, #76B82A, #8BC93E); }
+
+    /* Home */
+    .greeting { font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; }
+    .date { font-size: 28px; font-weight: 800; letter-spacing: -0.7px; margin: 4px 0 16px; }
+    .hero {
+      border-radius: 22px; overflow: hidden; background: #fff;
+      box-shadow: 0 12px 28px rgba(10, 37, 64, 0.08);
+    }
+    .hero-top {
+      background: linear-gradient(120deg, #0A2540, #1A6FA3 55%, #2B9FD4);
+      padding: 18px 16px 16px; display: flex; gap: 12px; align-items: center;
+    }
+    .avatar {
+      width: 56px; height: 56px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 800; font-size: 16px; background: rgba(255,255,255,.12);
+    }
+    .hero-top h2 { color: #fff; font-size: 18px; font-weight: 800; }
+    .hero-top p { color: rgba(255,255,255,.9); font-size: 13px; margin-top: 2px; }
+    .stats { display: flex; gap: 10px; padding: 14px; }
+    .stat {
+      flex: 1; background: #F3FAF4; border-radius: 16px; text-align: center; padding: 12px 6px;
+    }
+    .stat:nth-child(2) { background: #EAF7FC; }
+    .stat:nth-child(3) { background: #EEF4FA; }
+    .stat .v { font-size: 24px; font-weight: 800; color: var(--green); margin: 6px 0 4px; }
+    .stat:nth-child(2) .v { color: var(--sky); }
+    .stat:nth-child(3) .v { color: var(--navy); }
+    .stat .l { font-size: 9px; font-weight: 700; letter-spacing: 0.4px; color: var(--muted); text-transform: uppercase; }
+    .section { font-size: 16px; font-weight: 700; margin: 22px 0 12px; }
+    .qa { display: flex; gap: 10px; }
+    .qa-item { flex: 1; background: #fff; border-radius: 16px; text-align: center; padding: 14px 4px 12px;
+      box-shadow: 0 8px 20px rgba(10, 37, 64, 0.05); }
+    .qa-ico {
+      width: 36px; height: 36px; border-radius: 12px; background: #F4F8FC;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 8px;
+    }
+    .qa-item span { display: block; font-size: 10px; font-weight: 600; color: var(--navy); line-height: 1.25; }
+    .recent { background: #fff; border-radius: 20px; padding: 16px; margin-top: 14px;
+      box-shadow: 0 8px 20px rgba(10, 37, 64, 0.05); }
+    .recent-h { display: flex; justify-content: space-between; align-items: center; }
+    .recent-h b { font-size: 15px; }
+    .recent-h small { color: var(--sky); font-weight: 600; font-size: 12px; }
+    .recent-empty { text-align: center; padding: 22px 8px 10px; }
+    .recent-empty h3 { font-size: 16px; margin: 10px 0 6px; }
+    .recent-empty p { font-size: 13px; color: var(--muted); }
+
+    /* Profile */
+    .acct {
+      background: #fff; border-radius: 20px; overflow: hidden; margin-top: 16px;
+      box-shadow: 0 10px 24px rgba(10, 37, 64, 0.06);
+    }
+    .acct-h { background: #F6FAFD; padding: 10px 16px; font-size: 11px; font-weight: 800; letter-spacing: 0.7px; color: var(--muted); }
+    .acct-b { padding: 22px 16px 18px; text-align: center; }
+    .big-av {
+      width: 84px; height: 84px; border-radius: 50%; background: #EEF4FA; margin: 0 auto 12px;
+      display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 800;
+    }
+    .pill { display: inline-block; margin-top: 10px; background: var(--warn); color: #92400E;
+      font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 99px; }
+    .act-label { margin: 22px 0 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.8px; color: var(--muted);
+      display: flex; align-items: center; gap: 8px; }
+    .act-label:before { content: ""; width: 3px; height: 14px; background: var(--green); border-radius: 2px; }
+    .row {
+      background: #fff; border-radius: 16px; padding: 14px 14px; display: flex; align-items: center; gap: 12px;
+      box-shadow: 0 8px 18px rgba(10, 37, 64, 0.05); margin-bottom: 10px;
+    }
+    .row-ico { width: 36px; height: 36px; border-radius: 12px; background: #F4F8FC; display: flex; align-items: center; justify-content: center; }
+    .row-ico.out { background: #FEE2E2; }
+    .row b { font-size: 15px; display: block; }
+    .row span { font-size: 12px; color: var(--muted); }
+    .row .go { margin-left: auto; color: #C5CDD6; font-size: 20px; }
+
+    /* Alerts */
+    .sum { background: #fff; border-radius: 20px; overflow: hidden; margin-top: 16px;
+      box-shadow: 0 10px 24px rgba(10, 37, 64, 0.06); }
+    .sum-h { background: #F6FAFD; padding: 12px 16px; display: flex; justify-content: space-between; font-size: 11px; font-weight: 800; letter-spacing: 0.6px; color: var(--muted); }
+    .ok { color: var(--green); font-weight: 700; letter-spacing: 0; text-transform: none; font-size: 12px; }
+    .sum-g { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+    .sum-c { text-align: center; padding: 16px 8px 18px; border-right: 1px solid #EEF2F6; }
+    .sum-c:last-child { border-right: 0; }
+    .sum-c .n { font-size: 26px; font-weight: 800; margin: 8px 0 4px; }
+    .sum-c .n.orange { color: #D97706; }
+    .dash { margin-top: 16px; border: 1.5px dashed #D5E4F0; border-radius: 22px; background: #F7FBFE;
+      min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="phone" id="phone">
+
+    <!-- LOGIN -->
+    <section id="login" class="screen login">
+      <div class="status">
+        <div class="time">9:41</div>
+        <div class="island"></div>
+        <div class="status-right" id="sr"></div>
+      </div>
+      <div class="content">
+        <div class="brand">
+          <img src="file:///D:/Opensky%20letast/Frontend/public/opensky-hrm-brand-logo.png" alt="OpenSky HRM" />
+          <div class="tagline">Empowering People. Elevating Performance.</div>
+        </div>
+        <div class="login-card">
+          <div class="co-logo"><span><div class="g">GAMMA</div><div class="s">INTERPHARM</div></span></div>
+          <h1>Welcome Back!</h1>
+          <p class="desc">Sign in to access your OpenSky HRM workspace</p>
+          <div class="label">Username or email</div>
+          <div class="field">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9AA7B5" stroke-width="1.8"><circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.4-3.2 4-5 7-5s5.6 1.8 7 5"/></svg>
+            Enter your username or email
+          </div>
+          <div class="label">Password</div>
+          <div class="field">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9AA7B5" stroke-width="1.8"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+            <span style="flex:1">Enter your password</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9AA7B5" stroke-width="1.8"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+          </div>
+          <div class="forgot">Forgot Password?</div>
+        </div>
+        <div class="signin">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M21 4v16"/></svg>
+          Sign In
+        </div>
+        <div class="links">Wrong company? <a>Reconnect backend</a></div>
+        <div class="change">Change company</div>
+        <div class="copy">© 2026 OpenSky HRM. All rights reserved.</div>
+      </div>
+      <div class="waves"><div class="w1"></div><div class="w2"></div><div class="w3"></div></div>
+      <div class="home-bar"></div>
+    </section>
+
+    <!-- HOME -->
+    <section id="home" class="screen hidden">
+      <div class="status"><div class="time">9:41</div><div class="island"></div><div class="status-right"></div></div>
+      <div class="content">
+        <div class="scroll">
+          <div class="greeting">Good evening</div>
+          <div class="date">Thursday 17 September</div>
+          <div class="hero">
+            <div class="hero-top">
+              <div class="avatar">TE</div>
+              <div>
+                <h2>Test user</h2>
+                <p>OpenSky HRM</p>
+              </div>
+            </div>
+            <div class="stats">
+              <div class="stat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#76B82A" stroke-width="1.8"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 11h16"/></svg>
+                <div class="v">0</div><div class="l">Leave left</div>
+              </div>
+              <div class="stat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#28A9E0" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/></svg>
+                <div class="v">0</div><div class="l">Present</div>
+              </div>
+              <div class="stat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0A2540" stroke-width="1.8"><path d="M12 4l7 14H5L12 4z"/><path d="M12 10v4M12 16h.01"/></svg>
+                <div class="v">0</div><div class="l">Alerts</div>
+              </div>
+            </div>
+          </div>
+          <div class="section">Quick actions</div>
+          <div class="qa">
+            <div class="qa-item"><div class="qa-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#76B82A" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></div><span>Scan to<br>punch in</span></div>
+            <div class="qa-item"><div class="qa-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#76B82A" stroke-width="1.8"><path d="M3 17l7-7 4 4 7-8"/><path d="M14 6h7v7"/></svg></div><span>Apply<br>leave</span></div>
+            <div class="qa-item"><div class="qa-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#76B82A" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/></svg></div><span>Attendance</span></div>
+            <div class="qa-item"><div class="qa-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0A2540" stroke-width="1.8"><circle cx="12" cy="8" r="3"/><path d="M5 19c1.4-3.2 4-5 7-5s5.6 1.8 7 5"/></svg></div><span>My profile</span></div>
+          </div>
+          <div class="recent">
+            <div class="recent-h">
+              <b>Recent leave</b>
+              <small>View all →</small>
+            </div>
+            <div class="recent-empty">
+              <div class="empty-icon" style="margin:0 auto 8px;width:52px;height:52px;border-radius:16px;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#28A9E0" stroke-width="1.8"><path d="M3 17l7-7 4 4 7-8"/><path d="M14 6h7v7"/></svg>
+              </div>
+              <h3>No leave requests yet</h3>
+              <p>Apply for time off when you need a break.</p>
+            </div>
+          </div>
+        </div>
+        <div class="tabs" data-active="home"></div>
+      </div>
+      <div class="home-bar"></div>
+    </section>
+
+    <!-- LEAVE -->
+    <section id="leave" class="screen hidden">
+      <div class="status"><div class="time">9:41</div><div class="island"></div><div class="status-right"></div></div>
+      <div class="content">
+        <div class="scroll">
+          <div class="eyebrow"><span class="dot"></span> Time off</div>
+          <div class="title">Leave</div>
+          <div class="sub">Your time off</div>
+          <div class="empty">
+            <div class="empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#28A9E0" stroke-width="1.7"><circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.4-3.2 4-5 7-5s5.6 1.8 7 5"/></svg>
+            </div>
+            <h3>No employee profile</h3>
+            <p>Your account is not linked to an employee record.</p>
+          </div>
+        </div>
+        <div class="tabs" data-active="leave"></div>
+      </div>
+      <div class="home-bar"></div>
+    </section>
+
+    <!-- ATTENDANCE -->
+    <section id="attendance" class="screen hidden">
+      <div class="status"><div class="time">9:41</div><div class="island"></div><div class="status-right"></div></div>
+      <div class="content">
+        <div class="scroll">
+          <div class="eyebrow"><span class="dot"></span> September 2026</div>
+          <div class="title">Attendance</div>
+          <div class="sub">Punch in/out and view records</div>
+          <div class="empty">
+            <div class="empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#28A9E0" stroke-width="1.7"><rect x="5" y="8" width="14" height="11" rx="2"/><path d="M8 8V6h8v2"/></svg>
+            </div>
+            <h3>No employee profile</h3>
+            <p>Your account is not linked to an employee record.</p>
+          </div>
+        </div>
+        <div class="tabs" data-active="attendance"></div>
+      </div>
+      <div class="home-bar"></div>
+    </section>
+
+    <!-- ALERTS -->
+    <section id="alerts" class="screen hidden">
+      <div class="status"><div class="time">9:41</div><div class="island"></div><div class="status-right"></div></div>
+      <div class="content">
+        <div class="scroll">
+          <div class="eyebrow"><span class="dot"></span> Your inbox</div>
+          <div class="title">Alerts</div>
+          <div class="sub">Updates, reminders, and team messages</div>
+          <div class="sum">
+            <div class="sum-h"><span>Alert summary</span><span class="ok">✓ Inbox clear</span></div>
+            <div class="sum-g">
+              <div class="sum-c">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#76B82A" stroke-width="1.6"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 8l9 6 9-6"/></svg>
+                <div class="n orange">0</div><div class="l" style="font-size:12px;color:#5B7087">Unread</div>
+              </div>
+              <div class="sum-c">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#76B82A" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 4v16M4 10h16"/></svg>
+                <div class="n">0</div><div style="font-size:12px;color:#5B7087">Total</div>
+              </div>
+              <div class="sum-c">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#76B82A" stroke-width="1.6"><circle cx="12" cy="12" r="8"/><path d="M8 12l3 3 5-6"/></svg>
+                <div class="n">0</div><div style="font-size:12px;color:#5B7087">Read</div>
+              </div>
+            </div>
+          </div>
+          <div class="dash">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#28A9E0" stroke-width="1.7"><rect x="5" y="8" width="14" height="11" rx="2"/><path d="M8 8V6h8v2"/></svg>
+            <h3 style="margin-top:12px;font-size:18px">No alerts</h3>
+            <p style="margin-top:6px;color:#5B7087;font-size:14px;max-width:240px">You're all caught up. New alerts will show up here.</p>
+          </div>
+        </div>
+        <div class="tabs" data-active="alerts"></div>
+      </div>
+      <div class="home-bar"></div>
+    </section>
+
+    <!-- PAYSLIPS -->
+    <section id="payslips" class="screen hidden">
+      <div class="status"><div class="time">9:41</div><div class="island"></div><div class="status-right"></div></div>
+      <div class="content">
+        <div class="scroll">
+          <div class="eyebrow"><span class="dot"></span> Payroll</div>
+          <div class="title">Payslips</div>
+          <div class="sub">Your salary statements</div>
+          <div class="empty">
+            <div class="empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#28A9E0" stroke-width="1.7"><rect x="5" y="8" width="14" height="11" rx="2"/><path d="M8 8V6h8v2"/></svg>
+            </div>
+            <h3>No employee profile</h3>
+            <p>Your account is not linked to an employee record.</p>
+          </div>
+        </div>
+        <div class="tabs" data-active="payslips"></div>
+      </div>
+      <div class="home-bar"></div>
+    </section>
+
+    <!-- PROFILE -->
+    <section id="profile" class="screen hidden">
+      <div class="status"><div class="time">9:41</div><div class="island"></div><div class="status-right"></div></div>
+      <div class="content">
+        <div class="scroll">
+          <div class="eyebrow"><span class="dot"></span> Account</div>
+          <div class="title">Profile</div>
+          <div class="sub">Your account settings</div>
+          <div class="acct">
+            <div class="acct-h">Account</div>
+            <div class="acct-b">
+              <div class="big-av">T</div>
+              <h3 style="font-size:20px">Test user</h3>
+              <p style="color:#5B7087;margin-top:4px">Testuser@gmail.com</p>
+              <div class="pill">No employee profile linked</div>
+            </div>
+          </div>
+          <div class="act-label">ACTIONS</div>
+          <div class="row">
+            <div class="row-ico">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0A2540" stroke-width="1.8"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+            </div>
+            <div><b>Change password</b><span>Update your login credentials</span></div>
+            <div class="go">›</div>
+          </div>
+          <div class="row">
+            <div class="row-ico out">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="1.8"><path d="M10 7V5h10v14H10v-2"/><path d="M4 12h11"/><path d="M12 8l4 4-4 4"/></svg>
+            </div>
+            <div><b style="color:#DC2626">Sign out</b></div>
+            <div class="go">›</div>
+          </div>
+        </div>
+        <div class="tabs" data-active="profile"></div>
+      </div>
+      <div class="home-bar"></div>
+    </section>
+  </div>
+
+  <script>
+    const statusSvg = `
+      <svg width="18" height="12" viewBox="0 0 18 12" fill="#0A2540"><rect x="0" y="7" width="3" height="5" rx="0.6"/><rect x="4.5" y="5" width="3" height="7" rx="0.6"/><rect x="9" y="3" width="3" height="9" rx="0.6"/><rect x="13.5" y="0" width="3" height="12" rx="0.6"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="#0A2540"><path d="M8 9.2a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8zm0-3.4c1.8 0 3.4.7 4.6 1.9l-1.3 1.3A4.7 4.7 0 0 0 8 7.6c-1.3 0-2.4.5-3.3 1.4L3.4 7.7A6.6 6.6 0 0 1 8 5.8zm0-3.4c2.8 0 5.3 1.1 7.1 2.9L13.8 6.6A8.3 8.3 0 0 0 8 4.2 8.3 8.3 0 0 0 2.2 6.6L.9 5.3A11 11 0 0 1 8 2.4z"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x="0.6" y="0.6" width="22" height="11.8" rx="3.2" stroke="#0A2540" fill="none" stroke-width="1.2"/><rect x="23.4" y="4.2" width="2.2" height="4.6" rx="0.8" fill="#0A2540"/><rect x="2" y="2.1" width="19.2" height="8.8" rx="1.8" fill="#0A2540"/></svg>`;
+
+    document.querySelectorAll(".status-right").forEach((el) => { el.innerHTML = statusSvg; });
+
+    const icons = {
+      home: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-8.5z"/></svg>',
+      leave: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 11h16"/></svg>',
+      attendance: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/></svg>',
+      alerts: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4a6 6 0 0 0-6 6v3l-1.5 2.5h15L18 13v-3a6 6 0 0 0-6-6z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>',
+      payslips: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M8 14h3"/></svg>',
+      profile: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3"/><path d="M5 19c1.4-3.2 4-5 7-5s5.6 1.8 7 5"/></svg>',
+    };
+    const labels = [
+      ["home", "Home"],
+      ["leave", "Leave"],
+      ["attendance", "Attendance"],
+      ["alerts", "Alerts"],
+      ["payslips", "Payslips"],
+      ["profile", "Profile"],
+    ];
+    document.querySelectorAll(".tabs").forEach((bar) => {
+      const active = bar.getAttribute("data-active");
+      bar.innerHTML = labels.map(([id, name]) =>
+        `<div class="tab ${id === active ? "active" : ""}">${icons[id]}<div>${name}</div></div>`
+      ).join("");
+    });
+
+    const params = new URLSearchParams(location.search);
+    const screen = params.get("screen") || "login";
+    const device = params.get("device") || "iphone";
+    document.querySelectorAll(".screen").forEach((s) => s.classList.add("hidden"));
+    const target = document.getElementById(screen);
+    if (target) target.classList.remove("hidden");
+    if (device === "ipad") document.getElementById("phone").classList.add("ipad");
+  </script>
+</body>
+</html>
