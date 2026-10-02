@@ -1,10 +1,13 @@
+import fs from "node:fs";
 import sharp from "sharp";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const assetsDir = path.join(__dirname, "..", "assets");
-const source = path.join(assetsDir, "opensky-hrm-waves-source.png");
+const sourceJpg = path.join(assetsDir, "opensky-hrm-waves-source.jpg");
+const sourcePng = path.join(assetsDir, "opensky-hrm-waves-source.png");
+const source = fs.existsSync(sourceJpg) ? sourceJpg : sourcePng;
 
 const ICON_SIZE = 1024;
 const SPLASH_LOGO = 512;
@@ -39,11 +42,18 @@ async function wavesOnWhite() {
   return sharp(data, { raw: { width, height, channels } }).png().toBuffer();
 }
 
+async function loadLogoRaster() {
+  if (source.endsWith(".jpg") || source.endsWith(".jpeg")) {
+    return sharp(source).flatten({ background: BG_HEX }).png().toBuffer();
+  }
+  return wavesOnWhite();
+}
+
 /** @param {number} size */
 async function squareIcon(size, paddingRatio = 0.12) {
   const padding = Math.round(size * paddingRatio);
   const inner = size - padding * 2;
-  const onWhite = await wavesOnWhite();
+  const onWhite = await loadLogoRaster();
   const logo = await sharp(onWhite)
     .trim({ threshold: 15 })
     .resize(inner, inner, { fit: "contain", background: BG })
@@ -82,8 +92,10 @@ await sharp(icon1024)
   .resize(SPLASH_LOGO, SPLASH_LOGO)
   .toFile(path.join(assetsDir, "splash-icon.png"));
 
-await sharp(icon1024)
-  .resize(ICON_SIZE, ICON_SIZE)
+// Android adaptive icon: full-bleed logo (APK / launcher uses adaptiveIcon in app.json)
+await sharp(await loadLogoRaster())
+  .resize(ICON_SIZE, ICON_SIZE, { fit: "contain", background: BG })
+  .flatten({ background: BG_HEX })
   .toFile(path.join(assetsDir, "android-icon-foreground.png"));
 
 await solidBackground(ICON_SIZE, BG_HEX).then((buf) =>
@@ -96,5 +108,12 @@ await sharp(icon1024)
   .grayscale()
   .resize(ICON_SIZE, ICON_SIZE)
   .toFile(path.join(assetsDir, "android-icon-monochrome.png"));
+
+await sharp(icon1024)
+  .resize(512, 512)
+  .jpeg({ quality: 92 })
+  .toFile(path.join(assetsDir, "opensky-hrm-app-icon-512.jpg"));
+
+await sharp(icon1024).resize(512, 512).png().toFile(path.join(assetsDir, "opensky-hrm-play-icon-512.png"));
 
 console.log("Generated icon.png, splash-icon.png, android icons, favicon.png");
