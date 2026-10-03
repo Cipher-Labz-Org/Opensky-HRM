@@ -3,7 +3,7 @@
 # push / pull request  -> build + test only (nothing is deployed)
 # "Run workflow" button -> build + test, then deploy what you choose to HRIS-Basic-01 (needs approval, see "environment")
 #
-# CHECK THE 4 PATHS in the env block below against the repo before the first run.
+# The backend path is confirmed (first run built the API). The frontend folder is found automatically.
 name: HRM build and deploy
 
 on:
@@ -31,9 +31,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BACKEND_CSPROJ: Backend/OpenSkyHRM.Api/OpenSkyHRM.Api.csproj   # CHECK
+  BACKEND_CSPROJ: Backend/OpenSkyHRM.Api/OpenSkyHRM.Api.csproj   # confirmed
   TEST_PROJECT: ""                                               # CHECK, e.g. Backend/OpenSkyHRM.Api.Tests ; empty = skip tests
-  FRONTEND_DIR: frontend                                         # CHECK
   DOTNET_VERSION: "8.0.x"
   NODE_VERSION: "20"
 
@@ -58,30 +57,39 @@ jobs:
 
   build-web:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ env.FRONTEND_DIR }}
     steps:
       - uses: actions/checkout@v4
+      - name: Find the frontend folder (the package.json that uses Next.js)
+        id: fe
+        run: |
+          d=$(find . -maxdepth 3 -name package.json -not -path '*/node_modules/*' -exec grep -l '"next"' {} + | head -1 | xargs -r dirname)
+          if [ -z "$d" ]; then echo "::error::no Next.js package.json found in the repo"; find . -maxdepth 3 -name package.json -not -path '*/node_modules/*'; exit 1; fi
+          d=${d#./}
+          if [ ! -f "$d/package-lock.json" ]; then echo "::error::$d has no package-lock.json (needed for npm ci)"; ls -la "$d"; exit 1; fi
+          echo "frontend folder: $d"; echo "dir=$d" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: ${{ env.FRONTEND_DIR }}/package-lock.json
+          cache-dependency-path: ${{ steps.fe.outputs.dir }}/package-lock.json
       - run: npm ci
+        working-directory: ${{ steps.fe.outputs.dir }}
       - name: "Build (do NOT set VERCEL: the server build writes to .dist)"
+        working-directory: ${{ steps.fe.outputs.dir }}
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
           # add NEXT_PUBLIC_* values here only if the dev team says the build needs them
       - name: Check the build
+        working-directory: ${{ steps.fe.outputs.dir }}
         run: test -f .dist/BUILD_ID && test -f package-lock.json && test -f next.config.js
       - name: "Pack (no node_modules: the server runs \"npm ci\" itself)"
+        working-directory: ${{ steps.fe.outputs.dir }}
         run: |
-          mkdir -p ../web-build
-          cp -r .dist public package.json package-lock.json next.config.js ../web-build/
-          if [ -d config ]; then cp -r config ../web-build/; fi
-          tar -czf ../web.tgz -C ../web-build .
+          B="$GITHUB_WORKSPACE/web-build"; mkdir -p "$B"
+          cp -r .dist public package.json package-lock.json next.config.js "$B"/
+          if [ -d config ]; then cp -r config "$B"/; fi
+          tar -czf "$GITHUB_WORKSPACE/web.tgz" -C "$B" .
       - uses: actions/upload-artifact@v4
         with: { name: web, path: web.tgz, retention-days: 14 }
 
