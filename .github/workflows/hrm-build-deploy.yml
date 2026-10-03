@@ -2,13 +2,14 @@
 #
 # push / pull request  -> build + test only (nothing is deployed)
 # "Run workflow" button -> build + test, then deploy what you choose to HRIS-Basic-01 (needs approval, see "environment")
+# The deploy job runs on a self-hosted runner installed on HRIS-Basic-01 (SSH to the droplet is limited to one IP, so GitHub cannot SSH in).
 #
 # The backend path is confirmed (first run built the API). The frontend folder is found automatically.
 name: HRM build and deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -38,7 +39,7 @@ env:
 
 jobs:
   build-api:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -56,7 +57,7 @@ jobs:
         with: { name: api, path: api.tgz, retention-days: 14 }
 
   build-web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Find the frontend folder (the package.json that uses Next.js)
@@ -96,37 +97,26 @@ jobs:
   deploy:
     needs: [build-api, build-web]
     if: github.event_name == 'workflow_dispatch' && inputs.deploy != 'none'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, hrm-droplet]   # the runner on HRIS-Basic-01, user "deploy"
     environment: production        # add "Required reviewers" to this environment in the repo settings
     env:
-      HOST: ${{ secrets.DEPLOY_HOST }}
-      DUSER: ${{ secrets.DEPLOY_USER }}
       MODE: ${{ inputs.dry_run && 'plan' || 'apply' }}
       WHAT: ${{ inputs.deploy }}
       CUSTOMERS: ${{ inputs.customers }}
-      SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-      KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
     steps:
       - uses: actions/download-artifact@v4
         with: { path: dl }
-      - name: SSH setup
+      - name: Unpack into the incoming folder
         run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy; chmod 600 ~/.ssh/id_deploy
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          printf 'Host droplet\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  StrictHostKeyChecking yes\n  ServerAliveInterval 30\n' "$HOST" "$DUSER" > ~/.ssh/config
-          ssh droplet 'hostname && mkdir -p ~/incoming && find ~/incoming -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} +'
-      - name: Upload the builds
-        run: |
-          S=${GITHUB_SHA::10}
+          S=${GITHUB_SHA::10}; IN="$HOME/incoming"
+          mkdir -p "$IN"; find "$IN" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} +
           if [ "$WHAT" = api ] || [ "$WHAT" = both ]; then
-            mkdir -p up/api-$S && tar -xzf dl/api/api.tgz -C up/api-$S
-            rsync -az --delete up/api-$S/ droplet:incoming/api-$S/
+            rm -rf "$IN/api-$S"; mkdir -p "$IN/api-$S"; tar -xzf dl/api/api.tgz -C "$IN/api-$S"
           fi
           if [ "$WHAT" = web ] || [ "$WHAT" = both ]; then
-            mkdir -p up/web-$S && tar -xzf dl/web/web.tgz -C up/web-$S
-            rsync -az --delete up/web-$S/ droplet:incoming/web-$S/
+            rm -rf "$IN/web-$S"; mkdir -p "$IN/web-$S"; tar -xzf dl/web/web.tgz -C "$IN/web-$S"
           fi
+          rm -rf dl
       - name: Deploy the API, customer by customer (stops at the first failure)
         if: inputs.deploy == 'api' || inputs.deploy == 'both'
         run: |
@@ -134,14 +124,14 @@ jobs:
           for c in $(echo "$CUSTOMERS" | tr ',' ' '); do
             [[ "$c" =~ ^[a-z0-9]+$ ]] || { echo "bad customer name: $c"; exit 1; }
             echo "::group::api $MODE $c"
-            ssh droplet "sudo /usr/local/sbin/hr-release.sh api $MODE $c /home/$DUSER/incoming/api-$S"
+            sudo /usr/local/sbin/hr-release.sh api "$MODE" "$c" "$HOME/incoming/api-$S"
             echo "::endgroup::"
           done
       - name: Deploy the shared frontend (ALL customers of hrweb)
         if: inputs.deploy == 'web' || inputs.deploy == 'both'
         run: |
           S=${GITHUB_SHA::10}
-          ssh droplet "sudo /usr/local/sbin/hr-release.sh web $MODE /home/$DUSER/incoming/web-$S"
+          sudo /usr/local/sbin/hr-release.sh web "$MODE" "$HOME/incoming/web-$S"
       - name: Summary
         run: |
           echo "### HRM deploy ${GITHUB_SHA::10}" >> "$GITHUB_STEP_SUMMARY"
