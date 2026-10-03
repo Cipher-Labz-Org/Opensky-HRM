@@ -1,10 +1,10 @@
 {
   "droplets": {
     "hris-basic-01": {
-      "host": "REPLACE-with-the-droplet-IP",
+      "host": "165.245.144.64",
       "user": "deploy",
       "firewall_id": "fbd2fdf7-9704-4659-aa82-2b365bc3d734",
-      "host_key": "ssh-ed25519 REPLACE-with-the-key-from-ssh-keyscan"
+      "host_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGFfrFOchW6zswAQ8LghLjrHhTxf6OTVA6TPR6TlFDZn"
     }
   }
 }
