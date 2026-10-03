@@ -1,0 +1,141 @@
+# .github/workflows/hrm-build-deploy.yml  (put this file in the OpenSky HRM repo)
+#
+# push / pull request  -> build + test only (nothing is deployed)
+# "Run workflow" button -> build + test, then deploy what you choose to HRIS-Basic-01 (needs approval, see "environment")
+#
+# CHECK THE 4 PATHS in the env block below against the repo before the first run.
+name: HRM build and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "What to deploy"
+        type: choice
+        options: [none, api, web, both]
+        default: none
+      customers:
+        description: "API customers (site names, comma separated, in this order). The web part always updates ALL customers of the shared frontend."
+        type: string
+        default: demo
+      dry_run:
+        description: "Dry run = only run 'plan' on the server, change nothing (keep ON for the first runs)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: hrm-deploy
+  cancel-in-progress: false
+
+env:
+  BACKEND_CSPROJ: Backend/OpenSkyHRM.Api/OpenSkyHRM.Api.csproj   # CHECK
+  TEST_PROJECT: ""                                               # CHECK, e.g. Backend/OpenSkyHRM.Api.Tests ; empty = skip tests
+  FRONTEND_DIR: frontend                                         # CHECK
+  DOTNET_VERSION: "8.0.x"
+  NODE_VERSION: "20"
+
+jobs:
+  build-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "${{ env.DOTNET_VERSION }}" }
+      - name: Test
+        run: |
+          if [ -n "$TEST_PROJECT" ]; then dotnet test "$TEST_PROJECT" -c Release; else echo "no TEST_PROJECT set, tests skipped"; fi
+      - name: Publish (framework-dependent, the droplet has the .NET 8 runtime)
+        run: dotnet publish "$BACKEND_CSPROJ" -c Release -o publish-api -p:UseAppHost=false
+      - name: Check the publish folder
+        run: test -f publish-api/OpenSkyHRM.Api.dll && test -f publish-api/OpenSkyHRM.Api.deps.json && ls publish-api | wc -l
+      - name: Pack
+        run: tar -czf api.tgz -C publish-api .
+      - uses: actions/upload-artifact@v4
+        with: { name: api, path: api.tgz, retention-days: 14 }
+
+  build-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.FRONTEND_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.FRONTEND_DIR }}/package-lock.json
+      - run: npm ci
+      - name: "Build (do NOT set VERCEL: the server build writes to .dist)"
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          # add NEXT_PUBLIC_* values here only if the dev team says the build needs them
+      - name: Check the build
+        run: test -f .dist/BUILD_ID && test -f package-lock.json && test -f next.config.js
+      - name: "Pack (no node_modules: the server runs \"npm ci\" itself)"
+        run: |
+          mkdir -p ../web-build
+          cp -r .dist public package.json package-lock.json next.config.js ../web-build/
+          if [ -d config ]; then cp -r config ../web-build/; fi
+          tar -czf ../web.tgz -C ../web-build .
+      - uses: actions/upload-artifact@v4
+        with: { name: web, path: web.tgz, retention-days: 14 }
+
+  deploy:
+    needs: [build-api, build-web]
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy != 'none'
+    runs-on: ubuntu-latest
+    environment: production        # add "Required reviewers" to this environment in the repo settings
+    env:
+      HOST: ${{ secrets.DEPLOY_HOST }}
+      DUSER: ${{ secrets.DEPLOY_USER }}
+      MODE: ${{ inputs.dry_run && 'plan' || 'apply' }}
+      WHAT: ${{ inputs.deploy }}
+      CUSTOMERS: ${{ inputs.customers }}
+      SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dl }
+      - name: SSH setup
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy; chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host droplet\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  StrictHostKeyChecking yes\n  ServerAliveInterval 30\n' "$HOST" "$DUSER" > ~/.ssh/config
+          ssh droplet 'hostname && mkdir -p ~/incoming && find ~/incoming -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} +'
+      - name: Upload the builds
+        run: |
+          S=${GITHUB_SHA::10}
+          if [ "$WHAT" = api ] || [ "$WHAT" = both ]; then
+            mkdir -p up/api-$S && tar -xzf dl/api/api.tgz -C up/api-$S
+            rsync -az --delete up/api-$S/ droplet:incoming/api-$S/
+          fi
+          if [ "$WHAT" = web ] || [ "$WHAT" = both ]; then
+            mkdir -p up/web-$S && tar -xzf dl/web/web.tgz -C up/web-$S
+            rsync -az --delete up/web-$S/ droplet:incoming/web-$S/
+          fi
+      - name: Deploy the API, customer by customer (stops at the first failure)
+        if: inputs.deploy == 'api' || inputs.deploy == 'both'
+        run: |
+          S=${GITHUB_SHA::10}
+          for c in $(echo "$CUSTOMERS" | tr ',' ' '); do
+            [[ "$c" =~ ^[a-z0-9]+$ ]] || { echo "bad customer name: $c"; exit 1; }
+            echo "::group::api $MODE $c"
+            ssh droplet "sudo /usr/local/sbin/hr-release.sh api $MODE $c /home/$DUSER/incoming/api-$S"
+            echo "::endgroup::"
+          done
+      - name: Deploy the shared frontend (ALL customers of hrweb)
+        if: inputs.deploy == 'web' || inputs.deploy == 'both'
+        run: |
+          S=${GITHUB_SHA::10}
+          ssh droplet "sudo /usr/local/sbin/hr-release.sh web $MODE /home/$DUSER/incoming/web-$S"
+      - name: Summary
+        run: |
+          echo "### HRM deploy ${GITHUB_SHA::10}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- mode: **$MODE** (dry run = nothing changed)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- deployed: $WHAT; customers: $CUSTOMERS" >> "$GITHUB_STEP_SUMMARY"
