@@ -1,23 +1,27 @@
 # .github/workflows/hrm-build-deploy.yml  (put this file in the OpenSky HRM repo)
 #
-# push / pull request  -> build + test only (nothing is deployed)
+# Runs ONLY when you press "Run workflow" (no run on commit or pull request).
+# deploy = none  -> build + test only (nothing is deployed)
 # "Run workflow" button -> build + test, then deploy what you choose to HRIS-Basic-01 (needs approval, see "environment")
-# The deploy job runs on a self-hosted runner installed on HRIS-Basic-01 (SSH to the droplet is limited to one IP, so GitHub cannot SSH in).
+# Droplets are listed in .github/hrm-fleet.json. SSH on the droplets is closed to the internet: during a deploy the workflow adds the
+# IP of the GitHub machine (one /32 address) to the DigitalOcean cloud firewall, deploys, and ALWAYS removes it again.
 #
 # The backend path is confirmed (first run built the API). The frontend folder is found automatically.
 name: HRM build and deploy
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-  workflow_dispatch:
+  workflow_dispatch:      # only the "Run workflow" button starts this (no automatic run on commits)
     inputs:
       deploy:
         description: "What to deploy"
         type: choice
         options: [none, api, web, both]
         default: none
+      droplet:
+        description: "Which droplet (listed in .github/hrm-fleet.json). To add a droplet: add it to that file AND to this list"
+        type: choice
+        options: [hris-basic-01]
+        default: hris-basic-01
       customers:
         description: "API customers (site names, comma separated, in this order). The web part always updates ALL customers of the shared frontend."
         type: string
@@ -97,26 +101,59 @@ jobs:
   deploy:
     needs: [build-api, build-web]
     if: github.event_name == 'workflow_dispatch' && inputs.deploy != 'none'
-    runs-on: [self-hosted, linux, hrm-droplet]   # the runner on HRIS-Basic-01, user "deploy"
+    runs-on: ubuntu-24.04
     environment: production        # add "Required reviewers" to this environment in the repo settings
     env:
+      DROPLET: ${{ inputs.droplet }}
       MODE: ${{ inputs.dry_run && 'plan' || 'apply' }}
       WHAT: ${{ inputs.deploy }}
       CUSTOMERS: ${{ inputs.customers }}
+      SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DO_TOKEN: ${{ secrets.DO_API_TOKEN }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { path: dl }
-      - name: Unpack into the incoming folder
+      - name: Read the droplet from hrm-fleet.json
         run: |
-          S=${GITHUB_SHA::10}; IN="$HOME/incoming"
-          mkdir -p "$IN"; find "$IN" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} +
+          f=.github/hrm-fleet.json
+          jq -e --arg d "$DROPLET" '.droplets[$d]' "$f" > /dev/null || { echo "::error::droplet $DROPLET is not in $f"; exit 1; }
+          get(){ jq -r --arg d "$DROPLET" --arg k "$1" '.droplets[$d][$k] // empty' "$f"; }
+          H=$(get host); U=$(get user); F=$(get firewall_id); K=$(get host_key)
+          [[ "$H" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "::error::bad host in fleet file"; exit 1; }
+          [[ "$U" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "::error::bad user in fleet file"; exit 1; }
+          [[ "$F" =~ ^[0-9a-f-]{36}$ ]] || { echo "::error::bad firewall_id in fleet file"; exit 1; }
+          [[ "$K" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+$ ]] || { echo "::error::bad host_key in fleet file (expected: ssh-ed25519 AAAA...)"; exit 1; }
+          { echo "HOST=$H"; echo "DUSER=$U"; echo "FW=$F"; echo "HOSTKEY=$K"; } >> "$GITHUB_ENV"
+          echo "droplet $DROPLET -> $U@$H"
+      - name: Open SSH on the cloud firewall for this runner only (one IP, removed at the end)
+        id: fw
+        run: |
+          ip=$(curl -fsS https://api.ipify.org); [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::could not get the runner IP"; exit 1; }
+          body=$(jq -nc --arg s "$ip/32" '{inbound_rules:[{protocol:"tcp",ports:"22",sources:{addresses:[$s]}}]}')
+          code=$(curl -sS -o resp.txt -w '%{http_code}' -X POST -H "Authorization: Bearer $DO_TOKEN" -H 'Content-Type: application/json' -d "$body" "https://api.digitalocean.com/v2/firewalls/$FW/rules")
+          if [ "$code" != 204 ]; then echo "::error::DigitalOcean answered HTTP $code"; cat resp.txt; exit 1; fi
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"; echo "opened SSH for $ip/32"
+      - name: SSH setup (waits until the firewall change is active)
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy; chmod 600 ~/.ssh/id_deploy
+          printf '%s %s\n' "$HOST" "$HOSTKEY" > ~/.ssh/known_hosts
+          printf 'Host droplet\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  StrictHostKeyChecking yes\n  BatchMode yes\n  ConnectTimeout 6\n  ServerAliveInterval 30\n' "$HOST" "$DUSER" > ~/.ssh/config
+          ok=0; for i in $(seq 1 30); do if ssh droplet 'hostname'; then ok=1; break; fi; echo "waiting for the firewall ($i/30)"; sleep 5; done
+          [ "$ok" = 1 ] || { echo "::error::cannot reach the droplet over SSH"; exit 1; }
+          ssh droplet 'mkdir -p ~/incoming && find ~/incoming -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} +'
+      - name: Upload the builds
+        run: |
+          S=${GITHUB_SHA::10}
           if [ "$WHAT" = api ] || [ "$WHAT" = both ]; then
-            rm -rf "$IN/api-$S"; mkdir -p "$IN/api-$S"; tar -xzf dl/api/api.tgz -C "$IN/api-$S"
+            mkdir -p up/api-$S && tar -xzf dl/api/api.tgz -C up/api-$S
+            rsync -az --delete up/api-$S/ droplet:incoming/api-$S/
           fi
           if [ "$WHAT" = web ] || [ "$WHAT" = both ]; then
-            rm -rf "$IN/web-$S"; mkdir -p "$IN/web-$S"; tar -xzf dl/web/web.tgz -C "$IN/web-$S"
+            mkdir -p up/web-$S && tar -xzf dl/web/web.tgz -C up/web-$S
+            rsync -az --delete up/web-$S/ droplet:incoming/web-$S/
           fi
-          rm -rf dl
       - name: Deploy the API, customer by customer (stops at the first failure)
         if: inputs.deploy == 'api' || inputs.deploy == 'both'
         run: |
@@ -124,16 +161,24 @@ jobs:
           for c in $(echo "$CUSTOMERS" | tr ',' ' '); do
             [[ "$c" =~ ^[a-z0-9]+$ ]] || { echo "bad customer name: $c"; exit 1; }
             echo "::group::api $MODE $c"
-            sudo /usr/local/sbin/hr-release.sh api "$MODE" "$c" "$HOME/incoming/api-$S"
+            ssh droplet "sudo /usr/local/sbin/hr-release.sh api $MODE $c /home/$DUSER/incoming/api-$S"
             echo "::endgroup::"
           done
-      - name: Deploy the shared frontend (ALL customers of hrweb)
+      - name: Deploy the shared frontend (ALL customers of hrweb on this droplet)
         if: inputs.deploy == 'web' || inputs.deploy == 'both'
         run: |
           S=${GITHUB_SHA::10}
-          sudo /usr/local/sbin/hr-release.sh web "$MODE" "$HOME/incoming/web-$S"
+          ssh droplet "sudo /usr/local/sbin/hr-release.sh web $MODE /home/$DUSER/incoming/web-$S"
       - name: Summary
         run: |
-          echo "### HRM deploy ${GITHUB_SHA::10}" >> "$GITHUB_STEP_SUMMARY"
+          echo "### HRM deploy ${GITHUB_SHA::10} to $DROPLET" >> "$GITHUB_STEP_SUMMARY"
           echo "- mode: **$MODE** (dry run = nothing changed)" >> "$GITHUB_STEP_SUMMARY"
           echo "- deployed: $WHAT; customers: $CUSTOMERS" >> "$GITHUB_STEP_SUMMARY"
+      - name: Close SSH on the cloud firewall again (runs even when the deploy failed)
+        if: always() && steps.fw.outputs.ip != ''
+        env:
+          RUNNER_IP: ${{ steps.fw.outputs.ip }}
+        run: |
+          body=$(jq -nc --arg s "$RUNNER_IP/32" '{inbound_rules:[{protocol:"tcp",ports:"22",sources:{addresses:[$s]}}]}')
+          code=$(curl -sS -o resp.txt -w '%{http_code}' -X DELETE -H "Authorization: Bearer $DO_TOKEN" -H 'Content-Type: application/json' -d "$body" "https://api.digitalocean.com/v2/firewalls/$FW/rules")
+          if [ "$code" = 204 ]; then echo "closed SSH for $RUNNER_IP/32"; else echo "::error::could NOT remove the firewall rule for $RUNNER_IP (HTTP $code). Remove it by hand in DigitalOcean > Networking > Firewalls."; cat resp.txt; exit 1; fi
