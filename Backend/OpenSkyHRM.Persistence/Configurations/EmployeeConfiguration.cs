@@ -17,6 +17,8 @@ public class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
             .HasFilter("\"FingerprintId\" IS NOT NULL AND \"FingerprintId\" <> ''");
 
         builder.Property(e => e.EmployeeCode).HasMaxLength(50).IsRequired();
+        builder.Property(e => e.CompanyProfileKey).HasMaxLength(64).IsRequired().HasDefaultValue("primary");
+        builder.HasIndex(e => e.CompanyProfileKey);
         builder.Property(e => e.FirstName).HasMaxLength(100).IsRequired();
         builder.Property(e => e.MiddleName).HasMaxLength(100);
         builder.Property(e => e.LastName).HasMaxLength(100).IsRequired();

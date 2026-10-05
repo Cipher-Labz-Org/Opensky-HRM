@@ -120,6 +120,7 @@ public class AppDbContext : DbContext
     public DbSet<UserAssignedBusinessUnit> UserAssignedBusinessUnits => Set<UserAssignedBusinessUnit>();
     public DbSet<UserAssignedGrade> UserAssignedGrades => Set<UserAssignedGrade>();
     public DbSet<UserAssignedJobTitle> UserAssignedJobTitles => Set<UserAssignedJobTitle>();
+    public DbSet<UserAssignedCompanyProfile> UserAssignedCompanyProfiles => Set<UserAssignedCompanyProfile>();
     public DbSet<CompanyCalendar> CompanyCalendars => Set<CompanyCalendar>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<EmployeeLifecycleEvent> EmployeeLifecycleEvents => Set<EmployeeLifecycleEvent>();

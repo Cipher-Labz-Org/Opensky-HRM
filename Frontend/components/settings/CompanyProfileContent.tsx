@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompanyLogoDisplay } from "@/components/branding/CompanyLogoDisplay";
 import { CurrencySearchCombobox } from "@/components/forms/CurrencySearchCombobox";
-import { EmailInput, FlashMessageBanner, ListAutocompleteInput, PhoneInput, type FlashMessage } from "@/components/ui";
+import {
+  EmailInput,
+  FlashMessageBanner,
+  ListAutocompleteInput,
+  PhoneInput,
+  SectionRecordHeaderActions,
+  type FlashMessage,
+} from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import {
   clampLogoOffset,
@@ -36,6 +43,15 @@ import {
   parseCompanyBankAccounts,
   type CompanyBankAccount,
 } from "@/lib/company-bank-accounts";
+import {
+  createEmptyAdditionalCompanyProfile,
+  isBlankAdditionalCompanyProfile,
+  parseAdditionalCompanyProfiles,
+  sanitizeAdditionalCompanyProfiles,
+  type AdditionalCompanyProfile,
+} from "@/lib/additional-company-profiles";
+import { AdditionalCompanyProfileCard } from "@/components/settings/AdditionalCompanyProfileCard";
+import { useMultiCompanyFeature } from "@/lib/use-multi-company-feature";
 
 export function CompanyProfileContent() {
   const [companyLogoUrl, setCompanyLogoUrl] = useState("");
@@ -67,12 +83,15 @@ export function CompanyProfileContent() {
   const [defaultCurrency, setDefaultCurrency] = useState(DEFAULT_CURRENCY);
   const [companySaving, setCompanySaving] = useState(false);
   const [companyMsg, setCompanyMsg] = useState("");
+  const [additionalCompanies, setAdditionalCompanies] = useState<AdditionalCompanyProfile[]>([]);
 
   const [epfRegNo, setEpfRegNo] = useState("");
   const [etfRegNo, setEtfRegNo] = useState("");
   const [bankAccounts, setBankAccounts] = useState<CompanyBankAccount[]>([]);
   const [additionalSaving, setAdditionalSaving] = useState(false);
   const [additionalMsg, setAdditionalMsg] = useState("");
+  const { multiCompanyActive } = useMultiCompanyFeature();
+
   const companyBankNameOptions = useMemo(
     () => bankNameOptions(bankAccounts.map((account) => account.bankName)),
     [bankAccounts],
@@ -132,6 +151,7 @@ export function CompanyProfileContent() {
     setEpfRegNo(getSystemSetting(settings, "CompanyEpfRegNo") ?? "");
     setEtfRegNo(getSystemSetting(settings, "CompanyEtfRegNo") ?? "");
     setBankAccounts(parseCompanyBankAccounts(getSystemSetting(settings, "CompanyBankAccounts")));
+    setAdditionalCompanies(parseAdditionalCompanyProfiles(getSystemSetting(settings, "AdditionalCompanyProfiles")));
   }
 
   useEffect(() => {
@@ -278,6 +298,34 @@ export function CompanyProfileContent() {
       setCompanySaving(false);
       return;
     }
+
+    const cleanedAdditional = sanitizeAdditionalCompanyProfiles(additionalCompanies);
+    for (let i = 0; i < additionalCompanies.length; i += 1) {
+      const row = additionalCompanies[i];
+      if (isBlankAdditionalCompanyProfile(row)) continue;
+      if (!row.name.trim()) {
+        setCompanyMsg(`Company name is required for additional company ${i + 1}.`);
+        setCompanySaving(false);
+        return;
+      }
+      if (row.phone.trim() && !isValidPhone(row.phone)) {
+        setCompanyMsg(`${PHONE_VALIDATION_MESSAGE} (additional company ${i + 1})`);
+        setCompanySaving(false);
+        return;
+      }
+      const trimmedEmail = row.email.trim();
+      if (trimmedEmail && !isValidEmailInput(trimmedEmail)) {
+        setCompanyMsg(`${EMAIL_INPUT_VALIDATION_MESSAGE} (additional company ${i + 1})`);
+        setCompanySaving(false);
+        return;
+      }
+      if (trimmedEmail && !isValidEmailFormat(trimmedEmail)) {
+        setCompanyMsg(`${EMAIL_FORMAT_VALIDATION_MESSAGE} (additional company ${i + 1})`);
+        setCompanySaving(false);
+        return;
+      }
+    }
+
     try {
       await Promise.all([
         apiFetch("/api/system-settings/CompanyName", { method: "PUT", body: JSON.stringify({ value: companyName }) }),
@@ -292,9 +340,14 @@ export function CompanyProfileContent() {
         apiFetch("/api/system-settings/CompanyWebsite", { method: "PUT", body: JSON.stringify({ value: companyWebsite }) }),
         apiFetch("/api/system-settings/CompanyRegNo", { method: "PUT", body: JSON.stringify({ value: companyRegNo }) }),
         apiFetch("/api/system-settings/DefaultCurrency", { method: "PUT", body: JSON.stringify({ value: defaultCurrency.trim().toUpperCase() }) }),
+        apiFetch("/api/system-settings/AdditionalCompanyProfiles", {
+          method: "PUT",
+          body: JSON.stringify({ value: JSON.stringify(cleanedAdditional) }),
+        }),
       ]);
       const settings = await apiFetch<Record<string, string>>("/api/system-settings");
       applySystemSettings(settings);
+      setAdditionalCompanies(cleanedAdditional);
       setCompanyMsg("Company details saved successfully");
       setTimeout(() => setCompanyMsg(""), 3000);
     } catch {
@@ -308,6 +361,11 @@ export function CompanyProfileContent() {
     setBankAccounts((accounts) =>
       accounts.map((account, i) => (i === index ? { ...account, [field]: value } : account)),
     );
+  }
+
+  function addAnotherCompanyProfile() {
+    setAdditionalCompanies((rows) => [...rows, createEmptyAdditionalCompanyProfile()]);
+    setCompanyMsg("");
   }
 
   async function saveAdditionalDetails() {
@@ -351,6 +409,13 @@ export function CompanyProfileContent() {
       <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="section-title">
           <h3>Company Details</h3>
+          {multiCompanyActive ? (
+            <SectionRecordHeaderActions
+              count={additionalCompanies.length}
+              addTitle="Add another company profile"
+              onAdd={addAnotherCompanyProfile}
+            />
+          ) : null}
         </div>
         <div className="space-y-4 px-1 py-3">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -457,6 +522,27 @@ export function CompanyProfileContent() {
               />
             </div>
           </div>
+
+          {multiCompanyActive && additionalCompanies.length > 0 ? (
+            <div className="space-y-3 border-t border-slate-100 pt-4">
+              {additionalCompanies.map((profile, index) => (
+                <AdditionalCompanyProfileCard
+                  key={profile.id}
+                  index={index}
+                  profile={profile}
+                  onChange={(next) =>
+                    setAdditionalCompanies((rows) =>
+                      rows.map((row) => (row.id === profile.id ? next : row)),
+                    )
+                  }
+                  onRemove={() =>
+                    setAdditionalCompanies((rows) => rows.filter((row) => row.id !== profile.id))
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
+
           <div className="flex items-center justify-end gap-3 pt-1">
             {companyMsg && (
               <span className={`text-xs font-medium ${companyMsg.includes("success") ? "text-green-600" : "text-red-500"}`}>

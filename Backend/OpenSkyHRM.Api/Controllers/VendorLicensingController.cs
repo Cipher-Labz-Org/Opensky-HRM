@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Licensing;
 using OpenSkyHRM.Application.Interfaces;
 
@@ -11,11 +12,16 @@ public class VendorLicensingController : ControllerBase
 {
     private readonly IVendorLicensingAuthService _auth;
     private readonly ILicensingService _licensing;
+    private readonly ISystemSettingService _settings;
 
-    public VendorLicensingController(IVendorLicensingAuthService auth, ILicensingService licensing)
+    public VendorLicensingController(
+        IVendorLicensingAuthService auth,
+        ILicensingService licensing,
+        ISystemSettingService settings)
     {
         _auth = auth;
         _licensing = licensing;
+        _settings = settings;
     }
 
     [HttpPost("login")]
@@ -40,6 +46,18 @@ public class VendorLicensingController : ControllerBase
     [Authorize(Policy = "VendorLicensing")]
     public async Task<ActionResult<LicensingAdminDto>> GetState(CancellationToken cancellationToken)
         => Ok(await _licensing.GetAdminStateAsync(cancellationToken));
+
+    [HttpPut("multi-company-feature")]
+    [Authorize(Policy = "VendorLicensing")]
+    public async Task<IActionResult> SetMultiCompanyFeature(
+        [FromBody] SetMultiCompanyFeatureDto dto,
+        CancellationToken cancellationToken)
+    {
+        _ = cancellationToken;
+        var value = dto.Active ? "true" : "false";
+        await _settings.SetAsync(MultiCompanyFeature.ActiveSettingKey, value);
+        return Ok(new { active = dto.Active });
+    }
 
     [HttpPut("entitlements")]
     [Authorize(Policy = "VendorLicensing")]

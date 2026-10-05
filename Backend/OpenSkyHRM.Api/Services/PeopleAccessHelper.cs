@@ -151,6 +151,24 @@ public static class PeopleAccessHelper
     }
 
     /// <summary>
+    /// Returns distinct company profile keys assigned to the user account, or null when there are no rows.
+    /// </summary>
+    public static async Task<IReadOnlyList<string>?> GetAssignedCompanyProfileKeysAsync(ClaimsPrincipal user, AppDbContext db)
+    {
+        var userId = GetCurrentUserAccountId(user);
+        if (!userId.HasValue) return null;
+
+        var keys = await db.Set<UserAssignedCompanyProfile>()
+            .AsNoTracking()
+            .Where(x => x.UserId == userId.Value)
+            .Select(x => x.CompanyProfileKey)
+            .Distinct()
+            .ToListAsync();
+
+        return keys.Count == 0 ? null : keys;
+    }
+
+    /// <summary>
     /// When the user has assigned locations, the employee's work location must be one of them (non-null).
     /// </summary>
     public static async Task<bool> MayAssignEmployeeLocationAsync(ClaimsPrincipal user, AppDbContext db, Guid? locationId)
@@ -169,10 +187,12 @@ public static class PeopleAccessHelper
         IReadOnlyList<Guid>? assignedLocs,
         IReadOnlyList<Guid>? assignedBus,
         IReadOnlyList<Guid>? assignedGrades,
-        IReadOnlyList<Guid>? assignedJobTitles)
+        IReadOnlyList<Guid>? assignedJobTitles,
+        IReadOnlyList<string>? assignedCompanyProfileKeys)
     {
         var hasAssignmentFilters =
-            assignedLocs != null || assignedBus != null || assignedGrades != null || assignedJobTitles != null;
+            assignedLocs != null || assignedBus != null || assignedGrades != null || assignedJobTitles != null
+            || assignedCompanyProfileKeys != null;
 
         if (!hasAssignmentFilters)
             return null;
@@ -191,6 +211,9 @@ public static class PeopleAccessHelper
         if (assignedJobTitles != null)
             q = q.Where(e => e.JobTitleId.HasValue && assignedJobTitles.Contains(e.JobTitleId.Value));
 
+        if (assignedCompanyProfileKeys != null)
+            q = q.Where(e => assignedCompanyProfileKeys.Contains(e.CompanyProfileKey));
+
         return await q.Select(e => e.Id).ToListAsync();
     }
 
@@ -205,9 +228,10 @@ public static class PeopleAccessHelper
         var assignedBus = await GetAssignedBusinessUnitIdsAsync(user, db);
         var assignedGrades = await GetAssignedGradeIdsAsync(user, db);
         var assignedJobTitles = await GetAssignedJobTitleIdsAsync(user, db);
+        var assignedCompanyProfiles = await GetAssignedCompanyProfileKeysAsync(user, db);
 
         return await BuildDimensionFilteredEmployeeIdsAsync(
-            db, assignedLocs, assignedBus, assignedGrades, assignedJobTitles);
+            db, assignedLocs, assignedBus, assignedGrades, assignedJobTitles, assignedCompanyProfiles);
     }
 
     /// <summary>
@@ -295,9 +319,10 @@ public static class PeopleAccessHelper
         var assignedBus = await GetAssignedBusinessUnitIdsAsync(user, db);
         var assignedGrades = await GetAssignedGradeIdsAsync(user, db);
         var assignedJobTitles = await GetAssignedJobTitleIdsAsync(user, db);
+        var assignedCompanyProfiles = await GetAssignedCompanyProfileKeysAsync(user, db);
 
         var dimensionIds = await BuildDimensionFilteredEmployeeIdsAsync(
-            db, assignedLocs, assignedBus, assignedGrades, assignedJobTitles);
+            db, assignedLocs, assignedBus, assignedGrades, assignedJobTitles, assignedCompanyProfiles);
 
         var scopeIds = await ResolveRbacScopeIdsAsync(user, db, action);
         var allowed = IntersectEmployeeScopes(scopeIds, dimensionIds);

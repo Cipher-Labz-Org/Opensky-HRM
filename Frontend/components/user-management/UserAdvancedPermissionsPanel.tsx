@@ -121,14 +121,18 @@ interface UserAdvancedPermissionsPanelProps {
   businessUnits: ScopeItem[];
   grades: ScopeItem[];
   jobTitles: ScopeItem[];
+  /** Shown only when multi-company setup is active. */
+  companies?: ScopeItem[];
   selectedLocationIds: string[];
   selectedBusinessUnitIds: string[];
   selectedGradeIds: string[];
   selectedJobTitleIds: string[];
+  selectedCompanyProfileKeys?: string[];
   onLocationChange: (ids: string[]) => void;
   onBusinessUnitChange: (ids: string[]) => void;
   onGradeChange: (ids: string[]) => void;
   onJobTitleChange: (ids: string[]) => void;
+  onCompanyProfileChange?: (keys: string[]) => void;
 }
 
 export function UserAdvancedPermissionsPanel({
@@ -136,20 +140,25 @@ export function UserAdvancedPermissionsPanel({
   businessUnits,
   grades,
   jobTitles,
+  companies = [],
   selectedLocationIds,
   selectedBusinessUnitIds,
   selectedGradeIds,
   selectedJobTitleIds,
+  selectedCompanyProfileKeys = [],
   onLocationChange,
   onBusinessUnitChange,
   onGradeChange,
   onJobTitleChange,
+  onCompanyProfileChange,
 }: UserAdvancedPermissionsPanelProps) {
+  const showCompanies = companies.length > 0 && onCompanyProfileChange != null;
   const restrictionCount =
     selectedLocationIds.length +
     selectedBusinessUnitIds.length +
     selectedGradeIds.length +
-    selectedJobTitleIds.length;
+    selectedJobTitleIds.length +
+    (showCompanies ? selectedCompanyProfileKeys.length : 0);
 
   const [expanded, setExpanded] = useState(restrictionCount > 0);
 
@@ -224,6 +233,17 @@ export function UserAdvancedPermissionsPanel({
               selectedIds={selectedJobTitleIds}
               onChange={onJobTitleChange}
             />
+            {showCompanies ? (
+              <ScopeCheckboxGroup
+                title="Companies"
+                description="Restrict to employees assigned to selected company profiles."
+                emptyMessage="No company profiles yet. Enable multi-company setup and add profiles under Company Profile."
+                organizationLink="/app/company-profile"
+                items={companies}
+                selectedIds={selectedCompanyProfileKeys}
+                onChange={onCompanyProfileChange}
+              />
+            ) : null}
           </div>
         </div>
       ) : null}

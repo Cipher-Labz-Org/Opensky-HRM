@@ -10,6 +10,11 @@ import { isValidPhone, isValidUsername, isValidEmailInput, isValidEmailFormat, s
 import { formatLocalDateToIso } from "@/lib/datePickerIso";
 import { apiFetch } from "@/lib/api";
 import { getSystemSetting } from "@/lib/system-settings";
+import {
+  buildCompanyProfileFilterOptions,
+  isMultiCompanyFeatureActive,
+  PRIMARY_COMPANY_PROFILE_KEY,
+} from "@/lib/additional-company-profiles";
 
 interface Lookup {
   id: string;
@@ -71,6 +76,9 @@ export function CreateEmployeeModal({
   const [grades, setGrades] = useState<Lookup[]>([]);
   const [jobTitles, setJobTitles] = useState<Lookup[]>([]);
   const [roles, setRoles] = useState<RoleLookup[]>([]);
+  const [multiCompanyActive, setMultiCompanyActive] = useState(false);
+  const [companyProfileOptions, setCompanyProfileOptions] = useState<{ value: string; label: string }[]>([]);
+  const [companyProfileKey, setCompanyProfileKey] = useState(PRIMARY_COMPANY_PROFILE_KEY);
   const [autoGenerate, setAutoGenerate] = useState(true);
   const [nextCode, setNextCode] = useState("");
   const [employeeCode, setEmployeeCode] = useState("");
@@ -137,6 +145,13 @@ export function CreateEmployeeModal({
 
       const ess = (fetchedRoles as RoleLookup[]).find((r) => r.code === "EMPLOYEE");
       if (ess) setEssRoleId(ess.id);
+
+      const settingsMap = settings as Record<string, string>;
+      const multi = isMultiCompanyFeatureActive(getSystemSetting(settingsMap, "MultiCompanyFeatureActive"));
+      setMultiCompanyActive(multi);
+      const companyOpts = multi ? buildCompanyProfileFilterOptions(settingsMap).filter((o) => o.value !== "") : [];
+      setCompanyProfileOptions(companyOpts);
+      setCompanyProfileKey(PRIMARY_COMPANY_PROFILE_KEY);
 
       const isAuto = getSystemSetting(settings as Record<string, string>, "EmployeeCodeAutoGenerate") !== "false";
       setAutoGenerate(isAuto);
@@ -282,6 +297,7 @@ export function CreateEmployeeModal({
       gradeId: readOptionalId("gradeId"),
       jobTitleId: readOptionalId("jobTitleId"),
       positionId: initialValues?.positionId || null,
+      companyProfileKey: multiCompanyActive ? companyProfileKey : PRIMARY_COMPANY_PROFILE_KEY,
     };
 
     if (createLogin) {
@@ -362,6 +378,11 @@ export function CreateEmployeeModal({
               className={inputClass}
               placeholder={autoGenerate ? nextCode || "Auto code will be suggested" : "Enter employee code"}
             />
+            {multiCompanyActive ? (
+              <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">
+                Multiple company setup is active. Employee ID must be unique — you cannot reuse the same ID for another employee.
+              </p>
+            ) : null}
           </div>
           <div>
             <label className={labelClass}>Fingerprint ID</label>
@@ -388,6 +409,19 @@ export function CreateEmployeeModal({
               }}
             />
           </div>
+          {multiCompanyActive && companyProfileOptions.length > 0 ? (
+            <div>
+              <label className={labelClass}>Company *</label>
+              <FormSelect
+                value={companyProfileKey}
+                onValueChange={setCompanyProfileKey}
+                options={companyProfileOptions}
+                placeholder="Select company…"
+                required
+                clearable={false}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">

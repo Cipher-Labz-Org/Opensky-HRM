@@ -28,6 +28,7 @@ import {
   type ReportGroupByKey,
   type ReportParamFilterKey,
 } from "@/lib/report-parameters-search";
+import { useMultiCompanyFeature } from "@/lib/use-multi-company-feature";
 
 interface ReportItem {
   key: string;
@@ -58,7 +59,20 @@ function getReportCell(row: Record<string, unknown>, column: string): unknown {
 }
 
 /** Query keys mirrored in the address bar for shareable report links. */
-const REPORT_URL_FILTER_KEYS = ["departmentId", "locationId", "employeeId", "employeeName", "status", "gradeId", "from", "to", "year", "month", "date"] as const;
+const REPORT_URL_FILTER_KEYS = [
+  "companyProfileKey",
+  "departmentId",
+  "locationId",
+  "employeeId",
+  "employeeName",
+  "status",
+  "gradeId",
+  "from",
+  "to",
+  "year",
+  "month",
+  "date",
+] as const;
 
 const EMPLOYEE_MASTER_REPORT_KEY = "employee-master";
 
@@ -115,6 +129,7 @@ function mergeUrlFiltersIntoReportParams(
 ): Record<string, string> {
   const merged = { ...base };
   if (!item) return merged;
+  if (item.supportsDepartmentFilter && url.companyProfileKey) merged.companyProfileKey = url.companyProfileKey;
   if (item.supportsDepartmentFilter && url.departmentId) merged.departmentId = url.departmentId;
   if (item.supportsDepartmentFilter && url.locationId) merged.locationId = url.locationId;
   if (item.supportsDepartmentFilter && url.employeeId) merged.employeeId = url.employeeId;
@@ -195,6 +210,9 @@ function buildReportUrlQuery(
   qs.set("category", catKey);
   qs.set("report", rptKey);
   if (!item) return qs.toString();
+  if (item.supportsDepartmentFilter && mergedParams.companyProfileKey) {
+    qs.set("companyProfileKey", mergedParams.companyProfileKey);
+  }
   if (item.supportsDepartmentFilter && mergedParams.departmentId) qs.set("departmentId", mergedParams.departmentId);
   if (item.supportsDepartmentFilter && mergedParams.locationId) qs.set("locationId", mergedParams.locationId);
   if (item.supportsDepartmentFilter && mergedParams.employeeId) qs.set("employeeId", mergedParams.employeeId);
@@ -323,6 +341,8 @@ export default function ReportsPage() {
   const [filterEmployeeName, setFilterEmployeeName] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterGradeId, setFilterGradeId] = useState("");
+  const [filterCompanyProfileKey, setFilterCompanyProfileKey] = useState("");
+  const { multiCompanyActive, companyFilterOptions } = useMultiCompanyFeature();
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [filterYear, setFilterYear] = useState("");
@@ -344,8 +364,15 @@ export default function ReportsPage() {
     employeeName: "",
     status: "",
     gradeId: "",
+    companyProfileKey: "",
   });
   const filterApplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (multiCompanyActive) return;
+    setFilterCompanyProfileKey("");
+    pendingFiltersRef.current = { ...pendingFiltersRef.current, companyProfileKey: "" };
+  }, [multiCompanyActive]);
 
   useEffect(() => {
     apiFetch<ReportCategory[]>("/api/reports/catalog").then((cats) => {
@@ -398,8 +425,17 @@ export default function ReportsPage() {
       employeeName: filterEmployeeName,
       status: filterStatus,
       gradeId: filterGradeId,
+      companyProfileKey: filterCompanyProfileKey,
     };
-  }, [filterDepartmentId, filterLocationId, filterEmployeeId, filterEmployeeName, filterStatus, filterGradeId]);
+  }, [
+    filterDepartmentId,
+    filterLocationId,
+    filterEmployeeId,
+    filterEmployeeName,
+    filterStatus,
+    filterGradeId,
+    filterCompanyProfileKey,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -414,6 +450,7 @@ export default function ReportsPage() {
     setFilterEmployeeName(params.employeeName ?? "");
     setFilterStatus(params.status ?? "");
     setFilterGradeId(params.gradeId ?? "");
+    setFilterCompanyProfileKey(params.companyProfileKey ?? "");
     const period: ReportPeriodValues = {
       from: params.from ?? "",
       to: params.to ?? "",
@@ -459,6 +496,7 @@ export default function ReportsPage() {
       employeeName: string;
       status: string;
       gradeId: string;
+      companyProfileKey: string;
       from: string;
       to: string;
       year: string;
@@ -474,6 +512,9 @@ export default function ReportsPage() {
     const employeeName = overrides?.employeeName ?? filterEmployeeName;
     const status = overrides?.status ?? filterStatus;
     const gradeId = overrides?.gradeId ?? filterGradeId;
+    const companyProfileKey = overrides?.companyProfileKey ?? filterCompanyProfileKey;
+    if (item.supportsDepartmentFilter && companyProfileKey.trim())
+      p.companyProfileKey = companyProfileKey.trim();
     if (item.supportsDepartmentFilter && departmentId.trim())
       p.departmentId = departmentId.trim();
     if (item.supportsDepartmentFilter && locationId.trim())
@@ -555,6 +596,15 @@ export default function ReportsPage() {
   const reportFilterSections = useMemo<ReportFilterSection[]>(() => {
     if (!activeReportDef?.supportsDepartmentFilter) return [];
     const sections: ReportFilterSection[] = [
+      ...(multiCompanyActive
+        ? [
+            {
+              key: "companyProfileKey" as const,
+              label: "Company",
+              options: companyFilterOptions.filter((opt) => opt.value !== ""),
+            },
+          ]
+        : []),
       {
         key: "departmentId",
         label: "Department",
@@ -586,10 +636,27 @@ export default function ReportsPage() {
       );
     }
     return sections;
-  }, [activeReportDef, departments, visibleLocations, employees, employeeStatuses, visibleGrades, isEmployeeMasterReport]);
+  }, [
+    activeReportDef,
+    multiCompanyActive,
+    companyFilterOptions,
+    departments,
+    visibleLocations,
+    employees,
+    employeeStatuses,
+    visibleGrades,
+    isEmployeeMasterReport,
+  ]);
 
   const reportFilterPills = useMemo<ReportFilterPill[]>(() => {
     const pills: ReportFilterPill[] = [];
+    for (const key of splitReportFilterValues(filterCompanyProfileKey)) {
+      pills.push({
+        key: "companyProfileKey",
+        value: key,
+        label: companyFilterOptions.find((c) => c.value === key)?.label ?? "Company",
+      });
+    }
     for (const id of splitReportFilterValues(filterDepartmentId)) {
       pills.push({
         key: "departmentId",
@@ -622,7 +689,19 @@ export default function ReportsPage() {
       });
     }
     return pills;
-  }, [filterDepartmentId, filterLocationId, filterEmployeeId, filterStatus, filterGradeId, departments, locations, employees, grades]);
+  }, [
+    filterCompanyProfileKey,
+    filterDepartmentId,
+    filterLocationId,
+    filterEmployeeId,
+    filterStatus,
+    filterGradeId,
+    companyFilterOptions,
+    departments,
+    locations,
+    employees,
+    grades,
+  ]);
 
   function getReportFilterValue(key: ReportParamFilterKey): string {
     return pendingFiltersRef.current[key] ?? "";
@@ -645,6 +724,9 @@ export default function ReportsPage() {
         break;
       case "gradeId":
         setFilterGradeId(value);
+        break;
+      case "companyProfileKey":
+        setFilterCompanyProfileKey(value);
         break;
     }
   }
@@ -828,6 +910,7 @@ export default function ReportsPage() {
       employeeName: "",
       status: "",
       gradeId: "",
+      companyProfileKey: "",
     };
     const period = defaultPeriodValues();
     periodFiltersRef.current = period;
@@ -845,6 +928,7 @@ export default function ReportsPage() {
       employeeName: "",
       status: "",
       gradeId: "",
+      companyProfileKey: "",
       ...period,
     });
   }
@@ -866,6 +950,7 @@ export default function ReportsPage() {
       employeeName: string;
       status: string;
       gradeId: string;
+      companyProfileKey: string;
       from: string;
       to: string;
       year: string;
@@ -880,6 +965,7 @@ export default function ReportsPage() {
     if (overrides?.employeeName !== undefined) setFilterEmployeeName(overrides.employeeName);
     if (overrides?.status !== undefined) setFilterStatus(overrides.status);
     if (overrides?.gradeId !== undefined) setFilterGradeId(overrides.gradeId);
+    if (overrides?.companyProfileKey !== undefined) setFilterCompanyProfileKey(overrides.companyProfileKey);
     if (overrides?.from !== undefined || overrides?.to !== undefined || overrides?.year !== undefined || overrides?.month !== undefined || overrides?.date !== undefined) {
       periodFiltersRef.current = {
         from: overrides?.from ?? periodFiltersRef.current.from,
@@ -1273,6 +1359,7 @@ export default function ReportsPage() {
                   employeeId: filterEmployeeId || undefined,
                   status: filterStatus || undefined,
                   gradeId: filterGradeId || undefined,
+                  companyProfileKey: filterCompanyProfileKey || undefined,
                 }}
                 onClearAll={handleClearReportFilters}
                 periodSection={reportPeriodSection()}

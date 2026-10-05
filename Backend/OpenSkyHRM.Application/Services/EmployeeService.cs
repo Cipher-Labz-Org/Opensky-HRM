@@ -191,7 +191,8 @@ public class EmployeeService : IEmployeeService
         Guid? locationId = null, Guid? managerId = null, string? status = null,
         string? employmentType = null,
         IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = false,
-        string? sortBy = null, string? sortDir = null)
+        string? sortBy = null, string? sortDir = null,
+        string? companyProfileKey = null)
     {
         var query = _db.Employees
             .Include(e => e.Department)
@@ -225,6 +226,12 @@ public class EmployeeService : IEmployeeService
 
         if (excludeTerminated && string.IsNullOrWhiteSpace(status))
             query = query.Where(e => e.Status != "Terminated");
+
+        if (!string.IsNullOrWhiteSpace(companyProfileKey))
+        {
+            var profileKey = companyProfileKey.Trim();
+            query = query.Where(e => e.CompanyProfileKey == profileKey);
+        }
 
         if (allowedEmployeeIds != null)
         {
@@ -410,10 +417,12 @@ public class EmployeeService : IEmployeeService
         await EmployeeUniqueness.ValidateForCreateAsync(_db, code, resolvedEmail);
         var fingerprintId = EmployeeUniqueness.NormalizeFingerprintId(dto.FingerprintId);
         await EmployeeUniqueness.ValidateFingerprintIdAsync(_db, null, fingerprintId);
+        var companyProfileKey = await CompanyProfileAssignment.ResolveForCreateAsync(_db, dto.CompanyProfileKey);
 
         var employee = new Employee
         {
             EmployeeCode = code,
+            CompanyProfileKey = companyProfileKey,
             FirstName = dto.FirstName,
             MiddleName = dto.MiddleName,
             LastName = dto.LastName,
@@ -951,6 +960,7 @@ public class EmployeeService : IEmployeeService
         ProfileImageUrl = e.ProfileImageUrl,
         IsTopOfHierarchy = e.IsTopOfHierarchy,
         IsCashPayment = e.IsCashPayment,
+        CompanyProfileKey = e.CompanyProfileKey,
         ShiftPatternId = e.ShiftPatternId,
         ShiftPatternName = e.ShiftPattern?.Name,
         ShiftPatternCode = e.ShiftPattern?.Code,

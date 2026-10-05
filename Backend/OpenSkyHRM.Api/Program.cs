@@ -358,6 +358,7 @@ if (dbAvailable)
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         // Schema first so live tenants have APIT/EPF columns even if a later migration fails.
         await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
+        await EmployeeCompanyProfileSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await db.Database.MigrateAsync();
         await BankAccountSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, app.Configuration);
@@ -374,6 +375,7 @@ if (dbAvailable)
             await LeaveSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
             await RecruitmentSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
             await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
+            await EmployeeCompanyProfileSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
         }
         catch (Exception repairEx)
         {

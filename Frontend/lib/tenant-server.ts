@@ -36,10 +36,10 @@ export function backendBaseForRequest(req: NextRequest): string {
 export async function proxyToTenantBackend(
   req: NextRequest,
   backendPath: string,
-  init: RequestInit & { timeoutMs?: number } = {},
+  init: RequestInit & { timeoutMs?: number; backendBase?: string } = {},
 ): Promise<Response> {
-  const { timeoutMs = 25_000, ...fetchInit } = init;
-  const base = backendBaseForRequest(req);
+  const { timeoutMs = 25_000, backendBase, ...fetchInit } = init;
+  const base = (backendBase ?? backendBaseForRequest(req)).replace(/\/$/, "");
   const path = backendPath.startsWith("/") ? backendPath : `/${backendPath}`;
   const target = `${base}${path}`;
 
@@ -108,9 +108,9 @@ export function upstreamTimeoutMsForApiSegments(segments: string[]): number {
 export async function proxyTenantRequest(
   req: NextRequest,
   backendPath: string,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; backendBase?: string } = {},
 ): Promise<NextResponse> {
-  const { timeoutMs = 45_000 } = options;
+  const { timeoutMs = 45_000, backendBase } = options;
   const method = req.method.toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";
   const body = hasBody ? await req.arrayBuffer() : undefined;
@@ -120,6 +120,7 @@ export async function proxyTenantRequest(
     headers: proxyRequestHeaders(req),
     body: body && body.byteLength > 0 ? body : undefined,
     timeoutMs,
+    backendBase,
   });
 
   if (res.status >= 301 && res.status <= 308) {

@@ -11,12 +11,7 @@ public static class EmployeeUniqueness
             throw new InvalidOperationException("Employee code is required.");
 
         var normalizedCode = employeeCode.Trim();
-
-        if (await db.Employees.IgnoreQueryFilters().AnyAsync(e => e.EmployeeCode == normalizedCode))
-        {
-            throw new InvalidOperationException(
-                $"Employee code '{normalizedCode}' is already in use (including archived employees). Choose a different code.");
-        }
+        await ValidateEmployeeCodeAvailableAsync(db, null, normalizedCode);
 
         var normalizedEmail = EmployeeEmailHelper.NormalizeForSave(email);
         if (normalizedEmail == null) return;
@@ -26,6 +21,24 @@ public static class EmployeeUniqueness
             throw new InvalidOperationException(
                 $"Email '{normalizedEmail}' is already used by another employee (including archived records). Use a different email or delete the archived employee first.");
         }
+    }
+
+    public static async Task ValidateEmployeeCodeAvailableAsync(AppDbContext db, Guid? employeeId, string employeeCode)
+    {
+        if (string.IsNullOrWhiteSpace(employeeCode))
+            throw new InvalidOperationException("Employee code is required.");
+
+        var normalizedCode = employeeCode.Trim();
+        var taken = await db.Employees.IgnoreQueryFilters()
+            .AnyAsync(e => e.EmployeeCode == normalizedCode && (!employeeId.HasValue || e.Id != employeeId.Value));
+
+        if (!taken) return;
+
+        var multiCompany = await MultiCompanyFeature.IsActiveAsync(db);
+        throw new InvalidOperationException(
+            multiCompany
+                ? $"Employee ID '{normalizedCode}' is already used. With multiple company setup active, each employee must have a unique ID across all companies."
+                : $"Employee code '{normalizedCode}' is already in use (including archived employees). Choose a different code.");
     }
 
     public static async Task ValidateEmailForUpdateAsync(AppDbContext db, Guid employeeId, string? email)

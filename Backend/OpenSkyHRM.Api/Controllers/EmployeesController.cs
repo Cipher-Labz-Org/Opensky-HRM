@@ -57,10 +57,11 @@ public class EmployeesController : ControllerBase
         [FromQuery] string? employmentType = null,
         [FromQuery] bool excludeTerminated = false,
         [FromQuery] string? sortBy = null,
-        [FromQuery] string? sortDir = null)
+        [FromQuery] string? sortDir = null,
+        [FromQuery] string? companyProfileKey = null)
     {
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, employmentType, allowedIds, excludeTerminated, sortBy, sortDir);
+        var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, employmentType, allowedIds, excludeTerminated, sortBy, sortDir, companyProfileKey);
         return Ok(result);
     }
 

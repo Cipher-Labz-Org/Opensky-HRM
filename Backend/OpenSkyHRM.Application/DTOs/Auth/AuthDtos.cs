@@ -31,6 +31,8 @@ public class UserProfileDto
     public List<Guid> AssignedBusinessUnitIds { get; set; } = new();
     public List<Guid> AssignedGradeIds { get; set; } = new();
     public List<Guid> AssignedJobTitleIds { get; set; } = new();
+    /// <summary>When non-empty, People access is limited to employees on these company profiles.</summary>
+    public List<string> AssignedCompanyProfileKeys { get; set; } = new();
 
     /// <summary>True when the user must change password before using the app.</summary>
     public bool MustChangePassword { get; set; }
@@ -80,6 +82,7 @@ public class CreateUserDto
     public List<Guid>? AssignedBusinessUnitIds { get; set; }
     public List<Guid>? AssignedGradeIds { get; set; }
     public List<Guid>? AssignedJobTitleIds { get; set; }
+    public List<string>? AssignedCompanyProfileKeys { get; set; }
     /// <summary>When true, user must change password before using the app.</summary>
     public bool MustChangePassword { get; set; }
 }
@@ -99,6 +102,8 @@ public class UpdateUserDto
     public List<Guid>? AssignedGradeIds { get; set; }
     /// <summary>When null, job title scope unchanged. When set (including empty), replaces.</summary>
     public List<Guid>? AssignedJobTitleIds { get; set; }
+    /// <summary>When null, company profile scope unchanged. When set (including empty), replaces.</summary>
+    public List<string>? AssignedCompanyProfileKeys { get; set; }
 }
 
 public class UserListDto
@@ -116,6 +121,7 @@ public class UserListDto
     public List<Guid> AssignedBusinessUnitIds { get; set; } = new();
     public List<Guid> AssignedGradeIds { get; set; } = new();
     public List<Guid> AssignedJobTitleIds { get; set; } = new();
+    public List<string> AssignedCompanyProfileKeys { get; set; } = new();
 }
 
 /// <summary>Global user totals for User Management KPI tiles (not page/filter scoped).</summary>

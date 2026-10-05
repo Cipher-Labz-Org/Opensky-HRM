@@ -37,6 +37,7 @@ import {
   type PeopleHubFilterPill,
   type PeopleHubFilterSection,
 } from "@/lib/people-hub-search";
+import { useMultiCompanyFeature } from "@/lib/use-multi-company-feature";
 
 interface Employee {
   id: string;
@@ -70,11 +71,13 @@ interface Filters {
   jobTitleId: string;
   locationId: string;
   managerId: string;
+  companyProfileKey: string;
 }
 
 const emptyFilters: Filters = {
   search: "", employeeCode: "", status: "", employmentType: "",
   departmentId: "", jobTitleId: "", locationId: "", managerId: "",
+  companyProfileKey: "",
 };
 
 type PeopleSortKey =
@@ -322,6 +325,7 @@ export default function PeoplePage() {
   const [managers, setManagers] = useState<Lookup[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
   const [stats, setStats] = useState({ total: 0, departments: 0, locations: 0, jobTitles: 0 });
+  const { multiCompanyActive, companyFilterOptions } = useMultiCompanyFeature();
 
   const employmentTypeFilterOpts = useMemo(
     () => employmentTypeFilterOptions(employmentTypes),
@@ -337,6 +341,14 @@ export default function PeoplePage() {
     () => filterLookupsByAllowedIds(jobTitles, user?.assignedJobTitleIds),
     [jobTitles, user?.assignedJobTitleIds],
   );
+
+  useEffect(() => {
+    if (multiCompanyActive) return;
+    setAppliedFilters((prev) =>
+      prev.companyProfileKey ? { ...prev, companyProfileKey: "" } : prev,
+    );
+    setFilters((prev) => (prev.companyProfileKey ? { ...prev, companyProfileKey: "" } : prev));
+  }, [multiCompanyActive]);
 
   useEffect(() => {
     Promise.all([
@@ -379,6 +391,7 @@ export default function PeoplePage() {
     if (f.jobTitleId) params.set("jobTitleId", f.jobTitleId);
     if (f.locationId) params.set("locationId", f.locationId);
     if (f.managerId) params.set("managerId", f.managerId);
+    if (f.companyProfileKey) params.set("companyProfileKey", f.companyProfileKey);
     applyEmployeeListStatusParams(params, listStatusFilter, f);
     try {
       const r = await apiFetch<{ items: Employee[]; totalCount: number; totalPages: number }>(
@@ -499,6 +512,15 @@ export default function PeoplePage() {
 
   const filterSections = useMemo<PeopleHubFilterSection[]>(
     () => [
+      ...(multiCompanyActive
+        ? [
+            {
+              key: "companyProfileKey" as const,
+              label: "Company",
+              options: companyFilterOptions.filter((opt) => opt.value !== ""),
+            },
+          ]
+        : []),
       {
         key: "employmentType",
         label: "Employment Type",
@@ -525,7 +547,15 @@ export default function PeoplePage() {
         options: visibleLocations.map((l) => ({ value: l.id, label: l.name })),
       },
     ],
-    [employmentTypeFilterOpts, managers, visibleJobTitles, departments, visibleLocations],
+    [
+      multiCompanyActive,
+      companyFilterOptions,
+      employmentTypeFilterOpts,
+      managers,
+      visibleJobTitles,
+      departments,
+      visibleLocations,
+    ],
   );
 
   const activeFilterValues = useMemo(
@@ -535,6 +565,7 @@ export default function PeoplePage() {
       jobTitleId: appliedFilters.jobTitleId || undefined,
       departmentId: appliedFilters.departmentId || undefined,
       locationId: appliedFilters.locationId || undefined,
+      companyProfileKey: appliedFilters.companyProfileKey || undefined,
     }),
     [appliedFilters],
   );
@@ -565,6 +596,8 @@ export default function PeoplePage() {
         return `Location: ${locations.find((l) => l.id === value)?.name ?? value}`;
       case "managerId":
         return `Supervisor: ${managers.find((m) => m.id === value)?.name ?? value}`;
+      case "companyProfileKey":
+        return `Company: ${companyFilterOptions.find((c) => c.value === value)?.label ?? value}`;
       default:
         return value;
     }
@@ -583,7 +616,7 @@ export default function PeoplePage() {
         key,
         label: filterLabel(key, value),
       }));
-  }, [appliedFilters, departments, jobTitles, locations, managers, employmentTypes]);
+  }, [appliedFilters, departments, jobTitles, locations, managers, employmentTypes, companyFilterOptions]);
 
   const hasActiveSearch = Boolean(appliedFilters.search.trim() || appliedFilters.employeeCode.trim());
 
@@ -615,7 +648,10 @@ export default function PeoplePage() {
           pageSize: "8",
           search: q,
         });
-        applyEmployeeListStatusParams(params, statusFilter, emptyFilters);
+        applyEmployeeListStatusParams(params, statusFilter, appliedFilters);
+        if (appliedFilters.companyProfileKey) {
+          params.set("companyProfileKey", appliedFilters.companyProfileKey);
+        }
         const r = await apiFetch<{ items: Employee[]; totalCount: number }>(
           `/api/employees?${params.toString()}`
         );
@@ -631,7 +667,7 @@ export default function PeoplePage() {
     return () => {
       if (suggestDebounceRef.current) clearTimeout(suggestDebounceRef.current);
     };
-  }, [quickSearch, statusFilter]);
+  }, [quickSearch, statusFilter, appliedFilters.companyProfileKey]);
 
   const handleFavoritesDiscoverQueryChange = useCallback((query: string) => {
     setFavoritesDiscoverQuery(query);

@@ -76,3 +76,8 @@ public class UpdateInstanceSubscriptionDto
     public string? Notes { get; set; }
     public int? MaxEmployees { get; set; }
 }
+
+public class SetMultiCompanyFeatureDto
+{
+    public bool Active { get; set; }
+}

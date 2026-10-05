@@ -11,7 +11,8 @@ public interface IEmployeeService
         Guid? locationId = null, Guid? managerId = null, string? status = null,
         string? employmentType = null,
         IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = false,
-        string? sortBy = null, string? sortDir = null);
+        string? sortBy = null, string? sortDir = null,
+        string? companyProfileKey = null);
     Task<PagedResult<EmployeeLookupDto>> GetLookupAsync(
         int pageSize = 50, string? search = null, Guid? departmentId = null,
         IReadOnlyList<Guid>? allowedEmployeeIds = null, bool excludeTerminated = true);

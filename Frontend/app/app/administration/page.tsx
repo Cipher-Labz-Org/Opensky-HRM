@@ -463,6 +463,9 @@ function EmployeeUploadSection() {
                 Matching <strong>Employee Code</strong> rows are a birthday-only update: Date of Birth is taken only from the{" "}
                 <strong>Date of Birth</strong> column. Gender, department, employment type, address, and every other column are ignored and not validated. A blank Date of Birth cell leaves the existing birthday unchanged. Import results Notes will say <strong>Birthdate record updated</strong> when the birthday changed.
               </li>
+              <li>
+                When <strong>multiple company setup</strong> is active, use the <strong>Company</strong> column with names from the <strong>Companies</strong> sheet (blank defaults to the primary company). Employee codes must stay unique across all companies.
+              </li>
               <li>Use values from the lookup sheets (Departments, Grades, etc.) for dropdown fields.</li>
               <li><strong>Employment Type</strong> and <strong>Employee Status</strong> must match the codes on the <strong>Reference</strong> sheet (same codes as Organization / People Hub).</li>
               <li>Upload the completed file below.</li>

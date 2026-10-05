@@ -33,6 +33,7 @@ export function SectionRecordHeaderActions({
   compactCountOnMobile = false,
   compact = false,
   disabled = false,
+  showAdd = true,
 }: {
   count: number;
   onAdd: () => void;
@@ -40,6 +41,8 @@ export function SectionRecordHeaderActions({
   compactCountOnMobile?: boolean;
   compact?: boolean;
   disabled?: boolean;
+  /** When false, only the record count is shown (no + button). */
+  showAdd?: boolean;
 }) {
   const countClass = compact ? "text-xs text-slate-500" : "text-sm text-slate-500";
   const buttonClass = compact ? "h-7 w-7 shadow-violet-500/20" : "";
@@ -54,9 +57,11 @@ export function SectionRecordHeaderActions({
       ) : (
         <span className={countClass}>{count} record(s)</span>
       )}
-      <SectionAddRecordButton onClick={onAdd} title={addTitle} disabled={disabled} className={buttonClass}>
-        <PlusIcon className={iconClass} />
-      </SectionAddRecordButton>
+      {showAdd ? (
+        <SectionAddRecordButton onClick={onAdd} title={addTitle} disabled={disabled} className={buttonClass}>
+          <PlusIcon className={iconClass} />
+        </SectionAddRecordButton>
+      ) : null}
     </div>
   );
 }

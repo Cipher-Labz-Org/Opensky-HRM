@@ -24,6 +24,7 @@ import {
   EMAIL_FORMAT_VALIDATION_MESSAGE,
 } from "@/lib/input-validation";
 import { modalShellWidthClass } from "@/lib/modal-layout";
+import { useMultiCompanyFeature } from "@/lib/use-multi-company-feature";
 
 interface UserItem {
   id: string;
@@ -39,6 +40,7 @@ interface UserItem {
   assignedBusinessUnitIds?: string[];
   assignedGradeIds?: string[];
   assignedJobTitleIds?: string[];
+  assignedCompanyProfileKeys?: string[];
 }
 
 interface RoleItem {
@@ -144,6 +146,15 @@ export default function UserManagementPage() {
   const [selectedBusinessUnitIds, setSelectedBusinessUnitIds] = useState<string[]>([]);
   const [selectedGradeIds, setSelectedGradeIds] = useState<string[]>([]);
   const [selectedJobTitleIds, setSelectedJobTitleIds] = useState<string[]>([]);
+  const [selectedCompanyProfileKeys, setSelectedCompanyProfileKeys] = useState<string[]>([]);
+  const { multiCompanyActive, companyFilterOptions } = useMultiCompanyFeature();
+  const companyScopeOptions = useMemo(
+    () =>
+      companyFilterOptions
+        .filter((opt) => opt.value !== "")
+        .map((opt) => ({ id: opt.value, name: opt.label })),
+    [companyFilterOptions],
+  );
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -224,6 +235,7 @@ export default function UserManagementPage() {
     setSelectedBusinessUnitIds([]);
     setSelectedGradeIds([]);
     setSelectedJobTitleIds([]);
+    setSelectedCompanyProfileKeys([]);
     setError("");
     setShowModal(true);
   }
@@ -241,6 +253,7 @@ export default function UserManagementPage() {
     setSelectedBusinessUnitIds((u.assignedBusinessUnitIds ?? []).map(String));
     setSelectedGradeIds((u.assignedGradeIds ?? []).map(String));
     setSelectedJobTitleIds((u.assignedJobTitleIds ?? []).map(String));
+    setSelectedCompanyProfileKeys(u.assignedCompanyProfileKeys ?? []);
     setError("");
     setShowModal(true);
   }
@@ -284,6 +297,7 @@ export default function UserManagementPage() {
             assignedBusinessUnitIds: selectedBusinessUnitIds,
             assignedGradeIds: selectedGradeIds,
             assignedJobTitleIds: selectedJobTitleIds,
+            assignedCompanyProfileKeys: multiCompanyActive ? selectedCompanyProfileKeys : [],
           }),
         });
       } else {
@@ -302,6 +316,10 @@ export default function UserManagementPage() {
               selectedBusinessUnitIds.length > 0 ? selectedBusinessUnitIds : undefined,
             assignedGradeIds: selectedGradeIds.length > 0 ? selectedGradeIds : undefined,
             assignedJobTitleIds: selectedJobTitleIds.length > 0 ? selectedJobTitleIds : undefined,
+            assignedCompanyProfileKeys:
+              multiCompanyActive && selectedCompanyProfileKeys.length > 0
+                ? selectedCompanyProfileKeys
+                : undefined,
           }),
         });
       }
@@ -715,14 +733,19 @@ export default function UserManagementPage() {
                 businessUnits={businessUnits}
                 grades={grades}
                 jobTitles={jobTitles}
+                companies={multiCompanyActive ? companyScopeOptions : []}
                 selectedLocationIds={selectedLocationIds}
                 selectedBusinessUnitIds={selectedBusinessUnitIds}
                 selectedGradeIds={selectedGradeIds}
                 selectedJobTitleIds={selectedJobTitleIds}
+                selectedCompanyProfileKeys={selectedCompanyProfileKeys}
                 onLocationChange={setSelectedLocationIds}
                 onBusinessUnitChange={setSelectedBusinessUnitIds}
                 onGradeChange={setSelectedGradeIds}
                 onJobTitleChange={setSelectedJobTitleIds}
+                onCompanyProfileChange={
+                  multiCompanyActive ? setSelectedCompanyProfileKeys : undefined
+                }
               />
             </form>
 

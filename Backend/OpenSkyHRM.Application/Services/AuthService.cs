@@ -40,6 +40,7 @@ public class AuthService : IAuthService
             .Include(u => u.AssignedBusinessUnits)
             .Include(u => u.AssignedGrades)
             .Include(u => u.AssignedJobTitles)
+            .Include(u => u.AssignedCompanyProfiles)
             .FirstOrDefaultAsync(u => !u.IsDeleted && (
                 (u.Username != null && u.Username.ToLower() == loginLower) ||
                 (u.Email != null && u.Email.ToLower() == loginLower) ||
@@ -90,6 +91,7 @@ public class AuthService : IAuthService
             .Include(u => u.AssignedBusinessUnits)
             .Include(u => u.AssignedGrades)
             .Include(u => u.AssignedJobTitles)
+            .Include(u => u.AssignedCompanyProfiles)
             .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted)
             ?? throw new KeyNotFoundException("User not found.");
 
@@ -210,6 +212,7 @@ public class AuthService : IAuthService
             dto.AssignedBusinessUnitIds,
             dto.AssignedGradeIds,
             dto.AssignedJobTitleIds,
+            dto.AssignedCompanyProfileKeys,
             validateRequested: true);
 
         return await GetUserByIdAsync(user.Id) ?? throw new InvalidOperationException("Failed to retrieve created user.");
@@ -263,7 +266,8 @@ public class AuthService : IAuthService
         if (dto.AssignedLocationIds != null
             || dto.AssignedBusinessUnitIds != null
             || dto.AssignedGradeIds != null
-            || dto.AssignedJobTitleIds != null)
+            || dto.AssignedJobTitleIds != null
+            || dto.AssignedCompanyProfileKeys != null)
         {
             await ReplaceUserScopeAssignmentsAsync(
                 id,
@@ -271,6 +275,7 @@ public class AuthService : IAuthService
                 dto.AssignedBusinessUnitIds,
                 dto.AssignedGradeIds,
                 dto.AssignedJobTitleIds,
+                dto.AssignedCompanyProfileKeys,
                 replaceExisting: true,
                 validateRequested: true);
         }
@@ -365,7 +370,8 @@ public class AuthService : IAuthService
                 AssignedLocationIds = u.AssignedLocations.Select(a => a.LocationId).ToList(),
                 AssignedBusinessUnitIds = u.AssignedBusinessUnits.Select(a => a.BusinessUnitId).ToList(),
                 AssignedGradeIds = u.AssignedGrades.Select(a => a.GradeId).ToList(),
-                AssignedJobTitleIds = u.AssignedJobTitles.Select(a => a.JobTitleId).ToList()
+                AssignedJobTitleIds = u.AssignedJobTitles.Select(a => a.JobTitleId).ToList(),
+                AssignedCompanyProfileKeys = u.AssignedCompanyProfiles.Select(a => a.CompanyProfileKey).ToList()
             })
             .ToListAsync();
 
@@ -401,6 +407,7 @@ public class AuthService : IAuthService
             .Include(u => u.AssignedBusinessUnits)
             .Include(u => u.AssignedGrades)
             .Include(u => u.AssignedJobTitles)
+            .Include(u => u.AssignedCompanyProfiles)
             .Where(u => u.Id == id && !u.IsDeleted)
             .Select(u => new UserListDto
             {
@@ -416,7 +423,8 @@ public class AuthService : IAuthService
                 AssignedLocationIds = u.AssignedLocations.Select(a => a.LocationId).ToList(),
                 AssignedBusinessUnitIds = u.AssignedBusinessUnits.Select(a => a.BusinessUnitId).ToList(),
                 AssignedGradeIds = u.AssignedGrades.Select(a => a.GradeId).ToList(),
-                AssignedJobTitleIds = u.AssignedJobTitles.Select(a => a.JobTitleId).ToList()
+                AssignedJobTitleIds = u.AssignedJobTitles.Select(a => a.JobTitleId).ToList(),
+                AssignedCompanyProfileKeys = u.AssignedCompanyProfiles.Select(a => a.CompanyProfileKey).ToList()
             })
             .FirstOrDefaultAsync();
 
@@ -691,6 +699,9 @@ public class AuthService : IAuthService
             AssignedJobTitleIds = user.AssignedJobTitles.Count > 0
                 ? user.AssignedJobTitles.Select(a => a.JobTitleId).ToList()
                 : [],
+            AssignedCompanyProfileKeys = user.AssignedCompanyProfiles.Count > 0
+                ? user.AssignedCompanyProfiles.Select(a => a.CompanyProfileKey).ToList()
+                : [],
             MustChangePassword = user.MustChangePassword
         };
     }
@@ -701,6 +712,7 @@ public class AuthService : IAuthService
         List<Guid>? businessUnitIds,
         List<Guid>? gradeIds,
         List<Guid>? jobTitleIds,
+        List<string>? companyProfileKeys,
         bool validateRequested = false)
     {
         await ReplaceUserScopeAssignmentsAsync(
@@ -709,6 +721,7 @@ public class AuthService : IAuthService
             businessUnitIds,
             gradeIds,
             jobTitleIds,
+            companyProfileKeys,
             replaceExisting: false,
             validateRequested);
     }
@@ -719,6 +732,7 @@ public class AuthService : IAuthService
         List<Guid>? businessUnitIds,
         List<Guid>? gradeIds,
         List<Guid>? jobTitleIds,
+        List<string>? companyProfileKeys,
         bool replaceExisting,
         bool validateRequested)
     {
@@ -748,7 +762,14 @@ public class AuthService : IAuthService
                 _db.UserAssignedJobTitles.RemoveRange(existing);
             }
 
-            if (locationIds != null || businessUnitIds != null || gradeIds != null || jobTitleIds != null)
+            if (companyProfileKeys != null)
+            {
+                var existing = await _db.UserAssignedCompanyProfiles.Where(x => x.UserId == userId).ToListAsync();
+                _db.UserAssignedCompanyProfiles.RemoveRange(existing);
+            }
+
+            if (locationIds != null || businessUnitIds != null || gradeIds != null || jobTitleIds != null
+                || companyProfileKeys != null)
                 await _db.SaveChangesAsync();
         }
 
@@ -798,6 +819,26 @@ public class AuthService : IAuthService
                 throw new InvalidOperationException("None of the selected job titles are valid.");
             foreach (var id in valid.Distinct())
                 _db.UserAssignedJobTitles.Add(new UserAssignedJobTitle { UserId = userId, JobTitleId = id });
+        }
+
+        if (companyProfileKeys is { Count: > 0 })
+        {
+            var allowed = await CompanyProfileAssignment.GetAllowedKeysAsync(_db);
+            var valid = companyProfileKeys
+                .Select(k => k.Trim())
+                .Where(k => !string.IsNullOrEmpty(k) && allowed.Contains(k))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (validateRequested && valid.Count == 0)
+                throw new InvalidOperationException("None of the selected company profiles are valid.");
+            foreach (var key in valid)
+            {
+                _db.UserAssignedCompanyProfiles.Add(new UserAssignedCompanyProfile
+                {
+                    UserId = userId,
+                    CompanyProfileKey = key,
+                });
+            }
         }
 
         await _db.SaveChangesAsync();

@@ -20,4 +20,5 @@ public class User : AuditableEntity
     public ICollection<UserAssignedBusinessUnit> AssignedBusinessUnits { get; set; } = new List<UserAssignedBusinessUnit>();
     public ICollection<UserAssignedGrade> AssignedGrades { get; set; } = new List<UserAssignedGrade>();
     public ICollection<UserAssignedJobTitle> AssignedJobTitles { get; set; } = new List<UserAssignedJobTitle>();
+    public ICollection<UserAssignedCompanyProfile> AssignedCompanyProfiles { get; set; } = new List<UserAssignedCompanyProfile>();
 }

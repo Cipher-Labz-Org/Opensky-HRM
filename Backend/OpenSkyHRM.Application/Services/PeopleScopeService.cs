@@ -49,6 +49,7 @@ public class PeopleScopeService : IPeopleScopeService
         var assignedBus = await GetAssignedBusinessUnitIdsAsync(db, user.UserId, ct);
         var assignedGrades = await GetAssignedGradeIdsAsync(db, user.UserId, ct);
         var assignedJobTitles = await GetAssignedJobTitleIdsAsync(db, user.UserId, ct);
+        var assignedCompanyProfiles = await GetAssignedCompanyProfileKeysAsync(db, user.UserId, ct);
 
         if (IsAdmin(user))
             return null;
@@ -77,7 +78,8 @@ public class PeopleScopeService : IPeopleScopeService
             scopeIds = Array.Empty<Guid>();
 
         var hasAssignmentFilters =
-            assignedLocs != null || assignedBus != null || assignedGrades != null || assignedJobTitles != null;
+            assignedLocs != null || assignedBus != null || assignedGrades != null || assignedJobTitles != null
+            || assignedCompanyProfiles != null;
         if (!hasAssignmentFilters)
             return scopeIds;
 
@@ -90,6 +92,8 @@ public class PeopleScopeService : IPeopleScopeService
             q = q.Where(e => e.GradeId.HasValue && assignedGrades.Contains(e.GradeId.Value));
         if (assignedJobTitles != null)
             q = q.Where(e => e.JobTitleId.HasValue && assignedJobTitles.Contains(e.JobTitleId.Value));
+        if (assignedCompanyProfiles != null)
+            q = q.Where(e => assignedCompanyProfiles.Contains(e.CompanyProfileKey));
 
         var filteredIds = await q.Select(e => e.Id).ToListAsync(ct);
         if (scopeIds == null)
@@ -141,5 +145,18 @@ public class PeopleScopeService : IPeopleScopeService
         var ids = await db.Set<UserAssignedJobTitle>().AsNoTracking()
             .Where(x => x.UserId == userId).Select(x => x.JobTitleId).Distinct().ToListAsync(ct);
         return ids.Count == 0 ? null : ids;
+    }
+
+    private static async Task<IReadOnlyList<string>?> GetAssignedCompanyProfileKeysAsync(
+        AppDbContext db,
+        Guid userId,
+        CancellationToken ct)
+    {
+        var keys = await db.Set<UserAssignedCompanyProfile>().AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .Select(x => x.CompanyProfileKey)
+            .Distinct()
+            .ToListAsync(ct);
+        return keys.Count == 0 ? null : keys;
     }
 }

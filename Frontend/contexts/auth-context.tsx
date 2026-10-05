@@ -65,6 +65,7 @@ interface UserProfile {
   assignedBusinessUnitIds?: string[];
   assignedGradeIds?: string[];
   assignedJobTitleIds?: string[];
+  assignedCompanyProfileKeys?: string[];
   /** When true, app layout forces password change before other pages. */
   mustChangePassword?: boolean;
 }
@@ -394,6 +395,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       || (user.assignedBusinessUnitIds?.length ?? 0) > 0
       || (user.assignedGradeIds?.length ?? 0) > 0
       || (user.assignedJobTitleIds?.length ?? 0) > 0
+      || (user.assignedCompanyProfileKeys?.length ?? 0) > 0
     );
   };
 

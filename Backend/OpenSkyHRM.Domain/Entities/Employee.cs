@@ -63,6 +63,8 @@ public class Employee : AuditableEntity
     public bool IsTopOfHierarchy { get; set; }
     /// <summary>When true, salary is paid in cash instead of bank transfer.</summary>
     public bool IsCashPayment { get; set; }
+    /// <summary>Primary company profile (<c>primary</c>) or an additional profile id from system settings.</summary>
+    public string CompanyProfileKey { get; set; } = "primary";
 
     public Guid DepartmentId { get; set; }
     public Department Department { get; set; } = null!;

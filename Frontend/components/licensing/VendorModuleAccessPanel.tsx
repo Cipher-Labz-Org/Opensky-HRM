@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenantContext } from "@/contexts/tenant-context";
+import { getTenantByHostname } from "@/config/tenants";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
 import { Button } from "@/components/ui/Button";
 import { PasswordVisibilityToggle } from "@/components/ui/PasswordVisibilityToggle";
@@ -14,6 +15,11 @@ import {
   VENDOR_SIDEBAR_MODULES,
   isVendorSidebarModule,
 } from "@/lib/vendor-licensing";
+import {
+  isMultiCompanyFeatureActive,
+  notifyMultiCompanySettingChanged,
+} from "@/lib/additional-company-profiles";
+import { getSystemSetting } from "@/lib/system-settings";
 
 type AdminModule = {
   id: string;
@@ -44,8 +50,40 @@ const CATEGORY_ORDER = [
   "Help",
 ];
 
+const CURRENT_SITE_ID = "__current__";
+
 function vendorHeaders(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}` };
+}
+
+async function vendorCompanyFetch<T>(
+  url: string,
+  init: { method: string; body?: string; vendorToken?: string },
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (init.vendorToken) headers.Authorization = `Bearer ${init.vendorToken}`;
+
+  const res = await fetch(url, { method: init.method, headers, body: init.body });
+  if (res.status === 204) return undefined as T;
+
+  const text = await res.text();
+  if (!res.ok) {
+    let message = `Request failed (${res.status}).`;
+    try {
+      const parsed = JSON.parse(text) as { message?: string };
+      if (parsed.message) message = parsed.message;
+    } catch {
+      /* response was not JSON */
+    }
+    throw new Error(message);
+  }
+
+  const trimmed = text.replace(/^\uFEFF/, "").trim();
+  if (!trimmed) return undefined as T;
+  return JSON.parse(trimmed) as T;
 }
 
 export function VendorModuleAccessPanel() {
@@ -64,13 +102,18 @@ export function VendorModuleAccessPanel() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [activeMultipleCompanySetup, setActiveMultipleCompanySetup] = useState(false);
+  const [savingMultiCompany, setSavingMultiCompany] = useState(false);
+  const currentCompanyId = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return getTenantByHostname(window.location.hostname)?.companyId ?? null;
+  }, [open]);
 
   const close = useCallback(() => {
     setOpen(false);
     setLoginError(null);
     setSaveError(null);
     setSaveSuccess(null);
-    setPassword("");
   }, []);
 
   useEffect(() => {
@@ -79,11 +122,11 @@ export function VendorModuleAccessPanel() {
         e.preventDefault();
         setOpen((prev) => !prev);
       }
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") close();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [close]);
 
   useEffect(() => {
     if (!open) return;
@@ -125,6 +168,17 @@ export function VendorModuleAccessPanel() {
     void loadState(token);
   }, [open, token, loadState]);
 
+  useEffect(() => {
+    if (!open || !token) return;
+    apiFetch<Record<string, string>>("/api/system-settings")
+      .then((settings) => {
+        setActiveMultipleCompanySetup(
+          isMultiCompanyFeatureActive(getSystemSetting(settings, "MultiCompanyFeatureActive")),
+        );
+      })
+      .catch(() => setActiveMultipleCompanySetup(false));
+  }, [open, token]);
+
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
     setLoginError(null);
@@ -140,12 +194,21 @@ export function VendorModuleAccessPanel() {
       );
       setVendorLicensingToken(result.token);
       setToken(result.token);
-      setPassword("");
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : "Login failed.");
     } finally {
       setLoggingIn(false);
     }
+  }
+
+  async function persistMultiCompanyActive(active: boolean, vendorToken: string) {
+    await apiFetch("/api/vendor-licensing/multi-company-feature", {
+      method: "PUT",
+      headers: vendorHeaders(vendorToken),
+      skipAuthRedirect: true,
+      body: JSON.stringify({ active }),
+    });
+    notifyMultiCompanySettingChanged();
   }
 
   function toggleModule(code: string, isRequired: boolean, checked: boolean) {
@@ -164,21 +227,45 @@ export function VendorModuleAccessPanel() {
     setSaving(true);
     setSaveError(null);
     setSaveSuccess(null);
+    const optionalOn = VENDOR_SIDEBAR_MODULES.filter(
+      (def) => def.code !== "Dashboard" && enabled.has(def.code),
+    ).map((def) => def.code);
+    const body = JSON.stringify({ enabledOptionalModuleCodes: optionalOn });
+
+    async function applyToCompany(id: string) {
+      const isCurrentSite = id === CURRENT_SITE_ID || id === currentCompanyId;
+      if (isCurrentSite) {
+        await apiFetch("/api/vendor-licensing/entitlements", {
+          method: "PUT",
+          headers: vendorHeaders(token!),
+          skipAuthRedirect: true,
+          body,
+        });
+        return;
+      }
+
+      const login = await vendorCompanyFetch<{ token: string }>(
+        `/api/vendor-companies/${encodeURIComponent(id)}/vendor-licensing/login`,
+        {
+          method: "POST",
+          body: JSON.stringify({ username: username.trim(), password }),
+        },
+      );
+      await vendorCompanyFetch(
+        `/api/vendor-companies/${encodeURIComponent(id)}/vendor-licensing/entitlements`,
+        { method: "PUT", vendorToken: login.token, body },
+      );
+    }
+
+    const siteId = currentCompanyId ?? CURRENT_SITE_ID;
+
     try {
-      const optionalOn = VENDOR_SIDEBAR_MODULES.filter(
-        (def) =>
-          def.code !== "Dashboard" &&
-          enabled.has(def.code),
-      ).map((def) => def.code);
-      await apiFetch("/api/vendor-licensing/entitlements", {
-        method: "PUT",
-        headers: vendorHeaders(token),
-        skipAuthRedirect: true,
-        body: JSON.stringify({ enabledOptionalModuleCodes: optionalOn }),
-      });
-      setSaveSuccess("Module access saved for this company.");
-      await loadState(token);
+      await Promise.all([
+        applyToCompany(siteId),
+        persistMultiCompanyActive(activeMultipleCompanySetup, token),
+      ]);
       if (isAuthenticated) await refreshProfile();
+      close();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Save failed.");
     } finally {
@@ -192,6 +279,7 @@ export function VendorModuleAccessPanel() {
     setState(null);
     setUsername("");
     setPassword("");
+    setActiveMultipleCompanySetup(false);
   }
 
   const grouped = useMemo(() => {
@@ -337,6 +425,35 @@ export function VendorModuleAccessPanel() {
                 <p className="text-sm text-slate-500">Loading modules…</p>
               ) : (
                 <>
+                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                      checked={activeMultipleCompanySetup}
+                      disabled={saving || savingMultiCompany || !token}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        const previous = activeMultipleCompanySetup;
+                        setActiveMultipleCompanySetup(checked);
+                        setSaveSuccess(null);
+                        setSaveError(null);
+                        if (!token) return;
+                        setSavingMultiCompany(true);
+                        void persistMultiCompanyActive(checked, token)
+                          .catch((err) => {
+                            setActiveMultipleCompanySetup(previous);
+                            setSaveError(
+                              err instanceof Error
+                                ? err.message
+                                : "Could not update multi-company setting.",
+                            );
+                          })
+                          .finally(() => setSavingMultiCompany(false));
+                      }}
+                    />
+                    <span className="text-sm font-semibold text-slate-900">Active multiple company setup</span>
+                  </label>
+
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm text-slate-500">
                       Unchecked modules stay hidden in the sidebar and cannot be opened.

@@ -327,6 +327,7 @@ public class ReportService : IReportService
         ParseGuidFilter(filters, "departmentId").Count > 0
         || ParseGuidFilter(filters, "locationId").Count > 0
         || ParseGuidFilter(filters, "employeeId").Count > 0
+        || ParseCsvFilter(filters, "companyProfileKey").Count > 0
         || TryGetEmployeeNameFilter(filters, out _);
 
     private static IQueryable<Employee> ApplyEmployeeNameFilter(IQueryable<Employee> q, string name)
@@ -371,6 +372,9 @@ public class ReportService : IReportService
         var employeeIds = ParseGuidFilter(filters, "employeeId");
         if (employeeIds.Count > 0)
             q = q.Where(e => employeeIds.Contains(e.Id));
+        var companyKeys = ParseCsvFilter(filters, "companyProfileKey");
+        if (companyKeys.Count > 0)
+            q = q.Where(e => companyKeys.Contains(e.CompanyProfileKey));
         if (TryGetEmployeeNameFilter(filters, out var name))
             q = ApplyEmployeeNameFilter(q, name);
         return q;
@@ -389,6 +393,9 @@ public class ReportService : IReportService
         var employeeIds = ParseGuidFilter(filters, "employeeId");
         if (employeeIds.Count > 0)
             q = q.Where(e => employeeIds.Contains(e.Id));
+        var companyKeys = ParseCsvFilter(filters, "companyProfileKey");
+        if (companyKeys.Count > 0)
+            q = q.Where(e => companyKeys.Contains(e.CompanyProfileKey));
         if (TryGetEmployeeNameFilter(filters, out var name))
         {
             q = q.Where(e =>

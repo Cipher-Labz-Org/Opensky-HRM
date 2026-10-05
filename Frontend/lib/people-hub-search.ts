@@ -38,6 +38,7 @@ export function peopleGroupByLabel(key: PeopleGroupByKey): string {
 }
 
 export type PeopleHubFieldFilterKey =
+  | "companyProfileKey"
   | "employmentType"
   | "managerId"
   | "jobTitleId"
@@ -59,6 +60,7 @@ export interface PeopleHubAppliedFilters {
   jobTitleId: string;
   locationId: string;
   managerId: string;
+  companyProfileKey: string;
 }
 
 export interface PeopleHubFilterPill {
@@ -139,6 +141,7 @@ function normalizeAppliedFilters(raw: unknown, fallbackSearch = ""): PeopleHubAp
     jobTitleId: typeof f.jobTitleId === "string" ? f.jobTitleId : "",
     locationId: typeof f.locationId === "string" ? f.locationId : "",
     managerId: typeof f.managerId === "string" ? f.managerId : "",
+    companyProfileKey: typeof f.companyProfileKey === "string" ? f.companyProfileKey : "",
   };
 }
 

@@ -82,6 +82,7 @@ public class EmployeeDto
     public bool HasDirectSupervisor { get; set; }
     /// <summary>True for employees converted from recruitment who still need job title, location, or supervisor.</summary>
     public bool NeedsProfileSetup { get; set; }
+    public string CompanyProfileKey { get; set; } = "primary";
     public Guid? ShiftPatternId { get; set; }
     public string? ShiftPatternName { get; set; }
     public string? ShiftPatternCode { get; set; }
@@ -144,6 +145,7 @@ public class CreateEmployeeDto
     public Guid? GradeId { get; set; }
     public Guid? JobTitleId { get; set; }
     public Guid? ManagerId { get; set; }
+    public string? CompanyProfileKey { get; set; }
 
     public CreateLoginDto? CreateLogin { get; set; }
 

@@ -91,6 +91,32 @@ export function getTenantByHostname(hostname: string): TenantConfig | null {
   return TENANTS[normalizeHostname(hostname)] ?? null;
 }
 
+export type VendorCompanyOption = {
+  id: string;
+  name: string;
+  hostname: string;
+};
+
+/** Companies the vendor panel can update, sorted by display name. */
+export function listVendorCompanies(): VendorCompanyOption[] {
+  return Object.entries(TENANTS)
+    .map(([hostname, tenant]) => ({
+      id: tenant.companyId,
+      name: tenant.companyName,
+      hostname,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.hostname.localeCompare(b.hostname));
+}
+
+export function getTenantHostnameByCompanyId(companyId: string): string | null {
+  const id = companyId.trim().toLowerCase();
+  if (!id) return null;
+  for (const [hostname, tenant] of Object.entries(TENANTS)) {
+    if (tenant.companyId === id) return hostname;
+  }
+  return null;
+}
+
 export function isKnownTenant(hostname: string): boolean {
   return normalizeHostname(hostname) in TENANTS;
 }

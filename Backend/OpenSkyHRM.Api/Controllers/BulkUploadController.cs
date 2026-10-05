@@ -118,6 +118,12 @@ public partial class BulkUploadController : ControllerBase
         AddLookupSheet(wb, "PositionCodes", _db.Positions.Where(p => !p.IsDeleted).OrderBy(p => p.Code).Select(p => p.Code).ToList());
         AddLookupSheet(wb, "ShiftPatternCodes", _db.ShiftPatterns.Where(s => !s.IsDeleted).OrderBy(s => s.Code).Select(s => s.Code).ToList());
 
+        if (await MultiCompanyFeature.IsActiveAsync(_db))
+        {
+            var companyLabels = await CompanyProfileAssignment.GetImportDisplayLabelsAsync(_db);
+            AddLookupSheet(wb, "Companies", companyLabels);
+        }
+
         var refWs = wb.Worksheets.Add("Reference");
         refWs.Cell(1, 1).Value = "Gender Options";
         refWs.Cell(1, 1).Style.Font.Bold = true;
@@ -196,6 +202,11 @@ public partial class BulkUploadController : ControllerBase
         var jobTitles = await _db.JobTitles.Where(j => !j.IsDeleted).ToListAsync();
         var positions = await _db.Positions.Where(p => !p.IsDeleted).ToListAsync();
         var shiftPatterns = await _db.ShiftPatterns.Where(s => !s.IsDeleted).ToListAsync();
+
+        var multiCompanyActive = await MultiCompanyFeature.IsActiveAsync(_db);
+        var companyLabelToKey = multiCompanyActive
+            ? await CompanyProfileAssignment.GetImportLabelToKeyMapAsync(_db)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         var employmentTypeCanonical = await BuildEmploymentTypeCodeMapAsync(_db);
         var employeeStatusCanonical = await BuildEmployeeStatusCodeMapAsync(_db);
@@ -450,6 +461,16 @@ public partial class BulkUploadController : ControllerBase
                     managerId = mgrIdFound;
             }
 
+            var companyRaw = Cell(row, "Company");
+            var companyProfileKey = CompanyProfileKeys.Primary;
+            if (multiCompanyActive && !string.IsNullOrWhiteSpace(companyRaw))
+            {
+                if (!companyLabelToKey.TryGetValue(companyRaw.Trim(), out var resolvedCompanyKey))
+                    errors.Add($"Company '{companyRaw}' not found (use a name from the Companies sheet)");
+                else
+                    companyProfileKey = resolvedCompanyKey;
+            }
+
             if (errors.Count > 0)
             {
                 skipped++;
@@ -602,6 +623,7 @@ public partial class BulkUploadController : ControllerBase
             var employee = new Employee
             {
                 EmployeeCode = empCode!,
+                CompanyProfileKey = companyProfileKey,
                 FirstName = firstName ?? "",
                 MiddleName = Cell(row, "Middle Name"),
                 LastName = lastName ?? "",
@@ -1428,6 +1450,7 @@ public partial class BulkUploadController : ControllerBase
         "Middle Name",
         "Last Name",
         "Email",
+        "Company",
         "Phone",
         "Gender",
         "Date of Birth",
