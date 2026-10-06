@@ -1,13 +1,10 @@
 import React from "react";
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { APP_NAME } from "@/config/constants";
 import { AuthProvider } from "@/contexts/auth-context";
 import { TenantProvider } from "@/contexts/tenant-context";
 import { VendorModuleAccessPanel } from "@/components/licensing/VendorModuleAccessPanel";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: APP_NAME,
@@ -26,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen font-sans antialiased" suppressHydrationWarning>
         <TenantProvider>
           <AuthProvider>

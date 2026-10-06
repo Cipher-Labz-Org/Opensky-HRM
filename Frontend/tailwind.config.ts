@@ -28,7 +28,14 @@ const config: Config = {
         border: "var(--border)",
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "Inter", "Arial", "sans-serif"],
+        sans: [
+          '"Inter Variable"',
+          "Inter",
+          "Segoe UI",
+          "system-ui",
+          "-apple-system",
+          "sans-serif",
+        ],
       },
       boxShadow: {
         card: "var(--shadow)",
