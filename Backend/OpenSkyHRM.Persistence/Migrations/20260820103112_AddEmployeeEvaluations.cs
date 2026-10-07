@@ -1,4 +1,3 @@
-using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -20,81 +19,57 @@ namespace OpenSkyHRM.Persistence.Migrations
                 oldClrType: typeof(string),
                 oldType: "text");
 
-            migrationBuilder.AddColumn<string>(
-                name: "Code",
-                table: "RosterTemplates",
-                type: "character varying(50)",
-                maxLength: 50,
-                nullable: false,
-                defaultValue: "");
+            // IF NOT EXISTS: 20260813050000_AddRosterTemplateCode may already have added Code + index.
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "RosterTemplates" ADD COLUMN IF NOT EXISTS "Code" character varying(50) NULL;
+                UPDATE "RosterTemplates"
+                SET "Code" = LEFT(REGEXP_REPLACE(COALESCE(NULLIF(TRIM("Name"), ''), 'ROSTER'), '[^A-Za-z0-9]+', '-', 'g'), 40)
+                    || '-' || SUBSTRING(REPLACE("Id"::text, '-', ''), 1, 6)
+                WHERE "Code" IS NULL OR TRIM("Code") = '';
+                ALTER TABLE "RosterTemplates" ALTER COLUMN "Code" SET NOT NULL;
+                CREATE INDEX IF NOT EXISTS "IX_RosterTemplates_Code" ON "RosterTemplates" ("Code");
+                """);
 
-            migrationBuilder.CreateTable(
-                name: "EmployeeEvaluations",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    EmployeeId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Rating = table.Column<int>(type: "integer", nullable: false),
-                    Comment = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
-                    EvaluatorEmployeeId = table.Column<Guid>(type: "uuid", nullable: true),
-                    EvaluatorName = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
-                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedBy = table.Column<string>(type: "text", nullable: true),
-                    UpdatedBy = table.Column<string>(type: "text", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_EmployeeEvaluations", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_EmployeeEvaluations_Employees_EmployeeId",
-                        column: x => x.EmployeeId,
-                        principalTable: "Employees",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_EmployeeEvaluations_Employees_EvaluatorEmployeeId",
-                        column: x => x.EvaluatorEmployeeId,
-                        principalTable: "Employees",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
-                });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RosterTemplates_Code",
-                table: "RosterTemplates",
-                column: "Code");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_EmployeeEvaluations_CreatedAt",
-                table: "EmployeeEvaluations",
-                column: "CreatedAt");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_EmployeeEvaluations_EmployeeId",
-                table: "EmployeeEvaluations",
-                column: "EmployeeId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_EmployeeEvaluations_EvaluatorEmployeeId",
-                table: "EmployeeEvaluations",
-                column: "EvaluatorEmployeeId");
+            migrationBuilder.Sql(
+                """
+                CREATE TABLE IF NOT EXISTS "EmployeeEvaluations" (
+                    "Id" uuid NOT NULL,
+                    "EmployeeId" uuid NOT NULL,
+                    "Rating" integer NOT NULL,
+                    "Comment" character varying(2000),
+                    "EvaluatorEmployeeId" uuid,
+                    "EvaluatorName" character varying(200),
+                    "CreatedAt" timestamp without time zone NOT NULL,
+                    "UpdatedAt" timestamp without time zone,
+                    "IsDeleted" boolean NOT NULL,
+                    "CreatedBy" text,
+                    "UpdatedBy" text,
+                    CONSTRAINT "PK_EmployeeEvaluations" PRIMARY KEY ("Id"),
+                    CONSTRAINT "FK_EmployeeEvaluations_Employees_EmployeeId"
+                        FOREIGN KEY ("EmployeeId") REFERENCES "Employees" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_EmployeeEvaluations_Employees_EvaluatorEmployeeId"
+                        FOREIGN KEY ("EvaluatorEmployeeId") REFERENCES "Employees" ("Id") ON DELETE SET NULL
+                );
+                CREATE INDEX IF NOT EXISTS "IX_EmployeeEvaluations_CreatedAt" ON "EmployeeEvaluations" ("CreatedAt");
+                CREATE INDEX IF NOT EXISTS "IX_EmployeeEvaluations_EmployeeId" ON "EmployeeEvaluations" ("EmployeeId");
+                CREATE INDEX IF NOT EXISTS "IX_EmployeeEvaluations_EvaluatorEmployeeId" ON "EmployeeEvaluations" ("EvaluatorEmployeeId");
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "EmployeeEvaluations");
+            migrationBuilder.Sql(
+                """
+                DROP TABLE IF EXISTS "EmployeeEvaluations";
+                """);
 
-            migrationBuilder.DropIndex(
-                name: "IX_RosterTemplates_Code",
-                table: "RosterTemplates");
-
-            migrationBuilder.DropColumn(
-                name: "Code",
-                table: "RosterTemplates");
+            migrationBuilder.Sql(
+                """
+                DROP INDEX IF EXISTS "IX_RosterTemplates_Code";
+                ALTER TABLE "RosterTemplates" DROP COLUMN IF EXISTS "Code";
+                """);
 
             migrationBuilder.AlterColumn<string>(
                 name: "Name",

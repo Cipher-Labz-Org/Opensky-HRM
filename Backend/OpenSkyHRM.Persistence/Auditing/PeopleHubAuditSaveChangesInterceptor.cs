@@ -157,7 +157,8 @@ public sealed class PeopleHubAuditSaveChangesInterceptor : SaveChangesIntercepto
                         NewValues = SerializeScalars(entry, EntityState.Modified, forOriginal: false, onlyIsDeleted: true),
                         UserId = userId?.ToString(),
                         UserName = userName,
-                        Timestamp = DateTime.UtcNow,
+                        CreatedAt = now,
+                        Timestamp = now,
                     };
                 }
 

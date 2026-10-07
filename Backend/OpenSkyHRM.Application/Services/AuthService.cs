@@ -295,13 +295,18 @@ public class AuthService : IAuthService
 
         var isProtectedAdmin =
             string.Equals(user.Username, "admin", StringComparison.OrdinalIgnoreCase) ||
-            user.UserRoles.Any(ur => string.Equals(ur.Role.Code, "ADMIN", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(ur.Role.Name, "Admin", StringComparison.OrdinalIgnoreCase));
+            user.UserRoles.Any(ur =>
+                ur.Role != null &&
+                (string.Equals(ur.Role.Code, "ADMIN", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(ur.Role.Name, "Admin", StringComparison.OrdinalIgnoreCase)));
 
         if (isProtectedAdmin)
             throw new InvalidOperationException("The primary admin account cannot be deleted.");
 
         user.IsDeleted = true;
+        user.IsActive = false;
+        user.Username = UserUniqueness.ArchiveUsername(user.Id, user.Username);
+        user.Email = UserUniqueness.ArchiveEmail(user.Id, user.Email);
         user.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
     }

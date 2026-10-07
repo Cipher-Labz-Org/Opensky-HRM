@@ -166,6 +166,8 @@ export interface LeaveRequestsPanelProps {
   waitingOnly?: boolean;
   /** Highlight this leave request after the list loads. */
   focusRequestId?: string | null;
+  /** Use Approvals module scope on the API (Workforce → Approvals). */
+  approvalsWorkspace?: boolean;
 }
 
 export function LeaveRequestsPanel({
@@ -179,6 +181,7 @@ export function LeaveRequestsPanel({
   hideApplyShortcut = false,
   waitingOnly = false,
   focusRequestId = null,
+  approvalsWorkspace = false,
 }: LeaveRequestsPanelProps) {
   const [items, setItems] = useState<LeaveRequestRow[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -240,10 +243,13 @@ export function LeaveRequestsPanel({
   }, [sectionSubtitle, teamOnly, showApprovalActions, isEmployeeView]);
 
   useEffect(() => {
-    apiFetch<{ items: EmployeeLookup[] }>("/api/employees?pageSize=500&excludeTerminated=true")
+    const scopeQuery = approvalsWorkspace ? "&accessModule=Approvals" : "";
+    apiFetch<{ items: EmployeeLookup[] }>(
+      `/api/employees?pageSize=500&excludeTerminated=true${scopeQuery}`,
+    )
       .then((r) => setEmployees(r.items ?? []))
       .catch(() => setEmployees([]));
-  }, []);
+  }, [approvalsWorkspace]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -256,6 +262,7 @@ export function LeaveRequestsPanel({
     if (fromDate) params.set("fromDate", fromDate);
     if (toDate) params.set("toDate", toDate);
     if (teamOnly) params.set("excludeSelf", "true");
+    if (approvalsWorkspace) params.set("forApprovals", "true");
     try {
       const raw = await apiFetch<PagedLeaveResponse>(`/api/leave/requests?${params}`);
       const norm = normalizePaged(raw);
@@ -275,7 +282,7 @@ export function LeaveRequestsPanel({
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, statusFilter, fromDate, toDate, teamOnly, deptFilter, empDeptById]);
+  }, [page, pageSize, statusFilter, fromDate, toDate, teamOnly, deptFilter, empDeptById, approvalsWorkspace]);
 
   useEffect(() => {
     void load();

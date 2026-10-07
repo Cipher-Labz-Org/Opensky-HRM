@@ -108,6 +108,10 @@ public class UserController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = UserSaveExceptionMapper.Map(ex) });
+        }
     }
 
     [HttpPost("{id:guid}/reset-password")]

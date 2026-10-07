@@ -58,9 +58,10 @@ public class EmployeesController : ControllerBase
         [FromQuery] bool excludeTerminated = false,
         [FromQuery] string? sortBy = null,
         [FromQuery] string? sortDir = null,
-        [FromQuery] string? companyProfileKey = null)
+        [FromQuery] string? companyProfileKey = null,
+        [FromQuery] string? accessModule = null)
     {
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var allowedIds = await ResolveEmployeeListScopeAsync(accessModule);
         var result = await _employeeService.GetAllAsync(page, pageSize, search, departmentId, jobTitleId, locationId, managerId, status, employmentType, allowedIds, excludeTerminated, sortBy, sortDir, companyProfileKey);
         return Ok(result);
     }
@@ -71,9 +72,10 @@ public class EmployeesController : ControllerBase
         [FromQuery] int pageSize = 50,
         [FromQuery] string? search = null,
         [FromQuery] Guid? departmentId = null,
-        [FromQuery] bool excludeTerminated = true)
+        [FromQuery] bool excludeTerminated = true,
+        [FromQuery] string? accessModule = null)
     {
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var allowedIds = await ResolveEmployeeListScopeAsync(accessModule);
         var result = await _employeeService.GetLookupAsync(pageSize, search, departmentId, allowedIds, excludeTerminated);
         return Ok(result);
     }
@@ -83,7 +85,7 @@ public class EmployeesController : ControllerBase
         Guid id,
         [FromServices] IEmployeeLifecycleService lifecycleService)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Read"))
+        if (!await CanReadEmployeeProfileAsync(id))
             return Forbid();
 
         return Ok(await lifecycleService.GetTimelineAsync(id));
@@ -94,11 +96,11 @@ public class EmployeesController : ControllerBase
     {
         // Own profile is always readable for linked accounts (mobile ESS / all roles).
         var ownId = await PeopleAccessHelper.ResolveOwnEmployeeIdAsync(User, _db);
-        IReadOnlyList<Guid>? allowedIds = null;
-        if (ownId != id)
-            allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        if (ownId != id
+            && !await ModuleRbacHelper.CanAccessEmployeeViaAnyModuleAsync(User, _db, id, "Read", "People", "EmployeeBio"))
+            return Forbid();
 
-        var employee = await _employeeService.GetByIdAsync(id, allowedIds);
+        var employee = await _employeeService.GetByIdAsync(id, null);
         return employee is null ? NotFound() : Ok(employee);
     }
 
@@ -217,7 +219,7 @@ public class EmployeesController : ControllerBase
         [FromServices] IEmployeeTaskService employeeTaskService,
         [FromServices] IEmployeeLifecycleService lifecycleService)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        if (!await CanUpdateEmployeeProfileAsync(id))
             return Forbid();
 
         var employee = await _db.Employees.FindAsync(id);
@@ -259,7 +261,7 @@ public class EmployeesController : ControllerBase
         [FromBody] ReactivateRequest req,
         [FromServices] IEmployeeLifecycleService lifecycleService)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        if (!await CanUpdateEmployeeProfileAsync(id))
             return Forbid();
 
         var employee = await _db.Employees.FindAsync(id);
@@ -308,12 +310,20 @@ public class EmployeesController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (DbUpdateException ex)
+        {
+            return BadRequest(new { message = EmployeeSaveExceptionMapper.Map(ex) });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = EmployeeSaveExceptionMapper.Map(ex) });
+        }
     }
 
     [HttpGet("{id:guid}/supervisors")]
     public async Task<IActionResult> GetSupervisors(Guid id)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Read"))
+        if (!await CanReadEmployeeProfileAsync(id))
             return Forbid();
         var rows = await _db.EmployeeSupervisors
             .Where(x => x.EmployeeId == id)
@@ -334,7 +344,7 @@ public class EmployeesController : ControllerBase
     [HttpGet("{id:guid}/subordinates")]
     public async Task<IActionResult> GetSubordinates(Guid id)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Read"))
+        if (!await CanReadEmployeeProfileAsync(id))
             return Forbid();
         var rows = await _db.EmployeeSupervisors
             .Where(x => x.SupervisorId == id)
@@ -356,7 +366,7 @@ public class EmployeesController : ControllerBase
     [HttpPost("{id:guid}/reporting-lines")]
     public async Task<IActionResult> SaveReportingLines(Guid id, [FromBody] SaveReportingLinesRequest req)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        if (!await CanUpdateEmployeeProfileAsync(id))
             return Forbid();
 
         var employee = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id);
@@ -383,7 +393,7 @@ public class EmployeesController : ControllerBase
         {
             if (sup.SupervisorId == id)
                 return BadRequest(new { error = "An employee cannot be their own supervisor." });
-            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, sup.SupervisorId, "Read"))
+            if (!await CanReadEmployeeProfileAsync(sup.SupervisorId))
                 return Forbid();
 
             var supervisor = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == sup.SupervisorId);
@@ -397,7 +407,7 @@ public class EmployeesController : ControllerBase
 
         foreach (var sub in subordinates)
         {
-            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, sub.EmployeeId, "Read"))
+            if (!await CanReadEmployeeProfileAsync(sub.EmployeeId))
                 return Forbid();
 
             var subordinate = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == sub.EmployeeId);
@@ -521,7 +531,7 @@ public class EmployeesController : ControllerBase
     [HttpGet("{id:guid}/reporting/supervisor-candidates")]
     public async Task<IActionResult> GetSupervisorCandidates(Guid id)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Read"))
+        if (!await CanReadEmployeeProfileAsync(id))
             return Forbid();
         var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
 
@@ -548,9 +558,9 @@ public class EmployeesController : ControllerBase
     [HttpPost("{id:guid}/supervisors")]
     public async Task<IActionResult> AddSupervisor(Guid id, [FromBody] AddSupervisorRequest req)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        if (!await CanUpdateEmployeeProfileAsync(id))
             return Forbid();
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, req.SupervisorId, "Read"))
+        if (!await CanReadEmployeeProfileAsync(req.SupervisorId))
             return Forbid();
 
         var employee = await _db.Employees.FindAsync(id);
@@ -587,7 +597,7 @@ public class EmployeesController : ControllerBase
     [HttpPost("{id:guid}/subordinates")]
     public async Task<IActionResult> AddSubordinate(Guid id, [FromBody] AddSubordinateRequest req)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        if (!await CanUpdateEmployeeProfileAsync(id))
             return Forbid();
         var supervisor = await _db.Employees.FindAsync(id);
         if (supervisor is null) return NotFound();
@@ -624,7 +634,7 @@ public class EmployeesController : ControllerBase
     [HttpPut("{id:guid}/supervisors/{entryId:guid}")]
     public async Task<IActionResult> UpdateSupervisor(Guid id, Guid entryId, [FromBody] UpdateReportingMethodRequest req)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        if (!await CanUpdateEmployeeProfileAsync(id))
             return Forbid();
         if (string.IsNullOrWhiteSpace(req.ReportingMethod))
             return BadRequest(new { error = "Reporting method is required." });
@@ -651,7 +661,7 @@ public class EmployeesController : ControllerBase
     [HttpDelete("{id:guid}/supervisors/{entryId:guid}")]
     public async Task<IActionResult> RemoveSupervisor(Guid id, Guid entryId)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        if (!await CanUpdateEmployeeProfileAsync(id))
             return Forbid();
         var entry = await _db.EmployeeSupervisors.FirstOrDefaultAsync(x => x.Id == entryId && x.EmployeeId == id);
         if (entry is null) return NotFound();
@@ -663,7 +673,7 @@ public class EmployeesController : ControllerBase
     [HttpPut("{id:guid}/subordinates/{entryId:guid}")]
     public async Task<IActionResult> UpdateSubordinate(Guid id, Guid entryId, [FromBody] UpdateReportingMethodRequest req)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        if (!await CanUpdateEmployeeProfileAsync(id))
             return Forbid();
         if (string.IsNullOrWhiteSpace(req.ReportingMethod))
             return BadRequest(new { error = "Reporting method is required." });
@@ -690,7 +700,7 @@ public class EmployeesController : ControllerBase
     [HttpDelete("{id:guid}/subordinates/{entryId:guid}")]
     public async Task<IActionResult> RemoveSubordinate(Guid id, Guid entryId)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, id, "Update"))
+        if (!await CanUpdateEmployeeProfileAsync(id))
             return Forbid();
         var entry = await _db.EmployeeSupervisors.FirstOrDefaultAsync(x => x.Id == entryId && x.SupervisorId == id);
         if (entry is null) return NotFound();
@@ -786,7 +796,7 @@ public class EmployeesController : ControllerBase
     public async Task<IActionResult> PostBirthdayWish([FromBody] BirthdayWishRequest dto,
         CancellationToken cancellationToken = default)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, dto.ToEmployeeId))
+        if (!await CanReadEmployeeProfileAsync(dto.ToEmployeeId))
             return Forbid();
 
         var fromUserId = GetCurrentUserAccountId();
@@ -987,6 +997,37 @@ public class EmployeesController : ControllerBase
         if (issue.HasValue && expiry.HasValue && expiry.Value.Date < issue.Value.Date)
             return new BadRequestObjectResult(new { message = "License expiry date must be on or after the issue date." });
         return null;
+    }
+
+    private Task<bool> CanReadEmployeeProfileAsync(Guid employeeId) =>
+        ModuleRbacHelper.CanAccessEmployeeViaAnyModuleAsync(User, _db, employeeId, "Read", "People", "EmployeeBio");
+
+    private Task<bool> CanUpdateEmployeeProfileAsync(Guid employeeId) =>
+        ModuleRbacHelper.CanAccessEmployeeViaAnyModuleAsync(User, _db, employeeId, "Update", "People", "EmployeeBio");
+
+    /// <summary>
+    /// Employee list scope: People (default), EmployeeBio, EmployeeActions, or Approvals / LeaveRequests.
+    /// </summary>
+    private async Task<IReadOnlyList<Guid>?> ResolveEmployeeListScopeAsync(string? accessModule)
+    {
+        if (string.Equals(accessModule, "Approvals", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(accessModule, "LeaveRequests", StringComparison.OrdinalIgnoreCase))
+            return await ApprovalsAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+
+        var module = NormalizeEmployeeAccessModule(accessModule);
+        return await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(User, _db, module, "Read");
+    }
+
+    private static string NormalizeEmployeeAccessModule(string? accessModule)
+    {
+        if (string.IsNullOrWhiteSpace(accessModule))
+            return "People";
+        var m = accessModule.Trim();
+        return m switch
+        {
+            "People" or "EmployeeBio" or "EmployeeActions" => m,
+            _ => "People",
+        };
     }
 }
 

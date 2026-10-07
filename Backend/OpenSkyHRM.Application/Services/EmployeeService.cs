@@ -764,10 +764,16 @@ public class EmployeeService : IEmployeeService
 
         employee.IsDeleted = true;
         employee.Email = EmployeeUniqueness.ArchiveEmail(employee.Id, employee.Email);
+        employee.FingerprintId = null;
 
         var user = await _db.Users.FirstOrDefaultAsync(u => u.EmployeeId == id && !u.IsDeleted);
         if (user is not null)
+        {
+            user.IsDeleted = true;
             user.IsActive = false;
+            user.Username = UserUniqueness.ArchiveUsername(user.Id, user.Username);
+            user.Email = UserUniqueness.ArchiveEmail(user.Id, user.Email);
+        }
 
         await _db.SaveChangesAsync();
         return true;

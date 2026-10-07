@@ -70,7 +70,8 @@ public static class PeopleAccessHelper
         foreach (var c in user.FindAll("permission"))
         {
             if (string.Equals(c.Value, "Attendance:Update:All", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(c.Value, "People:Update:All", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(c.Value, "People:Update:All", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Value, "Approvals:Update:All", StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 
@@ -270,91 +271,30 @@ public static class PeopleAccessHelper
             .FirstOrDefaultAsync();
     }
 
-    /// <summary>
-    /// Resolves RBAC People scope (Own / Team / All). Returns null for unrestricted RBAC scope (All / ADMIN).
-    /// </summary>
-    private static async Task<IReadOnlyList<Guid>?> ResolveRbacScopeIdsAsync(
-        ClaimsPrincipal user,
-        AppDbContext db,
-        string action)
-    {
-        if (UserHasRole(user, "ADMIN"))
-            return null;
-
-        var permissions = user.FindAll("permission").Select(c => c.Value).ToList();
-        var scope = ResolvePeopleScope(permissions, action);
-
-        if (scope == "All")
-            return null;
-
-        if (scope == "Own")
-        {
-            var ownId = await ResolveOwnEmployeeIdAsync(user, db);
-            if (!ownId.HasValue)
-                return Array.Empty<Guid>();
-            return new[] { ownId.Value };
-        }
-
-        if (scope == "Team")
-        {
-            var tid = await ResolveOwnEmployeeIdAsync(user, db);
-            if (!tid.HasValue)
-                return Array.Empty<Guid>();
-
-            var graph = await ReportingChain.LoadAsync(db);
-            var teamIds = ReportingChain.GetDescendantIds(graph, tid.Value);
-            teamIds.Add(tid.Value);
-            return teamIds.ToList();
-        }
-
-        return Array.Empty<Guid>();
-    }
-
     public static async Task<IReadOnlyList<Guid>?> GetAllowedEmployeeIdsAsync(
         ClaimsPrincipal user,
         AppDbContext db,
         string action = "Read")
-    {
-        var assignedLocs = await GetAssignedLocationIdsAsync(user, db);
-        var assignedBus = await GetAssignedBusinessUnitIdsAsync(user, db);
-        var assignedGrades = await GetAssignedGradeIdsAsync(user, db);
-        var assignedJobTitles = await GetAssignedJobTitleIdsAsync(user, db);
-        var assignedCompanyProfiles = await GetAssignedCompanyProfileKeysAsync(user, db);
-
-        var dimensionIds = await BuildDimensionFilteredEmployeeIdsAsync(
-            db, assignedLocs, assignedBus, assignedGrades, assignedJobTitles, assignedCompanyProfiles);
-
-        var scopeIds = await ResolveRbacScopeIdsAsync(user, db, action);
-        var allowed = IntersectEmployeeScopes(scopeIds, dimensionIds);
-
-        // ESS: every linked account can always read/update their own employee profile
-        // (mobile profile + attendance), even without People RBAC or when dimension filters exclude them.
-        if (string.Equals(action, "Read", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(action, "Update", StringComparison.OrdinalIgnoreCase))
-        {
-            var ownId = await ResolveOwnEmployeeIdAsync(user, db);
-            if (ownId.HasValue && allowed != null && !allowed.Contains(ownId.Value))
-            {
-                var withOwn = allowed.ToList();
-                withOwn.Add(ownId.Value);
-                return withOwn;
-            }
-        }
-
-        return allowed;
-    }
+        => await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(user, db, "People", action);
 
     public static string ResolvePeopleScope(IEnumerable<string> permissions, string action)
+        => ResolveModuleScopeFromClaims(permissions, "People", action);
+
+    public static string ResolvePeopleScope(ClaimsPrincipal user, string action = "Read")
+        => ModuleRbacHelper.ResolveScope(user, "People", action);
+
+    internal static string ResolveModuleScopeFromClaims(IEnumerable<string> permissions, string module, string action)
     {
-        var peoplePerms = permissions
-            .Where(p => p.StartsWith("People:", StringComparison.OrdinalIgnoreCase))
+        var prefix = $"{module}:";
+        var modulePerms = permissions
+            .Where(p => p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        if (peoplePerms.Any(p => p.Contains($":{action}:All", StringComparison.OrdinalIgnoreCase)))
+        if (modulePerms.Any(p => p.Contains($":{action}:All", StringComparison.OrdinalIgnoreCase)))
             return "All";
-        if (peoplePerms.Any(p => p.Contains($":{action}:Team", StringComparison.OrdinalIgnoreCase)))
+        if (modulePerms.Any(p => p.Contains($":{action}:Team", StringComparison.OrdinalIgnoreCase)))
             return "Team";
-        if (peoplePerms.Any(p => p.Contains($":{action}:Own", StringComparison.OrdinalIgnoreCase)))
+        if (modulePerms.Any(p => p.Contains($":{action}:Own", StringComparison.OrdinalIgnoreCase)))
             return "Own";
 
         return "None";

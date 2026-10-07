@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.AiAssistant;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
@@ -67,11 +68,10 @@ public class PeopleScopeService : IPeopleScopeService
                 scopeIds = Array.Empty<Guid>();
             else
             {
-                var teamIds = await db.Employees.AsNoTracking()
-                    .Where(e => e.Id == user.EmployeeId.Value || e.ManagerId == user.EmployeeId.Value)
-                    .Select(e => e.Id)
-                    .ToListAsync(ct);
-                scopeIds = teamIds;
+                var graph = await ReportingChain.LoadAsync(db, ct);
+                var teamIds = ReportingChain.GetDescendantIds(graph, user.EmployeeId.Value);
+                teamIds.Add(user.EmployeeId.Value);
+                scopeIds = teamIds.ToList();
             }
         }
         else

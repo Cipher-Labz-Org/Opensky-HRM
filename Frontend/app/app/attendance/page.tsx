@@ -20,7 +20,6 @@ import {
   formatDate,
   formatDateTime,
 } from "@/lib/date-utils";
-import { tenantBackendUrl } from "@/config/constants";
 import { formatLocalDateToIso, applyFromDateInRange, applyToDateInRange, isValidIsoDateRange } from "@/lib/datePickerIso";
 import { DonutMixChart, formatInt, HorizontalCompareBars, WeeklyActivityBars } from "@/lib/workspace-charts";
 import { useApplyFilter } from "@/lib/use-apply-filter";
@@ -1521,53 +1520,9 @@ interface ImportBatch {
   deviceName: string | null;
 }
 
-interface AdmsPipelineStatus {
-  deviceCount: number;
-  latestDeviceSyncAt: string | null;
-  latestRawEventAt: string | null;
-  latestRawParseStatus: string | null;
-  rawEventsSinceAug4: number;
-  rawParseFailuresSinceAug4: number;
-  latestPunchAt: string | null;
-  unprocessedPunchCount: number;
-  punchesSinceAug4: number;
-  latestBiometricAttendanceDate: string | null;
-  biometricAttendanceSinceAug4: number;
-  unmappedPunchCount: number;
-  sampleUnmappedDeviceUserIds: string[];
-  breakPoint: string;
-  summary: string;
-  webhookPath: string;
-  recommendedWebhookUrl: string | null;
-}
-
-interface AdmsProcessResult {
-  processed: number;
-  skippedUnmapped: number;
-  failed: number;
-}
-
-function pipelineStatusTone(breakPoint: string): string {
-  switch (breakPoint) {
-    case "healthy":
-      return "border-green-200 bg-green-50/80";
-    case "ingestion":
-    case "parse":
-    case "processing":
-    case "mapping":
-      return "border-amber-200 bg-amber-50/80";
-    default:
-      return "border-slate-200 bg-slate-50/80";
-  }
-}
-
 function DevicesTab() {
   const [devices, setDevices] = useState<BiometricDevice[]>([]);
   const [history, setHistory] = useState<ImportBatch[]>([]);
-  const [pipeline, setPipeline] = useState<AdmsPipelineStatus | null>(null);
-  const [pipelineLoading, setPipelineLoading] = useState(false);
-  const [pipelineAction, setPipelineAction] = useState<string | null>(null);
-  const [pipelineMessage, setPipelineMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deviceModal, setDeviceModal] = useState(false);
   const [editingDevice, setEditingDevice] = useState<BiometricDevice | null>(null);
@@ -1586,47 +1541,10 @@ function DevicesTab() {
     apiFetch<ImportBatch[]>("/api/biometric/import-history").then(setHistory).catch(() => {});
   }, []);
 
-  const loadPipeline = useCallback(() => {
-    setPipelineLoading(true);
-    apiFetch<AdmsPipelineStatus>("/api/biometric/adms/status")
-      .then(setPipeline)
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load pipeline status"))
-      .finally(() => setPipelineLoading(false));
-  }, []);
-
   useEffect(() => {
     loadDevices();
     loadHistory();
-    loadPipeline();
-  }, [loadDevices, loadHistory, loadPipeline]);
-
-  async function runPipelineAction(action: "process" | "reprocess" | "drain") {
-    setPipelineAction(action);
-    setPipelineMessage(null);
-    setError(null);
-    try {
-      if (action === "process") {
-        const result = await apiFetch<AdmsProcessResult>("/api/biometric/adms/process-pending", { method: "POST" });
-        setPipelineMessage(`Processed ${result.processed}, skipped unmapped ${result.skippedUnmapped}, failed ${result.failed}.`);
-      } else if (action === "reprocess") {
-        const result = await apiFetch<AdmsProcessResult>("/api/biometric/adms/reprocess?days=30", { method: "POST" });
-        setPipelineMessage(`Reprocessed last 30 days: ${result.processed} punch rows, skipped unmapped ${result.skippedUnmapped}, failed ${result.failed}.`);
-      } else {
-        const result = await apiFetch<AdmsProcessResult>("/api/biometric/adms/drain-pending", { method: "POST" });
-        setPipelineMessage(`Drained backlog: ${result.processed} processed, ${result.skippedUnmapped} unmapped, ${result.failed} failed.`);
-      }
-      loadPipeline();
-      loadDevices();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Pipeline action failed");
-    } finally {
-      setPipelineAction(null);
-    }
-  }
-
-  const webhookHint =
-    pipeline?.recommendedWebhookUrl ??
-    (typeof window !== "undefined" ? `${tenantBackendUrl() ?? window.location.origin}/api/biometric/adms/logs` : null);
+  }, [loadDevices, loadHistory]);
 
   async function submitDevice(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1694,82 +1612,6 @@ function DevicesTab() {
           <Button variant="secondary" onClick={() => { setImportModal(true); setImportResult(null); setImportData(""); }}>Import Punches</Button>
           <Button onClick={() => { setEditingDevice(null); setDeviceModal(true); }}>+ Add Device</Button>
         </div>
-      </div>
-
-      <div className={`rounded-2xl border px-5 py-4 shadow-sm ${pipeline ? pipelineStatusTone(pipeline.breakPoint) : "border-slate-200 bg-white"}`}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 className="text-[15px] font-bold text-slate-800">ADMS pipeline status</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              {pipelineLoading ? "Checking pipeline…" : pipeline?.summary ?? "Loading pipeline diagnostics…"}
-            </p>
-            {pipelineMessage && <p className="mt-2 text-sm font-medium text-green-700">{pipelineMessage}</p>}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" className="shrink-0" onClick={loadPipeline} disabled={pipelineLoading}>
-              Refresh status
-            </Button>
-            <Button variant="secondary" className="shrink-0" onClick={() => runPipelineAction("process")} disabled={pipelineAction != null}>
-              {pipelineAction === "process" ? "Processing…" : "Process pending"}
-            </Button>
-            <Button variant="secondary" className="shrink-0" onClick={() => runPipelineAction("reprocess")} disabled={pipelineAction != null}>
-              {pipelineAction === "reprocess" ? "Reprocessing…" : "Reprocess 30 days"}
-            </Button>
-            <Button variant="secondary" className="shrink-0" onClick={() => runPipelineAction("drain")} disabled={pipelineAction != null}>
-              {pipelineAction === "drain" ? "Draining…" : "Drain backlog"}
-            </Button>
-          </div>
-        </div>
-
-        {pipeline && (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Devices / last sync</p>
-              <p className="mt-1 text-sm font-medium text-slate-800">
-                {pipeline.deviceCount} device{pipeline.deviceCount === 1 ? "" : "s"}
-              </p>
-              <p className="text-xs text-slate-500">
-                {pipeline.latestDeviceSyncAt ? formatDateTime(pipeline.latestDeviceSyncAt) : "Never synced"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Raw webhooks (30 days)</p>
-              <p className="mt-1 text-sm font-medium text-slate-800">{pipeline.rawEventsSinceAug4}</p>
-              <p className="text-xs text-slate-500">
-                Latest: {pipeline.latestRawEventAt ? formatDateTime(pipeline.latestRawEventAt) : "None"}
-                {pipeline.latestRawParseStatus ? ` · ${pipeline.latestRawParseStatus}` : ""}
-              </p>
-            </div>
-            <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Punches (30 days)</p>
-              <p className="mt-1 text-sm font-medium text-slate-800">{pipeline.punchesSinceAug4}</p>
-              <p className="text-xs text-slate-500">
-                Pending: {pipeline.unprocessedPunchCount}
-                {pipeline.unmappedPunchCount > 0 ? ` · Unmapped IDs: ${pipeline.unmappedPunchCount}` : ""}
-                {pipeline.latestPunchAt ? ` · Latest ${formatDateTime(pipeline.latestPunchAt)}` : ""}
-              </p>
-            </div>
-            <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Biometric attendance (30 days)</p>
-              <p className="mt-1 text-sm font-medium text-slate-800">{pipeline.biometricAttendanceSinceAug4}</p>
-              <p className="text-xs text-slate-500">
-                Latest day: {pipeline.latestBiometricAttendanceDate ? formatDate(pipeline.latestBiometricAttendanceDate.split("T")[0]) : "None"}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {pipeline?.sampleUnmappedDeviceUserIds?.length ? (
-          <p className="mt-2 text-xs text-amber-800">
-            Unmapped device user IDs (no matching Fingerprint ID or Employee Code): {pipeline.sampleUnmappedDeviceUserIds.join(", ")}
-          </p>
-        ) : null}
-
-        <p className="mt-4 text-xs text-slate-500">
-          Set ADMS webhook URL to:{" "}
-          <code className="rounded bg-white/80 px-1 py-0.5 break-all">{webhookHint ?? pipeline?.webhookPath ?? "/api/biometric/adms/logs"}</code>.
-          Your devices: NYU7253000136, NYU7253000235. Device PIN must match employee Fingerprint ID when set, otherwise Employee Code (e.g. PIN 123 matches EMP-0000123).
-        </p>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">

@@ -18,19 +18,40 @@ function FullScreenSpinner() {
 function ApprovalsInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isLoading, isAdmin, hasPermission, getLeaveReadScope, getPeopleReadScope, hasRole } = useAuth();
+  const {
+    user,
+    isLoading,
+    isAdmin,
+    hasPermission,
+    getApprovalsReadScope,
+    getModuleReadScope,
+    hasRole,
+  } = useAuth();
 
-  const canLeaveRead = isAdmin || getLeaveReadScope() != null || hasRole("SUPERVISOR");
-  const canLeaveApprove = isAdmin || hasPermission("Leave", "Update");
-  const canAttendanceRead = isAdmin || hasPermission("Attendance", "Read") || hasRole("SUPERVISOR") || hasRole("HR_MANAGER");
+  const approvalsScope = getApprovalsReadScope();
+  const canLeaveRead =
+    isAdmin || approvalsScope != null || hasPermission("Approvals", "Read") || hasRole("SUPERVISOR");
+  const canLeaveApprove =
+    isAdmin || hasPermission("Leave", "Update") || hasPermission("Approvals", "Update");
+  const canAttendanceRead =
+    isAdmin
+    || hasPermission("Attendance", "Read")
+    || hasPermission("Approvals", "Read")
+    || hasRole("SUPERVISOR")
+    || hasRole("HR_MANAGER");
 
-  const leaveScope = getLeaveReadScope();
-  const isHrWideLeave = isAdmin || leaveScope === "All";
-  const leaveTeamOnly = !isHrWideLeave && (leaveScope === "Team" || hasRole("SUPERVISOR"));
+  const isHrWideLeave = isAdmin || approvalsScope === "All";
+  const leaveTeamOnly = !isHrWideLeave && (approvalsScope === "Team" || hasRole("SUPERVISOR"));
   const attendanceUpdateAll = user?.permissions.some(
     (p) => p.module === "Attendance" && p.action === "Update" && (p.scope ?? "Own") === "All",
   ) ?? false;
-  const isHrWideOt = isAdmin || hasRole("HR_MANAGER") || getPeopleReadScope() === "All" || attendanceUpdateAll;
+  const attendanceReadScope = getModuleReadScope("Attendance");
+  const isHrWideOt =
+    isAdmin
+    || hasRole("HR_MANAGER")
+    || attendanceReadScope === "All"
+    || approvalsScope === "All"
+    || attendanceUpdateAll;
   const otTeamOnly = !isHrWideOt;
 
   const [tab, setTab] = useState<"leave" | "overtime">("leave");
@@ -105,6 +126,7 @@ function ApprovalsInner() {
 
       {tab === "leave" && canLeaveRead && (
         <LeaveRequestsPanel
+          approvalsWorkspace
           showApprovalActions={canLeaveApprove}
           teamOnly={leaveTeamOnly}
           isEmployeeView={false}

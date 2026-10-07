@@ -10,12 +10,39 @@ namespace OpenSkyHRM.Api.Services;
 public static class LeaveAccessHelper
 {
     /// <summary>
-    /// Returns employee IDs the user can access for Leave (Own = self, Team = self + direct reports, All = null).
-    /// Team uses EmployeeSupervisors (employees who have this user as supervisor).
-    /// When excludeSelfForApprovalList is true and scope is Team, returns only direct reports (excludes self)
-    /// so supervisors do not see their own leave in the approval list.
-    /// Dimension restrictions from User Management always apply — ADMIN / Leave:All cannot bypass them.
+    /// Leave RBAC (Own / Team / All). Team uses the same reporting tree as People Hub.
+    /// Dimension restrictions from User Management always apply.
     /// </summary>
+    /// <summary>
+    /// Broadest read scope for leave request lists: max of Leave and Approvals module permissions.
+    /// </summary>
+    public static string ResolveLeaveRequestsReadScope(ClaimsPrincipal user) =>
+        RbacScopeHelper.MaxScope(ResolveScope(user, "Read"), ApprovalsAccessHelper.ResolveScope(user, "Read"));
+
+    public static async Task<IReadOnlyList<Guid>?> GetLeaveRequestsAllowedEmployeeIdsAsync(
+        ClaimsPrincipal user,
+        AppDbContext db,
+        bool excludeSelfForApprovalList = false)
+    {
+        var effectiveScope = ResolveLeaveRequestsReadScope(user);
+        var leaveRbacIds = await ResolveEmployeeIdsForScopeAsync(user, db, effectiveScope, excludeSelfForApprovalList);
+        var dimensionIds = await PeopleAccessHelper.GetDimensionFilteredEmployeeIdsAsync(user, db);
+        var allowed = PeopleAccessHelper.IntersectEmployeeScopes(leaveRbacIds, dimensionIds);
+
+        if (string.Equals(effectiveScope, "Own", StringComparison.OrdinalIgnoreCase))
+        {
+            var ownId = await GetCurrentEmployeeIdAsync(user, db);
+            if (ownId.HasValue && allowed != null && !allowed.Contains(ownId.Value))
+            {
+                var withOwn = allowed.ToList();
+                withOwn.Add(ownId.Value);
+                return withOwn;
+            }
+        }
+
+        return allowed;
+    }
+
     public static async Task<IReadOnlyList<Guid>?> GetAllowedEmployeeIdsAsync(ClaimsPrincipal user, AppDbContext db, string action = "Read", bool excludeSelfForApprovalList = false)
     {
         var leaveRbacIds = await ResolveLeaveRbacScopeIdsAsync(user, db, action, excludeSelfForApprovalList);
@@ -52,29 +79,15 @@ public static class LeaveAccessHelper
             return null;
 
         var scope = ResolveScope(user, action);
-        if (scope == "All")
-            return null;
-
-        var currentId = await GetCurrentEmployeeIdAsync(user, db);
-        if (!currentId.HasValue)
-            return Array.Empty<Guid>();
-
-        if (scope == "Own")
-            return new[] { currentId.Value };
-
-        if (scope == "Team")
-        {
-            var teamIds = await db.EmployeeSupervisors
-                .Where(es => es.SupervisorId == currentId.Value)
-                .Select(es => es.EmployeeId)
-                .ToListAsync();
-            if (excludeSelfForApprovalList)
-                return teamIds;
-            return teamIds.Union(new[] { currentId.Value }).ToList();
-        }
-
-        return Array.Empty<Guid>();
+        return await ResolveEmployeeIdsForScopeAsync(user, db, scope, excludeSelfForApprovalList);
     }
+
+    internal static Task<IReadOnlyList<Guid>?> ResolveEmployeeIdsForScopeAsync(
+        ClaimsPrincipal user,
+        AppDbContext db,
+        string scope,
+        bool excludeSelfForApprovalList)
+        => ModuleRbacHelper.ResolveEmployeeIdsForScopeAsync(user, db, scope, excludeSelfForApprovalList);
 
     /// <summary>Read carry-forward month / narrative (Apply Leave, balances, Policies view). Not limited to supervisors.</summary>
     public static bool CanReadCarryForwardAvailabilitySettings(ClaimsPrincipal user)
@@ -163,6 +176,19 @@ public static class LeaveAccessHelper
             return true;
 
         var allowedIds = await GetAllowedEmployeeIdsAsync(user, db, action);
+        if (allowedIds == null)
+            return true;
+        return allowedIds.Contains(employeeId);
+    }
+
+    /// <summary>Read access for leave request listing (Leave + Approvals scopes).</summary>
+    public static async Task<bool> CanAccessEmployeeLeaveRequestListAsync(ClaimsPrincipal user, AppDbContext db, Guid employeeId)
+    {
+        var ownId = await GetCurrentEmployeeIdAsync(user, db);
+        if (ownId == employeeId)
+            return true;
+
+        var allowedIds = await GetLeaveRequestsAllowedEmployeeIdsAsync(user, db);
         if (allowedIds == null)
             return true;
         return allowedIds.Contains(employeeId);

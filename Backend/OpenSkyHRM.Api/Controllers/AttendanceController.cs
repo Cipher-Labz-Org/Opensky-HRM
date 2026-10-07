@@ -49,9 +49,9 @@ public partial class AttendanceController : ControllerBase
         [FromQuery] string? sortBy = null,
         [FromQuery] string? sortDir = null)
     {
-        if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
+        if (employeeId.HasValue && !await ModuleRbacHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Attendance", "Read"))
             return Forbid();
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var allowedIds = await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(User, _db, "Attendance", "Read");
         return Ok(await _attendanceService.GetAttendanceAsync(
             page, pageSize, employeeId, from, to, allowedIds, departmentId, locationId, status, source, sortBy, sortDir));
     }
@@ -62,9 +62,9 @@ public partial class AttendanceController : ControllerBase
         [FromQuery] DateTime to,
         [FromQuery] Guid? employeeId = null)
     {
-        if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
+        if (employeeId.HasValue && !await ModuleRbacHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Attendance", "Read"))
             return Forbid();
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var allowedIds = await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(User, _db, "Attendance", "Read");
         return Ok(await _attendanceService.GetSummaryAsync(from, to, employeeId, allowedIds));
     }
 
@@ -74,16 +74,16 @@ public partial class AttendanceController : ControllerBase
         [FromQuery] DateTime to,
         [FromQuery] Guid? employeeId = null)
     {
-        if (employeeId.HasValue && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Read"))
+        if (employeeId.HasValue && !await ModuleRbacHelper.CanAccessEmployeeAsync(User, _db, employeeId.Value, "Attendance", "Read"))
             return Forbid();
-        var allowedIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
+        var allowedIds = await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(User, _db, "Attendance", "Read");
         return Ok(await _attendanceService.GetDailySummariesAsync(from, to, employeeId, allowedIds));
     }
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateAttendanceRecordDto dto)
     {
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, dto.EmployeeId, "Update"))
+        if (!await ModuleRbacHelper.CanAccessEmployeeAsync(User, _db, dto.EmployeeId, "Attendance", "Update"))
             return Forbid();
         var result = await _attendanceService.CreateAsync(dto);
         return CreatedAtAction(nameof(GetAttendance), new { id = result.Id }, result);
@@ -94,7 +94,7 @@ public partial class AttendanceController : ControllerBase
     {
         var record = await _db.Set<AttendanceRecord>().AsNoTracking().FirstOrDefaultAsync(a => a.Id == id);
         if (record == null) return NotFound();
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, record.EmployeeId, "Update"))
+        if (!await ModuleRbacHelper.CanAccessEmployeeAsync(User, _db, record.EmployeeId, "Attendance", "Update"))
             return Forbid();
         var result = await _attendanceService.UpdateAsync(id, dto);
         return result == null ? NotFound() : Ok(result);
@@ -105,7 +105,7 @@ public partial class AttendanceController : ControllerBase
     {
         var record = await _db.Set<AttendanceRecord>().AsNoTracking().FirstOrDefaultAsync(a => a.Id == id);
         if (record == null) return NotFound();
-        if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, record.EmployeeId, "Update"))
+        if (!await ModuleRbacHelper.CanAccessEmployeeAsync(User, _db, record.EmployeeId, "Attendance", "Update"))
             return Forbid();
         var ok = await _attendanceService.DeleteAsync(id);
         return ok ? NoContent() : NotFound();
@@ -151,7 +151,7 @@ public partial class AttendanceController : ControllerBase
         // Punching another employee still requires People:Update on that record.
         var isSelfPunch = linkedEmployeeId == targetEmployeeId;
         if (!isSelfPunch
-            && !await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, targetEmployeeId, "Update"))
+            && !await ModuleRbacHelper.CanAccessEmployeeAsync(User, _db, targetEmployeeId, "Attendance", "Update"))
             return Forbid();
 
         var qrError = await ResolveAttendanceFromQrAsync(dto);
@@ -489,35 +489,35 @@ public partial class AttendanceController : ControllerBase
     /// </summary>
     private async Task<IReadOnlyList<Guid>?> GetOvertimeVisibleEmployeeIdsAsync(Guid? actingEmployeeId, bool teamOnly)
     {
-        var descendants = await GetReportingDescendantIdsAsync(actingEmployeeId);
         var dimensionIds = await PeopleAccessHelper.GetDimensionFilteredEmployeeIdsAsync(User, _db);
         var hrCanOverride = PeopleAccessHelper.CanOverrideOvertimeApproval(User);
 
+        var attendanceScope = ModuleRbacHelper.ResolveScope(User, "Attendance", "Read");
+        var approvalsScope = ApprovalsAccessHelper.ResolveScope(User, "Read");
+        var effectiveScope = RbacScopeHelper.MaxScope(attendanceScope, approvalsScope);
+
+        if (!teamOnly && (effectiveScope == "All" || hrCanOverride))
+        {
+            if (effectiveScope == "All")
+                return dimensionIds;
+            return await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(User, _db, "Attendance", "Read");
+        }
+
         if (teamOnly && !hrCanOverride)
         {
+            var teamIds = await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(User, _db, "Attendance", "Read");
+            if (teamIds == null)
+                return dimensionIds;
+            if (effectiveScope is "Team" or "Own")
+                return teamIds;
             if (!actingEmployeeId.HasValue)
                 return Array.Empty<Guid>();
+            var descendants = await GetReportingDescendantIdsAsync(actingEmployeeId);
             return PeopleAccessHelper.IntersectEmployeeScopes(descendants.ToList(), dimensionIds)
                 ?? descendants.ToList();
         }
 
-        var peopleRead = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read");
-        var peopleScope = PeopleAccessHelper.ResolvePeopleScope(
-            User.FindAll("permission").Select(c => c.Value), "Read");
-
-        if (!hrCanOverride && (UserHasRole("SUPERVISOR") || peopleScope == "Team"))
-        {
-            return PeopleAccessHelper.IntersectEmployeeScopes(descendants.ToList(), dimensionIds)
-                ?? descendants.ToList();
-        }
-
-        if (descendants.Count == 0)
-            return peopleRead;
-        if (peopleRead == null)
-            return null;
-
-        var merged = peopleRead.Union(descendants).ToList();
-        return PeopleAccessHelper.IntersectEmployeeScopes(merged, dimensionIds);
+        return await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(User, _db, "Attendance", "Read");
     }
 
     private bool UserHasRole(string roleCode)

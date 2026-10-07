@@ -1,12 +1,11 @@
 import { useCallback, useState } from "react";
-import { Alert, Platform, Text, TextInput, View } from "react-native";
+import { Alert, Platform, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   AuthErrorBanner,
   LoginFormCard,
-  LoginPrimaryButton,
   LoginScreenLayout,
   LoginSecondaryButton,
 } from "@/features/auth";
@@ -21,9 +20,6 @@ import {
   resolveReachableApiBaseUrl,
 } from "@/utils/connect";
 import { LOGIN_THEME } from "@/theme/loginTheme";
-
-const EXAMPLE_BACKEND_URL =
-  Platform.OS === "web" ? "http://127.0.0.1:5000" : "https://your-backend.example.com";
 
 type ConnectionInfo = {
   apiBaseUrl: string;
@@ -62,7 +58,6 @@ async function probeBackend(baseUrl: string, companyIdFallback: string): Promise
 export default function ConnectScreen() {
   const setConnection = useConfigStore((s) => s.setConnection);
   const [permission, requestPermission] = useCameraPermissions();
-  const [manualUrl, setManualUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
@@ -144,21 +139,13 @@ export default function ConnectScreen() {
     [applyConnection, loading, scanned]
   );
 
-  const onManualConnect = async () => {
-    if (!manualUrl.trim()) {
-      Alert.alert("Backend URL required", `Example: ${EXAMPLE_BACKEND_URL}`);
-      return;
-    }
-    await applyConnection(manualUrl.trim());
-  };
-
   return (
     <LoginScreenLayout compact={false}>
       <View style={{ alignSelf: "stretch", width: "100%" }}>
         <LoginFormCard
           showLogo={false}
           title="Connect to company"
-          subtitle="Scan a company QR code, or enter your backend URL"
+          subtitle="Scan your company QR code to connect"
         >
           <View style={{ gap: 14, alignSelf: "stretch" }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -206,67 +193,22 @@ export default function ConnectScreen() {
 
             <LoginSecondaryButton
               title={scanning ? "Hide QR scanner" : "Scan QR code"}
+              disabled={loading}
               onPress={() => {
                 setScanned(false);
                 setScanning((value) => !value);
               }}
             />
 
-            <Text style={{ fontSize: 13, fontWeight: "600", color: LOGIN_THEME.navy }}>
-              Backend URL
-            </Text>
-            <View
-              style={{
-                alignSelf: "stretch",
-                flexDirection: "row",
-                alignItems: "center",
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: LOGIN_THEME.border,
-                backgroundColor: "#FFFFFF",
-                paddingHorizontal: 12,
-                minHeight: 48,
-              }}
-            >
-              <Ionicons name="link-outline" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
-              <TextInput
-                value={manualUrl}
-                onChangeText={setManualUrl}
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="off"
-                // Avoid keyboardType="url" — on some Androids it corrupts "https://" in the field.
-                keyboardType="default"
-                placeholder={EXAMPLE_BACKEND_URL}
-                placeholderTextColor="#94A3B8"
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  fontSize: 14,
-                  color: LOGIN_THEME.navy,
-                  paddingVertical: 10,
-                }}
-              />
-            </View>
-
-            <Text style={{ fontSize: 12, color: LOGIN_THEME.muted, lineHeight: 18 }}>
-              Enter your company’s API base URL (https://… or http://LAN-IP:5000 for local), then
-              connect.
-            </Text>
+            {loading ? (
+              <Text style={{ fontSize: 13, color: LOGIN_THEME.muted, textAlign: "center" }}>
+                Connecting…
+              </Text>
+            ) : null}
 
             {error ? <AuthErrorBanner message={error} /> : null}
           </View>
         </LoginFormCard>
-
-        {/* Buttons OUTSIDE the card — avoids Android invisible-button bug */}
-        <View style={{ marginTop: 16, gap: 12, alignSelf: "stretch" }}>
-          <LoginPrimaryButton
-            title={loading ? "Connecting…" : "Connect with URL above"}
-            loading={loading}
-            disabled={loading}
-            onPress={() => void onManualConnect()}
-          />
-        </View>
       </View>
     </LoginScreenLayout>
   );

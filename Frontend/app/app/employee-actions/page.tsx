@@ -215,7 +215,9 @@ export default function EmployeeActionsPage() {
 
   useEffect(() => {
     setEmpLoading(true);
-    apiFetch<{ items: EmployeeRow[] }>("/api/employees?pageSize=500&excludeTerminated=true")
+    apiFetch<{ items: EmployeeRow[] }>(
+      "/api/employees?pageSize=500&excludeTerminated=true&accessModule=EmployeeActions",
+    )
       .then((r) => setEmployees(Array.isArray(r.items) ? r.items : []))
       .catch(() => setEmployees([]))
       .finally(() => setEmpLoading(false));

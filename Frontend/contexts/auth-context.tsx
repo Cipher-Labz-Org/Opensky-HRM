@@ -8,6 +8,11 @@ import {
   tenantBackendUrl,
 } from "@/config/constants";
 import { resolveHttpErrorMessage } from "@/lib/api-errors";
+import {
+  getLeaveRequestsReadScope,
+  getModuleReadScope,
+  type RbacScope,
+} from "@/lib/permission-scopes";
 
 const PROFILE_FETCH_MS = 25_000;
 const LOGIN_FETCH_MS = 20_000;
@@ -80,8 +85,13 @@ interface AuthContextType {
   /** Reload /api/auth/me (e.g. after licensing changes). */
   refreshProfile: () => Promise<void>;
   hasPermission: (module: string, action: string) => boolean;
-  getPeopleReadScope: () => "Own" | "Team" | "All" | null;
-  getLeaveReadScope: () => "Own" | "Team" | "All" | null;
+  getPeopleReadScope: () => RbacScope | null;
+  getLeaveReadScope: () => RbacScope | null;
+  getApprovalsReadScope: () => RbacScope | null;
+  /** Broadest scope for leave request / Approvals workspace lists (Leave ∪ Approvals Read). */
+  getLeaveRequestsReadScope: () => RbacScope | null;
+  /** Read scope for any RBAC module row (People, EmployeeBio, Attendance, …). */
+  getModuleReadScope: (module: string) => RbacScope | null;
   hasRole: (roleCode: string) => boolean;
   isAdmin: boolean;
   /** True when the user has any People dimension scope (location, BU, grade, or job catalog). */
@@ -101,6 +111,9 @@ const AuthContext = createContext<AuthContextType>({
   hasPermission: () => false,
   getPeopleReadScope: () => null,
   getLeaveReadScope: () => null,
+  getApprovalsReadScope: () => null,
+  getLeaveRequestsReadScope: () => null,
+  getModuleReadScope: () => null,
   hasRole: () => false,
   isAdmin: false,
   hasPeopleDimensionRestrictions: () => false,
@@ -360,25 +373,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return user.permissions.some((p) => p.module === module && p.action === action);
   };
 
-  const getPeopleReadScope = (): "Own" | "Team" | "All" | null => {
+  const getPeopleReadScope = (): RbacScope | null => {
     if (!user) return null;
     if (roleListMatches(user.roles, "ADMIN")) return "All";
-    const p = user.permissions.find((x) => x.module === "People" && x.action === "Read");
-    if (!p) return null;
-    const scope = p.scope ?? "Own";
-    if (scope === "Team" || scope === "All") return scope;
-    return "Own";
+    return getModuleReadScope(user.permissions, "People");
   };
 
-  const getLeaveReadScope = (): "Own" | "Team" | "All" | null => {
+  const getLeaveReadScope = (): RbacScope | null => {
     if (!user) return null;
     if (roleListMatches(user.roles, "ADMIN")) return "All";
-    const leaveReadPerms = user.permissions.filter((x) => x.module === "Leave" && x.action === "Read");
-    if (leaveReadPerms.length === 0) return null;
-    // Prefer highest scope when user has multiple roles (e.g. Employee + Supervisor)
-    if (leaveReadPerms.some((p) => (p.scope ?? "Own") === "All")) return "All";
-    if (leaveReadPerms.some((p) => (p.scope ?? "Own") === "Team")) return "Team";
-    return "Own";
+    return getModuleReadScope(user.permissions, "Leave");
+  };
+
+  const getApprovalsReadScope = (): RbacScope | null => {
+    if (!user) return null;
+    if (roleListMatches(user.roles, "ADMIN")) return "All";
+    return getModuleReadScope(user.permissions, "Approvals");
+  };
+
+  const getLeaveRequestsReadScopeFn = (): RbacScope | null => {
+    if (!user) return null;
+    if (roleListMatches(user.roles, "ADMIN")) return "All";
+    return getLeaveRequestsReadScope(user.permissions);
+  };
+
+  const getModuleReadScopeFn = (module: string): RbacScope | null => {
+    if (!user) return null;
+    if (roleListMatches(user.roles, "ADMIN")) return "All";
+    return getModuleReadScope(user.permissions, module);
   };
 
   const hasRole = (roleCode: string): boolean => {
@@ -412,6 +434,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         hasPermission,
         getPeopleReadScope,
         getLeaveReadScope,
+        getApprovalsReadScope,
+        getLeaveRequestsReadScope: getLeaveRequestsReadScopeFn,
+        getModuleReadScope: getModuleReadScopeFn,
         hasRole,
         isAdmin,
         hasPeopleDimensionRestrictions,

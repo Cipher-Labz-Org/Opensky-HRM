@@ -30,7 +30,21 @@ public sealed class GetPendingApprovalsTool : AiToolBase
             return AiToolResult.Denied("Leave module is not licensed.");
 
         var limit = Math.Clamp(GetInt(args, "limit") ?? 10, 1, 25);
-        var allowedIds = await _scope.GetAllowedEmployeeIdsAsync(ctx.User, "Read", ct);
+        var approvalsScope = ResolveModuleScope(ctx.User.Permissions, "Approvals", "Read");
+        IReadOnlyList<Guid>? allowedIds;
+        if (approvalsScope == "All")
+            allowedIds = null;
+        else if (approvalsScope == "Own" && ctx.User.EmployeeId.HasValue)
+            allowedIds = new[] { ctx.User.EmployeeId.Value };
+        else if (approvalsScope == "Team" && ctx.User.EmployeeId.HasValue)
+        {
+            var graph = await ReportingChain.LoadAsync(ctx.Db, ct);
+            var teamIds = ReportingChain.GetDescendantIds(graph, ctx.User.EmployeeId.Value);
+            teamIds.Add(ctx.User.EmployeeId.Value);
+            allowedIds = teamIds.ToList();
+        }
+        else
+            allowedIds = await _scope.GetAllowedEmployeeIdsAsync(ctx.User, "Read", ct);
 
         var q = ctx.Db.LeaveRequests.AsNoTracking()
             .Include(r => r.Employee)
@@ -67,5 +81,15 @@ public sealed class GetPendingApprovalsTool : AiToolBase
         var total = await q.CountAsync(ct);
 
         return AiToolResult.Ok(new { totalPending = total, items }, $"{total} pending leave approvals");
+    }
+
+    private static string ResolveModuleScope(IReadOnlyList<string> permissions, string module, string action)
+    {
+        var prefix = $"{module}:{action}:";
+        var matches = permissions.Where(p => p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (matches.Any(p => p.EndsWith(":All", StringComparison.OrdinalIgnoreCase))) return "All";
+        if (matches.Any(p => p.EndsWith(":Team", StringComparison.OrdinalIgnoreCase))) return "Team";
+        if (matches.Any(p => p.EndsWith(":Own", StringComparison.OrdinalIgnoreCase))) return "Own";
+        return "None";
     }
 }

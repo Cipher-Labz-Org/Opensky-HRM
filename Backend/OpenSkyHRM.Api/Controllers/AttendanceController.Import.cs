@@ -94,7 +94,7 @@ public partial class AttendanceController
             }
         }
 
-        var allowedUpdateIds = await PeopleAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Update");
+        var allowedUpdateIds = await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(User, _db, "Attendance", "Update");
 
         var results = new List<AttendanceImportRowResult>();
         var created = 0;
@@ -182,7 +182,7 @@ public partial class AttendanceController
                 continue;
             }
 
-            if (!await PeopleAccessHelper.CanAccessEmployeeAsync(User, _db, employee.Id, "Update"))
+            if (!await ModuleRbacHelper.CanAccessEmployeeAsync(User, _db, employee.Id, "Attendance", "Update"))
             {
                 skipped++;
                 results.Add(new AttendanceImportRowResult(r, empLabel, date, "Skipped", ["You do not have permission to update this employee."]));

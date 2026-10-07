@@ -377,10 +377,10 @@ function DataTable({
 }
 
 export default function EmployeeProfilePage() {
-  const { user, isLoading: authLoading, getPeopleReadScope, hasPermission, isAdmin } = useAuth();
+  const { user, isLoading: authLoading, getPeopleReadScope, getModuleReadScope, hasPermission, isAdmin } = useAuth();
   const employeeId = user?.employeeId ?? null;
-  const peopleScope = getPeopleReadScope();
-  const canSearchOthers = peopleScope === "Team" || peopleScope === "All";
+  const bioScope = getModuleReadScope("EmployeeBio") ?? getPeopleReadScope();
+  const canSearchOthers = bioScope === "Team" || bioScope === "All";
   const canFilterByDepartment = isAdmin && canSearchOthers;
 
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
@@ -617,7 +617,9 @@ export default function EmployeeProfilePage() {
     apiFetch<DepartmentLookup[]>("/api/organization/departments")
       .then(setDepartments)
       .catch(() => setDepartments([]));
-    apiFetch<{ totalCount: number }>("/api/employees?pageSize=1&excludeTerminated=true")
+    apiFetch<{ totalCount: number }>(
+      "/api/employees?pageSize=1&excludeTerminated=true&accessModule=EmployeeBio",
+    )
       .then((res) => setActiveEmployeeCount(res.totalCount ?? 0))
       .catch(() => setActiveEmployeeCount(null));
   }, [canFilterByDepartment]);
@@ -662,6 +664,7 @@ export default function EmployeeProfilePage() {
       const params = new URLSearchParams({ pageSize: "10" });
       if (trimmed) params.set("search", trimmed);
       if (departmentId) params.set("departmentId", departmentId);
+      params.set("accessModule", "EmployeeBio");
       const res = await apiFetch<{ items: EmployeeSearchHit[] }>(`/api/employees?${params}`);
       setDirResults(res.items ?? []);
       setDirOpen(true);
