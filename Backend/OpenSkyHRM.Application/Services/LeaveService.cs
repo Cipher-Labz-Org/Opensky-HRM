@@ -193,6 +193,13 @@ public class LeaveService : ILeaveService
         var durationKind = LeaveDurationRules.IsShortLeaveType(leaveType.Code, leaveType.AllowShortLeave)
             ? LeaveDurationKinds.ShortLeave
             : LeaveDurationRules.NormalizeKind(dto.DurationKind);
+
+        decimal? requestedShortLeaveHours = dto.ShortLeaveHours;
+        LeaveDurationRules.NormalizeShortLeaveTimes(
+            dto.ShortLeaveStartTime, dto.ShortLeaveEndTime, out var storedShortLeaveStart, out var storedShortLeaveEnd);
+        if (storedShortLeaveStart is not null && storedShortLeaveEnd is not null)
+            requestedShortLeaveHours = LeaveDurationRules.HoursBetweenTimes(storedShortLeaveStart, storedShortLeaveEnd);
+
         var totalDays = LeaveDurationRules.ResolveTotalDays(
             durationKind,
             dto.StartDate,
@@ -201,12 +208,16 @@ public class LeaveService : ILeaveService
             leaveType.AllowShortLeave,
             leaveType.ShortLeaveHours,
             dto.HalfDayPeriod,
-            dto.ShortLeaveHours,
+            requestedShortLeaveHours,
             out var storedHalfDayPeriod,
             out var storedShortLeaveHours);
 
         if (durationKind == LeaveDurationKinds.ShortLeave)
+        {
             LeaveDurationRules.EnsureWithinMinMaxHours(storedShortLeaveHours ?? leaveType.ShortLeaveHours, leaveType.MinHours, leaveType.MaxHours);
+            if (storedShortLeaveStart is null || storedShortLeaveEnd is null)
+                throw new InvalidOperationException("Select start and end times for short leave.");
+        }
         else
             LeaveDurationRules.EnsureWithinMinMax(totalDays, leaveType.MinDays, leaveType.MaxDays);
 
@@ -305,6 +316,8 @@ public class LeaveService : ILeaveService
             DurationKind = durationKind,
             HalfDayPeriod = storedHalfDayPeriod,
             ShortLeaveHours = storedShortLeaveHours,
+            ShortLeaveStartTime = storedShortLeaveStart,
+            ShortLeaveEndTime = storedShortLeaveEnd,
             Reason = dto.Reason,
             CoveragePerson = dto.CoveragePerson,
             MedicalCertificateUrl = string.IsNullOrWhiteSpace(medicalCertificateUrl) ? null : medicalCertificateUrl.Trim(),
@@ -659,24 +672,6 @@ public class LeaveService : ILeaveService
         Employee employee, LeaveRequest created, Guid? coverageEmployeeId)
     {
         var leaveType = created.LeaveType?.Name ?? "Leave";
-        var sent = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        async Task TrySendAsync(string? email, string role, Func<Task> send)
-        {
-            if (string.IsNullOrWhiteSpace(email) || !sent.Add(email.Trim()))
-                return;
-            try
-            {
-                await send();
-                _logger.LogInformation(
-                    "Leave request {LeaveRequestId} {Role} email sent to {Email}.",
-                    created.Id, role, email);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Leave request {LeaveRequestId} saved but {Role} email to {Email} failed.", created.Id, role, email);
-            }
-        }
 
         var supervisorIds = await GetLeaveNotifySupervisorIdsAsync(employee.Id);
         if (supervisorIds.Count == 0)
@@ -715,7 +710,6 @@ public class LeaveService : ILeaveService
                     created.Status.ToString(),
                     created.Reason,
                     created.Id);
-                sent.Add(supervisorEmail.Trim());
                 _logger.LogInformation(
                     "Leave request {LeaveRequestId} supervisor email sent to {Email}.",
                     created.Id, supervisorEmail);
@@ -735,8 +729,10 @@ public class LeaveService : ILeaveService
         }
         else
         {
-            await TrySendAsync(employeeEmail, "employee", () =>
-                _emailService.SendLeaveApplicationConfirmationAsync(
+            // Applicant always gets a confirmation, even when that address is also the supervisor.
+            try
+            {
+                await _emailService.SendLeaveApplicationConfirmationAsync(
                     employeeEmail,
                     employee.FullName,
                     leaveType,
@@ -744,7 +740,15 @@ public class LeaveService : ILeaveService
                     created.EndDate,
                     created.TotalDays,
                     created.Status.ToString(),
-                    created.Reason));
+                    created.Reason);
+                _logger.LogInformation(
+                    "Leave request {LeaveRequestId} employee email sent to {Email}.",
+                    created.Id, employeeEmail);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Leave request {LeaveRequestId} saved but employee email to {Email} failed.", created.Id, employeeEmail);
+            }
         }
 
         var covering = await ResolveCoverageEmployeeAsync(employee.Id, coverageEmployeeId, created.CoveragePerson);
@@ -768,8 +772,9 @@ public class LeaveService : ILeaveService
             return;
         }
 
-        await TrySendAsync(coveringEmail, "covering person", () =>
-            _emailService.SendLeaveApplicationToCoveringPersonAsync(
+        try
+        {
+            await _emailService.SendLeaveApplicationToCoveringPersonAsync(
                 coveringEmail,
                 covering.FullName,
                 employee.FullName,
@@ -778,7 +783,15 @@ public class LeaveService : ILeaveService
                 created.EndDate,
                 created.TotalDays,
                 created.Status.ToString(),
-                created.Reason));
+                created.Reason);
+            _logger.LogInformation(
+                "Leave request {LeaveRequestId} covering person email sent to {Email}.",
+                created.Id, coveringEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Leave request {LeaveRequestId} saved but covering person email to {Email} failed.", created.Id, coveringEmail);
+        }
     }
 
     private async Task<List<Guid>> GetLeaveNotifySupervisorIdsAsync(Guid employeeId)
@@ -915,6 +928,8 @@ public class LeaveService : ILeaveService
         DurationKind = string.IsNullOrWhiteSpace(r.DurationKind) ? LeaveDurationKinds.FullDay : r.DurationKind,
         HalfDayPeriod = r.HalfDayPeriod,
         ShortLeaveHours = r.ShortLeaveHours,
+        ShortLeaveStartTime = r.ShortLeaveStartTime,
+        ShortLeaveEndTime = r.ShortLeaveEndTime,
         Reason = r.Reason, Status = r.Status.ToString(),
         CoveragePerson = r.CoveragePerson, ApproverRemarks = r.ApproverRemarks,
         CreatedAt = r.CreatedAt,

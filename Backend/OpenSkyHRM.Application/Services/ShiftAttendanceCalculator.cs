@@ -195,30 +195,214 @@ public static class ShiftAttendanceCalculator
         return storedHours ?? 0;
     }
 
+    /// <summary>
+    /// Punch In is always the first fingerprint and Punch Out is always the last.
+    /// Hours are the sum of work stretches (in→out, in→out), so a lunch break
+    /// between those taps is not time worked. A single in/out pair still uses the
+    /// full span, minus the shift break only when that span covers the whole shift window.
+    /// </summary>
+    public static PunchAggregation AggregateCalendarDayPunches(
+        IReadOnlyList<DateTime> punchTimes,
+        IReadOnlyList<string?>? punchStates,
+        decimal singleSessionBreakHours = 0,
+        decimal fullDayWindowHours = 0)
+    {
+        if (punchTimes.Count == 0)
+            return new PunchAggregation(null, null, null);
+
+        var ordered = new List<(DateTime Time, PunchDirection Direction)>(punchTimes.Count);
+        for (var i = 0; i < punchTimes.Count; i++)
+        {
+            var state = punchStates != null && i < punchStates.Count ? punchStates[i] : null;
+            ordered.Add((punchTimes[i], ClassifyPunchDirection(state)));
+        }
+
+        ordered.Sort((a, b) => a.Time.CompareTo(b.Time));
+        var firstPunch = ordered[0].Time;
+        var lastPunch = ordered[^1].Time;
+        DateTime? punchOut = lastPunch > firstPunch ? lastPunch : null;
+
+        var punches = CollapseDuplicateTaps(ordered);
+        if (punches.Count <= 1)
+        {
+            decimal? span = punchOut.HasValue
+                ? Math.Round((decimal)(lastPunch - firstPunch).TotalHours, 2)
+                : null;
+            return new PunchAggregation(firstPunch, punchOut, span);
+        }
+
+        var sessions = PairWorkSessions(punches);
+        if (sessions.Count == 0)
+            return new PunchAggregation(firstPunch, punchOut, punchOut.HasValue
+                ? Math.Round((decimal)(lastPunch - firstPunch).TotalHours, 2)
+                : null);
+
+        var worked = sessions.Sum(s => (decimal)(s.End - s.Start).TotalHours);
+        if (sessions.Count == 1
+            && singleSessionBreakHours > 0
+            && worked > singleSessionBreakHours
+            && fullDayWindowHours > singleSessionBreakHours
+            && worked + 0.02m >= fullDayWindowHours - 0.25m)
+        {
+            worked -= singleSessionBreakHours;
+        }
+
+        worked = Math.Round(Math.Max(0, worked), 2);
+        return new PunchAggregation(firstPunch, punchOut, worked);
+    }
+
     public static PunchAggregation AggregateCalendarDayPunches(
         IReadOnlyList<DateTime> sortedPunchTimes,
         IReadOnlyList<bool> isCheckOutFlags)
     {
-        if (sortedPunchTimes.Count == 0)
-            return new PunchAggregation(null, null, null);
-
-        var punchIn = sortedPunchTimes[0];
-        DateTime? punchOut = sortedPunchTimes.Count > 1 ? sortedPunchTimes[^1] : null;
-
-        if (isCheckOutFlags.Count == sortedPunchTimes.Count)
+        var states = new string?[sortedPunchTimes.Count];
+        for (var i = 0; i < sortedPunchTimes.Count && i < isCheckOutFlags.Count; i++)
         {
-            var checkOuts = sortedPunchTimes
-                .Where((_, i) => isCheckOutFlags[i])
-                .ToList();
-            if (checkOuts.Count > 0)
-                punchOut = checkOuts.Max();
+            if (isCheckOutFlags[i])
+                states[i] = "1";
         }
 
-        decimal? workedHours = null;
-        if (punchIn != default && punchOut.HasValue && punchOut > punchIn)
-            workedHours = Math.Round((decimal)(punchOut.Value - punchIn).TotalHours, 2);
+        return AggregateCalendarDayPunches(sortedPunchTimes, states);
+    }
 
-        return new PunchAggregation(punchIn, punchOut, workedHours);
+    /// <summary>
+    /// One attendance row keeps its stored hours. Several non-overlapping rows
+    /// (morning and afternoon) are added. Overlapping copies keep the larger value
+    /// so a duplicate day is not counted twice.
+    /// </summary>
+    public static decimal CombineDayWorkedHours(
+        IReadOnlyList<(DateTime? PunchIn, DateTime? PunchOut, decimal? WorkedHours)> rows)
+    {
+        if (rows.Count == 0)
+            return 0;
+
+        var withHours = rows.Where(r => r.WorkedHours is > 0).ToList();
+        if (withHours.Count == 1)
+            return Math.Round(withHours[0].WorkedHours!.Value, 2);
+
+        if (withHours.Count > 1)
+        {
+            var ordered = withHours.OrderBy(r => r.PunchIn ?? DateTime.MaxValue).ToList();
+            var sequential = true;
+            for (var i = 1; i < ordered.Count; i++)
+            {
+                var prevOut = ordered[i - 1].PunchOut;
+                var nextIn = ordered[i].PunchIn;
+                if (!prevOut.HasValue || !nextIn.HasValue || nextIn.Value < prevOut.Value)
+                {
+                    sequential = false;
+                    break;
+                }
+            }
+
+            if (sequential)
+                return Math.Round(ordered.Sum(r => r.WorkedHours!.Value), 2);
+
+            return Math.Round(ordered.Max(r => r.WorkedHours!.Value), 2);
+        }
+
+        DateTime? earliest = null;
+        DateTime? latest = null;
+        foreach (var row in rows)
+        {
+            if (row.PunchIn.HasValue && (!earliest.HasValue || row.PunchIn.Value < earliest.Value))
+                earliest = row.PunchIn;
+            if (row.PunchOut.HasValue && (!latest.HasValue || row.PunchOut.Value > latest.Value))
+                latest = row.PunchOut;
+        }
+
+        if (earliest.HasValue && latest.HasValue && latest.Value > earliest.Value)
+            return Math.Round((decimal)(latest.Value - earliest.Value).TotalHours, 2);
+
+        return 0;
+    }
+
+    public enum PunchDirection { Unknown, In, Out }
+
+    public static PunchDirection ClassifyPunchDirection(string? state)
+    {
+        if (string.IsNullOrWhiteSpace(state))
+            return PunchDirection.Unknown;
+
+        var s = state.Trim().ToLowerInvariant();
+        // ZKTeco: 0 check-in, 1 check-out, 2 break-out, 3 break-in, 4 OT-in, 5 OT-out.
+        if (s is "0" or "3" or "4"
+            or "in" or "checkin" or "check-in" or "check in"
+            or "breakin" or "break-in" or "break in"
+            or "otin" or "ot-in" or "ot in")
+            return PunchDirection.In;
+
+        if (s is "1" or "2" or "5"
+            or "out" or "checkout" or "check-out" or "check out"
+            or "breakout" or "break-out" or "break out"
+            or "otout" or "ot-out" or "ot out")
+            return PunchDirection.Out;
+
+        return PunchDirection.Unknown;
+    }
+
+    private static readonly TimeSpan DuplicateTapWindow = TimeSpan.FromMinutes(2);
+
+    private static List<(DateTime Time, PunchDirection Direction)> CollapseDuplicateTaps(
+        List<(DateTime Time, PunchDirection Direction)> sorted)
+    {
+        var kept = new List<(DateTime Time, PunchDirection Direction)>(sorted.Count);
+        foreach (var punch in sorted)
+        {
+            if (kept.Count == 0)
+            {
+                kept.Add(punch);
+                continue;
+            }
+
+            var prev = kept[^1];
+            if (punch.Time - prev.Time <= DuplicateTapWindow)
+            {
+                if (prev.Direction == PunchDirection.Unknown && punch.Direction != PunchDirection.Unknown)
+                    kept[^1] = (prev.Time, punch.Direction);
+                continue;
+            }
+
+            kept.Add(punch);
+        }
+
+        return kept;
+    }
+
+    private static List<(DateTime Start, DateTime End)> PairWorkSessions(
+        List<(DateTime Time, PunchDirection Direction)> punches)
+    {
+        var hasExplicitIn = punches.Exists(p => p.Direction == PunchDirection.In);
+        var hasExplicitOut = punches.Exists(p => p.Direction == PunchDirection.Out);
+        var useStates = hasExplicitIn && hasExplicitOut;
+
+        var sessions = new List<(DateTime Start, DateTime End)>();
+        DateTime? open = null;
+        foreach (var punch in punches)
+        {
+            var direction = punch.Direction;
+            if (!useStates)
+                direction = open.HasValue ? PunchDirection.Out : PunchDirection.In;
+            else if (direction == PunchDirection.Unknown)
+                direction = open.HasValue ? PunchDirection.Out : PunchDirection.In;
+
+            if (direction == PunchDirection.In)
+            {
+                open ??= punch.Time;
+                continue;
+            }
+
+            if (open.HasValue && punch.Time > open.Value)
+            {
+                sessions.Add((open.Value, punch.Time));
+                open = null;
+            }
+        }
+
+        if (sessions.Count == 0 && punches.Count >= 2 && punches[^1].Time > punches[0].Time)
+            sessions.Add((punches[0].Time, punches[^1].Time));
+
+        return sessions;
     }
 
     public static PunchAggregation AggregateOvernightSplitPunches(

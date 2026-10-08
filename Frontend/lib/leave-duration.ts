@@ -42,6 +42,48 @@ export function parseOptionalHours(value: FormDataEntryValue | null): number | n
 /** Half-hour steps between the type's min and max, always including both ends. */
 const SHORT_LEAVE_HOUR_STEP = 0.5;
 
+const TIME24_RE = /^(\d{2}):(\d{2})$/;
+
+export function parseTime24ToMinutes(value: string): number | null {
+  const m = TIME24_RE.exec(value.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+export function formatMinutesToTime24(totalMinutes: number): string {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, Math.round(totalMinutes)));
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+export function addMinutesToTime24(time24: string, minutes: number): string | null {
+  const start = parseTime24ToMinutes(time24);
+  if (start == null) return null;
+  return formatMinutesToTime24(start + minutes);
+}
+
+/** Hours from `from` to `to` on the same calendar day; null when invalid or to ≤ from. */
+export function diffTime24Hours(from: string, to: string): number | null {
+  const a = parseTime24ToMinutes(from);
+  const b = parseTime24ToMinutes(to);
+  if (a == null || b == null || b <= a) return null;
+  return roundLeaveHours((b - a) / 60);
+}
+
+export function formatTime24Display(value: string): string {
+  const m = TIME24_RE.exec(value.trim());
+  if (!m) return value;
+  const h24 = Number(m[1]);
+  const minute = Number(m[2]);
+  const period: "AM" | "PM" = h24 >= 12 ? "PM" : "AM";
+  const h12 = h24 % 12 || 12;
+  return `${String(h12).padStart(2, "0")}:${String(minute).padStart(2, "0")} ${period}`;
+}
+
 export function shortLeaveHourChoices(minHours?: number | null, maxHours?: number | null, fallback = DEFAULT_SHORT_LEAVE_HOURS): number[] {
   const hasMin = minHours != null && minHours > 0;
   const hasMax = maxHours != null && maxHours > 0;
@@ -81,6 +123,8 @@ export function formatLeaveDurationLabel(
   kind?: string | null,
   period?: string | null,
   hours?: number | null,
+  startTime?: string | null,
+  endTime?: string | null,
 ): string | null {
   if (!kind || kind === "FullDay") return null;
   if (kind === "HalfDay") {
@@ -89,6 +133,9 @@ export function formatLeaveDurationLabel(
     return "Half day";
   }
   if (kind === "ShortLeave") {
+    if (startTime && endTime && TIME24_RE.test(startTime) && TIME24_RE.test(endTime)) {
+      return `Short leave (${formatTime24Display(startTime)} – ${formatTime24Display(endTime)})`;
+    }
     return hours ? `Short leave (${hours}h)` : "Short leave";
   }
   return null;

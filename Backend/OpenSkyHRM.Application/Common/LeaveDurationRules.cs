@@ -109,6 +109,40 @@ public static class LeaveDurationRules
             throw new InvalidOperationException($"This leave type allows at most {maxHours.Value:0.##} hour(s) per request. Requested: {hours:0.##}.");
     }
 
+    public static bool TryParseTime24(string? value, out int totalMinutes)
+    {
+        totalMinutes = 0;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var parts = value.Trim().Split(':');
+        if (parts.Length != 2) return false;
+        if (!int.TryParse(parts[0], out var h) || !int.TryParse(parts[1], out var m)) return false;
+        if (h is < 0 or > 23 || m is < 0 or > 59) return false;
+        totalMinutes = h * 60 + m;
+        return true;
+    }
+
+    public static decimal HoursBetweenTimes(string startTime, string endTime)
+    {
+        if (!TryParseTime24(startTime, out var startMin) || !TryParseTime24(endTime, out var endMin))
+            throw new InvalidOperationException("Short leave start and end times must be valid (HH:mm).");
+        if (endMin <= startMin)
+            throw new InvalidOperationException("Short leave end time must be after the start time.");
+        return RoundHours((endMin - startMin) / 60m);
+    }
+
+    public static void NormalizeShortLeaveTimes(string? startTime, string? endTime, out string? storedStart, out string? storedEnd)
+    {
+        storedStart = null;
+        storedEnd = null;
+        if (string.IsNullOrWhiteSpace(startTime) && string.IsNullOrWhiteSpace(endTime)) return;
+        if (string.IsNullOrWhiteSpace(startTime) || string.IsNullOrWhiteSpace(endTime))
+            throw new InvalidOperationException("Select both start and end times for short leave.");
+        if (!TryParseTime24(startTime, out var startMin) || !TryParseTime24(endTime, out var endMin))
+            throw new InvalidOperationException("Short leave times must use HH:mm format.");
+        storedStart = $"{startMin / 60:D2}:{startMin % 60:D2}";
+        storedEnd = $"{endMin / 60:D2}:{endMin % 60:D2}";
+    }
+
     public static decimal FullDayDays(DateTime start, DateTime end)
     {
         var days = (end.Date - start.Date).TotalDays + 1;

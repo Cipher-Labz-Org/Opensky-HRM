@@ -222,10 +222,15 @@ public class AppDbContext : DbContext
                     continue;
 
                 // Punch times and attendance dates are business-local wall clock (Asia/Colombo).
+                // Labeling a fingerprint tap as UTC makes PostgreSQL shift it by the server offset.
                 if (entry.Entity is AttendanceRecord
                     && prop.Metadata.Name is nameof(AttendanceRecord.PunchIn)
                         or nameof(AttendanceRecord.PunchOut)
                         or nameof(AttendanceRecord.Date))
+                    continue;
+
+                if (entry.Entity is BiometricPunchEvent
+                    && prop.Metadata.Name is nameof(BiometricPunchEvent.PunchAtUtc))
                     continue;
 
                 // Last login is timestamp without time zone; UTC Kind cannot be written.

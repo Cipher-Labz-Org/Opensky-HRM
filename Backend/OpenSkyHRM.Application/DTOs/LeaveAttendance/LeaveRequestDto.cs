@@ -16,6 +16,8 @@ public class LeaveRequestDto
     public string DurationKind { get; set; } = "FullDay";
     public string? HalfDayPeriod { get; set; }
     public decimal? ShortLeaveHours { get; set; }
+    public string? ShortLeaveStartTime { get; set; }
+    public string? ShortLeaveEndTime { get; set; }
     public string? Reason { get; set; }
     public string Status { get; set; } = string.Empty;
     public string? CoveragePerson { get; set; }
@@ -51,6 +53,8 @@ public class CreateLeaveRequestDto
     public string? DurationKind { get; set; }
     public string? HalfDayPeriod { get; set; }
     public decimal? ShortLeaveHours { get; set; }
+    public string? ShortLeaveStartTime { get; set; }
+    public string? ShortLeaveEndTime { get; set; }
     public string? Reason { get; set; }
     public string? CoveragePerson { get; set; }
     public Guid? CoverageEmployeeId { get; set; }

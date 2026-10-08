@@ -23,6 +23,8 @@ export interface LeaveRequestRow {
   durationKind?: string | null;
   halfDayPeriod?: string | null;
   shortLeaveHours?: number | null;
+  shortLeaveStartTime?: string | null;
+  shortLeaveEndTime?: string | null;
   reason: string | null;
   status: string;
   coveragePerson: string | null;
@@ -488,7 +490,13 @@ export function LeaveRequestsPanel({
               )}
               {!loading &&
                 items.map((r) => {
-                  const durationLabel = formatLeaveDurationLabel(r.durationKind, r.halfDayPeriod, r.shortLeaveHours);
+                  const durationLabel = formatLeaveDurationLabel(
+                    r.durationKind,
+                    r.halfDayPeriod,
+                    r.shortLeaveHours,
+                    r.shortLeaveStartTime,
+                    r.shortLeaveEndTime,
+                  );
                   return (
                   <tr
                     key={r.id}
@@ -657,8 +665,20 @@ export function LeaveRequestsPanel({
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
               <span className="font-medium text-slate-800">{actionRow.employeeName}</span> — {actionRow.leaveTypeName}
-              {formatLeaveDurationLabel(actionRow.durationKind, actionRow.halfDayPeriod, actionRow.shortLeaveHours)
-                ? ` · ${formatLeaveDurationLabel(actionRow.durationKind, actionRow.halfDayPeriod, actionRow.shortLeaveHours)}`
+              {formatLeaveDurationLabel(
+                actionRow.durationKind,
+                actionRow.halfDayPeriod,
+                actionRow.shortLeaveHours,
+                actionRow.shortLeaveStartTime,
+                actionRow.shortLeaveEndTime,
+              )
+                ? ` · ${formatLeaveDurationLabel(
+                    actionRow.durationKind,
+                    actionRow.halfDayPeriod,
+                    actionRow.shortLeaveHours,
+                    actionRow.shortLeaveStartTime,
+                    actionRow.shortLeaveEndTime,
+                  )}`
                 : ""}{" "}
               ({formatDate(actionRow.startDate)} → {formatDate(actionRow.endDate)})
             </p>

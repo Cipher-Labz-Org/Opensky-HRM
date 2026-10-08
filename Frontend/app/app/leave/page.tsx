@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, ToastPopup, type FormSelectOption } from "@/components/ui";
+import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, ToastPopup, TimePickerField, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { apiFetch } from "@/lib/api";
@@ -31,10 +31,12 @@ import { LeaveRequestsPanel } from "@/components/workforce/LeaveRequestsPanel";
 import { ROUTES } from "@/config/routes";
 import { sanitizeSearchInput } from "@/lib/input-validation";
 import {
+  addMinutesToTime24,
   clampShortLeaveHours,
   computeLeaveRemaining,
   computeLeaveTotalDays,
   DEFAULT_SHORT_LEAVE_HOURS,
+  diffTime24Hours,
   formatLeaveDays,
   formatLeaveDurationLabel,
   isShortLeaveType,
@@ -44,6 +46,16 @@ import {
   type LeaveDurationKind,
   type HalfDayPeriod,
 } from "@/lib/leave-duration";
+
+const SHORT_LEAVE_DAY_START_HOUR = 6;
+const SHORT_LEAVE_DAY_END_HOUR = 20;
+const SHORT_LEAVE_DAY_END = `${String(SHORT_LEAVE_DAY_END_HOUR).padStart(2, "0")}:00`;
+
+function shortLeaveEndFromDuration(start: string, hours: number): string {
+  const end = addMinutesToTime24(start, Math.round(hours * 60));
+  if (!end) return "";
+  return end > SHORT_LEAVE_DAY_END ? SHORT_LEAVE_DAY_END : end;
+}
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -1126,6 +1138,8 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
   const [annualNoticeOpen, setAnnualNoticeOpen] = useState(false);
   const [durationKind, setDurationKind] = useState<LeaveDurationKind>("FullDay");
   const [halfDayPeriod, setHalfDayPeriod] = useState<HalfDayPeriod>("Morning");
+  const [shortLeaveStartTime, setShortLeaveStartTime] = useState("");
+  const [shortLeaveEndTime, setShortLeaveEndTime] = useState("");
   const [appliedShortLeaveHours, setAppliedShortLeaveHours] = useState(DEFAULT_SHORT_LEAVE_HOURS);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -1208,6 +1222,8 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     setHalfDayPeriod("Morning");
     const t = leaveTypes.find((x) => x.id === selectedTypeId);
     setDurationKind(isShortLeaveType(t) ? "ShortLeave" : "FullDay");
+    setShortLeaveStartTime("");
+    setShortLeaveEndTime("");
     setAppliedShortLeaveHours(clampShortLeaveHours(t?.shortLeaveHours ?? DEFAULT_SHORT_LEAVE_HOURS));
   }, [selectedTypeId, leaveTypes]);
 
@@ -1274,14 +1290,74 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
 
   const selectedLeaveType = leaveTypes.find((t) => t.id === selectedTypeId);
   const isShortLeaveSelected = isShortLeaveType(selectedLeaveType);
+  const applySingleDayOnly = isShortLeaveSelected || durationKind !== "FullDay";
   const allowHalfDay = Boolean(selectedLeaveType?.allowHalfDay) && !isShortLeaveSelected;
   const typeShortLeaveHours = clampShortLeaveHours(selectedLeaveType?.shortLeaveHours ?? DEFAULT_SHORT_LEAVE_HOURS);
-  const shortLeaveHourOptions = shortLeaveHourChoices(
-    selectedLeaveType?.minHours,
-    selectedLeaveType?.maxHours,
-    typeShortLeaveHours,
+  const shortLeaveMinHours =
+    selectedLeaveType?.minHours != null && selectedLeaveType.minHours > 0
+      ? clampShortLeaveHours(selectedLeaveType.minHours)
+      : 1;
+  const shortLeaveMaxHours =
+    selectedLeaveType?.maxHours != null && selectedLeaveType.maxHours > 0
+      ? clampShortLeaveHours(selectedLeaveType.maxHours)
+      : typeShortLeaveHours;
+  const shortLeaveHourOptions = useMemo(
+    () => shortLeaveHourChoices(selectedLeaveType?.minHours, selectedLeaveType?.maxHours, typeShortLeaveHours),
+    [selectedLeaveType?.minHours, selectedLeaveType?.maxHours, typeShortLeaveHours],
   );
-  const effectiveShortLeaveHours = isShortLeaveSelected ? appliedShortLeaveHours : typeShortLeaveHours;
+  const shortLeaveFixedDuration = shortLeaveHourOptions.length <= 1;
+  const shortLeaveDurationHours = shortLeaveHourOptions.includes(appliedShortLeaveHours)
+    ? appliedShortLeaveHours
+    : (shortLeaveHourOptions.includes(typeShortLeaveHours) ? typeShortLeaveHours : shortLeaveHourOptions[0] ?? typeShortLeaveHours);
+  const shortLeaveEndMinTime =
+    shortLeaveStartTime && shortLeaveMinHours > 0
+      ? addMinutesToTime24(shortLeaveStartTime, Math.round(shortLeaveMinHours * 60)) ?? undefined
+      : undefined;
+  const shortLeaveEndMaxTime =
+    shortLeaveStartTime && shortLeaveMaxHours > 0
+      ? addMinutesToTime24(shortLeaveStartTime, Math.round(shortLeaveMaxHours * 60)) ?? undefined
+      : undefined;
+  const shortLeaveStartMaxTime =
+    addMinutesToTime24(SHORT_LEAVE_DAY_END, -Math.round(shortLeaveDurationHours * 60)) ?? undefined;
+  const effectiveShortLeaveHours = isShortLeaveSelected
+    ? diffTime24Hours(shortLeaveStartTime, shortLeaveEndTime) ?? 0
+    : typeShortLeaveHours;
+
+  function applyShortLeaveWindow(start: string, hours: number) {
+    if (!start) {
+      setShortLeaveEndTime("");
+      return;
+    }
+    setShortLeaveEndTime(shortLeaveEndFromDuration(start, hours));
+  }
+
+  function onShortLeaveStartTimeChange(time24: string) {
+    setShortLeaveStartTime(time24);
+    applyShortLeaveWindow(time24, shortLeaveDurationHours);
+  }
+
+  function onShortLeaveHoursChange(hours: number) {
+    setAppliedShortLeaveHours(hours);
+    applyShortLeaveWindow(shortLeaveStartTime, hours);
+  }
+
+  function onShortLeaveEndTimeChange(time24: string) {
+    setShortLeaveEndTime(time24);
+    const diff = diffTime24Hours(shortLeaveStartTime, time24);
+    if (diff == null) return;
+    const matched = shortLeaveHourOptions.find((h) => Math.abs(h - diff) < 1e-6);
+    setAppliedShortLeaveHours(matched ?? clampShortLeaveHours(diff));
+  }
+
+  const shortLeaveTimesReady =
+    !isShortLeaveSelected ||
+    (Boolean(shortLeaveStartTime && shortLeaveEndTime) &&
+      effectiveShortLeaveHours > 0 &&
+      effectiveShortLeaveHours >= shortLeaveMinHours - 1e-6 &&
+      effectiveShortLeaveHours <= shortLeaveMaxHours + 1e-6);
+  const applyDatesReady = applySingleDayOnly
+    ? Boolean(startDate) && shortLeaveTimesReady
+    : Boolean(startDate && endDate && !applyDatesInvalid);
 
   const totalDays = computeLeaveTotalDays({
     durationKind,
@@ -1374,12 +1450,20 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     const minHours = selectedLeaveType?.minHours != null && selectedLeaveType.minHours > 0 ? selectedLeaveType.minHours : null;
     const maxHours = selectedLeaveType?.maxHours != null && selectedLeaveType.maxHours > 0 ? selectedLeaveType.maxHours : null;
     if (isShortLeaveSelected) {
-      if (minHours != null && appliedShortLeaveHours < minHours) {
-        setMessage({ type: "err", text: `This leave type requires at least ${minHours} hour(s). Requested: ${appliedShortLeaveHours}.` });
+      if (!shortLeaveStartTime || !shortLeaveEndTime) {
+        setMessage({ type: "err", text: "Select start and end times for short leave." });
         return;
       }
-      if (maxHours != null && appliedShortLeaveHours > maxHours) {
-        setMessage({ type: "err", text: `This leave type allows at most ${maxHours} hour(s) per request. Requested: ${appliedShortLeaveHours}.` });
+      if (effectiveShortLeaveHours <= 0) {
+        setMessage({ type: "err", text: "End time must be after the start time." });
+        return;
+      }
+      if (minHours != null && effectiveShortLeaveHours < minHours) {
+        setMessage({ type: "err", text: `This leave type requires at least ${minHours} hour(s). Requested: ${effectiveShortLeaveHours}.` });
+        return;
+      }
+      if (maxHours != null && effectiveShortLeaveHours > maxHours) {
+        setMessage({ type: "err", text: `This leave type allows at most ${maxHours} hour(s) per request. Requested: ${effectiveShortLeaveHours}.` });
         return;
       }
     } else {
@@ -1401,11 +1485,15 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
       }
     }
     const effectiveEndDate = durationKind === "FullDay" ? endDate : startDate;
-    if (!startDate || !effectiveEndDate) {
+    if (!startDate) {
+      setMessage({ type: "err", text: applySingleDayOnly ? "Select a date." : "Select both From and To dates." });
+      return;
+    }
+    if (durationKind === "FullDay" && !endDate) {
       setMessage({ type: "err", text: "Select both From and To dates." });
       return;
     }
-    if (effectiveEndDate < startDate) {
+    if (durationKind === "FullDay" && effectiveEndDate < startDate) {
       setMessage({ type: "err", text: "To date cannot be before From date." });
       return;
     }
@@ -1434,7 +1522,11 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
         fd.set("totalDays", String(totalDays));
         fd.set("durationKind", durationKind);
         if (durationKind === "HalfDay") fd.set("halfDayPeriod", halfDayPeriod);
-        if (durationKind === "ShortLeave") fd.set("shortLeaveHours", String(effectiveShortLeaveHours));
+        if (durationKind === "ShortLeave") {
+          fd.set("shortLeaveHours", String(effectiveShortLeaveHours));
+          fd.set("shortLeaveStartTime", shortLeaveStartTime);
+          fd.set("shortLeaveEndTime", shortLeaveEndTime);
+        }
         if (reason.trim()) fd.set("reason", reason.trim());
         if (coveragePerson.trim()) fd.set("coveragePerson", coveragePerson.trim());
         if (coverageEmployeeId) fd.set("coverageEmployeeId", coverageEmployeeId);
@@ -1452,6 +1544,8 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
             durationKind,
             halfDayPeriod: durationKind === "HalfDay" ? halfDayPeriod : null,
             shortLeaveHours: durationKind === "ShortLeave" ? effectiveShortLeaveHours : null,
+            shortLeaveStartTime: durationKind === "ShortLeave" ? shortLeaveStartTime : null,
+            shortLeaveEndTime: durationKind === "ShortLeave" ? shortLeaveEndTime : null,
             reason: reason || null,
             coveragePerson: coveragePerson || null,
             coverageEmployeeId: coverageEmployeeId || null,
@@ -1463,6 +1557,8 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
       setSelectedTypeId("");
       setStartDate("");
       setEndDate("");
+      setShortLeaveStartTime("");
+      setShortLeaveEndTime("");
       setReason("");
       setCoveragePerson("");
       setCoverageEmployeeId("");
@@ -1746,33 +1842,6 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
               )}
 
               <div className="space-y-5">
-              {isShortLeaveSelected && selectedLeaveType && (
-                <div>
-                  <label className={applyLabel}>Hours</label>
-                  <div className="mt-1.5 flex flex-wrap gap-2">
-                    {shortLeaveHourOptions.map((hours) => (
-                      <button
-                        key={hours}
-                        type="button"
-                        onClick={() => setAppliedShortLeaveHours(hours)}
-                        className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                          appliedShortLeaveHours === hours
-                            ? "border-blue-600 bg-blue-600 text-white"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
-                        }`}
-                      >
-                        {hours}h
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-1.5 text-xs text-slate-500">
-                    Short Leave is on a single day
-                    {selectedLeaveType.minHours || selectedLeaveType.maxHours
-                      ? ` (${selectedLeaveType.minHours ? `min ${selectedLeaveType.minHours}h` : "no min"}${selectedLeaveType.maxHours ? `, max ${selectedLeaveType.maxHours}h` : ", no max"})`
-                      : ""}.
-                  </p>
-                </div>
-              )}
               {(allowHalfDay) && (
                 <div>
                   <label className={applyLabel}>Duration</label>
@@ -1823,9 +1892,9 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                   )}
                 </div>
               )}
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className={applySingleDayOnly ? "max-w-xs" : "grid gap-3 sm:grid-cols-2"}>
                 <div>
-                  <label className={applyLabel}>From *</label>
+                  <label className={applyLabel}>{applySingleDayOnly ? "Date *" : "From *"}</label>
                   <DatePickerField
                     required
                     value={startDate}
@@ -1833,20 +1902,83 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                     className={applyInput}
                   />
                 </div>
-                <div>
-                  <label className={applyLabel}>To *</label>
-                  <DatePickerField
-                    required
-                    value={durationKind === "FullDay" ? endDate : startDate}
-                    min={applyEndMinDate}
-                    onChange={onApplyEndDateChange}
-                    disabled={durationKind !== "FullDay"}
-                    className={applyInput}
-                  />
-                </div>
+                {!applySingleDayOnly && (
+                  <div>
+                    <label className={applyLabel}>To *</label>
+                    <DatePickerField
+                      required
+                      value={endDate}
+                      min={applyEndMinDate}
+                      onChange={onApplyEndDateChange}
+                      className={applyInput}
+                    />
+                  </div>
+                )}
               </div>
               {applyDatesInvalid && (
                 <p className="text-xs text-red-600">To date must be on or after From date.</p>
+              )}
+              {isShortLeaveSelected && selectedLeaveType && (
+                <div>
+                  {!shortLeaveFixedDuration && (
+                    <div className="mb-4">
+                      <label className={applyLabel}>Hours *</label>
+                      <div className="mt-1.5 flex flex-wrap gap-2">
+                        {shortLeaveHourOptions.map((hours) => (
+                          <button
+                            key={hours}
+                            type="button"
+                            onClick={() => onShortLeaveHoursChange(hours)}
+                            className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                              shortLeaveDurationHours === hours
+                                ? "border-blue-600 bg-blue-600 text-white"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                            }`}
+                          >
+                            {hours}h
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <label className={applyLabel}>Time *</label>
+                  <div className="mt-1.5 grid max-w-md gap-3 sm:grid-cols-2">
+                    <div>
+                      <span className="mb-1 block text-xs font-medium text-slate-500">From</span>
+                      <TimePickerField
+                        value={shortLeaveStartTime}
+                        onChange={onShortLeaveStartTimeChange}
+                        minuteStep={15}
+                        hourStart={SHORT_LEAVE_DAY_START_HOUR}
+                        hourEnd={SHORT_LEAVE_DAY_END_HOUR}
+                        maxTime={shortLeaveStartMaxTime}
+                        className={applyInput}
+                        placeholder="Start time"
+                      />
+                    </div>
+                    <div>
+                      <span className="mb-1 block text-xs font-medium text-slate-500">To</span>
+                      <TimePickerField
+                        value={shortLeaveEndTime}
+                        onChange={onShortLeaveEndTimeChange}
+                        minuteStep={15}
+                        hourStart={SHORT_LEAVE_DAY_START_HOUR}
+                        hourEnd={SHORT_LEAVE_DAY_END_HOUR}
+                        minTime={shortLeaveEndMinTime}
+                        maxTime={shortLeaveEndMaxTime}
+                        disabled={!shortLeaveStartTime || shortLeaveFixedDuration}
+                        className={applyInput}
+                        placeholder="End time"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    {shortLeaveFixedDuration
+                      ? `Duration is fixed at ${shortLeaveDurationHours} hour(s). End time fills automatically from the start time.`
+                      : `Choose hours, then a start time — end time fills automatically (for example 1.5h). You can still adjust To within ${shortLeaveMinHours}h–${shortLeaveMaxHours}h.`}
+                    {effectiveShortLeaveHours > 0 ? ` Selected: ${effectiveShortLeaveHours}h.` : ""}
+                  </p>
+                </div>
               )}
               {isSickLeave && (
                 <div>
@@ -1952,9 +2084,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                   type="submit"
                   disabled={
                     submitting ||
-                    !startDate ||
-                    !endDate ||
-                    applyDatesInvalid ||
+                    !applyDatesReady ||
                     exceedsBalance ||
                     missingBalance ||
                     (sickLeaveRequiresMedicalPdf && !medicalFile)

@@ -201,15 +201,14 @@ public class BiometricAdmsController : ControllerBase
                 merged++;
             }
 
-            if (keep.PunchIn.HasValue && keep.PunchOut.HasValue)
-            {
-                keep.WorkedHours = Math.Round(
-                    (decimal)(keep.PunchOut.Value - keep.PunchIn.Value).TotalHours, 2);
-            }
         }
 
         if (merged > 0)
+        {
             await _db.SaveChangesAsync(cancellationToken);
+            // Rebuild from the taps. The raw first-to-last gap counts breaks as work.
+            await _biometricService.ReconcileRecentBiometricAttendanceAsync(days, cancellationToken);
+        }
 
         return Ok(new { duplicateRowsRemoved = merged });
     }

@@ -114,4 +114,23 @@ public class AttendancePunchTimesTests
 
         Assert.Equal(new DateTime(2026, 8, 12, 12, 7, 0), clock.ToBusinessLocal(utc));
     }
+
+    [Fact]
+    public void Device_wall_clock_without_offset_is_kept()
+    {
+        var clock = new BusinessClock(new ConfigurationBuilder().Build());
+
+        Assert.True(clock.TryParseDeviceTimestamp("2026-10-01 07:04:00", out var wall));
+        Assert.Equal(new DateTime(2026, 10, 1, 7, 4, 0), wall);
+        Assert.Equal(DateTimeKind.Unspecified, wall.Kind);
+    }
+
+    [Fact]
+    public void Device_timestamp_with_z_converts_to_colombo_wall()
+    {
+        var clock = new BusinessClock(new ConfigurationBuilder().Build());
+
+        Assert.True(clock.TryParseDeviceTimestamp("2026-10-01T01:34:00Z", out var wall));
+        Assert.Equal(new DateTime(2026, 10, 1, 7, 4, 0), wall);
+    }
 }

@@ -607,6 +607,9 @@ public class AttendanceService : IAttendanceService
             .Select(g =>
             {
                 var rows = g.OrderBy(x => x.PunchIn ?? DateTime.MaxValue).ThenBy(x => x.Id).ToList();
+                if (rows.Count == 1)
+                    return rows[0];
+
                 var keep = rows[0];
                 DateTime? firstIn = null;
                 DateTime? lastOut = null;
@@ -622,10 +625,9 @@ public class AttendanceService : IAttendanceService
 
                 keep.PunchIn = firstIn;
                 keep.PunchOut = lastOut;
-                if (firstIn.HasValue && lastOut.HasValue && lastOut.Value > firstIn.Value)
-                    keep.WorkedHours = Math.Round((decimal)(lastOut.Value - firstIn.Value).TotalHours, 2);
-                else
-                    keep.WorkedHours = null;
+                var combined = ShiftAttendanceCalculator.CombineDayWorkedHours(
+                    rows.Select(r => (r.PunchIn, r.PunchOut, r.WorkedHours)).ToList());
+                keep.WorkedHours = combined > 0 ? combined : null;
                 return keep;
             })
             .ToList();
@@ -759,7 +761,11 @@ public class AttendanceService : IAttendanceService
                             latestOut = punchOut;
                     }
 
-                    var dayWorked = ShiftAttendanceCalculator.ResolveWorkedHours(null, earliestIn, latestOut);
+                    var dayWorked = ShiftAttendanceCalculator.CombineDayWorkedHours(
+                        presentRecords.Select(r => (
+                            AttendancePunchTimes.ToApiWallClock(r.PunchIn, r.Source, _clock),
+                            AttendancePunchTimes.ToApiWallClock(r.PunchOut, r.Source, _clock),
+                            r.WorkedHours)).ToList());
 
                     totalWorked += dayWorked;
                     presentDays++;
@@ -875,7 +881,11 @@ public class AttendanceService : IAttendanceService
                         latestOut = punchOut;
                 }
 
-                var dayWorked = ShiftAttendanceCalculator.ResolveWorkedHours(null, earliestIn, latestOut);
+                var dayWorked = ShiftAttendanceCalculator.CombineDayWorkedHours(
+                    presentRecords.Select(r => (
+                        AttendancePunchTimes.ToApiWallClock(r.PunchIn, r.Source, _clock),
+                        AttendancePunchTimes.ToApiWallClock(r.PunchOut, r.Source, _clock),
+                        r.WorkedHours)).ToList());
 
                 var shift = ResolveShiftPattern(emp, empRosters, d);
                 var prePost = ShiftAttendanceCalculator.ComputePrePostOtHours(shift, d, earliestIn, latestOut);

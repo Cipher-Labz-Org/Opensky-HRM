@@ -343,4 +343,148 @@ public class ShiftAttendanceCalculatorTests
 
         Assert.Equal(8m, hours);
     }
+
+    [Fact]
+    public void AggregateCalendarDayPunches_LunchGap_IsNotCountedAsWork()
+    {
+        var day = new DateTime(2026, 10, 1);
+        var punches = new[]
+        {
+            day.AddHours(8),
+            day.AddHours(12),
+            day.AddHours(14),
+            day.AddHours(18),
+        };
+
+        var result = ShiftAttendanceCalculator.AggregateCalendarDayPunches(punches, new string?[4]);
+
+        Assert.Equal(punches[0], result.PunchIn);
+        Assert.Equal(punches[3], result.PunchOut);
+        Assert.Equal(8m, result.WorkedHours);
+    }
+
+    [Fact]
+    public void AggregateCalendarDayPunches_TwoTaps_UsesFullSpan()
+    {
+        var day = new DateTime(2026, 10, 1);
+        var punches = new[] { day.AddHours(8), day.AddHours(17) };
+
+        var result = ShiftAttendanceCalculator.AggregateCalendarDayPunches(punches, new[] { "0", "1" });
+
+        Assert.Equal(9m, result.WorkedHours);
+    }
+
+    [Fact]
+    public void AggregateCalendarDayPunches_DoubleTap_DoesNotDropTheRealCheckout()
+    {
+        var day = new DateTime(2026, 10, 1);
+        var punches = new[]
+        {
+            day.AddHours(8),
+            day.AddHours(8).AddMinutes(1),
+            day.AddHours(17),
+        };
+
+        var result = ShiftAttendanceCalculator.AggregateCalendarDayPunches(punches, new string?[3]);
+
+        Assert.Equal(9m, result.WorkedHours);
+        Assert.Equal(punches[0], result.PunchIn);
+        Assert.Equal(punches[2], result.PunchOut);
+    }
+
+    [Fact]
+    public void AggregateCalendarDayPunches_FullShiftWindow_SubtractsUnpunchedBreak()
+    {
+        var day = new DateTime(2026, 10, 1);
+        var punches = new[] { day.AddHours(8), day.AddHours(18) };
+
+        var result = ShiftAttendanceCalculator.AggregateCalendarDayPunches(punches, new[] { "0", "1" }, 2m, 10m);
+
+        Assert.Equal(8m, result.WorkedHours);
+        Assert.Equal(punches[0], result.PunchIn);
+        Assert.Equal(punches[1], result.PunchOut);
+    }
+
+    [Fact]
+    public void AggregateCalendarDayPunches_HalfDay_DoesNotSubtractBreak()
+    {
+        var day = new DateTime(2026, 10, 1);
+        var punches = new[] { day.AddHours(8), day.AddHours(12) };
+
+        var result = ShiftAttendanceCalculator.AggregateCalendarDayPunches(punches, new string?[2], 2m, 10m);
+
+        Assert.Equal(4m, result.WorkedHours);
+    }
+
+    [Fact]
+    public void AggregateCalendarDayPunches_BreakStates_ExcludeTheGap()
+    {
+        var day = new DateTime(2026, 10, 1);
+        var punches = new[]
+        {
+            day.AddHours(7).AddMinutes(4),
+            day.AddHours(12),
+            day.AddHours(14),
+            day.AddHours(17).AddMinutes(24),
+        };
+
+        var result = ShiftAttendanceCalculator.AggregateCalendarDayPunches(
+            punches,
+            new[] { "0", "2", "3", "1" });
+
+        Assert.Equal(8.33m, result.WorkedHours);
+        Assert.Equal(punches[0], result.PunchIn);
+        Assert.Equal(punches[3], result.PunchOut);
+    }
+
+    [Fact]
+    public void AggregateCalendarDayPunches_PunchInIsFirstTap_PunchOutIsLastTap()
+    {
+        var day = new DateTime(2026, 10, 1);
+        var punches = new[]
+        {
+            day.AddHours(8),
+            day.AddHours(17),
+            day.AddHours(19),
+        };
+
+        var result = ShiftAttendanceCalculator.AggregateCalendarDayPunches(
+            punches,
+            new[] { "0", "1", "0" });
+
+        Assert.Equal(punches[0], result.PunchIn);
+        Assert.Equal(punches[2], result.PunchOut);
+        Assert.Equal(9m, result.WorkedHours);
+    }
+
+    [Fact]
+    public void AggregateCalendarDayPunches_FirstTapStaysPunchIn_WhenLabeledCheckout()
+    {
+        var day = new DateTime(2026, 10, 1);
+        var punches = new[]
+        {
+            day.AddHours(7).AddMinutes(4),
+            day.AddHours(12),
+            day.AddHours(17).AddMinutes(24),
+        };
+
+        var result = ShiftAttendanceCalculator.AggregateCalendarDayPunches(
+            punches,
+            new[] { "1", "0", "1" });
+
+        Assert.Equal(punches[0], result.PunchIn);
+        Assert.Equal(punches[2], result.PunchOut);
+    }
+
+    [Fact]
+    public void CombineDayWorkedHours_KeepsStoredSessionTotalInsteadOfSpan()
+    {
+        var day = new DateTime(2026, 10, 1);
+        var hours = ShiftAttendanceCalculator.CombineDayWorkedHours(new[]
+        {
+            (PunchIn: (DateTime?)day.AddHours(8), PunchOut: (DateTime?)day.AddHours(18), WorkedHours: (decimal?)8m),
+        });
+
+        Assert.Equal(8m, hours);
+    }
 }

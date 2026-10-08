@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.Common;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
 using Xunit;
@@ -37,6 +38,20 @@ public class MultiCompanyEmployeeCodeTests
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
-        return new AppDbContext(options);
+        return new AppDbContext(options, new TestClock());
+    }
+
+    private sealed class TestClock : IBusinessClock
+    {
+        public DateTime Now => DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
+
+        public bool TryParseDeviceTimestamp(string? input, out DateTime localWall)
+        {
+            localWall = default;
+            return false;
+        }
+
+        public DateTime ToBusinessLocal(DateTime utcInstant) =>
+            DateTime.SpecifyKind(utcInstant, DateTimeKind.Unspecified);
     }
 }

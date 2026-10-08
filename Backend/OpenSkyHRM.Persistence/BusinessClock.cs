@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using OpenSkyHRM.Domain;
 
@@ -28,12 +29,43 @@ public sealed class BusinessClock : IBusinessClock
         if (string.IsNullOrWhiteSpace(input))
             return false;
 
-        if (!DateTime.TryParse(input, out var parsed))
+        var text = input.Trim();
+
+        // A trailing Z or offset is an instant. Convert it to the business wall clock.
+        // DateTime.TryParse would instead shift it into the server's timezone, so a
+        // 08:00 punch can land hours away from the fingerprint machine.
+        if (HasExplicitOffset(text))
+        {
+            if (!DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var instant))
+                return false;
+
+            localWall = ToBusinessLocal(DateTime.SpecifyKind(instant.UtcDateTime, DateTimeKind.Utc));
+            return true;
+        }
+
+        if (!DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            && !DateTime.TryParse(text, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
             return false;
 
-        // Fingerprint devices send wall clock in business timezone without an offset.
+        // Fingerprint devices send wall clock in the business timezone without an offset.
         localWall = DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified);
         return true;
+    }
+
+    private static bool HasExplicitOffset(string text)
+    {
+        if (text.EndsWith('Z') || text.EndsWith('z'))
+            return true;
+        if (text.Length < 6)
+            return false;
+
+        var sign = text[^6];
+        return sign is '+' or '-'
+            && text[^3] == ':'
+            && char.IsDigit(text[^5])
+            && char.IsDigit(text[^4])
+            && char.IsDigit(text[^2])
+            && char.IsDigit(text[^1]);
     }
 
     public DateTime ToBusinessLocal(DateTime utcInstant)

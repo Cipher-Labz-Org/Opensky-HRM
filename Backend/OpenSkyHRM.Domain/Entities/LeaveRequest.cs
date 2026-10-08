@@ -14,6 +14,10 @@ public class LeaveRequest : AuditableEntity
     public string? HalfDayPeriod { get; set; }
     /// <summary>Hours taken when DurationKind is ShortLeave. Supports part hours, e.g. 1.5.</summary>
     public decimal? ShortLeaveHours { get; set; }
+    /// <summary>Local wall-clock start (HH:mm) for short leave on the request date.</summary>
+    public string? ShortLeaveStartTime { get; set; }
+    /// <summary>Local wall-clock end (HH:mm) for short leave on the request date.</summary>
+    public string? ShortLeaveEndTime { get; set; }
     public string? Reason { get; set; }
     public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
     public string? CoveragePerson { get; set; }

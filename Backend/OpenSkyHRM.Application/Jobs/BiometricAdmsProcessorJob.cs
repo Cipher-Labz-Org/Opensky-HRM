@@ -8,7 +8,9 @@ public class BiometricAdmsProcessorJob
     private readonly IBiometricService _biometricService;
     private readonly ILogger<BiometricAdmsProcessorJob> _logger;
 
-    public BiometricAdmsProcessorJob(IBiometricService biometricService, ILogger<BiometricAdmsProcessorJob> logger)
+    public BiometricAdmsProcessorJob(
+        IBiometricService biometricService,
+        ILogger<BiometricAdmsProcessorJob> logger)
     {
         _biometricService = biometricService;
         _logger = logger;
@@ -17,6 +19,14 @@ public class BiometricAdmsProcessorJob
     public async Task ExecuteAsync(CancellationToken cancellationToken = default)
     {
         var result = await _biometricService.ProcessAllPendingAdmsPunchesAsync(maxBatches: 100, cancellationToken);
+        var reconciled = await _biometricService.RepairStoredBiometricHoursAsync(cancellationToken);
+        if (reconciled > 0)
+        {
+            _logger.LogInformation(
+                "Recalculated biometric attendance hours for {Count} employee-days",
+                reconciled);
+        }
+
         if (result.Processed > 0 || result.SkippedUnmapped > 0 || result.Failed > 0)
         {
             _logger.LogInformation(

@@ -59,6 +59,7 @@ function isTimeAllowed(
   hourStart: number,
   hourEnd: number,
   minTime?: string,
+  maxTime?: string,
 ): boolean {
   const m = /^(\d{2}):(\d{2})$/.exec(time24);
   if (!m) return false;
@@ -67,6 +68,7 @@ function isTimeAllowed(
   if (h < hourStart) return false;
   if (h > hourEnd || (h === hourEnd && min > 0)) return false;
   if (minTime && /^\d{2}:\d{2}$/.test(minTime) && time24 < minTime) return false;
+  if (maxTime && /^\d{2}:\d{2}$/.test(maxTime) && time24 > maxTime) return false;
   return true;
 }
 
@@ -91,6 +93,8 @@ export type TimePickerFieldProps = {
   hourEnd?: number;
   /** Earliest allowed time on the selected day (HH:mm). */
   minTime?: string;
+  /** Latest allowed time on the selected day (HH:mm). */
+  maxTime?: string;
 };
 
 export function TimePickerField({
@@ -104,6 +108,7 @@ export function TimePickerField({
   hourStart = 0,
   hourEnd = 23,
   minTime,
+  maxTime,
 }: TimePickerFieldProps) {
   const [open, setOpen] = React.useState(false);
   const parsed = parseTime24(value);
@@ -173,14 +178,18 @@ export function TimePickerField({
 
   const hourAllowed = (hour12: number) =>
     (["AM", "PM"] as const).some((period) =>
-      minutes.some((minute) => isTimeAllowed(toTime24(hour12, minute, period), hourStart, hourEnd, minTime)),
+      minutes.some((minute) =>
+        isTimeAllowed(toTime24(hour12, minute, period), hourStart, hourEnd, minTime, maxTime),
+      ),
     );
 
   const minuteAllowed = (minute: number) =>
-    isTimeAllowed(toTime24(parsed.hour12, minute, parsed.period), hourStart, hourEnd, minTime);
+    isTimeAllowed(toTime24(parsed.hour12, minute, parsed.period), hourStart, hourEnd, minTime, maxTime);
 
   const periodAllowed = (period: "AM" | "PM") =>
-    minutes.some((minute) => isTimeAllowed(toTime24(parsed.hour12, minute, period), hourStart, hourEnd, minTime));
+    minutes.some((minute) =>
+      isTimeAllowed(toTime24(parsed.hour12, minute, period), hourStart, hourEnd, minTime, maxTime),
+    );
 
   return (
     <div className="relative w-full min-w-0 shrink-0">

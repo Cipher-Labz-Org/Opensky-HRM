@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using OpenSkyHRM.Application.DTOs.TimeAttendance;
 using OpenSkyHRM.Application.Interfaces;
@@ -270,6 +271,218 @@ public class BiometricService : IBiometricService
         }
 
         return total;
+    }
+
+    /// <summary>
+    /// Rewrites biometric attendance in the recent window from the stored fingerprint taps.
+    /// Hours are the sum of work stretches. A hand-edited total is left alone.
+    /// </summary>
+    public Task<int> ReconcileRecentBiometricAttendanceAsync(int days = 14, CancellationToken cancellationToken = default)
+    {
+        days = Math.Clamp(days, 1, 120);
+        var since = DateTime.UtcNow.Date.AddDays(-days);
+        var until = DateTime.UtcNow.Date.AddDays(2);
+        return ReconcileBiometricAttendanceRangeAsync(since, until, cancellationToken);
+    }
+
+    /// <summary>
+    /// Rebuilds biometric attendance from the saved fingerprint taps.
+    /// The past month is repaired on the first run. Older days continue in
+    /// chunks, and the cursor is saved so a restart picks up where it stopped.
+    /// A hand-edited total is left alone.
+    /// </summary>
+    public async Task<int> RepairStoredBiometricHoursAsync(CancellationToken cancellationToken = default)
+    {
+        const string cursorKey = "biometric.workedHoursRepairedThrough";
+        var today = DateTime.UtcNow.Date;
+        var pastMonthStart = new DateTime(today.Year, today.Month, 1).AddMonths(-1);
+        var updated = await ReconcileBiometricAttendanceRangeAsync(pastMonthStart, today.AddDays(2), cancellationToken);
+
+        var earliest = await _db.BiometricPunchEvents.AsNoTracking()
+            .OrderBy(p => p.PunchAtUtc)
+            .Select(p => (DateTime?)p.PunchAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (earliest is null)
+            return updated;
+
+        var setting = await _db.SystemSettings
+            .FirstOrDefaultAsync(s => s.Key == cursorKey, cancellationToken);
+        var cursor = earliest.Value.Date;
+        if (setting != null
+            && DateTime.TryParseExact(setting.Value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            cursor = parsed.Date;
+
+        if (cursor >= pastMonthStart)
+            return updated;
+
+        var chunkEnd = cursor.AddDays(14);
+        if (chunkEnd > pastMonthStart)
+            chunkEnd = pastMonthStart;
+
+        updated += await ReconcileBiometricAttendanceRangeAsync(cursor, chunkEnd, cancellationToken);
+
+        var nextValue = chunkEnd.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        if (setting is null)
+        {
+            _db.SystemSettings.Add(new SystemSetting
+            {
+                Key = cursorKey,
+                Value = nextValue,
+                Description = "Fingerprint attendance hours have been recalculated through this date.",
+            });
+        }
+        else
+        {
+            setting.Value = nextValue;
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return updated;
+    }
+
+    private async Task<int> ReconcileBiometricAttendanceRangeAsync(
+        DateTime since,
+        DateTime until,
+        CancellationToken cancellationToken)
+    {
+
+        var punchRows = await _db.BiometricPunchEvents.AsNoTracking()
+            .Where(p => p.PunchAtUtc >= since && p.PunchAtUtc < until)
+            .Select(p => new { p.DeviceUserId, p.PunchAtUtc, p.PunchState })
+            .ToListAsync(cancellationToken);
+        if (punchRows.Count == 0)
+            return 0;
+
+        var employees = await _db.Employees
+            .Include(e => e.ShiftPattern)
+            .Where(e => !e.IsDeleted)
+            .ToListAsync(cancellationToken);
+        var lookup = BiometricEmployeeResolver.BuildLookup(employees);
+
+        var byEmployeeDay = new Dictionary<(Guid EmployeeId, DateTime Day), List<(DateTime Time, string? State)>>();
+        foreach (var punch in punchRows)
+        {
+            if (!BiometricEmployeeResolver.TryResolve(lookup, punch.DeviceUserId, out var employee))
+                continue;
+
+            var key = (employee.Id, punch.PunchAtUtc.Date);
+            if (!byEmployeeDay.TryGetValue(key, out var list))
+            {
+                list = new List<(DateTime Time, string? State)>();
+                byEmployeeDay[key] = list;
+            }
+
+            list.Add((punch.PunchAtUtc, punch.PunchState));
+        }
+
+        if (byEmployeeDay.Count == 0)
+            return 0;
+
+        var employeeIds = byEmployeeDay.Keys.Select(k => k.EmployeeId).Distinct().ToList();
+        var rosters = await _db.Set<RosterAssignment>()
+            .Include(ra => ra.RosterTemplate)
+            .ThenInclude(rt => rt!.DefaultShiftPattern)
+            .Where(ra => employeeIds.Contains(ra.EmployeeId))
+            .ToListAsync(cancellationToken);
+        var records = await _db.AttendanceRecords
+            .Where(a => employeeIds.Contains(a.EmployeeId)
+                && a.Date >= since
+                && a.Date < until
+                && !a.IsDeleted
+                && a.Source == "Biometric")
+            .ToListAsync(cancellationToken);
+        var employeesById = employees.ToDictionary(e => e.Id);
+        var updated = 0;
+
+        foreach (var (key, punches) in byEmployeeDay)
+        {
+            if (!employeesById.TryGetValue(key.EmployeeId, out var employee))
+                continue;
+
+            var record = records
+                .Where(a => a.EmployeeId == key.EmployeeId && a.Date.Date == key.Day)
+                .OrderBy(a => a.CreatedAt)
+                .FirstOrDefault();
+            if (record is null)
+                continue;
+
+            var empRosters = rosters.Where(r => r.EmployeeId == employee.Id).ToList();
+            var shift = ShiftAttendanceCalculator.ResolveShiftPattern(employee, empRosters, key.Day);
+            if (shift != null && ShiftAttendanceCalculator.IsOvernightSplitShift(shift))
+            {
+                await RebuildAttendanceForEmployeeDayAsync(employee, key.Day, cancellationToken);
+                updated++;
+                continue;
+            }
+
+            var ordered = punches.OrderBy(p => p.Time).ToList();
+            var breakHours = 0m;
+            var windowHours = 0m;
+            if (shift != null && ShiftAttendanceCalculator.ShiftAppliesOnDate(shift, key.Day))
+            {
+                breakHours = shift.BreakHours;
+                windowHours = ShiftAttendanceCalculator.GetExpectedWorkedHours(shift, key.Day);
+            }
+
+            var aggregation = ShiftAttendanceCalculator.AggregateCalendarDayPunches(
+                ordered.Select(p => p.Time).ToList(),
+                ordered.Select(p => p.State).ToList(),
+                breakHours,
+                windowHours);
+            if (!aggregation.PunchIn.HasValue || !aggregation.WorkedHours.HasValue)
+                continue;
+
+            if (IsManualHoursCorrection(record, aggregation.WorkedHours.Value))
+                continue;
+
+            var changed = false;
+            if (!SamePunchTime(record.PunchIn, aggregation.PunchIn))
+            {
+                record.PunchIn = aggregation.PunchIn;
+                changed = true;
+            }
+
+            if (!SamePunchTime(record.PunchOut, aggregation.PunchOut))
+            {
+                record.PunchOut = aggregation.PunchOut;
+                changed = true;
+            }
+
+            if (record.WorkedHours != aggregation.WorkedHours)
+            {
+                record.WorkedHours = aggregation.WorkedHours;
+                changed = true;
+            }
+
+            if (changed)
+                updated++;
+        }
+
+        if (!_db.ChangeTracker.HasChanges())
+            return 0;
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return updated;
+    }
+
+    private static bool SamePunchTime(DateTime? stored, DateTime? recalculated)
+    {
+        if (stored.HasValue != recalculated.HasValue)
+            return false;
+        if (!stored.HasValue || !recalculated.HasValue)
+            return true;
+        return Math.Abs((stored.Value - recalculated.Value).TotalSeconds) < 1;
+    }
+
+    private static bool IsManualHoursCorrection(AttendanceRecord record, decimal recalculatedHours)
+    {
+        if (!record.WorkedHours.HasValue || !record.PunchIn.HasValue || !record.PunchOut.HasValue)
+            return false;
+        if (record.PunchOut.Value <= record.PunchIn.Value)
+            return false;
+
+        var rawSpan = Math.Round((decimal)(record.PunchOut.Value - record.PunchIn.Value).TotalHours, 2);
+        return record.WorkedHours.Value != rawSpan && record.WorkedHours.Value != recalculatedHours;
     }
 
     public async Task<AdmsPipelineStatusDto> GetAdmsPipelineStatusAsync(string? recommendedWebhookUrl = null, CancellationToken cancellationToken = default)
@@ -561,8 +774,19 @@ public class BiometricService : IBiometricService
         }
 
         var punchTimes = filtered.Select(p => p.PunchAtUtc).ToList();
-        var isCheckOut = filtered.Select(p => IsCheckOut(p.PunchState)).ToList();
-        var aggregation = ShiftAttendanceCalculator.AggregateCalendarDayPunches(punchTimes, isCheckOut);
+        var punchStates = filtered.Select(p => p.PunchState).ToList();
+        var breakHours = 0m;
+        var windowHours = 0m;
+        if (shiftToday != null
+            && ShiftAttendanceCalculator.ShiftAppliesOnDate(shiftToday, calendarDate)
+            && !ShiftAttendanceCalculator.IsOvernightSplitShift(shiftToday))
+        {
+            breakHours = shiftToday.BreakHours;
+            windowHours = ShiftAttendanceCalculator.GetExpectedWorkedHours(shiftToday, calendarDate);
+        }
+
+        var aggregation = ShiftAttendanceCalculator.AggregateCalendarDayPunches(
+            punchTimes, punchStates, breakHours, windowHours);
 
         var record = await _db.AttendanceRecords
             .Where(a => a.EmployeeId == employee.Id && a.Date == dayStart && !a.IsDeleted)
@@ -634,15 +858,6 @@ public class BiometricService : IBiometricService
         await RebuildAttendanceForEmployeeDayAsync(employee, punchTime.Date);
         if (punchTime.TimeOfDay < TimeSpan.FromHours(6))
             await RebuildAttendanceForEmployeeDayAsync(employee, punchTime.Date.AddDays(-1));
-    }
-
-    private static bool IsCheckOut(string? punchState)
-    {
-        if (string.IsNullOrWhiteSpace(punchState))
-            return false;
-
-        var s = punchState.Trim().ToLowerInvariant();
-        return s is "1" or "out" or "checkout" or "check-out" or "check out";
     }
 
     public async Task<List<PunchImportBatchDto>> GetImportHistoryAsync(Guid? deviceId = null)

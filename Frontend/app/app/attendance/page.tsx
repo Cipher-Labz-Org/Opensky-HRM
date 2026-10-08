@@ -1341,7 +1341,7 @@ function AttendanceListTab() {
         </div>
       )}
       <p className="text-xs text-slate-500">
-        Biometric rows show earliest punch as <strong>Punch In</strong> and latest as <strong>Punch Out</strong> for the day. New device punches can take up to a minute to appear.
+        Biometric rows show the first fingerprint as <strong>Punch In</strong> and the last as <strong>Punch Out</strong>. Hours add each work stretch and leave out breaks between a punch out and the next punch in. New device punches can take up to a minute to appear.
       </p>
 
       <CreateAttendanceModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />

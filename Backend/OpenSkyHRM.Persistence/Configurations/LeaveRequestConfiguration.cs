@@ -10,6 +10,8 @@ public class LeaveRequestConfiguration : IEntityTypeConfiguration<LeaveRequest>
     {
         builder.Property(x => x.DurationKind).HasMaxLength(20).IsRequired();
         builder.Property(x => x.HalfDayPeriod).HasMaxLength(20);
+        builder.Property(x => x.ShortLeaveStartTime).HasMaxLength(5);
+        builder.Property(x => x.ShortLeaveEndTime).HasMaxLength(5);
 
         builder.HasOne(x => x.Level1Approver)
             .WithMany()
