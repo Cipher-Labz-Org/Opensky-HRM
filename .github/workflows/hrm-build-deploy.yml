@@ -6,6 +6,10 @@
 # Droplets are listed in .github/hrm-fleet.json. SSH on the droplets is closed to the internet: during a deploy the workflow adds the
 # IP of the GitHub machine (one /32 address) to the DigitalOcean cloud firewall, deploys, and ALWAYS removes it again.
 #
+# API customers: tick the boxes "Customer: <name>" in the Run workflow form. The order is always the order of the boxes
+# (demo first). Any other site name can be typed in the "extra customers" field.
+# To add a NEW customer to the list: add a boolean input (cust_<name>), one env line (T_<NAME>) and one "add <name> ..." line below.
+#
 # The backend path is confirmed (first run built the API). The frontend folder is found automatically.
 name: HRM build and deploy
 
@@ -22,10 +26,38 @@ on:
         type: choice
         options: [hris-basic-01]
         default: hris-basic-01
+      cust_demo:
+        description: "API customer: demo"
+        type: boolean
+        default: true
+      cust_epic:
+        description: "API customer: epic"
+        type: boolean
+        default: false
+      cust_gamma:
+        description: "API customer: gamma"
+        type: boolean
+        default: false
+      cust_mbkh:
+        description: "API customer: mbkh"
+        type: boolean
+        default: false
+      cust_nexawave:
+        description: "API customer: nexawave"
+        type: boolean
+        default: false
+      cust_rambank:
+        description: "API customer: rambank"
+        type: boolean
+        default: false
+      cust_stagecafe:
+        description: "API customer: stagecafe"
+        type: boolean
+        default: false
       customers:
-        description: "API customers (site names, comma separated, in this order). The web part always updates ALL customers of the shared frontend."
+        description: "Extra API customers not in the boxes above (site names, comma separated). Normally leave EMPTY. The web part always updates ALL customers of the shared frontend."
         type: string
-        default: demo
+        default: ""
       dry_run:
         description: "Dry run = only run 'plan' on the server, change nothing (keep ON for the first runs)"
         type: boolean
@@ -107,10 +139,36 @@ jobs:
       DROPLET: ${{ inputs.droplet }}
       MODE: ${{ inputs.dry_run && 'plan' || 'apply' }}
       WHAT: ${{ inputs.deploy }}
-      CUSTOMERS: ${{ inputs.customers }}
       SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       DO_TOKEN: ${{ secrets.DO_API_TOKEN }}
     steps:
+      - name: Work out the API customer list (ticked boxes first, then the extra field)
+        env:
+          T_DEMO: ${{ inputs.cust_demo }}
+          T_EPIC: ${{ inputs.cust_epic }}
+          T_GAMMA: ${{ inputs.cust_gamma }}
+          T_MBKH: ${{ inputs.cust_mbkh }}
+          T_NEXAWAVE: ${{ inputs.cust_nexawave }}
+          T_RAMBANK: ${{ inputs.cust_rambank }}
+          T_STAGECAFE: ${{ inputs.cust_stagecafe }}
+          EXTRA: ${{ inputs.customers }}
+        run: |
+          list=""
+          add(){ if [ "$2" = "true" ]; then list="${list:+$list,}$1"; fi; }
+          add demo "$T_DEMO"
+          add epic "$T_EPIC"
+          add gamma "$T_GAMMA"
+          add mbkh "$T_MBKH"
+          add nexawave "$T_NEXAWAVE"
+          add rambank "$T_RAMBANK"
+          add stagecafe "$T_STAGECAFE"
+          extra=$(printf '%s' "$EXTRA" | tr -d ' ')
+          if [ -n "$extra" ]; then list="${list:+$list,}$extra"; fi
+          if { [ "$WHAT" = api ] || [ "$WHAT" = both ]; } && [ -z "$list" ]; then
+            echo "::error::the deploy includes the API but no customer is ticked"; exit 1
+          fi
+          echo "CUSTOMERS=$list" >> "$GITHUB_ENV"
+          echo "API customers (in this order): ${list:-none}"
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { path: dl }
@@ -173,7 +231,7 @@ jobs:
         run: |
           echo "### HRM deploy ${GITHUB_SHA::10} to $DROPLET" >> "$GITHUB_STEP_SUMMARY"
           echo "- mode: **$MODE** (dry run = nothing changed)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- deployed: $WHAT; customers: $CUSTOMERS" >> "$GITHUB_STEP_SUMMARY"
+          echo "- deployed: $WHAT; API customers: ${CUSTOMERS:-none}" >> "$GITHUB_STEP_SUMMARY"
       - name: Close SSH on the cloud firewall again (runs even when the deploy failed)
         if: always() && steps.fw.outputs.ip != ''
         env:
