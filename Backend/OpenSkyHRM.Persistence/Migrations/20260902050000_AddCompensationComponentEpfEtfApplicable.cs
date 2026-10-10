@@ -14,39 +14,30 @@ namespace OpenSkyHRM.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<bool>(
-                name: "IsEpfApplicable",
-                table: "CompensationComponents",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "IsEtfApplicable",
-                table: "CompensationComponents",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
+            // PayrollSchemaRepair runs before MigrateAsync, so these columns may already exist on
+            // live tenants. Plain AddColumn throws 42701 and leaves the migration unrecorded.
             migrationBuilder.Sql(
                 """
+                ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEpfApplicable" boolean NOT NULL DEFAULT FALSE;
+                ALTER TABLE "CompensationComponents" ADD COLUMN IF NOT EXISTS "IsEtfApplicable" boolean NOT NULL DEFAULT FALSE;
+
                 UPDATE "CompensationComponents"
                 SET "IsEpfApplicable" = "IsTaxable",
                     "IsEtfApplicable" = "IsTaxable"
-                WHERE NOT "IsDeleted";
+                WHERE NOT "IsDeleted"
+                  AND "IsEpfApplicable" = FALSE
+                  AND "IsEtfApplicable" = FALSE;
                 """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "IsEpfApplicable",
-                table: "CompensationComponents");
-
-            migrationBuilder.DropColumn(
-                name: "IsEtfApplicable",
-                table: "CompensationComponents");
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "CompensationComponents" DROP COLUMN IF EXISTS "IsEpfApplicable";
+                ALTER TABLE "CompensationComponents" DROP COLUMN IF EXISTS "IsEtfApplicable";
+                """);
         }
     }
 }

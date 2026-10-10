@@ -1,3 +1,5 @@
+import { PRIMARY_COMPANY_PROFILE_KEY } from "@/lib/additional-company-profiles";
+
 export type CompanyBankAccount = {
   fullName: string;
   bankName: string;
@@ -5,6 +7,8 @@ export type CompanyBankAccount = {
   bankCode: string;
   branchCode: string;
   accountNo: string;
+  /** Which company profile owns this account (primary when omitted). */
+  companyProfileKey?: string;
 };
 
 export const EMPTY_BANK_ACCOUNT: CompanyBankAccount = {
@@ -14,7 +18,21 @@ export const EMPTY_BANK_ACCOUNT: CompanyBankAccount = {
   bankCode: "",
   branchCode: "",
   accountNo: "",
+  companyProfileKey: PRIMARY_COMPANY_PROFILE_KEY,
 };
+
+export function resolveCompanyBankProfileKey(account: CompanyBankAccount): string {
+  const key = account.companyProfileKey?.trim();
+  return key || PRIMARY_COMPANY_PROFILE_KEY;
+}
+
+export function filterCompanyBankAccountsForProfile(
+  accounts: CompanyBankAccount[],
+  profileKey: string,
+): CompanyBankAccount[] {
+  const key = profileKey.trim() || PRIMARY_COMPANY_PROFILE_KEY;
+  return accounts.filter((account) => resolveCompanyBankProfileKey(account) === key);
+}
 
 function readAccountField(item: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
@@ -30,6 +48,8 @@ function toAccountList(parsed: unknown): CompanyBankAccount[] {
   if (!Array.isArray(parsed)) return [];
   return parsed.map((entry) => {
     const item = (entry ?? {}) as Record<string, unknown>;
+    const companyProfileKey =
+      readAccountField(item, "companyProfileKey", "CompanyProfileKey") || PRIMARY_COMPANY_PROFILE_KEY;
     return {
       fullName: readAccountField(item, "fullName", "FullName"),
       bankName: readAccountField(item, "bankName", "BankName"),
@@ -37,6 +57,7 @@ function toAccountList(parsed: unknown): CompanyBankAccount[] {
       bankCode: readAccountField(item, "bankCode", "BankCode"),
       branchCode: readAccountField(item, "branchCode", "BranchCode"),
       accountNo: readAccountField(item, "accountNo", "AccountNo", "accountNumber", "AccountNumber"),
+      companyProfileKey,
     };
   });
 }
@@ -63,7 +84,8 @@ export function companyBankAccountsFromSettings(settings: Record<string, unknown
 }
 
 export function isBlankBankAccount(account: CompanyBankAccount) {
-  return Object.values(account).every((value) => !value.trim());
+  const { companyProfileKey: _companyProfileKey, ...rest } = account;
+  return Object.values(rest).every((value) => !String(value).trim());
 }
 
 export function companyBankAccountLabel(account: CompanyBankAccount, index: number): string {

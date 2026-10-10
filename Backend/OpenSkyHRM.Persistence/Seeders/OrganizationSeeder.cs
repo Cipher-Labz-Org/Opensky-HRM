@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 
@@ -30,7 +31,17 @@ public static class OrganizationSeeder
         foreach (var employee in placeholders)
             employee.Email = null;
 
-        await context.SaveChangesAsync();
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "23502" })
+        {
+            // Email column still NOT NULL on this tenant; EmployeeCompanyProfileSchemaRepair should fix on next restart.
+            foreach (var employee in placeholders)
+                employee.Email = context.Entry(employee).OriginalValues.GetValue<string>(nameof(Employee.Email));
+            context.ChangeTracker.Clear();
+        }
     }
 
     private static async Task SeedOrganizationStructureAsync(AppDbContext context)

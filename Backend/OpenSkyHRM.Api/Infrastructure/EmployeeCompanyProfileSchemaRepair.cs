@@ -1,9 +1,8 @@
 namespace OpenSkyHRM.Api.Infrastructure;
 
 /// <summary>
-/// Ensures <see cref="OpenSkyHRM.Domain.Entities.Employee.CompanyProfileKey"/> exists when
-/// SQL-only migration <c>20261005120000_AddEmployeeCompanyProfileKey</c> did not run
-/// (e.g. swallowed MigrateAsync).
+/// Ensures employee profile columns exist when migrations did not run (e.g. swallowed MigrateAsync),
+/// and that work email may be empty before startup seeders clear placeholder addresses.
 /// </summary>
 public static class EmployeeCompanyProfileSchemaRepair
 {
@@ -19,6 +18,8 @@ public static class EmployeeCompanyProfileSchemaRepair
 
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
+                ALTER TABLE "Employees" ALTER COLUMN "Email" DROP NOT NULL;
+
                 ALTER TABLE "Employees" ADD COLUMN IF NOT EXISTS "CompanyProfileKey" character varying(64) NOT NULL DEFAULT 'primary';
                 UPDATE "Employees"
                 SET "CompanyProfileKey" = 'primary'

@@ -47,6 +47,7 @@ import {
   createEmptyAdditionalCompanyProfile,
   isBlankAdditionalCompanyProfile,
   parseAdditionalCompanyProfiles,
+  PRIMARY_COMPANY_PROFILE_KEY,
   sanitizeAdditionalCompanyProfiles,
   type AdditionalCompanyProfile,
 } from "@/lib/additional-company-profiles";
@@ -95,6 +96,16 @@ export function CompanyProfileContent() {
   const companyBankNameOptions = useMemo(
     () => bankNameOptions(bankAccounts.map((account) => account.bankName)),
     [bankAccounts],
+  );
+  const bankCompanyOptions = useMemo(
+    () => [
+      { value: PRIMARY_COMPANY_PROFILE_KEY, label: companyName.trim() || "Primary company" },
+      ...additionalCompanies.map((profile, index) => ({
+        value: profile.id,
+        label: profile.name.trim() || `Company profile ${index + 1}`,
+      })),
+    ],
+    [additionalCompanies, companyName],
   );
 
   async function persistLogoDisplaySettings(display: {
@@ -379,6 +390,7 @@ export function CompanyProfileContent() {
         bankCode: account.bankCode.trim(),
         branchCode: account.branchCode.trim(),
         accountNo: account.accountNo.trim(),
+        companyProfileKey: (account.companyProfileKey?.trim() || PRIMARY_COMPANY_PROFILE_KEY),
       }))
       .filter((account) => !isBlankBankAccount(account));
 
@@ -608,6 +620,7 @@ export function CompanyProfileContent() {
                 <table className="w-full min-w-[60rem] text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 bg-[var(--bg-subtle)] text-xs font-semibold uppercase text-slate-400">
+                      {multiCompanyActive ? <th className="px-3 py-2.5">Company</th> : null}
                       <th className="px-3 py-2.5">Full Name</th>
                       <th className="px-3 py-2.5">Bank Name</th>
                       <th className="px-3 py-2.5">Branch Name</th>
@@ -620,6 +633,21 @@ export function CompanyProfileContent() {
                   <tbody>
                     {bankAccounts.map((account, index) => (
                       <tr key={index} className="border-b border-slate-100 last:border-b-0">
+                        {multiCompanyActive ? (
+                          <td className="px-2 py-2">
+                            <select
+                              value={account.companyProfileKey?.trim() || PRIMARY_COMPANY_PROFILE_KEY}
+                              onChange={(e) => updateBankAccount(index, "companyProfileKey", e.target.value)}
+                              className="w-full min-w-[10rem] rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                            >
+                              {bankCompanyOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        ) : null}
                         <td className="px-2 py-2">
                           <input
                             value={account.fullName}

@@ -18,9 +18,12 @@ import { bankSlipFormatFor, bankSlipFormatLabel } from "@/lib/bank-slip-formats"
 import {
   companyBankAccountLabel,
   companyBankAccountsFromSettings,
+  filterCompanyBankAccountsForProfile,
   parseCompanyBankAccounts,
   type CompanyBankAccount,
 } from "@/lib/company-bank-accounts";
+import { PRIMARY_COMPANY_PROFILE_KEY } from "@/lib/additional-company-profiles";
+import { useMultiCompanyFeature } from "@/lib/use-multi-company-feature";
 import {
   buildCommercialBankOneToManyFile,
   commercialBankAccountNumber,
@@ -3877,6 +3880,7 @@ async function resolveSlipPreviews(
 }
 
 function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }) {
+  const { multiCompanyActive, companyFilterOptions } = useMultiCompanyFeature();
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -3885,13 +3889,25 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
   const [loadingStmts, setLoadingStmts] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [generating, setGenerating] = useState(false);
-  const [companyAccounts, setCompanyAccounts] = useState<CompanyBankAccount[]>([]);
+  const [allCompanyAccounts, setAllCompanyAccounts] = useState<CompanyBankAccount[]>([]);
+  const [companyProfileKey, setCompanyProfileKey] = useState(PRIMARY_COMPANY_PROFILE_KEY);
   const [companyAccountIndex, setCompanyAccountIndex] = useState("");
   const [companyAccountsError, setCompanyAccountsError] = useState("");
   const [downloadNotice, setDownloadNotice] = useState("");
   const [readyFile, setReadyFile] = useState<{ url: string; filename: string } | null>(null);
   const [slipByKey, setSlipByKey] = useState<Record<string, BankSlipPreview>>({});
 
+  const slipCompanyProfileOpts = useMemo<FormSelectOption[]>(
+    () => companyFilterOptions.filter((option) => option.value !== ""),
+    [companyFilterOptions],
+  );
+  const companyAccounts = useMemo(
+    () =>
+      multiCompanyActive
+        ? filterCompanyBankAccountsForProfile(allCompanyAccounts, companyProfileKey)
+        : allCompanyAccounts,
+    [allCompanyAccounts, companyProfileKey, multiCompanyActive],
+  );
   const selectedBatch = batches.find((b) => b.id === batchId);
   const selectedCompanyAccount =
     companyAccountIndex === "" ? null : companyAccounts[Number(companyAccountIndex)] ?? null;
@@ -3957,7 +3973,7 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
       if (prev?.url) URL.revokeObjectURL(prev.url);
       return null;
     });
-  }, [companyAccountIndex]);
+  }, [companyAccountIndex, companyProfileKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3971,15 +3987,14 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
           accounts = parseCompanyBankAccounts(row?.value).filter((account) => account.bankName || account.accountNo);
         }
         if (cancelled) return;
-        setCompanyAccounts(accounts);
-        setCompanyAccountIndex(accounts.length > 0 ? "0" : "");
+        setAllCompanyAccounts(accounts);
+        setCompanyProfileKey(PRIMARY_COMPANY_PROFILE_KEY);
         if (accounts.length === 0) {
           setCompanyAccountsError("Add a company bank account in Company Profile first.");
         }
       } catch (err) {
         if (cancelled) return;
-        setCompanyAccounts([]);
-        setCompanyAccountIndex("");
+        setAllCompanyAccounts([]);
         setCompanyAccountsError(err instanceof Error ? err.message : "Could not load company bank accounts.");
       }
     })();
@@ -3987,6 +4002,21 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    setCompanyAccountIndex(companyAccounts.length > 0 ? "0" : "");
+  }, [companyAccounts.length, companyProfileKey]);
+
+  useEffect(() => {
+    if (allCompanyAccounts.length === 0) return;
+    if (multiCompanyActive && companyAccounts.length === 0) {
+      setCompanyAccountsError("No bank accounts for this company. Assign accounts in Company Profile.");
+      return;
+    }
+    if (companyAccounts.length > 0) {
+      setCompanyAccountsError("");
+    }
+  }, [allCompanyAccounts.length, companyAccounts.length, companyProfileKey, multiCompanyActive]);
 
   useEffect(() => {
     if (!batchId) {
@@ -4267,7 +4297,7 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
         <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white px-6 py-5">
           <h2 className="text-xl font-semibold tracking-tight text-slate-900">Slip Generate</h2>
           <p className="mt-1 text-sm leading-relaxed text-slate-500">
-            Choose a payroll batch and company bank, then download the bank file.
+            Choose a payroll batch{multiCompanyActive ? ", company," : ""} and company bank, then download the bank file.
           </p>
           <div className="mt-5 flex w-full flex-wrap items-end gap-3">
             <div className="min-w-[240px] flex-1">
@@ -4282,6 +4312,20 @@ function SlipGenerateTab({ onOpenPayrollRun }: { onOpenPayrollRun?: () => void }
                 placeholder="Select a batch"
               />
             </div>
+            {multiCompanyActive && slipCompanyProfileOpts.length > 0 ? (
+              <div className="min-w-[200px] flex-1">
+                <label htmlFor="slip-generate-company" className={labelCls}>
+                  Company
+                </label>
+                <FormSelect
+                  id="slip-generate-company"
+                  value={companyProfileKey}
+                  onValueChange={setCompanyProfileKey}
+                  options={slipCompanyProfileOpts}
+                  placeholder="Select a company"
+                />
+              </div>
+            ) : null}
             <div className="min-w-[240px] flex-1">
               <label htmlFor="slip-generate-company-account" className={labelCls}>
                 Company Bank Account
