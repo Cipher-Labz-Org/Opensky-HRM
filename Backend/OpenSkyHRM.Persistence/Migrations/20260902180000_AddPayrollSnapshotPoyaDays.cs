@@ -14,20 +14,20 @@ namespace OpenSkyHRM.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<decimal>(
-                name: "PoyaDaysWorked",
-                table: "PayrollBatchAttendanceSnapshots",
-                type: "numeric(18,2)",
-                nullable: false,
-                defaultValue: 0m);
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "PayrollBatchAttendanceSnapshots"
+                ADD COLUMN IF NOT EXISTS "PoyaDaysWorked" numeric(18,2) NOT NULL DEFAULT 0;
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "PoyaDaysWorked",
-                table: "PayrollBatchAttendanceSnapshots");
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "PayrollBatchAttendanceSnapshots" DROP COLUMN IF EXISTS "PoyaDaysWorked";
+                """);
         }
     }
 }

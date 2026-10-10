@@ -1,4 +1,3 @@
-using System;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using OpenSkyHRM.Persistence;
@@ -15,40 +14,25 @@ namespace OpenSkyHRM.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<DateTime>(
-                name: "ApprovedAt",
-                table: "PayrollBatches",
-                type: "timestamp without time zone",
-                nullable: true);
-
-            migrationBuilder.AddColumn<DateTime>(
-                name: "ReviewedAt",
-                table: "PayrollBatches",
-                type: "timestamp without time zone",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "ReviewedBy",
-                table: "PayrollBatches",
-                type: "character varying(200)",
-                maxLength: 200,
-                nullable: true);
+            // PayrollSchemaRepair runs before MigrateAsync, so these columns may already exist on
+            // live tenants. Plain AddColumn throws 42701 and leaves the migration unrecorded.
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "PayrollBatches" ADD COLUMN IF NOT EXISTS "ReviewedBy" character varying(200);
+                ALTER TABLE "PayrollBatches" ADD COLUMN IF NOT EXISTS "ReviewedAt" timestamp without time zone;
+                ALTER TABLE "PayrollBatches" ADD COLUMN IF NOT EXISTS "ApprovedAt" timestamp without time zone;
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "ApprovedAt",
-                table: "PayrollBatches");
-
-            migrationBuilder.DropColumn(
-                name: "ReviewedAt",
-                table: "PayrollBatches");
-
-            migrationBuilder.DropColumn(
-                name: "ReviewedBy",
-                table: "PayrollBatches");
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "PayrollBatches" DROP COLUMN IF EXISTS "ApprovedAt";
+                ALTER TABLE "PayrollBatches" DROP COLUMN IF EXISTS "ReviewedAt";
+                ALTER TABLE "PayrollBatches" DROP COLUMN IF EXISTS "ReviewedBy";
+                """);
         }
     }
 }
