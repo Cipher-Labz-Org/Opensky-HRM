@@ -1,0 +1,8 @@
+---
+description: Git commits and pushes must not add Cursor co-author trailers
+alwaysApply: true
+---
+
+When committing or amending in this repo, do **not** add `Co-authored-by: Cursor <cursoragent@cursor.com>`. The Cursor shell may inject that trailer on `git commit`; use `C:\Program Files\Git\mingw64\libexec\git-core\git.exe` for `commit` / `commit-tree`, or run `.git/rewrite-commit.ps1` after amend, before push.
+
+Use GitHub noreply for author and committer: `usonline <103950473+usonline@users.noreply.github.com>`.
