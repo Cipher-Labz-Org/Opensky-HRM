@@ -43,7 +43,9 @@ public static class ApprovalsAccessHelper
         string action = "Read",
         bool excludeSelfForApprovalList = false)
     {
-        var scope = await LeaveRequestsQueryScope.ResolveApprovalsReadScopeAsync(user, db, action);
+        var scope = string.Equals(action, "Read", StringComparison.OrdinalIgnoreCase)
+            ? await LeaveRequestsQueryScope.ResolveApprovalsReadScopeFromDatabaseAsync(user, db)
+            : ResolveScope(user, action);
         if (string.Equals(scope, "All", StringComparison.OrdinalIgnoreCase))
             return null;
         if (!string.Equals(scope, "Team", StringComparison.OrdinalIgnoreCase)
