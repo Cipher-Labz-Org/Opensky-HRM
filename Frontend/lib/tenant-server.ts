@@ -66,7 +66,25 @@ function proxyRequestHeaders(req: NextRequest): Headers {
     const value = req.headers.get(name);
     if (value) headers.set(name, value);
   }
+  const webOrigin = publicWebOrigin(req);
+  if (webOrigin) headers.set("x-opensky-web-origin", webOrigin);
   return headers;
+}
+
+/** Live company site the browser is on. Local dev hosts are omitted so emails do not link to localhost. */
+function publicWebOrigin(req: NextRequest): string | null {
+  const rawHost =
+    req.headers.get("x-forwarded-host")?.split(",")[0].trim() ||
+    req.headers.get("host") ||
+    req.nextUrl.host;
+  if (!rawHost) return null;
+  const hostname = rawHost.split(":")[0].toLowerCase();
+  if (hostname === "localhost" || hostname === "127.0.0.1") return null;
+  const proto =
+    req.headers.get("x-forwarded-proto")?.split(",")[0].trim() ||
+    req.nextUrl.protocol.replace(":", "") ||
+    "https";
+  return `${proto}://${rawHost}`;
 }
 
 const PROXY_FORWARD_RESPONSE_HEADERS = [

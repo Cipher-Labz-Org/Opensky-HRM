@@ -70,11 +70,13 @@ function FilterPill({
   onRemove,
   removeLabel,
   variant = "filter",
+  wide = false,
 }: {
   label: string;
   onRemove?: () => void;
   removeLabel: string;
   variant?: "group" | "filter";
+  wide?: boolean;
 }) {
   const styles =
     variant === "group"
@@ -82,7 +84,7 @@ function FilterPill({
       : "bg-slate-100 text-slate-600 ring-slate-200/80";
 
   return (
-    <span className={`inline-flex max-w-[160px] items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${styles}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${wide ? "max-w-[240px]" : "max-w-[160px]"} ${styles}`}>
       <span className="truncate">{label}</span>
       {onRemove ? (
         <button
@@ -310,6 +312,15 @@ export function ReportParametersSearchBar({
               removeLabel={`Remove filter ${pill.label}`}
             />
           ))}
+          {periodSection?.summary ? (
+            <FilterPill
+              wide
+              variant="group"
+              label={periodSection.summary}
+              onRemove={periodSection.onClearPill}
+              removeLabel="Reset date range"
+            />
+          ) : null}
           {showEmployeeSearch ? (
             <input
               type="text"
@@ -412,7 +423,7 @@ export function ReportParametersSearchBar({
               </div>
             </div>
 
-            <div className="max-h-[380px] overflow-y-auto p-1.5">
+            <div className="max-h-[min(520px,70vh)] overflow-y-auto p-1.5">
               {filterSections.length === 0 && !periodSection ? (
                 <p className="px-2 py-3 text-[12px] text-slate-400">No filters available</p>
               ) : (

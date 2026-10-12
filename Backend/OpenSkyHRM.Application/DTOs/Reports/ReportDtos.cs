@@ -16,7 +16,7 @@ public class ReportItemDto
     /// <summary>When true, the report accepts optional <c>departmentId</c> (GUID) to limit rows to one department.</summary>
     public bool SupportsDepartmentFilter { get; set; }
     /// <summary>
-    /// UI period control: <c>none</c>, <c>dateRange</c> (from/to), <c>yearMonth</c>, <c>singleDate</c> (date), <c>monthOnly</c> (month 1–12).
+    /// UI period control: <c>none</c>, <c>dateRange</c> (from/to), <c>yearMonth</c> (year/month plus from/to), <c>singleDate</c> (date), <c>monthOnly</c> (month 1–12).
     /// </summary>
     public string PeriodFilterMode { get; set; } = "none";
 }

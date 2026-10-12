@@ -5,7 +5,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { apiFetch } from "@/lib/api";
 import { DatePickerField } from "@/components/ui";
-import { FormSelect } from "@/components/ui/FormSelect";
 import { formatLocalDateToIso, parseIsoDateToLocal } from "@/lib/datePickerIso";
 import { formatDateTime } from "@/lib/date-utils";
 import { formatInt } from "@/lib/workspace-charts";
@@ -85,41 +84,20 @@ function readUrlReportFilterOverrides(sp: { get: (key: string) => string | null 
   return out;
 }
 
-function getDefaultQueryParamsForItem(item: ReportItem | null | undefined): Record<string, string> {
-  const p: Record<string, string> = {};
-  if (!item) return p;
-  const today = new Date();
-  const mode = item.periodFilterMode || "none";
-  const isoDate = (d: Date) => formatLocalDateToIso(d);
-  if (mode === "dateRange") {
-    if (item.key === "daily-attendance" || item.key === "overtime-report" || item.key === "overtime-detail") {
-      const from = new Date(today.getFullYear(), today.getMonth(), 1);
-      p.from = isoDate(from);
-      p.to = isoDate(today);
-    } else if (item.key === "absence-frequency") {
-      const from = new Date(today);
-      from.setDate(from.getDate() - 30);
-      p.from = isoDate(from);
-      p.to = isoDate(today);
-    } else if (item.key === "absent-report") {
-      const from = new Date(today.getFullYear(), today.getMonth(), 1);
-      p.from = isoDate(from);
-      p.to = isoDate(today);
-    } else {
-      const from = new Date(today);
-      from.setFullYear(from.getFullYear() - 1);
-      p.from = isoDate(from);
-      p.to = isoDate(today);
-    }
-  } else if (mode === "yearMonth") {
-    p.year = String(today.getFullYear());
-    p.month = String(today.getMonth() + 1);
-  } else if (mode === "singleDate") {
-    p.date = isoDate(today);
-  } else if (mode === "monthOnly") {
-    p.month = String(today.getMonth() + 1);
-  }
-  return p;
+/** First and last calendar day of a year/month, as ISO dates. */
+function isoMonthBounds(year: string, month: string): { from: string; to: string } | null {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isInteger(y) || y < 2000 || y > 2100) return null;
+  if (!Number.isInteger(m) || m < 1 || m > 12) return null;
+  return {
+    from: formatLocalDateToIso(new Date(y, m - 1, 1)),
+    to: formatLocalDateToIso(new Date(y, m, 0)),
+  };
+}
+
+function getDefaultQueryParamsForItem(_item: ReportItem | null | undefined): Record<string, string> {
+  return {};
 }
 
 function mergeUrlFiltersIntoReportParams(
@@ -137,21 +115,14 @@ function mergeUrlFiltersIntoReportParams(
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && url.status) merged.status = url.status;
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && url.gradeId) merged.gradeId = url.gradeId;
   const mode = item.periodFilterMode || "none";
+  if (url.from) merged.from = url.from;
+  if (url.to) merged.to = url.to;
   if (mode === "dateRange") {
-    if (url.from) merged.from = url.from;
-    if (url.to) merged.to = url.to;
     // Legacy single-date links (?date=…) for Attendance Register
     if (item.key === "daily-attendance" && url.date && !url.from && !url.to) {
       merged.from = url.date;
       merged.to = url.date;
     }
-  } else if (mode === "yearMonth") {
-    if (url.year) merged.year = url.year;
-    if (url.month) merged.month = url.month;
-  } else if (mode === "singleDate") {
-    if (url.date) merged.date = url.date;
-  } else if (mode === "monthOnly") {
-    if (url.month) merged.month = url.month;
   }
   return merged;
 }
@@ -219,18 +190,8 @@ function buildReportUrlQuery(
   if (item.supportsDepartmentFilter && mergedParams.employeeName) qs.set("employeeName", mergedParams.employeeName);
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && mergedParams.status) qs.set("status", mergedParams.status);
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && mergedParams.gradeId) qs.set("gradeId", mergedParams.gradeId);
-  const mode = item.periodFilterMode || "none";
-  if (mode === "dateRange") {
-    if (mergedParams.from) qs.set("from", mergedParams.from);
-    if (mergedParams.to) qs.set("to", mergedParams.to);
-  } else if (mode === "yearMonth") {
-    if (mergedParams.year) qs.set("year", mergedParams.year);
-    if (mergedParams.month) qs.set("month", mergedParams.month);
-  } else if (mode === "singleDate") {
-    if (mergedParams.date) qs.set("date", mergedParams.date);
-  } else if (mode === "monthOnly") {
-    if (mergedParams.month) qs.set("month", mergedParams.month);
-  }
+  if (mergedParams.from) qs.set("from", mergedParams.from);
+  if (mergedParams.to) qs.set("to", mergedParams.to);
   return qs.toString();
 }
 
@@ -377,7 +338,13 @@ export default function ReportsPage() {
   useEffect(() => {
     apiFetch<ReportCategory[]>("/api/reports/catalog").then((cats) => {
       setCatalog(cats);
-      if (cats.length > 0) setSelectedCategory(cats[0].key);
+      if (cats.length === 0) return;
+      setSelectedCategory((current) => {
+        if (current && cats.some((c) => c.key === current)) return current;
+        const fromUrl = new URLSearchParams(window.location.search).get("category");
+        if (fromUrl && cats.some((c) => c.key === fromUrl)) return fromUrl;
+        return cats[0].key;
+      });
     }).catch(() => {});
   }, []);
 
@@ -487,6 +454,24 @@ export default function ReportsPage() {
     commitPeriod({ to: v }, rangeReady);
   }
 
+  function onYearMonthFromChange(v: string) {
+    const picked = parseIsoDateToLocal(v);
+    const patch: Partial<ReportPeriodValues> = { from: v };
+    if (picked) {
+      patch.year = String(picked.getFullYear());
+      patch.month = String(picked.getMonth() + 1);
+    }
+    const to = periodFiltersRef.current.to;
+    const rangeReady = Boolean(v && to && v <= to);
+    commitPeriod(patch, rangeReady);
+  }
+
+  function onYearMonthToChange(v: string) {
+    const from = periodFiltersRef.current.from;
+    const rangeReady = Boolean(from && v && from <= v);
+    commitPeriod({ to: v }, rangeReady);
+  }
+
   function collectParamsFromForm(
     item: ReportItem | null | undefined,
     overrides?: Partial<{
@@ -528,24 +513,10 @@ export default function ReportsPage() {
     if (item.key === EMPLOYEE_MASTER_REPORT_KEY && gradeId.trim())
       p.gradeId = gradeId.trim();
     const period = periodFiltersRef.current;
-    const mode = item.periodFilterMode || "none";
-    if (mode === "dateRange") {
-      const from = overrides?.from ?? period.from;
-      const to = overrides?.to ?? period.to;
-      if (from) p.from = from;
-      if (to) p.to = to;
-    } else if (mode === "yearMonth") {
-      const year = overrides?.year ?? period.year;
-      const month = overrides?.month ?? period.month;
-      if (year) p.year = year;
-      if (month) p.month = month;
-    } else if (mode === "singleDate") {
-      const date = overrides?.date ?? period.date;
-      if (date) p.date = date;
-    } else if (mode === "monthOnly") {
-      const month = overrides?.month ?? period.month;
-      if (month) p.month = month;
-    }
+    const from = overrides?.from ?? period.from;
+    const to = overrides?.to ?? period.to;
+    if (from) p.from = from;
+    if (to) p.to = to;
     return p;
   }
 
@@ -762,134 +733,49 @@ export default function ReportsPage() {
   }
 
   function periodIsCustom(): boolean {
-    const defaults = defaultPeriodValues();
-    const mode = activeReportDef?.periodFilterMode || "none";
-    if (mode === "dateRange") return filterFrom !== defaults.from || filterTo !== defaults.to;
-    if (mode === "yearMonth") return filterYear !== defaults.year || filterMonth !== defaults.month;
-    if (mode === "singleDate") return filterDate !== defaults.date;
-    if (mode === "monthOnly") return filterMonth !== defaults.month;
-    return false;
+    return Boolean(filterFrom || filterTo);
   }
 
   function reportPeriodSection(): ReportPeriodSection | null {
-    const mode = activeReportDef?.periodFilterMode || "none";
-    if (!activeReportDef || mode === "none") return null;
+    if (!activeReportDef) return null;
 
     const fieldClass = "h-9 rounded-lg px-2.5 py-1.5 text-xs";
-    const monthOptions = Array.from({ length: 12 }, (_, i) => ({
-      value: String(i + 1),
-      label: new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }),
-    }));
-
-    let label = "Date range";
-    let summary = "";
-    let content: ReactNode = null;
-
-    if (mode === "dateRange") {
-      const fromLabel = filterFrom ? formatReportDay(filterFrom) : "…";
-      const toLabel = filterTo ? formatReportDay(filterTo) : "…";
-      summary = `${fromLabel} – ${toLabel}`;
-      content = (
-        <div className="grid grid-cols-2 gap-2">
-          <p className="col-span-2 text-[10px] text-slate-400">Set From, then To. The report loads when To is set.</p>
-          <div className="min-w-0">
-            <label className="mb-1 block text-[10px] font-medium text-slate-500">From</label>
-            <DatePickerField
-              value={filterFrom}
-              onChange={onReportFromChange}
-              popoverSide="bottom"
-              avoidCollisions={false}
-              className={fieldClass}
-            />
-          </div>
-          <div className="min-w-0">
-            <label className="mb-1 block text-[10px] font-medium text-slate-500">To</label>
-            <DatePickerField
-              value={filterTo}
-              onChange={onReportToChange}
-              min={filterFrom || undefined}
-              popoverSide="bottom"
-              avoidCollisions={false}
-              className={fieldClass}
-            />
-          </div>
-        </div>
-      );
-    } else if (mode === "yearMonth") {
-      label = "Period";
-      summary = `${filterMonth ? formatReportMonth(filterMonth) : "Month"}${filterYear ? ` ${filterYear}` : ""}`;
-      content = (
-        <div className="grid grid-cols-2 gap-2">
-          <div className="min-w-0">
-            <label className="mb-1 block text-[10px] font-medium text-slate-500">Year</label>
-            <input
-              type="number"
-              min={2000}
-              max={2100}
-              value={filterYear}
-              disabled={loading}
-              onChange={(e) => commitPeriod({ year: e.target.value }, false)}
-              onBlur={() => scheduleReportFilterApply()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  scheduleReportFilterApply();
-                }
-              }}
-              className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            />
-          </div>
-          <div className="min-w-0">
-            <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
-            <FormSelect
-              value={filterMonth}
-              onValueChange={(month) => commitPeriod({ month })}
-              options={monthOptions}
-              clearable={false}
-              disabled={loading}
-              className="h-9 rounded-lg py-1 text-xs"
-            />
-          </div>
-        </div>
-      );
-    } else if (mode === "singleDate") {
-      label = "Date";
-      summary = filterDate ? formatReportDay(filterDate) : "Select date";
-      content = (
-        <div>
-          <label className="mb-1 block text-[10px] font-medium text-slate-500">Date</label>
+    const fromLabel = filterFrom ? formatReportDay(filterFrom) : "";
+    const toLabel = filterTo ? formatReportDay(filterTo) : "";
+    const summary = fromLabel && toLabel ? `${fromLabel} – ${toLabel}` : fromLabel || toLabel;
+    const content = (
+      <div className="grid grid-cols-2 gap-2">
+        <p className="col-span-2 text-[10px] text-slate-400">
+          Optional. Leave both empty to include every date. If you set a range, it stays when you open another report.
+        </p>
+        <div className="min-w-0">
+          <label className="mb-1 block text-[10px] font-medium text-slate-500">From</label>
           <DatePickerField
-            value={filterDate}
-            onChange={(date) => commitPeriod({ date })}
+            value={filterFrom}
+            onChange={onReportFromChange}
             disabled={loading}
             popoverSide="bottom"
             avoidCollisions={false}
             className={fieldClass}
           />
         </div>
-      );
-    } else if (mode === "monthOnly") {
-      label = "Month";
-      summary = filterMonth ? formatReportMonth(filterMonth) : "Select month";
-      content = (
-        <div>
-          <label className="mb-1 block text-[10px] font-medium text-slate-500">Month</label>
-          <FormSelect
-            value={filterMonth}
-            onValueChange={(month) => commitPeriod({ month })}
-            options={monthOptions}
-            clearable={false}
+        <div className="min-w-0">
+          <label className="mb-1 block text-[10px] font-medium text-slate-500">To</label>
+          <DatePickerField
+            value={filterTo}
+            onChange={onReportToChange}
+            min={filterFrom || undefined}
             disabled={loading}
-            className="h-9 rounded-lg py-1 text-xs"
+            popoverSide="bottom"
+            avoidCollisions={false}
+            className={fieldClass}
           />
         </div>
-      );
-    } else {
-      return null;
-    }
+      </div>
+    );
 
     return {
-      label,
+      label: "Date range",
       summary,
       pillLabel: summary,
       onClearPill: periodIsCustom()
@@ -1012,6 +898,12 @@ export default function ReportsPage() {
     lastHandledReportUrlSig.current = sig;
     void runReport(cat, rpt, Object.keys(overrides).length > 0 ? overrides : undefined);
   }, [searchParams, catalog, runReport]);
+
+  function periodCarryOverrides(_item: ReportItem): Record<string, string> | undefined {
+    const { from, to } = periodFiltersRef.current;
+    if (!from || !to) return undefined;
+    return { from, to };
+  }
 
   const handleSort = (col: string) => {
     if (sortCol === col) setSortAsc(!sortAsc);
@@ -1227,7 +1119,7 @@ export default function ReportsPage() {
                         <button
                           key={rpt.key}
                           type="button"
-                          onClick={() => runReport(activeCat.key, rpt.key)}
+                          onClick={() => runReport(activeCat.key, rpt.key, periodCarryOverrides(rpt))}
                           className="group rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
                         >
                           <div className="flex items-start gap-3">
@@ -1335,9 +1227,7 @@ export default function ReportsPage() {
             )}
           </div>
 
-          {activeReportDef &&
-            (activeReportDef.supportsDepartmentFilter ||
-              (activeReportDef.periodFilterMode && activeReportDef.periodFilterMode !== "none")) && (
+          {activeReportDef && (
             <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-3.5">
               <ReportParametersSearchBar
                 employeeSearch={filterEmployeeName}

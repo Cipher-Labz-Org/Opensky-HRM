@@ -120,6 +120,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentAuditUser, HttpContextCurrentAuditUser>();
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddApplication();
+builder.Services.AddScoped<IPublicAppUrlAccessor, HttpPublicAppUrlAccessor>();
 
 builder.Services.AddOptions<FileStorageOptions>()
     .Bind(builder.Configuration.GetSection(FileStorageOptions.SectionName))

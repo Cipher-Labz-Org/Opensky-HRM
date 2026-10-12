@@ -83,6 +83,7 @@ public static class DependencyInjection
         services.AddScoped<IReportService, ReportService>();
         services.AddSingleton<IHtmlToPdfService, PuppeteerHtmlToPdfService>();
         services.AddScoped<IEmailService, EmailService>();
+        services.AddScoped<IPublicAppUrlAccessor, NullPublicAppUrlAccessor>();
         services.AddScoped<IEmailDeliveryLogWriter, EmailDeliveryLogService>();
         services.AddScoped<ICustomerDataResetService, CustomerDataResetService>();
 

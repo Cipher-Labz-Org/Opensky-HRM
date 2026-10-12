@@ -31,6 +31,7 @@ public class EmailService : IEmailService
     private readonly IEmailDeliveryLogWriter _deliveryLog;
     private readonly AppDbContext _db;
     private readonly IHtmlToPdfService _htmlToPdf;
+    private readonly IPublicAppUrlAccessor _appUrl;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -44,7 +45,8 @@ public class EmailService : IEmailService
         IHttpClientFactory httpClientFactory,
         IEmailDeliveryLogWriter deliveryLog,
         AppDbContext db,
-        IHtmlToPdfService htmlToPdf)
+        IHtmlToPdfService htmlToPdf,
+        IPublicAppUrlAccessor appUrl)
     {
         _config = config;
         _logger = logger;
@@ -52,6 +54,7 @@ public class EmailService : IEmailService
         _deliveryLog = deliveryLog;
         _db = db;
         _htmlToPdf = htmlToPdf;
+        _appUrl = appUrl;
     }
 
     private string? GetSendGridApiKey() => OutboundEmailConfiguration.GetSendGridApiKey(_config);
@@ -190,7 +193,7 @@ public class EmailService : IEmailService
         var safeType = WebUtility.HtmlEncode(leaveTypeName);
         var safeStatus = WebUtility.HtmlEncode(status);
         var safeReason = string.IsNullOrWhiteSpace(reason) ? "—" : WebUtility.HtmlEncode(reason);
-        var approvalUrl = ResolveLeaveApprovalPageUrl(leaveRequestId);
+        var approvalUrl = await ResolveLeaveApprovalPageUrlAsync(leaveRequestId);
         var safeApprovalUrl = WebUtility.HtmlEncode(approvalUrl ?? "");
         var start = startDate.ToString("dd MMM yyyy");
         var end = endDate.ToString("dd MMM yyyy");
@@ -218,6 +221,7 @@ public class EmailService : IEmailService
             () => BuildLeaveApplicationSupervisorHtml(supervisorName, employeeName, leaveTypeName, startDate, endDate, totalDays, status, reason, approvalUrl));
 
         body = EnsureLeaveApprovalShortcut(body, approvalUrl);
+        body = RewriteLoopbackApprovalLinks(body, approvalUrl);
 
         await SendHtmlEmailAsync(toEmail, supervisorName, subject, body, CategoryLeaveApplication);
     }
@@ -857,31 +861,52 @@ public class EmailService : IEmailService
 </html>";
     }
 
-    private string? ResolvePublicWebBaseUrl()
+    /// <summary>
+    /// Company site used in emails. Localhost is ignored so a leave submitted on a dev machine
+    /// still links the supervisor to the live company site.
+    /// </summary>
+    private async Task<string?> ResolvePublicWebBaseUrlAsync()
     {
+        var settingValues = await _db.SystemSettings.AsNoTracking()
+            .Where(s => s.Key == "PublicWebBaseUrl" || s.Key == "CompanyWebsite" || s.Key == "CompanyName")
+            .Select(s => new { s.Key, s.Value })
+            .ToListAsync();
+
+        string? Setting(string key) =>
+            settingValues.FirstOrDefault(s => s.Key == key)?.Value;
+
+        // This deployment's own site first, so Rambank mail never opens Epic (and the reverse).
         var candidates = new[]
         {
             _config["App:PublicWebBaseUrl"],
             _config["Recruitment:CareersBaseUrl"],
+            DeriveCompanySiteFromFolder(_config["FileStorage:CompanyFolder"]),
+            Setting("PublicWebBaseUrl"),
+            _appUrl.TryGetBrowserBaseUrl(),
+            DeriveCompanySiteFromName(Setting("CompanyName")),
+            Setting("CompanyWebsite"),
+            DeriveCompanySiteFromApiHost(_config["Mobile:PublicApiBaseUrl"]),
         };
 
-        var trimmed = candidates
-            .Select(v => v?.Trim().TrimEnd('/'))
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Cast<string>()
-            .ToList();
+        foreach (var raw in candidates)
+        {
+            var companySite = AsCompanyAppUrl(raw);
+            if (companySite != null)
+                return companySite;
+        }
 
-        var publicUrl = trimmed.FirstOrDefault(v => !IsLoopbackWebUrl(v));
-        if (!string.IsNullOrWhiteSpace(publicUrl))
-            return publicUrl;
-        if (trimmed.Count > 0)
-            return trimmed[0];
+        _logger.LogWarning(
+            "Supervisor approval email has no company site URL. Set App:PublicWebBaseUrl to the live company address, for example https://rambank.openskyhrm.com.");
+        return null;
+    }
 
-        var corsOrigins = _config.GetSection("Cors:Origins").Get<string[]>();
-        var localFrontend = corsOrigins?.FirstOrDefault(o =>
-            o.Contains("localhost:3000", StringComparison.OrdinalIgnoreCase)
-            || o.Contains("127.0.0.1:3000", StringComparison.OrdinalIgnoreCase));
-        return string.IsNullOrWhiteSpace(localFrontend) ? null : localFrontend.Trim().TrimEnd('/');
+    private static string? NormalizeWebBaseUrl(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var trimmed = raw.Trim().TrimEnd('/');
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)) return null;
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) return null;
+        return uri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
     }
 
     private static bool IsLoopbackWebUrl(string url)
@@ -890,9 +915,115 @@ public class EmailService : IEmailService
             || url.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase);
     }
 
-    private string? ResolveLeaveApprovalPageUrl(Guid? leaveRequestId)
+    /// <summary>https://{company}.openskyhrm.com, or null for localhost, API hosts, and other sites.</summary>
+    private static string? AsCompanyAppUrl(string? raw)
     {
-        var baseUrl = ResolvePublicWebBaseUrl();
+        var normalized = NormalizeWebBaseUrl(raw);
+        if (normalized == null || IsLoopbackWebUrl(normalized)) return null;
+        if (!Uri.TryCreate(normalized, UriKind.Absolute, out var uri)) return null;
+
+        var host = uri.Host.ToLowerInvariant();
+        if (host.StartsWith("www.", StringComparison.Ordinal))
+            host = host[4..];
+        if (!host.EndsWith(".openskyhrm.com", StringComparison.Ordinal) || host == "openskyhrm.com")
+            return null;
+        if (host.Contains("backend", StringComparison.Ordinal))
+            return null;
+
+        return $"https://{host}";
+    }
+
+    private static string? DeriveCompanySiteFromFolder(string? companyFolder)
+    {
+        var folder = companyFolder?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(folder) || folder is "default" or "your-company-code")
+            return null;
+        if (!Regex.IsMatch(folder, "^[a-z0-9]+$"))
+            return null;
+        return $"https://{folder}.openskyhrm.com";
+    }
+
+    private static string? DeriveCompanySiteFromApiHost(string? apiBaseUrl)
+    {
+        var normalized = NormalizeWebBaseUrl(apiBaseUrl);
+        if (normalized == null || !Uri.TryCreate(normalized, UriKind.Absolute, out var uri))
+            return null;
+
+        var host = uri.Host.ToLowerInvariant();
+        const string marker = "backend.openskyhrm.com";
+        if (!host.EndsWith(marker, StringComparison.Ordinal))
+            return null;
+
+        var slug = host[..^marker.Length];
+        if (string.IsNullOrWhiteSpace(slug) || !Regex.IsMatch(slug, "^[a-z0-9]+$"))
+            return null;
+        return $"https://{slug}.openskyhrm.com";
+    }
+
+    private static readonly string[] KnownCompanySlugs =
+    {
+        "donandson", "stage2cafe", "cipherlabz", "besttrend", "nexawave", "stagecafe",
+        "rambank", "gamma", "tasty", "mbkh", "demo", "epic",
+    };
+
+    private static readonly Dictionary<string, string> CompanyNameAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ram bank"] = "rambank",
+        ["rambank"] = "rambank",
+        ["don & son"] = "donandson",
+        ["don and son"] = "donandson",
+        ["best trend"] = "besttrend",
+        ["nexa wave"] = "nexawave",
+        ["nexawave"] = "nexawave",
+        ["stage cafe"] = "stagecafe",
+        ["cipher labz"] = "cipherlabz",
+        ["cipherlabz"] = "cipherlabz",
+    };
+
+    private static string? DeriveCompanySiteFromName(string? companyName)
+    {
+        if (string.IsNullOrWhiteSpace(companyName)) return null;
+        var trimmed = companyName.Trim();
+        if (CompanyNameAliases.TryGetValue(trimmed, out var alias))
+            return $"https://{alias}.openskyhrm.com";
+
+        var slug = Regex.Replace(trimmed.ToLowerInvariant(), "[^a-z0-9]", "");
+        if (slug.Length == 0) return null;
+
+        foreach (var known in KnownCompanySlugs)
+        {
+            if (!slug.StartsWith(known, StringComparison.Ordinal)) continue;
+            var remainder = slug[known.Length..];
+            if (remainder is "" or "pvt" or "pvtltd" or "ltd" or "limited" or "company" or "plc")
+                return $"https://{known}.openskyhrm.com";
+        }
+
+        return null;
+    }
+
+    private static string RewriteLoopbackApprovalLinks(string html, string? approvalUrl)
+    {
+        if (string.IsNullOrWhiteSpace(html) || string.IsNullOrWhiteSpace(approvalUrl))
+            return html;
+
+        return Regex.Replace(
+            html,
+            @"https?://(?:localhost|127\.0\.0\.1)(?::\d+)?(?:/[^""'\s<]*)?",
+            match =>
+            {
+                var url = match.Value;
+                if (url.Contains("/app/approvals", StringComparison.OrdinalIgnoreCase)
+                    || url.Contains("/login", StringComparison.OrdinalIgnoreCase)
+                    || url.Contains("requestId=", StringComparison.OrdinalIgnoreCase))
+                    return WebUtility.HtmlEncode(approvalUrl);
+                return url;
+            },
+            RegexOptions.IgnoreCase);
+    }
+
+    private async Task<string?> ResolveLeaveApprovalPageUrlAsync(Guid? leaveRequestId)
+    {
+        var baseUrl = await ResolvePublicWebBaseUrlAsync();
         if (string.IsNullOrWhiteSpace(baseUrl)) return null;
 
         var url = $"{baseUrl}/app/approvals?tab=leave&waiting=1";
