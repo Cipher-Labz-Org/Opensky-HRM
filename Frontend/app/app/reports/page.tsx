@@ -745,9 +745,6 @@ export default function ReportsPage() {
     const summary = fromLabel && toLabel ? `${fromLabel} – ${toLabel}` : fromLabel || toLabel;
     const content = (
       <div className="grid grid-cols-2 gap-2">
-        <p className="col-span-2 text-[10px] text-slate-400">
-          Optional. Leave both empty to include every date. If you set a range, it stays when you open another report.
-        </p>
         <div className="min-w-0">
           <label className="mb-1 block text-[10px] font-medium text-slate-500">From</label>
           <DatePickerField

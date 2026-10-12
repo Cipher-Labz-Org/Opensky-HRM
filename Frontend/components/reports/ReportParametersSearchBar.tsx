@@ -438,9 +438,7 @@ export function ReportParametersSearchBar({
                       <div className="text-[12.5px] font-medium text-slate-700">{periodSection.label}</div>
                       {periodSection.summary ? (
                         <div className="truncate text-[10px] text-[#2B7DE9]">{periodSection.summary}</div>
-                      ) : (
-                        <div className="text-[10px] text-slate-400">Optional — leave empty for all dates</div>
-                      )}
+                      ) : null}
                     </div>
                     <svg
                       className={`h-3 w-3 shrink-0 text-slate-400 transition-transform duration-200 ${periodOpen ? "rotate-180" : ""}`}
