@@ -30,7 +30,8 @@ public static class LeaveRequestsQueryScope
         int page,
         int pageSize)
     {
-        _ = forApprovalsWorkspace;
+        if (forApprovalsWorkspace)
+            return await ResolveApprovalsWorkspaceAsync(user, db, excludeSelf, page, pageSize);
 
         var scope = await ResolveListReadScopeAsync(user, db);
         Guid? effectiveEmployeeId = employeeId;
@@ -90,35 +91,160 @@ public static class LeaveRequestsQueryScope
         return new ResolvedQuery(true, effectiveEmployeeId, allowedIds, excludeEmployeeId, null);
     }
 
+    /// <summary>
+    /// Approvals page only. Leave → Own must not limit this list.
+    /// Approvals → All returns every leave request.
+    /// </summary>
+    private static async Task<ResolvedQuery> ResolveApprovalsWorkspaceAsync(
+        ClaimsPrincipal user,
+        AppDbContext db,
+        bool excludeSelf,
+        int page,
+        int pageSize)
+    {
+        var scope = await ResolveApprovalsReadScopeAsync(user, db);
+        if (scope == "All")
+            return new ResolvedQuery(true, null, null, null, null);
+
+        if (scope == "Own")
+        {
+            var currentId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(user, db);
+            if (!currentId.HasValue)
+                return new ResolvedQuery(false, null, null, null, null);
+            return new ResolvedQuery(true, currentId, null, null, null);
+        }
+
+        if (scope == "Team")
+        {
+            var allowedIds = await ModuleRbacHelper.ResolveEmployeeIdsForScopeAsync(
+                user, db, "Team", excludeSelfFromTeam: excludeSelf);
+            Guid? excludeEmployeeId = excludeSelf
+                ? await LeaveAccessHelper.GetCurrentEmployeeIdAsync(user, db)
+                : null;
+            if (allowedIds is { Count: 0 })
+                return new ResolvedQuery(true, null, allowedIds, excludeEmployeeId, Empty(page, pageSize));
+            return new ResolvedQuery(true, null, allowedIds, excludeEmployeeId, null);
+        }
+
+        return new ResolvedQuery(false, null, null, null, Empty(page, pageSize));
+    }
+
+    internal static async Task<string> ResolveApprovalsReadScopeAsync(
+        ClaimsPrincipal user,
+        AppDbContext db,
+        string action = "Read")
+    {
+        if (IsAdmin(user))
+            return "All";
+
+        var fromClaims = ApprovalsAccessHelper.ResolveScope(user, action);
+        var userId = await ResolveUserIdAsync(user, db);
+        if (!userId.HasValue)
+            return fromClaims;
+
+        var roleIds = await db.UserRoles.AsNoTracking()
+            .Where(ur => ur.UserId == userId.Value)
+            .Select(ur => ur.RoleId)
+            .ToListAsync();
+        if (roleIds.Count == 0)
+            return fromClaims;
+
+        var roles = await db.SecurityRoles.AsNoTracking()
+            .Where(r => roleIds.Contains(r.Id))
+            .Select(r => new { r.Id, r.Code })
+            .ToListAsync();
+        if (roles.Any(r => string.Equals(r.Code, "ADMIN", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(r.Code, "Admin", StringComparison.OrdinalIgnoreCase)))
+            return "All";
+
+        var liveRoleIds = roles.Select(r => r.Id).ToList();
+        var rows = await db.Permissions.AsNoTracking()
+            .Where(p => liveRoleIds.Contains(p.RoleId))
+            .Select(p => new { p.Module, p.Action, p.Scope })
+            .ToListAsync();
+
+        var approvalScopes = rows
+            .Where(p => string.Equals((p.Module ?? "").Trim(), "Approvals", StringComparison.OrdinalIgnoreCase)
+                && string.Equals((p.Action ?? "").Trim(), action.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Scope)
+            .ToList();
+
+        return RbacScopeHelper.MaxScope(HighestScope(approvalScopes), fromClaims);
+    }
+
+    private static async Task<Guid?> ResolveUserIdAsync(ClaimsPrincipal user, AppDbContext db)
+    {
+        var direct = GetUserAccountId(user);
+        if (direct.HasValue && await db.Users.AsNoTracking().AnyAsync(u => u.Id == direct.Value))
+            return direct;
+
+        var username = user.FindFirstValue("username") ?? user.Identity?.Name;
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            var byName = await db.Users.AsNoTracking()
+                .Where(u => u.Username == username)
+                .Select(u => (Guid?)u.Id)
+                .FirstOrDefaultAsync();
+            if (byName.HasValue)
+                return byName;
+        }
+
+        var email = user.FindFirstValue(ClaimTypes.Email)
+            ?? user.FindFirstValue(JwtRegisteredClaimNames.Email)
+            ?? user.FindFirstValue("email");
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            var byEmail = await db.Users.AsNoTracking()
+                .Where(u => u.Email == email)
+                .Select(u => (Guid?)u.Id)
+                .FirstOrDefaultAsync();
+            if (byEmail.HasValue)
+                return byEmail;
+        }
+
+        if (Guid.TryParse(user.FindFirstValue("employeeId"), out var employeeId) && employeeId != Guid.Empty)
+        {
+            var byEmployee = await db.Users.AsNoTracking()
+                .Where(u => u.EmployeeId == employeeId)
+                .Select(u => (Guid?)u.Id)
+                .FirstOrDefaultAsync();
+            if (byEmployee.HasValue)
+                return byEmployee;
+        }
+
+        return direct;
+    }
+
     /// <summary>Wider of Leave and Approvals Read on the user's roles. Approvals All beats Leave Own.</summary>
     internal static async Task<string> ResolveListReadScopeAsync(ClaimsPrincipal user, AppDbContext db)
     {
         if (IsAdmin(user))
             return "All";
 
-        var userId = GetUserAccountId(user);
+        var userId = await ResolveUserIdAsync(user, db);
         if (userId.HasValue)
         {
             var roleRows = await db.UserRoles.AsNoTracking()
-                .Where(ur => ur.UserId == userId.Value && !ur.IsDeleted)
-                .Select(ur => new { ur.RoleId, ur.Role.Code, RoleDeleted = ur.Role.IsDeleted })
+                .Where(ur => ur.UserId == userId.Value)
+                .Select(ur => new { ur.RoleId, ur.Role.Code })
                 .ToListAsync();
 
-            var liveRoles = roleRows.Where(r => !r.RoleDeleted).ToList();
-            if (liveRoles.Any(r => string.Equals(r.Code, "ADMIN", StringComparison.OrdinalIgnoreCase)
+            if (roleRows.Any(r => string.Equals(r.Code, "ADMIN", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(r.Code, "Admin", StringComparison.OrdinalIgnoreCase)))
                 return "All";
 
-            var roleIds = liveRoles.Select(r => r.RoleId).ToList();
+            var roleIds = roleRows.Select(r => r.RoleId).Distinct().ToList();
             if (roleIds.Count > 0)
             {
-                var scopes = await db.Permissions.AsNoTracking()
-                    .Where(p => !p.IsDeleted
-                        && roleIds.Contains(p.RoleId)
-                        && p.Action == "Read"
-                        && (p.Module == "Approvals" || p.Module == "Leave"))
-                    .Select(p => p.Scope)
+                var rows = await db.Permissions.AsNoTracking()
+                    .Where(p => roleIds.Contains(p.RoleId))
+                    .Select(p => new { p.Module, p.Action, p.Scope })
                     .ToListAsync();
+
+                var scopes = rows
+                    .Where(p => string.Equals((p.Module ?? "").Trim(), "Leave", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals((p.Action ?? "").Trim(), "Read", StringComparison.OrdinalIgnoreCase))
+                    .Select(p => p.Scope);
 
                 var fromDb = HighestScope(scopes);
                 if (fromDb is "All" or "Team" or "Own")
@@ -126,9 +252,7 @@ public static class LeaveRequestsQueryScope
             }
         }
 
-        return RbacScopeHelper.MaxScope(
-            ApprovalsAccessHelper.ResolveScope(user, "Read"),
-            LeaveAccessHelper.ResolveScope(user, "Read"));
+        return LeaveAccessHelper.ResolveScope(user, "Read");
     }
 
     private static string HighestScope(IEnumerable<string?> scopes)

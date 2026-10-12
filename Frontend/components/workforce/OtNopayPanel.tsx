@@ -125,6 +125,7 @@ export function OtNopayPanel({
     const params = new URLSearchParams({ from: fromDate, to: toDate });
     if (filterEmployee) params.set("employeeId", filterEmployee);
     if (teamOnly) params.set("teamOnly", "true");
+    if (embedded) params.set("forApprovals", "true");
     const endpoint = `/api/attendance/overtime-nopay?${params}`;
 
     const load = (attempt: number) => {
@@ -147,7 +148,7 @@ export function OtNopayPanel({
     };
 
     load(0);
-  }, [fromDate, toDate, filterEmployee, teamOnly]);
+  }, [fromDate, toDate, filterEmployee, teamOnly, embedded]);
 
   const loadDays = useCallback(() => {
     if (!fromDate || !toDate) return;
@@ -157,6 +158,7 @@ export function OtNopayPanel({
     const params = new URLSearchParams({ from: fromDate, to: toDate });
     if (filterEmployee) params.set("employeeId", filterEmployee);
     if (teamOnly) params.set("teamOnly", "true");
+    if (embedded) params.set("forApprovals", "true");
     apiFetch<OtNopayDay[]>(`/api/attendance/overtime-nopay/days?${params}`)
       .then((rows) => {
         setDayRows(rows ?? []);
@@ -167,7 +169,7 @@ export function OtNopayPanel({
         setDayError(e instanceof Error ? e.message : "Could not load OT detail");
         setDayLoading(false);
       });
-  }, [fromDate, toDate, filterEmployee, teamOnly]);
+  }, [fromDate, toDate, filterEmployee, teamOnly, embedded]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -325,6 +327,7 @@ export function OtNopayPanel({
         employeeId: row.employeeId,
       });
       if (teamOnly) params.set("teamOnly", "true");
+      if (embedded) params.set("forApprovals", "true");
       await apiFetch(`${path}?${params}`, {
         method: "POST",
         body: JSON.stringify({ remarks: otRemarks.trim() || null }),

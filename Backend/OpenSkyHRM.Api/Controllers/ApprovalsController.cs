@@ -35,9 +35,6 @@ public class ApprovalsController : ControllerBase
         [FromQuery] DateTime? toDate = null,
         [FromQuery] bool excludeSelf = false)
     {
-        if (!UserHasApprovalsRead())
-            return Forbid();
-
         var resolved = await LeaveRequestsQueryScope.ResolveAsync(
             User, _db, forApprovalsWorkspace: true, employeeId: null, excludeSelf, page, pageSize);
 
@@ -56,21 +53,5 @@ public class ApprovalsController : ControllerBase
             toDate,
             resolved.AllowedEmployeeIds,
             resolved.ExcludeEmployeeId));
-    }
-
-    private bool UserHasApprovalsRead()
-    {
-        if (User.IsInRole("ADMIN")) return true;
-        foreach (var c in User.FindAll("permission"))
-        {
-            if (string.Equals(c.Value, "Approvals:Read:All", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(c.Value, "Approvals:Read:Team", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(c.Value, "Approvals:Read:Own", StringComparison.OrdinalIgnoreCase))
-                return true;
-            if (c.Value.StartsWith("Approvals:Read:", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return ApprovalsAccessHelper.ResolveScope(User, "Read") is "Own" or "Team" or "All";
     }
 }

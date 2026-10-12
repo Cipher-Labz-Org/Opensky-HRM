@@ -43,9 +43,15 @@ public static class ApprovalsAccessHelper
         string action = "Read",
         bool excludeSelfForApprovalList = false)
     {
-        var rbacIds = await ResolveRbacScopeIdsAsync(user, db, action, excludeSelfForApprovalList);
-        var dimensionIds = await PeopleAccessHelper.GetDimensionFilteredEmployeeIdsAsync(user, db);
-        return PeopleAccessHelper.IntersectEmployeeScopes(rbacIds, dimensionIds);
+        var scope = await LeaveRequestsQueryScope.ResolveApprovalsReadScopeAsync(user, db, action);
+        if (string.Equals(scope, "All", StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (!string.Equals(scope, "Team", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(scope, "Own", StringComparison.OrdinalIgnoreCase))
+            return Array.Empty<Guid>();
+
+        return await LeaveAccessHelper.ResolveEmployeeIdsForScopeAsync(
+            user, db, scope, excludeSelfForApprovalList);
     }
 
     public static async Task<bool> CanAccessEmployeeAsync(
@@ -62,20 +68,6 @@ public static class ApprovalsAccessHelper
         if (allowedIds == null)
             return true;
         return allowedIds.Contains(employeeId);
-    }
-
-    private static async Task<IReadOnlyList<Guid>?> ResolveRbacScopeIdsAsync(
-        ClaimsPrincipal user,
-        AppDbContext db,
-        string action,
-        bool excludeSelfForApprovalList)
-    {
-        if (UserHasRole(user, "ADMIN"))
-            return null;
-
-        var scope = ResolveScope(user, action);
-        return await LeaveAccessHelper.ResolveEmployeeIdsForScopeAsync(
-            user, db, scope, excludeSelfForApprovalList);
     }
 
     private static bool UserHasRole(ClaimsPrincipal user, string roleCode)

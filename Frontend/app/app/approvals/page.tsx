@@ -40,8 +40,7 @@ function ApprovalsInner() {
     || hasRole("SUPERVISOR")
     || hasRole("HR_MANAGER");
 
-  const isHrWideLeave = isAdmin || approvalsScope === "All";
-  const leaveTeamOnly = !isHrWideLeave && approvalsScope === "Team";
+  const leaveTeamOnly = !isAdmin && approvalsScope === "Team";
   const attendanceUpdateAll = user?.permissions.some(
     (p) => p.module === "Attendance" && p.action === "Update" && (p.scope ?? "Own") === "All",
   ) ?? false;

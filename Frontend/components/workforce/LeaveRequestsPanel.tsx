@@ -264,20 +264,11 @@ export function LeaveRequestsPanel({
     if (statusFilter && !waitingFilter) params.set("status", statusFilter);
     if (fromDate) params.set("fromDate", fromDate);
     if (toDate) params.set("toDate", toDate);
-    if (teamOnly) params.set("excludeSelf", "true");
-    const listPath = approvalsWorkspace
-      ? `/api/approvals/leave-requests?${params}`
-      : `/api/leave/requests?${params}`;
+    if (teamOnly && !approvalsWorkspace) params.set("excludeSelf", "true");
+    if (approvalsWorkspace) params.set("forApprovals", "true");
+    const listPath = `/api/leave/requests?${params}`;
     try {
-      let raw: PagedLeaveResponse;
-      try {
-        raw = await apiFetch<PagedLeaveResponse>(listPath);
-      } catch (firstError) {
-        if (!approvalsWorkspace) throw firstError;
-        const fallback = new URLSearchParams(params);
-        fallback.set("forApprovals", "true");
-        raw = await apiFetch<PagedLeaveResponse>(`/api/leave/requests?${fallback}`);
-      }
+      const raw = await apiFetch<PagedLeaveResponse>(listPath);
       const norm = normalizePaged(raw);
       let rows = norm.items;
       if (waitingFilter) {

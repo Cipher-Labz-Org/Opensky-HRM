@@ -394,10 +394,11 @@ public partial class AttendanceController : ControllerBase
         [FromQuery] DateTime from,
         [FromQuery] DateTime to,
         [FromQuery] Guid? employeeId = null,
-        [FromQuery] bool teamOnly = false)
+        [FromQuery] bool teamOnly = false,
+        [FromQuery] bool forApprovals = false)
     {
         var actingId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
-        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(actingId, teamOnly);
+        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(actingId, teamOnly, forApprovals);
         if (employeeId.HasValue && allowedIds != null && !allowedIds.Contains(employeeId.Value))
             return Forbid();
         var hrCanOverride = PeopleAccessHelper.CanOverrideOvertimeApproval(User);
@@ -411,10 +412,11 @@ public partial class AttendanceController : ControllerBase
         [FromQuery] DateTime from,
         [FromQuery] DateTime to,
         [FromQuery] Guid? employeeId = null,
-        [FromQuery] bool teamOnly = false)
+        [FromQuery] bool teamOnly = false,
+        [FromQuery] bool forApprovals = false)
     {
         var actingId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
-        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(actingId, teamOnly);
+        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(actingId, teamOnly, forApprovals);
         if (employeeId.HasValue && allowedIds != null && !allowedIds.Contains(employeeId.Value))
             return Forbid();
         var rows = await _attendanceService.GetOvertimeNopayDaysAsync(from, to, employeeId, allowedIds);
@@ -427,13 +429,14 @@ public partial class AttendanceController : ControllerBase
         [FromQuery] DateTime to,
         [FromQuery] Guid employeeId,
         [FromQuery] bool teamOnly = false,
+        [FromQuery] bool forApprovals = false,
         [FromBody] ApproveRejectOvertimeNopayDto? dto = null)
     {
         var hrCanOverride = PeopleAccessHelper.CanOverrideOvertimeApproval(User);
         var approverId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
         if (!approverId.HasValue && !hrCanOverride)
             return BadRequest(new { message = "Your account must be linked to an employee to approve overtime." });
-        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(approverId, teamOnly);
+        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(approverId, teamOnly, forApprovals);
         if (allowedIds != null && !allowedIds.Contains(employeeId))
             return Forbid();
         try
@@ -454,13 +457,14 @@ public partial class AttendanceController : ControllerBase
         [FromQuery] DateTime to,
         [FromQuery] Guid employeeId,
         [FromQuery] bool teamOnly = false,
+        [FromQuery] bool forApprovals = false,
         [FromBody] ApproveRejectOvertimeNopayDto? dto = null)
     {
         var hrCanOverride = PeopleAccessHelper.CanOverrideOvertimeApproval(User);
         var approverId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
         if (!approverId.HasValue && !hrCanOverride)
             return BadRequest(new { message = "Your account must be linked to an employee to reject overtime." });
-        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(approverId, teamOnly);
+        var allowedIds = await GetOvertimeVisibleEmployeeIdsAsync(approverId, teamOnly, forApprovals);
         if (allowedIds != null && !allowedIds.Contains(employeeId))
             return Forbid();
         try
@@ -487,21 +491,25 @@ public partial class AttendanceController : ControllerBase
     /// Approvals (teamOnly) limits supervisors to their reporting tree.
     /// HR / ADMIN keep company-wide People access so they can approve OT the supervisor has not.
     /// </summary>
-    private async Task<IReadOnlyList<Guid>?> GetOvertimeVisibleEmployeeIdsAsync(Guid? actingEmployeeId, bool teamOnly)
+    private async Task<IReadOnlyList<Guid>?> GetOvertimeVisibleEmployeeIdsAsync(
+        Guid? actingEmployeeId,
+        bool teamOnly,
+        bool forApprovals)
     {
+        if (forApprovals)
+            return await ApprovalsAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read", teamOnly);
+
         var dimensionIds = await PeopleAccessHelper.GetDimensionFilteredEmployeeIdsAsync(User, _db);
         var hrCanOverride = PeopleAccessHelper.CanOverrideOvertimeApproval(User);
 
         var attendanceScope = ModuleRbacHelper.ResolveScope(User, "Attendance", "Read");
-        var approvalsScope = ApprovalsAccessHelper.ResolveScope(User, "Read");
-        var effectiveScope = RbacScopeHelper.MaxScope(attendanceScope, approvalsScope);
+        var effectiveScope = attendanceScope;
 
-        if (!teamOnly && (effectiveScope == "All" || hrCanOverride))
-        {
-            if (effectiveScope == "All")
-                return dimensionIds;
+        if (!teamOnly && effectiveScope == "All")
+            return dimensionIds;
+
+        if (!teamOnly && hrCanOverride)
             return await ModuleRbacHelper.GetAllowedEmployeeIdsAsync(User, _db, "Attendance", "Read");
-        }
 
         if (teamOnly && !hrCanOverride)
         {
