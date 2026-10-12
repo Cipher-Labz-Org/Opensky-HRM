@@ -9,8 +9,8 @@ namespace OpenSkyHRM.Api.Services;
 
 /// <summary>
 /// Resolves employee filters for leave-request lists.
-/// Scope comes from the user's roles in the database (wider of Leave and Approvals Read),
-/// so Approvals → All is not limited by Leave → Own or a stale login token.
+/// The Approvals workspace reads only Approvals → Read from the database.
+/// Approvals → All returns every leave request, with no employee filter.
 /// </summary>
 public static class LeaveRequestsQueryScope
 {
@@ -30,10 +30,16 @@ public static class LeaveRequestsQueryScope
         int page,
         int pageSize)
     {
-        if (forApprovalsWorkspace)
-            return await ResolveApprovalsWorkspaceAsync(user, db, excludeSelf, page, pageSize);
+        var scope = forApprovalsWorkspace
+            ? await ResolveApprovalsReadScopeFromDatabaseAsync(user, db)
+            : await ResolveListReadScopeAsync(user, db);
 
-        var scope = await ResolveListReadScopeAsync(user, db);
+        if (forApprovalsWorkspace && scope.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            // Same list as Admin: every leave request, including when this login is linked to an employee.
+            return new ResolvedQuery(true, null, null, null, null);
+        }
+
         Guid? effectiveEmployeeId = employeeId;
         IReadOnlyList<Guid>? allowedIds = null;
         Guid? excludeEmployeeId = null;
@@ -54,7 +60,13 @@ public static class LeaveRequestsQueryScope
         {
             var currentId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(user, db);
             if (!currentId.HasValue)
+            {
+                // An account with no linked employee cannot be pinned to "own".
+                // Approvals → All never reaches this branch.
+                if (forApprovalsWorkspace)
+                    return new ResolvedQuery(true, null, Array.Empty<Guid>(), null, Empty(page, pageSize));
                 return new ResolvedQuery(false, null, null, null, null);
+            }
             effectiveEmployeeId = currentId;
         }
         else if (scope == "Team")
@@ -92,127 +104,69 @@ public static class LeaveRequestsQueryScope
     }
 
     /// <summary>
-    /// Approvals page only. Leave → Own must not limit this list.
-    /// Approvals → All returns every leave request.
+    /// Approvals → Read from the user's roles in the database only.
+    /// Leave permissions are not used. A missing employee link does not remove Approvals → All.
     /// </summary>
-    private static async Task<ResolvedQuery> ResolveApprovalsWorkspaceAsync(
-        ClaimsPrincipal user,
-        AppDbContext db,
-        bool excludeSelf,
-        int page,
-        int pageSize)
+    internal static async Task<string> ResolveApprovalsReadScopeFromDatabaseAsync(ClaimsPrincipal user, AppDbContext db)
     {
-        var scope = await ResolveApprovalsReadScopeAsync(user, db);
-        if (scope == "All")
-            return new ResolvedQuery(true, null, null, null, null);
+        var roleIds = new HashSet<Guid>();
 
-        if (scope == "Own")
+        var userId = await ResolveUserAccountIdAsync(user, db);
+        if (userId.HasValue)
         {
-            var currentId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(user, db);
-            if (!currentId.HasValue)
-                return new ResolvedQuery(false, null, null, null, null);
-            return new ResolvedQuery(true, currentId, null, null, null);
+            var assigned = await db.UserRoles.AsNoTracking()
+                .Where(ur => ur.UserId == userId.Value && !ur.IsDeleted)
+                .Select(ur => ur.RoleId)
+                .ToListAsync();
+            foreach (var id in assigned)
+                roleIds.Add(id);
         }
 
-        if (scope == "Team")
+        var roleCodes = GetRoleCodes(user);
+        if (roleCodes.Count > 0)
         {
-            var allowedIds = await ModuleRbacHelper.ResolveEmployeeIdsForScopeAsync(
-                user, db, "Team", excludeSelfFromTeam: excludeSelf);
-            Guid? excludeEmployeeId = excludeSelf
-                ? await LeaveAccessHelper.GetCurrentEmployeeIdAsync(user, db)
-                : null;
-            if (allowedIds is { Count: 0 })
-                return new ResolvedQuery(true, null, allowedIds, excludeEmployeeId, Empty(page, pageSize));
-            return new ResolvedQuery(true, null, allowedIds, excludeEmployeeId, null);
+            var roles = await db.SecurityRoles.AsNoTracking()
+                .Where(r => !r.IsDeleted)
+                .Select(r => new { r.Id, r.Code, r.Name })
+                .ToListAsync();
+            foreach (var role in roles)
+            {
+                if (roleCodes.Contains(role.Code) || roleCodes.Contains(role.Name))
+                    roleIds.Add(role.Id);
+            }
         }
 
-        return new ResolvedQuery(false, null, null, null, Empty(page, pageSize));
-    }
-
-    internal static async Task<string> ResolveApprovalsReadScopeAsync(
-        ClaimsPrincipal user,
-        AppDbContext db,
-        string action = "Read")
-    {
-        if (IsAdmin(user))
-            return "All";
-
-        var fromClaims = ApprovalsAccessHelper.ResolveScope(user, action);
-        var userId = await ResolveUserIdAsync(user, db);
-        if (!userId.HasValue)
-            return fromClaims;
-
-        var roleIds = await db.UserRoles.AsNoTracking()
-            .Where(ur => ur.UserId == userId.Value)
-            .Select(ur => ur.RoleId)
-            .ToListAsync();
         if (roleIds.Count == 0)
-            return fromClaims;
+            return IsAdmin(user) ? "All" : "None";
 
-        var roles = await db.SecurityRoles.AsNoTracking()
-            .Where(r => roleIds.Contains(r.Id))
-            .Select(r => new { r.Id, r.Code })
+        var codes = await db.SecurityRoles.AsNoTracking()
+            .Where(r => !r.IsDeleted && roleIds.Contains(r.Id))
+            .Select(r => r.Code)
             .ToListAsync();
-        if (roles.Any(r => string.Equals(r.Code, "ADMIN", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(r.Code, "Admin", StringComparison.OrdinalIgnoreCase)))
+        if (codes.Any(c => c.Equals("ADMIN", StringComparison.OrdinalIgnoreCase)
+            || c.Equals("Admin", StringComparison.OrdinalIgnoreCase)))
             return "All";
 
-        var liveRoleIds = roles.Select(r => r.Id).ToList();
         var rows = await db.Permissions.AsNoTracking()
-            .Where(p => liveRoleIds.Contains(p.RoleId))
+            .Where(p => !p.IsDeleted && roleIds.Contains(p.RoleId))
             .Select(p => new { p.Module, p.Action, p.Scope })
             .ToListAsync();
 
-        var approvalScopes = rows
-            .Where(p => string.Equals((p.Module ?? "").Trim(), "Approvals", StringComparison.OrdinalIgnoreCase)
-                && string.Equals((p.Action ?? "").Trim(), action.Trim(), StringComparison.OrdinalIgnoreCase))
-            .Select(p => p.Scope)
-            .ToList();
+        var scopes = rows
+            .Where(p => p.Module.Equals("Approvals", StringComparison.OrdinalIgnoreCase)
+                && p.Action.Equals("Read", StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Scope);
 
-        return RbacScopeHelper.MaxScope(HighestScope(approvalScopes), fromClaims);
-    }
+        var fromDb = HighestScope(scopes);
+        if (fromDb is not ("All" or "Team" or "Own"))
+            fromDb = "None";
 
-    private static async Task<Guid?> ResolveUserIdAsync(ClaimsPrincipal user, AppDbContext db)
-    {
-        var direct = GetUserAccountId(user);
-        if (direct.HasValue && await db.Users.AsNoTracking().AnyAsync(u => u.Id == direct.Value))
-            return direct;
-
-        var username = user.FindFirstValue("username") ?? user.Identity?.Name;
-        if (!string.IsNullOrWhiteSpace(username))
-        {
-            var byName = await db.Users.AsNoTracking()
-                .Where(u => u.Username == username)
-                .Select(u => (Guid?)u.Id)
-                .FirstOrDefaultAsync();
-            if (byName.HasValue)
-                return byName;
-        }
-
-        var email = user.FindFirstValue(ClaimTypes.Email)
-            ?? user.FindFirstValue(JwtRegisteredClaimNames.Email)
-            ?? user.FindFirstValue("email");
-        if (!string.IsNullOrWhiteSpace(email))
-        {
-            var byEmail = await db.Users.AsNoTracking()
-                .Where(u => u.Email == email)
-                .Select(u => (Guid?)u.Id)
-                .FirstOrDefaultAsync();
-            if (byEmail.HasValue)
-                return byEmail;
-        }
-
-        if (Guid.TryParse(user.FindFirstValue("employeeId"), out var employeeId) && employeeId != Guid.Empty)
-        {
-            var byEmployee = await db.Users.AsNoTracking()
-                .Where(u => u.EmployeeId == employeeId)
-                .Select(u => (Guid?)u.Id)
-                .FirstOrDefaultAsync();
-            if (byEmployee.HasValue)
-                return byEmployee;
-        }
-
-        return direct;
+        // A saved Approvals → All must beat a stale Team/Own claim.
+        // A token that already says Approvals → All is enough when the role row cannot be read.
+        var fromToken = ApprovalsAccessHelper.ResolveScope(user, "Read");
+        if (fromToken is not ("All" or "Team" or "Own"))
+            return fromDb;
+        return RbacScopeHelper.MaxScope(fromDb, fromToken);
     }
 
     /// <summary>Wider of Leave and Approvals Read on the user's roles. Approvals All beats Leave Own.</summary>
@@ -221,30 +175,29 @@ public static class LeaveRequestsQueryScope
         if (IsAdmin(user))
             return "All";
 
-        var userId = await ResolveUserIdAsync(user, db);
+        var userId = GetUserAccountId(user);
         if (userId.HasValue)
         {
             var roleRows = await db.UserRoles.AsNoTracking()
-                .Where(ur => ur.UserId == userId.Value)
-                .Select(ur => new { ur.RoleId, ur.Role.Code })
+                .Where(ur => ur.UserId == userId.Value && !ur.IsDeleted)
+                .Select(ur => new { ur.RoleId, ur.Role.Code, RoleDeleted = ur.Role.IsDeleted })
                 .ToListAsync();
 
-            if (roleRows.Any(r => string.Equals(r.Code, "ADMIN", StringComparison.OrdinalIgnoreCase)
+            var liveRoles = roleRows.Where(r => !r.RoleDeleted).ToList();
+            if (liveRoles.Any(r => string.Equals(r.Code, "ADMIN", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(r.Code, "Admin", StringComparison.OrdinalIgnoreCase)))
                 return "All";
 
-            var roleIds = roleRows.Select(r => r.RoleId).Distinct().ToList();
+            var roleIds = liveRoles.Select(r => r.RoleId).ToList();
             if (roleIds.Count > 0)
             {
-                var rows = await db.Permissions.AsNoTracking()
-                    .Where(p => roleIds.Contains(p.RoleId))
-                    .Select(p => new { p.Module, p.Action, p.Scope })
+                var scopes = await db.Permissions.AsNoTracking()
+                    .Where(p => !p.IsDeleted
+                        && roleIds.Contains(p.RoleId)
+                        && p.Action == "Read"
+                        && (p.Module == "Approvals" || p.Module == "Leave"))
+                    .Select(p => p.Scope)
                     .ToListAsync();
-
-                var scopes = rows
-                    .Where(p => string.Equals((p.Module ?? "").Trim(), "Leave", StringComparison.OrdinalIgnoreCase)
-                        && string.Equals((p.Action ?? "").Trim(), "Read", StringComparison.OrdinalIgnoreCase))
-                    .Select(p => p.Scope);
 
                 var fromDb = HighestScope(scopes);
                 if (fromDb is "All" or "Team" or "Own")
@@ -252,7 +205,9 @@ public static class LeaveRequestsQueryScope
             }
         }
 
-        return LeaveAccessHelper.ResolveScope(user, "Read");
+        return RbacScopeHelper.MaxScope(
+            ApprovalsAccessHelper.ResolveScope(user, "Read"),
+            LeaveAccessHelper.ResolveScope(user, "Read"));
     }
 
     private static string HighestScope(IEnumerable<string?> scopes)
@@ -280,12 +235,62 @@ public static class LeaveRequestsQueryScope
             PageSize = pageSize,
         };
 
+    private static async Task<Guid?> ResolveUserAccountIdAsync(ClaimsPrincipal user, AppDbContext db)
+    {
+        foreach (var claim in user.Claims)
+        {
+            if (!IsUserIdClaim(claim.Type))
+                continue;
+            if (!Guid.TryParse(claim.Value, out var id) || id == Guid.Empty)
+                continue;
+            var exists = await db.Users.AsNoTracking()
+                .AnyAsync(u => u.Id == id && !u.IsDeleted);
+            if (exists)
+                return id;
+        }
+
+        var username = user.FindFirstValue("username")
+            ?? user.FindFirstValue("unique_name");
+        if (string.IsNullOrWhiteSpace(username))
+            return null;
+
+        var normalized = username.Trim().ToLower();
+        return await db.Users.AsNoTracking()
+            .Where(u => !u.IsDeleted && u.Username.ToLower() == normalized)
+            .Select(u => (Guid?)u.Id)
+            .FirstOrDefaultAsync();
+    }
+
+    private static bool IsUserIdClaim(string type) =>
+        type == ClaimTypes.NameIdentifier
+        || type == JwtRegisteredClaimNames.Sub
+        || type.Equals("sub", StringComparison.OrdinalIgnoreCase)
+        || type.Equals("nameid", StringComparison.OrdinalIgnoreCase)
+        || type.EndsWith("/nameidentifier", StringComparison.OrdinalIgnoreCase);
+
     private static Guid? GetUserAccountId(ClaimsPrincipal user)
     {
-        var s = user.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? user.FindFirstValue(JwtRegisteredClaimNames.Sub)
-            ?? user.FindFirstValue("sub");
-        return Guid.TryParse(s, out var id) ? id : null;
+        foreach (var claim in user.Claims)
+        {
+            if (!IsUserIdClaim(claim.Type))
+                continue;
+            if (Guid.TryParse(claim.Value, out var id) && id != Guid.Empty)
+                return id;
+        }
+
+        return null;
+    }
+
+    private static HashSet<string> GetRoleCodes(ClaimsPrincipal user)
+    {
+        var codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var claim in user.FindAll(ClaimTypes.Role).Concat(user.FindAll("role")))
+        {
+            if (!string.IsNullOrWhiteSpace(claim.Value))
+                codes.Add(claim.Value.Trim());
+        }
+
+        return codes;
     }
 
     private static bool IsAdmin(ClaimsPrincipal user)
