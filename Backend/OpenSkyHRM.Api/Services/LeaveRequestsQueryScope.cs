@@ -158,15 +158,36 @@ public static class LeaveRequestsQueryScope
             .Select(p => p.Scope);
 
         var fromDb = HighestScope(scopes);
-        if (fromDb is not ("All" or "Team" or "Own"))
+        if (fromDb.Equals("All", StringComparison.OrdinalIgnoreCase))
+            return "All";
+        if (fromDb is not ("Team" or "Own"))
             fromDb = "None";
 
-        // A saved Approvals → All must beat a stale Team/Own claim.
-        // A token that already says Approvals → All is enough when the role row cannot be read.
-        var fromToken = ApprovalsAccessHelper.ResolveScope(user, "Read");
-        if (fromToken is not ("All" or "Team" or "Own"))
+        // Use only an explicit Approvals:Read claim. Do not apply the supervisor Team default,
+        // which would hide every other employee when the saved scope is All.
+        var fromClaim = ExplicitApprovalsReadScope(user);
+        if (fromClaim.Equals("All", StringComparison.OrdinalIgnoreCase))
+            return "All";
+        if (fromClaim is not ("Team" or "Own"))
             return fromDb;
-        return RbacScopeHelper.MaxScope(fromDb, fromToken);
+        return RbacScopeHelper.MaxScope(fromDb, fromClaim);
+    }
+
+    /// <summary>Approvals:Read scope written on the login token. No role fallback.</summary>
+    private static string ExplicitApprovalsReadScope(ClaimsPrincipal user)
+    {
+        var best = "None";
+        foreach (var claim in user.FindAll("permission"))
+        {
+            var parsed = ApprovalsAccessHelper.TryParseModuleActionScope(claim.Value, "Approvals", "Read");
+            if (parsed != null && parsed.Equals("All", StringComparison.OrdinalIgnoreCase))
+                return "All";
+            if (parsed != null)
+                best = RbacScopeHelper.MaxScope(best, parsed.Equals("Team", StringComparison.OrdinalIgnoreCase) ? "Team"
+                    : parsed.Equals("Own", StringComparison.OrdinalIgnoreCase) ? "Own" : "None");
+        }
+
+        return best;
     }
 
     /// <summary>Wider of Leave and Approvals Read on the user's roles. Approvals All beats Leave Own.</summary>
@@ -251,14 +272,42 @@ public static class LeaveRequestsQueryScope
 
         var username = user.FindFirstValue("username")
             ?? user.FindFirstValue("unique_name");
-        if (string.IsNullOrWhiteSpace(username))
-            return null;
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            var normalized = username.Trim().ToLower();
+            var byName = await db.Users.AsNoTracking()
+                .Where(u => !u.IsDeleted && u.Username.ToLower() == normalized)
+                .Select(u => (Guid?)u.Id)
+                .FirstOrDefaultAsync();
+            if (byName.HasValue)
+                return byName;
+        }
 
-        var normalized = username.Trim().ToLower();
-        return await db.Users.AsNoTracking()
-            .Where(u => !u.IsDeleted && u.Username.ToLower() == normalized)
-            .Select(u => (Guid?)u.Id)
-            .FirstOrDefaultAsync();
+        var email = user.FindFirstValue(ClaimTypes.Email)
+            ?? user.FindFirstValue(JwtRegisteredClaimNames.Email)
+            ?? user.FindFirstValue("email");
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            var normalizedEmail = email.Trim().ToLower();
+            var byEmail = await db.Users.AsNoTracking()
+                .Where(u => !u.IsDeleted && u.Email != null && u.Email.ToLower() == normalizedEmail)
+                .Select(u => (Guid?)u.Id)
+                .FirstOrDefaultAsync();
+            if (byEmail.HasValue)
+                return byEmail;
+        }
+
+        if (Guid.TryParse(user.FindFirstValue("employeeId"), out var employeeId) && employeeId != Guid.Empty)
+        {
+            var byEmployee = await db.Users.AsNoTracking()
+                .Where(u => !u.IsDeleted && u.EmployeeId == employeeId)
+                .Select(u => (Guid?)u.Id)
+                .FirstOrDefaultAsync();
+            if (byEmployee.HasValue)
+                return byEmployee;
+        }
+
+        return null;
     }
 
     private static bool IsUserIdClaim(string type) =>

@@ -264,7 +264,7 @@ export function LeaveRequestsPanel({
     if (statusFilter && !waitingFilter) params.set("status", statusFilter);
     if (fromDate) params.set("fromDate", fromDate);
     if (toDate) params.set("toDate", toDate);
-    if (teamOnly) params.set("excludeSelf", "true");
+    if (teamOnly && !approvalsWorkspace) params.set("excludeSelf", "true");
     const listPath = approvalsWorkspace
       ? `/api/approvals/leave-requests?${params}`
       : `/api/leave/requests?${params}`;

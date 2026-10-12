@@ -314,14 +314,14 @@ public static class SecurityRolesSeeder
             .Select(p => new { p.Module, p.Action, p.Scope })
             .ToListAsync(cancellationToken);
 
-        var existingSet = existing
-            .Select(p => (p.Module, p.Action, p.Scope))
-            .ToHashSet();
-
         var toAdd = new List<Permission>();
         foreach (var perm in required)
         {
-            if (existingSet.Contains(perm)) continue;
+            // Keep a saved All/Team/Own. Do not add a second Approvals Read Team beside All.
+            if (existing.Any(p =>
+                    string.Equals(p.Module, perm.Module, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(p.Action, perm.Action, StringComparison.OrdinalIgnoreCase)))
+                continue;
             toAdd.Add(new Permission
             {
                 RoleId = roleId,
