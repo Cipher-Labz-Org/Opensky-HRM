@@ -1426,6 +1426,10 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!reason.trim()) {
+      setMessage({ type: "err", text: "Comments are required." });
+      return;
+    }
     if (missingBalance) {
       setMessage({
         type: "err",
@@ -2036,13 +2040,15 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
               )}
 
               <div>
-                <label className={applyLabel}>Comments</label>
+                <label className={applyLabel} htmlFor="apply-leave-comments">Comments *</label>
                 <textarea
+                  id="apply-leave-comments"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   rows={3}
+                  required
                   className={applyInput + " min-h-[4.5rem] resize-y"}
-                  placeholder="Optional"
+                  placeholder="Enter a comment"
                 />
               </div>
               <div>
@@ -2084,6 +2090,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
                   type="submit"
                   disabled={
                     submitting ||
+                    !reason.trim() ||
                     !applyDatesReady ||
                     exceedsBalance ||
                     missingBalance ||

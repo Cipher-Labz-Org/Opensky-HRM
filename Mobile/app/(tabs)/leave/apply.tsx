@@ -72,6 +72,10 @@ export default function ApplyLeaveScreen() {
       Alert.alert("Missing fields", "Select leave type and date range.");
       return;
     }
+    if (!reason.trim()) {
+      Alert.alert("Missing fields", "Comments are required.");
+      return;
+    }
     if (totalDays <= 0) {
       Alert.alert("Invalid dates", "End date must be on or after start date.");
       return;
@@ -168,7 +172,7 @@ export default function ApplyLeaveScreen() {
           </FormSection>
 
           <FormSection title="Details" icon="document-text-outline">
-            <Field label="Reason" value={reason} onChangeText={setReason} multiline />
+            <Field label="Comments *" value={reason} onChangeText={setReason} multiline />
             <View className="mt-3">
               <Field
                 label="Coverage person"

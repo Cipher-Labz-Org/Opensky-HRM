@@ -1037,10 +1037,12 @@ public class EmailService : IEmailService
         var safeUrl = WebUtility.HtmlEncode(approvalUrl);
         return $@"
       <p style=""margin: 24px 0 8px; text-align: center;"">
-        <a href=""{safeUrl}"" style=""display:inline-block;background:#2B7DE9;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;"">Review waiting approvals</a>
+        <a clicktracking=""off"" href=""{safeUrl}"" style=""display:inline-block;background:#2B7DE9;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;"">Review waiting approvals</a>
       </p>
       <p style=""font-size: 13px; line-height: 1.55; color: #666; margin: 0; text-align: center;"">
-        Sign in with your username and password if prompted, then you will see all leave requests waiting for your approval.
+        Sign in with your username and password if prompted, then you will see leave requests waiting for your approval.
+        <br />
+        <a clicktracking=""off"" href=""{safeUrl}"" style=""color:#2B7DE9;"">{safeUrl}</a>
       </p>";
     }
 

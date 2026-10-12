@@ -100,13 +100,14 @@ function normalizePaged(raw: PagedLeaveResponse): {
   return { items, totalCount, page, pageSize };
 }
 
-function canActOnLeaveStatus(status: string): boolean {
-  const s = status.toLowerCase();
+function canActOnLeaveStatus(status: string | null | undefined): boolean {
+  const s = (status ?? "").toLowerCase();
   return s === "pending" || s === "pendinglevel2" || s === "cancellationrequested";
 }
 
 function isOwnLeaveRow(row: LeaveRequestRow, currentEmployeeId: string | null): boolean {
-  return Boolean(currentEmployeeId) && row.employeeId.toLowerCase() === currentEmployeeId!.toLowerCase();
+  return Boolean(currentEmployeeId && row.employeeId)
+    && row.employeeId.toLowerCase() === currentEmployeeId!.toLowerCase();
 }
 
 function canSupervisorCancelApproved(
@@ -129,8 +130,8 @@ function canUserActOnLeaveRow(
   return row.responsibleEmployeeId.toLowerCase() === currentEmployeeId.toLowerCase();
 }
 
-function leaveStatusBadgeClass(status: string): string {
-  const s = status.toLowerCase();
+function leaveStatusBadgeClass(status: string | null | undefined): string {
+  const s = (status ?? "").toLowerCase();
   if (s.includes("approved")) return "badge badge-green";
   if (s.includes("reject")) return "badge badge-red";
   if (s === "cancellationrequested") return "badge badge-yellow";
@@ -145,8 +146,8 @@ function formatLeaveStatusLabel(status: string): string {
   return status;
 }
 
-function employeeInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+function employeeInitials(name: string | null | undefined): string {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
@@ -268,7 +269,15 @@ export function LeaveRequestsPanel({
       ? `/api/approvals/leave-requests?${params}`
       : `/api/leave/requests?${params}`;
     try {
-      const raw = await apiFetch<PagedLeaveResponse>(listPath);
+      let raw: PagedLeaveResponse;
+      try {
+        raw = await apiFetch<PagedLeaveResponse>(listPath);
+      } catch (firstError) {
+        if (!approvalsWorkspace) throw firstError;
+        const fallback = new URLSearchParams(params);
+        fallback.set("forApprovals", "true");
+        raw = await apiFetch<PagedLeaveResponse>(`/api/leave/requests?${fallback}`);
+      }
       const norm = normalizePaged(raw);
       let rows = norm.items;
       if (waitingFilter) {
@@ -565,7 +574,7 @@ export function LeaveRequestsPanel({
                                 setRemarks("");
                               }}
                             >
-                              {r.status.toLowerCase() === "cancellationrequested" ? "Approve cancel" : "Approve"}
+                              {(r.status ?? "").toLowerCase() === "cancellationrequested" ? "Approve cancel" : "Approve"}
                             </button>
                             <button
                               type="button"
@@ -576,7 +585,7 @@ export function LeaveRequestsPanel({
                                 setRemarks("");
                               }}
                             >
-                              {r.status.toLowerCase() === "cancellationrequested" ? "Keep leave" : "Reject"}
+                              {(r.status ?? "").toLowerCase() === "cancellationrequested" ? "Keep leave" : "Reject"}
                             </button>
                           </>
                         ) : null}

@@ -126,6 +126,14 @@ public static class TransactionalEmailTemplateSeeder
         if (string.IsNullOrWhiteSpace(template.HtmlContent))
             return;
         if (template.HtmlContent.Contains("{{ApprovalUrl}}", StringComparison.Ordinal)
+            && !template.HtmlContent.Contains("clicktracking=\"off\"", StringComparison.OrdinalIgnoreCase))
+        {
+            template.HtmlContent = template.HtmlContent.Replace(
+                "href=\"{{ApprovalUrl}}\"",
+                "clicktracking=\"off\" href=\"{{ApprovalUrl}}\"");
+        }
+
+        if (template.HtmlContent.Contains("{{ApprovalUrl}}", StringComparison.Ordinal)
             || template.HtmlContent.Contains("/app/approvals", StringComparison.OrdinalIgnoreCase))
             return;
 
@@ -134,7 +142,7 @@ public static class TransactionalEmailTemplateSeeder
             Open Leave &amp; Absence in OpenSky HRM to approve or reject this request.
                   </p>
                   <p style="margin: 24px 0 8px; text-align: center;">
-                    <a href="{{ApprovalUrl}}" style="display:inline-block;background:#2B7DE9;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">Review waiting approvals</a>
+                    <a clicktracking="off" href="{{ApprovalUrl}}" style="display:inline-block;background:#2B7DE9;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">Review waiting approvals</a>
                   </p>
                   <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 0; text-align: center;">
                     Sign in with your username and password if prompted, then you will see all leave requests waiting for your approval.
@@ -208,7 +216,7 @@ public static class TransactionalEmailTemplateSeeder
         Open Leave &amp; Absence in OpenSky HRM to approve or reject this request.
       </p>
       <p style="margin: 24px 0 8px; text-align: center;">
-        <a href="{{ApprovalUrl}}" style="display:inline-block;background:#2B7DE9;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">Review waiting approvals</a>
+        <a clicktracking="off" href="{{ApprovalUrl}}" style="display:inline-block;background:#2B7DE9;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">Review waiting approvals</a>
       </p>
       <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 0; text-align: center;">
         Sign in with your username and password if prompted, then you will see all leave requests waiting for your approval.

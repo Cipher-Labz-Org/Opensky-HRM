@@ -186,6 +186,9 @@ public class LeaveService : ILeaveService
         if (dto.EndDate.Date < dto.StartDate.Date)
             throw new InvalidOperationException("End date cannot be before start date.");
 
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            throw new InvalidOperationException("Comments are required.");
+
         var leaveType = await _db.Set<LeaveType>().AsNoTracking().FirstOrDefaultAsync(lt => lt.Id == dto.LeaveTypeId && !lt.IsDeleted);
         if (leaveType is null)
             throw new InvalidOperationException("Leave type not found.");
