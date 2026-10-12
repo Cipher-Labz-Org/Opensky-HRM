@@ -18,6 +18,7 @@ Backend/_buildtmp*/
 Backend/_apicheck*/
 Backend/_persistencecheck*/
 Backend/_publish-test/
+Backend/_publish-release/
 Backend/.tmp-api-build/
 
 # Local data-protection keys, uploads, and debug artifacts
