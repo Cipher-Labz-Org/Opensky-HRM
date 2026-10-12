@@ -15,16 +15,18 @@ public static class ApprovalsAccessHelper
         if (UserHasRole(user, "ADMIN"))
             return "All";
 
-        var permissions = user.FindAll("permission").Select(c => c.Value).ToList();
-        var approvalsPerms = permissions
-            .Where(p => p.StartsWith("Approvals:", StringComparison.OrdinalIgnoreCase))
+        var scopes = user.FindAll("permission")
+            .Select(c => c.Value)
+            .Select(p => TryParseModuleActionScope(p, "Approvals", action))
+            .Where(s => s != null)
+            .Select(s => s!)
             .ToList();
 
-        if (approvalsPerms.Any(p => p.Contains($":{action}:All", StringComparison.OrdinalIgnoreCase)))
+        if (scopes.Any(s => s.Equals("All", StringComparison.OrdinalIgnoreCase)))
             return "All";
-        if (approvalsPerms.Any(p => p.Contains($":{action}:Team", StringComparison.OrdinalIgnoreCase)))
+        if (scopes.Any(s => s.Equals("Team", StringComparison.OrdinalIgnoreCase)))
             return "Team";
-        if (approvalsPerms.Any(p => p.Contains($":{action}:Own", StringComparison.OrdinalIgnoreCase)))
+        if (scopes.Any(s => s.Equals("Own", StringComparison.OrdinalIgnoreCase)))
             return "Own";
 
         if (UserHasRole(user, "SUPERVISOR")
@@ -95,5 +97,22 @@ public static class ApprovalsAccessHelper
         }
 
         return false;
+    }
+
+    /// <summary>Parses JWT permission claims (<c>Module:Action:Scope</c>). Empty scope defaults to All.</summary>
+    internal static string? TryParseModuleActionScope(string claim, string module, string action)
+    {
+        if (string.IsNullOrWhiteSpace(claim))
+            return null;
+        var parts = claim.Split(':', 3, StringSplitOptions.TrimEntries);
+        if (parts.Length < 2)
+            return null;
+        if (!parts[0].Equals(module, StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (!parts[1].Equals(action, StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (parts.Length == 2 || string.IsNullOrWhiteSpace(parts[2]))
+            return "All";
+        return parts[2];
     }
 }

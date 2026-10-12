@@ -134,16 +134,18 @@ public static class LeaveAccessHelper
         if (UserHasRole(user, "ADMIN"))
             return "All";
 
-        var permissions = user.FindAll("permission").Select(c => c.Value).ToList();
-        var leavePerms = permissions
-            .Where(p => p.StartsWith("Leave:", StringComparison.OrdinalIgnoreCase))
+        var scopes = user.FindAll("permission")
+            .Select(c => c.Value)
+            .Select(p => ApprovalsAccessHelper.TryParseModuleActionScope(p, "Leave", action))
+            .Where(s => s != null)
+            .Select(s => s!)
             .ToList();
 
-        if (leavePerms.Any(p => p.Contains($":{action}:All", StringComparison.OrdinalIgnoreCase)))
+        if (scopes.Any(s => s.Equals("All", StringComparison.OrdinalIgnoreCase)))
             return "All";
-        if (leavePerms.Any(p => p.Contains($":{action}:Team", StringComparison.OrdinalIgnoreCase)))
+        if (scopes.Any(s => s.Equals("Team", StringComparison.OrdinalIgnoreCase)))
             return "Team";
-        if (leavePerms.Any(p => p.Contains($":{action}:Own", StringComparison.OrdinalIgnoreCase)))
+        if (scopes.Any(s => s.Equals("Own", StringComparison.OrdinalIgnoreCase)))
             return "Own";
 
         // Approvals UI treats Supervisor as team leave readers even when Leave:Read is missing from JWT.

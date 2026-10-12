@@ -15,17 +15,18 @@ public static class ModuleRbacHelper
         if (UserHasRole(user, "ADMIN"))
             return "All";
 
-        var permissions = user.FindAll("permission").Select(c => c.Value).ToList();
-        var prefix = $"{module}:";
-        var modulePerms = permissions
-            .Where(p => p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        var scopes = user.FindAll("permission")
+            .Select(c => c.Value)
+            .Select(p => ApprovalsAccessHelper.TryParseModuleActionScope(p, module, action))
+            .Where(s => s != null)
+            .Select(s => s!)
             .ToList();
 
-        if (modulePerms.Any(p => p.Contains($":{action}:All", StringComparison.OrdinalIgnoreCase)))
+        if (scopes.Any(s => s.Equals("All", StringComparison.OrdinalIgnoreCase)))
             return "All";
-        if (modulePerms.Any(p => p.Contains($":{action}:Team", StringComparison.OrdinalIgnoreCase)))
+        if (scopes.Any(s => s.Equals("Team", StringComparison.OrdinalIgnoreCase)))
             return "Team";
-        if (modulePerms.Any(p => p.Contains($":{action}:Own", StringComparison.OrdinalIgnoreCase)))
+        if (scopes.Any(s => s.Equals("Own", StringComparison.OrdinalIgnoreCase)))
             return "Own";
 
         return "None";

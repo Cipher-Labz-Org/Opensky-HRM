@@ -58,43 +58,24 @@ public class LeaveController : ControllerBase
         [FromQuery] bool excludeSelf = false,
         [FromQuery] bool forApprovals = false)
     {
-        // Workforce → Approvals uses the Approvals module scope only (independent of Leave & Absence Own/Team/All).
-        var scope = forApprovals
-            ? ApprovalsAccessHelper.ResolveScope(User, "Read")
-            : LeaveAccessHelper.ResolveScope(User, "Read");
-        Guid? effectiveEmployeeId = employeeId;
-        IReadOnlyList<Guid>? allowedIds = null;
-        Guid? excludeEmployeeId = null;
+        var resolved = await LeaveRequestsQueryScope.ResolveAsync(
+            User, _db, forApprovals, employeeId, excludeSelf, page, pageSize);
 
-        if (scope is not ("Own" or "Team" or "All"))
-            return Ok(new PagedResult<LeaveRequestDto> { Items = new List<LeaveRequestDto>(), TotalCount = 0, Page = page, PageSize = pageSize });
+        if (!resolved.Allowed)
+            return Forbid();
 
-        if (scope == "Own")
-        {
-            var currentId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
-            if (!currentId.HasValue) return Forbid();
-            effectiveEmployeeId = currentId;
-        }
-        else if (scope == "Team")
-        {
-            allowedIds = forApprovals
-                ? await ApprovalsAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read", excludeSelfForApprovalList: excludeSelf)
-                : await LeaveAccessHelper.GetAllowedEmployeeIdsAsync(User, _db, "Read", excludeSelfForApprovalList: excludeSelf);
-            if (excludeSelf)
-                excludeEmployeeId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(User, _db);
-            if (allowedIds is { Count: 0 }) return Ok(new PagedResult<LeaveRequestDto> { Items = new List<LeaveRequestDto>(), TotalCount = 0, Page = page, PageSize = pageSize });
-        }
+        if (resolved.EmptyResult != null)
+            return Ok(resolved.EmptyResult);
 
-        if (effectiveEmployeeId.HasValue)
-        {
-            var canAccess = forApprovals
-                ? await ApprovalsAccessHelper.CanAccessEmployeeAsync(User, _db, effectiveEmployeeId.Value, "Read")
-                : await LeaveAccessHelper.CanAccessEmployeeLeaveAsync(User, _db, effectiveEmployeeId.Value, "Read");
-            if (!canAccess)
-                return Forbid();
-        }
-
-        return Ok(await _leaveService.GetLeaveRequestsAsync(page, pageSize, status, effectiveEmployeeId, fromDate, toDate, allowedIds, excludeEmployeeId));
+        return Ok(await _leaveService.GetLeaveRequestsAsync(
+            page,
+            pageSize,
+            status,
+            resolved.EffectiveEmployeeId,
+            fromDate,
+            toDate,
+            resolved.AllowedEmployeeIds,
+            resolved.ExcludeEmployeeId));
     }
 
     [HttpPost("requests")]

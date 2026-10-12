@@ -39,7 +39,7 @@ export async function getTeamPendingLeaveRequests(
   status: "Pending" | "PendingLevel2"
 ): Promise<PagedResult<LeaveRequest>> {
   return apiFetch<PagedResult<LeaveRequest>>(
-    `/api/leave/requests?status=${status}&excludeSelf=true&pageSize=100&forApprovals=true`
+    `/api/approvals/leave-requests?status=${status}&excludeSelf=true&pageSize=100`,
   );
 }
 

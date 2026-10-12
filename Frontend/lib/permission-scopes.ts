@@ -29,8 +29,14 @@ export function getModuleReadScope(
 ): RbacScope | null {
   const reads = permissions.filter((p) => p.module === module && p.action === "Read");
   if (reads.length === 0) return null;
-  if (reads.some((p) => (p.scope ?? "Own") === "All")) return "All";
-  if (reads.some((p) => (p.scope ?? "Own") === "Team")) return "Team";
+  const norm = (scope: string | null | undefined) => {
+    const s = (scope ?? "").trim();
+    if (s === "" || s === "All") return "All";
+    if (s === "Team") return "Team";
+    return "Own";
+  };
+  if (reads.some((p) => norm(p.scope) === "All")) return "All";
+  if (reads.some((p) => norm(p.scope) === "Team")) return "Team";
   return "Own";
 }
 

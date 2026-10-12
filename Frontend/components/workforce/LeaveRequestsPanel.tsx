@@ -264,9 +264,11 @@ export function LeaveRequestsPanel({
     if (fromDate) params.set("fromDate", fromDate);
     if (toDate) params.set("toDate", toDate);
     if (teamOnly) params.set("excludeSelf", "true");
-    if (approvalsWorkspace) params.set("forApprovals", "true");
+    const listPath = approvalsWorkspace
+      ? `/api/approvals/leave-requests?${params}`
+      : `/api/leave/requests?${params}`;
     try {
-      const raw = await apiFetch<PagedLeaveResponse>(`/api/leave/requests?${params}`);
+      const raw = await apiFetch<PagedLeaveResponse>(listPath);
       const norm = normalizePaged(raw);
       let rows = norm.items;
       if (waitingFilter) {
