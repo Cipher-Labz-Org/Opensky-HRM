@@ -426,8 +426,40 @@ export function ReportParametersSearchBar({
             <div className="max-h-[min(520px,70vh)] overflow-y-auto p-1.5">
               {filterSections.length === 0 && !periodSection ? (
                 <p className="px-2 py-3 text-[12px] text-slate-400">No filters available</p>
-              ) : (
-                filterSections.map((section) => {
+              ) : null}
+              {periodSection && (
+                <div className="mb-1">
+                  <button
+                    type="button"
+                    onClick={() => setPeriodOpen((open) => !open)}
+                    className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition hover:bg-white"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[12.5px] font-medium text-slate-700">{periodSection.label}</div>
+                      {periodSection.summary ? (
+                        <div className="truncate text-[10px] text-[#2B7DE9]">{periodSection.summary}</div>
+                      ) : (
+                        <div className="text-[10px] text-slate-400">Optional — leave empty for all dates</div>
+                      )}
+                    </div>
+                    <svg
+                      className={`h-3 w-3 shrink-0 text-slate-400 transition-transform duration-200 ${periodOpen ? "rotate-180" : ""}`}
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path d="M10 14l-5-5h10l-5 5z" />
+                    </svg>
+                  </button>
+                  {periodOpen && (
+                    <div className="mb-1 rounded-lg bg-white p-2.5 ring-1 ring-slate-100">{periodSection.content}</div>
+                  )}
+                </div>
+              )}
+              {periodSection && filterSections.length > 0 ? (
+                <div className="mb-1 border-b border-slate-200/80" aria-hidden />
+              ) : null}
+              {filterSections.length > 0
+                ? filterSections.map((section) => {
                   const sectionOpen = expandedFilterKeys.has(section.key);
                   const selectedValues = splitReportFilterValues(localFilters[section.key]);
                   const selectedLabels = selectedValues
@@ -515,33 +547,7 @@ export function ReportParametersSearchBar({
                     </div>
                   );
                 })
-              )}
-              {periodSection && (
-                <div className="mb-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setPeriodOpen((open) => !open)}
-                    className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition hover:bg-white"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-[12.5px] font-medium text-slate-700">{periodSection.label}</div>
-                      {periodSection.summary ? (
-                        <div className="truncate text-[10px] text-[#2B7DE9]">{periodSection.summary}</div>
-                      ) : null}
-                    </div>
-                    <svg
-                      className={`h-3 w-3 shrink-0 text-slate-400 transition-transform duration-200 ${periodOpen ? "rotate-180" : ""}`}
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path d="M10 14l-5-5h10l-5 5z" />
-                    </svg>
-                  </button>
-                  {periodOpen && (
-                    <div className="mb-1 rounded-lg bg-white p-2.5 ring-1 ring-slate-100">{periodSection.content}</div>
-                  )}
-                </div>
-              )}
+                : null}
             </div>
 
             {hasActiveState && (
