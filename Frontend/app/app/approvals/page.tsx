@@ -32,7 +32,10 @@ function ApprovalsInner() {
   const canLeaveRead =
     isAdmin || approvalsScope != null || hasPermission("Approvals", "Read") || hasRole("SUPERVISOR");
   const canLeaveApprove =
-    isAdmin || hasPermission("Leave", "Update") || hasPermission("Approvals", "Update");
+    isAdmin ||
+    hasPermission("Leave", "Update") ||
+    hasPermission("Approvals", "Update") ||
+    hasRole("SUPERVISOR");
   const canAttendanceRead =
     isAdmin
     || hasPermission("Attendance", "Read")

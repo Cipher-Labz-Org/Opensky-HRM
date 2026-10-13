@@ -642,7 +642,12 @@ function CardHeader({ title, children }: { title: string; children?: React.React
 
 export default function LeavePage() {
   const searchParams = useSearchParams();
-  const { getLeaveReadScope, user, hasRole } = useAuth();
+  const { getLeaveReadScope, user, hasRole, isAdmin, hasPermission } = useAuth();
+  const canLeaveApprove =
+    isAdmin ||
+    hasPermission("Leave", "Update") ||
+    hasPermission("Approvals", "Update") ||
+    hasRole("SUPERVISOR");
   const leaveScope = getLeaveReadScope();
   /** Full HR / admin leave workspace (all tabs). */
   const isHrWideAccess = leaveScope === "All";
@@ -780,7 +785,7 @@ export default function LeavePage() {
           onApplyLeave={() => setPageTab("applyLeave")}
           isEmployeeView={isEmployeeView || isSupervisorView}
           currentEmployeeId={user?.employeeId ?? null}
-          showApprovalActions={false}
+          showApprovalActions={canLeaveApprove}
         />
       )}
       {pageTab === "approvals" && (

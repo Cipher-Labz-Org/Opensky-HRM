@@ -123,9 +123,8 @@ function canSupervisorCancelApproved(
 function canUserActOnLeaveRow(
   row: LeaveRequestRow,
   currentEmployeeId: string | null,
-  showApprovalActions: boolean,
 ): boolean {
-  if (!showApprovalActions || !canActOnLeaveStatus(row.status)) return false;
+  if (!canActOnLeaveStatus(row.status)) return false;
   if (!currentEmployeeId || !row.responsibleEmployeeId) return false;
   return row.responsibleEmployeeId.toLowerCase() === currentEmployeeId.toLowerCase();
 }
@@ -158,7 +157,7 @@ export interface LeaveRequestsPanelProps {
   /** When true, list is scoped to self-service (backend enforces Own). */
   isEmployeeView?: boolean;
   currentEmployeeId?: string | null;
-  /** Show Approve / Reject for pending rows (requires Leave Update + approvable state). */
+  /** Show supervisor-only actions (e.g. cancel approved leave). Approve/Reject appear when you are the listed approver. */
   showApprovalActions?: boolean;
   /** Team / supervisor approval list: exclude your own requests from the query. */
   teamOnly?: boolean;
@@ -554,7 +553,7 @@ export function LeaveRequestsPanel({
                             PDF
                           </a>
                         ) : null}
-                        {canUserActOnLeaveRow(r, currentEmployeeId, showApprovalActions) ? (
+                        {canUserActOnLeaveRow(r, currentEmployeeId) ? (
                           <>
                             <button
                               type="button"
