@@ -129,7 +129,29 @@ public class BiometricPunchTimeRepairService
                 var expectedHashes = expected.Select(x => x.Hash).ToHashSet(StringComparer.Ordinal);
                 var storedHashes = rows.Select(r => r.DedupeHash).ToHashSet(StringComparer.Ordinal);
 
-                report.PunchesUnchanged += rows.Count(r => expectedHashes.Contains(r.DedupeHash));
+                // The hash is computed from the parsed time before saving, so a stored time that was
+                // shifted afterwards still carries the right hash. Compare the time itself too.
+                var expectedTimeByHash = expected
+                    .GroupBy(x => x.Hash, StringComparer.Ordinal)
+                    .ToDictionary(g => g.Key, g => g.First().Item.PunchAtUtc, StringComparer.Ordinal);
+                foreach (var row in rows)
+                {
+                    if (!expectedTimeByHash.TryGetValue(row.DedupeHash, out var expectedTime))
+                        continue;
+
+                    if (Math.Abs((row.PunchAtUtc - expectedTime).TotalSeconds) < 1)
+                    {
+                        report.PunchesUnchanged++;
+                        continue;
+                    }
+
+                    affectedDays.Add((row.DeviceUserId, row.PunchAtUtc.Date));
+                    affectedDays.Add((row.DeviceUserId, expectedTime.Date));
+                    toCorrect.Add((row, expectedTime, row.DedupeHash));
+                    report.PunchesCorrected++;
+                    Month(months, expectedTime).Corrected++;
+                    AddSample(report, lookup, row.DeviceUserId, row.PunchAtUtc, expectedTime, "Stored time shifted");
+                }
 
                 var staleByKey = rows
                     .Where(r => !expectedHashes.Contains(r.DedupeHash))

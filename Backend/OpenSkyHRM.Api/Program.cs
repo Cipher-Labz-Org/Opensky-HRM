@@ -313,6 +313,16 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Legacy Npgsql timestamps convert through the process timezone on every read and write,
+// so changing it shifts all rows saved before the change.
+if (TimeZoneInfo.Local.BaseUtcOffset != TimeSpan.Zero)
+{
+    app.Logger.LogWarning(
+        "API process timezone is {TimeZone} (UTC{Offset}), not UTC. Stored punch and attendance times depend on the process timezone; run the service with TZ=UTC.",
+        TimeZoneInfo.Local.Id,
+        TimeZoneInfo.Local.BaseUtcOffset);
+}
+
 app.UseExceptionHandler(errorApp =>
 {
     errorApp.Run(async context =>

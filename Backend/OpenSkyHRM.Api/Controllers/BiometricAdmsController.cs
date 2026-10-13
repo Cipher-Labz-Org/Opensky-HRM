@@ -183,12 +183,13 @@ public class BiometricAdmsController : ControllerBase
         return Ok(await _punchTimeRepair.RunAsync(dryRun: true, cancellationToken));
     }
 
-    /// <summary>Corrects stored fingerprint taps from the raw ADMS payloads and rebuilds affected attendance days.</summary>
+    /// <summary>Corrects stored fingerprint taps from the raw ADMS payloads and rebuilds affected attendance days in the background.</summary>
     [Authorize]
     [HttpPost("repair-punch-times")]
-    public async Task<IActionResult> ApplyPunchTimeRepair(CancellationToken cancellationToken)
+    public IActionResult ApplyPunchTimeRepair()
     {
-        return Ok(await _punchTimeRepair.RunAsync(dryRun: false, cancellationToken));
+        var jobId = BackgroundJob.Enqueue<BiometricPunchRepairJob>(job => job.ExecuteAsync(CancellationToken.None));
+        return Accepted(new { jobId, reportUrl = "/api/biometric/adms/repair-punch-times/last-report" });
     }
 
     [Authorize]

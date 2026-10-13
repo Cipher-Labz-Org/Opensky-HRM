@@ -140,6 +140,8 @@ public class ClockDiagnosticsDto
 
 public class AdmsPipelineStatusDto
 {
+    public string ServerTimeZone { get; set; } =
+        $"{TimeZoneInfo.Local.Id} (UTC{(TimeZoneInfo.Local.BaseUtcOffset < TimeSpan.Zero ? "-" : "+")}{TimeZoneInfo.Local.BaseUtcOffset:hh\\:mm})";
     public int DeviceCount { get; set; }
     public DateTime? LatestDeviceSyncAt { get; set; }
     public DateTime? LatestRawEventAt { get; set; }

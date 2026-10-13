@@ -187,6 +187,57 @@ public class BiometricPunchTimeRepairTests
     }
 
     [Fact]
+    public async Task Repair_fixes_a_stored_time_shifted_after_saving_even_when_the_hash_matches()
+    {
+        await using var db = CreateDb(out var clock);
+        var employee = AddEmployee(db);
+        var device = new BiometricDevice { Name = "ADMS-SN3", SerialNumber = "SN3" };
+        db.BiometricDevices.Add(device);
+        var actual = new DateTime(2026, 9, 14, 8, 37, 0);
+        var shifted = actual.AddMinutes(750);
+        var raw = new BiometricRawEvent
+        {
+            DeviceId = device.Id,
+            ReceivedAtUtc = new DateTime(2026, 9, 14, 3, 7, 0),
+            Payload = "{\"EmpId\":\"689\",\"AttTime\":\"2026-09-14 08:37:00\"}",
+            ParseStatus = "Parsed",
+        };
+        db.BiometricRawEvents.Add(raw);
+        var hash = AdmsPayloadParser.ComputeDedupe(device.Id, "689", actual, null, null, null);
+        db.BiometricPunchEvents.Add(new BiometricPunchEvent
+        {
+            DeviceId = device.Id,
+            RawEventId = raw.Id,
+            DeviceUserId = "689",
+            PunchAtUtc = shifted,
+            DedupeHash = hash,
+            ProcessedToAttendance = true,
+        });
+        db.AttendanceRecords.Add(new AttendanceRecord
+        {
+            EmployeeId = employee.Id,
+            Date = shifted.Date,
+            PunchIn = shifted,
+            Status = "Present",
+            Source = "Biometric",
+        });
+        await db.SaveChangesAsync();
+
+        var first = await CreateRepair(db, clock).RunAsync(dryRun: false);
+        var second = await CreateRepair(db, clock).RunAsync(dryRun: false);
+
+        Assert.Equal(1, first.PunchesCorrected);
+        Assert.Contains(first.Samples, s => s.Action == "Stored time shifted" && s.StoredTime == shifted && s.CorrectTime == actual);
+        Assert.Equal(0, second.PunchesCorrected);
+        Assert.Equal(1, second.PunchesUnchanged);
+        var punch = await db.BiometricPunchEvents.AsNoTracking().SingleAsync();
+        Assert.Equal(actual, punch.PunchAtUtc);
+        Assert.Equal(hash, punch.DedupeHash);
+        var record = await db.AttendanceRecords.AsNoTracking().SingleAsync();
+        Assert.Equal(actual, record.PunchIn);
+    }
+
+    [Fact]
     public async Task Device_clock_correction_previews_then_applies_and_survives_a_reread()
     {
         await using var db = CreateDb(out var clock);
