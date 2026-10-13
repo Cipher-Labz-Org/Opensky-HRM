@@ -339,7 +339,7 @@ public class LeaveService : ILeaveService
         return result;
     }
 
-    public async Task<LeaveRequestDto?> ApproveLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto, bool finalDecision = false)
+    public async Task<LeaveRequestDto?> ApproveLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto)
     {
         var request = await _db.Set<LeaveRequest>().FindAsync(id);
         if (request is null) return null;
@@ -368,7 +368,7 @@ public class LeaveService : ILeaveService
             request.Level1Remarks = dto.Remarks;
             request.Level1ApprovedAt = now;
 
-            if (maxLevels >= 2 && !finalDecision)
+            if (maxLevels >= 2)
             {
                 var l1SupervisorId = await GetDirectSupervisorIdAsync(approverId);
                 if (l1SupervisorId.HasValue)

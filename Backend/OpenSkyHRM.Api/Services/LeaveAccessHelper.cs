@@ -108,22 +108,6 @@ public static class LeaveAccessHelper
         return UserHasRole(user, "SUPERVISOR");
     }
 
-    /// <summary>HR / admin can decide any pending leave, not only the employee's supervisor.</summary>
-    public static bool CanOverrideLeaveApproval(ClaimsPrincipal user)
-    {
-        if (UserHasRole(user, "ADMIN") || UserHasRole(user, "HR_MANAGER"))
-            return true;
-
-        foreach (var c in user.FindAll("permission"))
-        {
-            if (string.Equals(c.Value, "Leave:Update:All", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(c.Value, "Approvals:Update:All", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
-
     private static bool UserHasRole(ClaimsPrincipal user, string roleCode)
     {
         if (user.IsInRole(roleCode)) return true;

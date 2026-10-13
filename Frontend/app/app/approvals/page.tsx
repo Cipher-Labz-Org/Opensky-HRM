@@ -36,12 +36,6 @@ function ApprovalsInner() {
     hasPermission("Leave", "Update") ||
     hasPermission("Approvals", "Update") ||
     hasRole("SUPERVISOR");
-  const leaveHrCanOverride =
-    isAdmin ||
-    hasRole("HR_MANAGER") ||
-    (user?.permissions.some(
-      (p) => (p.module === "Leave" || p.module === "Approvals") && p.action === "Update" && (p.scope ?? "Own") === "All",
-    ) ?? false);
   const canAttendanceRead =
     isAdmin
     || hasPermission("Attendance", "Read")
@@ -137,7 +131,6 @@ function ApprovalsInner() {
         <LeaveRequestsPanel
           approvalsWorkspace
           showApprovalActions={canLeaveApprove}
-          hrCanOverride={leaveHrCanOverride}
           teamOnly={leaveTeamOnly}
           isEmployeeView={false}
           currentEmployeeId={user.employeeId}
