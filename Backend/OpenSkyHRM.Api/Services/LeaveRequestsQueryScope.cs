@@ -104,6 +104,30 @@ public static class LeaveRequestsQueryScope
     }
 
     /// <summary>
+    /// True when this login should see every leave request, the same list Admin sees.
+    /// Approvals → View → All. Leave → Own and a linked employee do not apply.
+    /// </summary>
+    internal static async Task<bool> CanViewEveryLeaveRequestAsync(ClaimsPrincipal user, AppDbContext db)
+    {
+        if (HasExplicitApprovalsReadAllClaim(user) || IsAdmin(user))
+            return true;
+        var scope = await ResolveApprovalsReadScopeFromDatabaseAsync(user, db);
+        return scope.Equals("All", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Any claim whose value is Approvals:Read:All, whatever the claim type.</summary>
+    private static bool HasExplicitApprovalsReadAllClaim(ClaimsPrincipal user)
+    {
+        foreach (var claim in user.Claims)
+        {
+            if (claim.Value.Contains("Approvals:Read:All", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Approvals → Read from the user's roles in the database only.
     /// Leave permissions are not used. A missing employee link does not remove Approvals → All.
     /// </summary>

@@ -58,6 +58,12 @@ public class LeaveController : ControllerBase
         [FromQuery] bool excludeSelf = false,
         [FromQuery] bool forApprovals = false)
     {
+        if (forApprovals && await LeaveRequestsQueryScope.CanViewEveryLeaveRequestAsync(User, _db))
+        {
+            return Ok(await _leaveService.GetLeaveRequestsAsync(
+                page, pageSize, status, null, fromDate, toDate, null, null));
+        }
+
         var resolved = await LeaveRequestsQueryScope.ResolveAsync(
             User, _db, forApprovals, employeeId, excludeSelf, page, pageSize);
 

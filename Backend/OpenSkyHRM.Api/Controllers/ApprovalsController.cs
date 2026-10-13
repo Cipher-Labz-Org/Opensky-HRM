@@ -35,8 +35,7 @@ public class ApprovalsController : ControllerBase
         [FromQuery] DateTime? toDate = null,
         [FromQuery] bool excludeSelf = false)
     {
-        var scope = await LeaveRequestsQueryScope.ResolveApprovalsReadScopeFromDatabaseAsync(User, _db);
-        if (scope.Equals("All", StringComparison.OrdinalIgnoreCase))
+        if (await LeaveRequestsQueryScope.CanViewEveryLeaveRequestAsync(User, _db))
         {
             return Ok(await _leaveService.GetLeaveRequestsAsync(
                 page, pageSize, status, null, fromDate, toDate, null, null));
