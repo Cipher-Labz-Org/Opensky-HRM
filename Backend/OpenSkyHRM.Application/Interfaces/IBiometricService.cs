@@ -15,5 +15,6 @@ public interface IBiometricService
     Task<AdmsProcessResultDto> ProcessAllPendingAdmsPunchesAsync(int maxBatches = 50, CancellationToken cancellationToken = default);
     Task<int> ReconcileRecentBiometricAttendanceAsync(int days = 14, CancellationToken cancellationToken = default);
     Task<int> RepairStoredBiometricHoursAsync(CancellationToken cancellationToken = default);
+    Task<BiometricDayRebuildResult> RebuildEmployeeDaysAsync(Guid employeeId, IReadOnlyCollection<DateTime> days, CancellationToken cancellationToken = default);
     Task<AdmsPipelineStatusDto> GetAdmsPipelineStatusAsync(string? recommendedWebhookUrl = null, CancellationToken cancellationToken = default);
 }

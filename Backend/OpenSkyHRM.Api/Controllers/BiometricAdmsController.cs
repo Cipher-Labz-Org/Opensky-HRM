@@ -15,15 +15,18 @@ public class BiometricAdmsController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IBiometricService _biometricService;
     private readonly BiometricAdmsIngestService _ingest;
+    private readonly BiometricPunchTimeRepairService _punchTimeRepair;
 
     public BiometricAdmsController(
         AppDbContext db,
         IBiometricService biometricService,
-        BiometricAdmsIngestService ingest)
+        BiometricAdmsIngestService ingest,
+        BiometricPunchTimeRepairService punchTimeRepair)
     {
         _db = db;
         _biometricService = biometricService;
         _ingest = ingest;
+        _punchTimeRepair = punchTimeRepair;
     }
 
     [AllowAnonymous]
@@ -167,6 +170,22 @@ public class BiometricAdmsController : ControllerBase
             .ExecuteUpdateAsync(s => s.SetProperty(p => p.ProcessedToAttendance, false), cancellationToken);
         var result = await _biometricService.ProcessAllPendingAdmsPunchesAsync(maxBatches: 200, cancellationToken);
         return Ok(result);
+    }
+
+    /// <summary>Compares stored fingerprint taps with the raw ADMS payloads without changing anything.</summary>
+    [Authorize]
+    [HttpGet("repair-punch-times/preview")]
+    public async Task<IActionResult> PreviewPunchTimeRepair(CancellationToken cancellationToken)
+    {
+        return Ok(await _punchTimeRepair.RunAsync(dryRun: true, cancellationToken));
+    }
+
+    /// <summary>Corrects stored fingerprint taps from the raw ADMS payloads and rebuilds affected attendance days.</summary>
+    [Authorize]
+    [HttpPost("repair-punch-times")]
+    public async Task<IActionResult> ApplyPunchTimeRepair(CancellationToken cancellationToken)
+    {
+        return Ok(await _punchTimeRepair.RunAsync(dryRun: false, cancellationToken));
     }
 
     [Authorize]

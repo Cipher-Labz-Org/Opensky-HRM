@@ -27,6 +27,7 @@ public static class DependencyInjection
         services.AddScoped<IRosterService, RosterService>();
         services.AddScoped<IBiometricService, BiometricService>();
         services.AddScoped<BiometricAdmsIngestService>();
+        services.AddScoped<BiometricPunchTimeRepairService>();
         services.AddScoped<IRecruitmentService, RecruitmentService>();
         services.AddScoped<OpenAiSettingsResolver>();
         services.AddScoped<IOpenAiChatClient, OpenAiChatClient>();

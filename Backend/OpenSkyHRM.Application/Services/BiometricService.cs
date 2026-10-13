@@ -9,6 +9,8 @@ namespace OpenSkyHRM.Application.Services;
 
 public class BiometricService : IBiometricService
 {
+    private const string ManualSource = "Manual";
+
     private readonly AppDbContext _db;
 
     public BiometricService(AppDbContext db)
@@ -271,6 +273,40 @@ public class BiometricService : IBiometricService
         }
 
         return total;
+    }
+
+    /// <summary>
+    /// Rebuilds the given calendar days for one employee from the stored fingerprint taps.
+    /// Days that HR edited by hand (Source = Manual) are left alone and reported back.
+    /// </summary>
+    public async Task<BiometricDayRebuildResult> RebuildEmployeeDaysAsync(
+        Guid employeeId,
+        IReadOnlyCollection<DateTime> days,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new BiometricDayRebuildResult();
+        var employee = await _db.Employees
+            .Include(e => e.ShiftPattern)
+            .FirstOrDefaultAsync(e => e.Id == employeeId, cancellationToken);
+        if (employee is null)
+            return result;
+
+        foreach (var day in days.Select(d => d.Date).Distinct().OrderBy(d => d))
+        {
+            var manual = await _db.AttendanceRecords.AsNoTracking()
+                .AnyAsync(a => a.EmployeeId == employeeId && a.Date == day && a.Source == ManualSource, cancellationToken);
+            if (manual)
+            {
+                result.SkippedManualDays.Add(day);
+                continue;
+            }
+
+            await RebuildAttendanceForEmployeeDayAsync(employee, day, cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
+            result.Rebuilt++;
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -699,6 +735,9 @@ public class BiometricService : IBiometricService
             .OrderBy(a => a.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
+        if (record?.Source == ManualSource)
+            return;
+
         if (!aggregation.PunchIn.HasValue)
         {
             if (record != null)
@@ -759,7 +798,7 @@ public class BiometricService : IBiometricService
             var existing = await _db.AttendanceRecords
                 .Where(a => a.EmployeeId == employee.Id && a.Date == dayStart && !a.IsDeleted)
                 .FirstOrDefaultAsync(cancellationToken);
-            if (existing != null && previousWindow != null
+            if (existing != null && existing.Source != ManualSource && previousWindow != null
                 && ShiftAttendanceCalculator.IsSpilloverOnlyCalendarDay(
                     previousWindow,
                     shiftToday,
@@ -768,6 +807,15 @@ public class BiometricService : IBiometricService
                     existing.PunchOut))
             {
                 existing.IsDeleted = true;
+            }
+            else if (existing != null && punches.Count == 0 && existing.Source == "Biometric")
+            {
+                existing.PunchIn = null;
+                existing.PunchOut = null;
+                existing.WorkedHours = null;
+                existing.Status = "Absent";
+                existing.Source = "System";
+                existing.Remarks = "Auto-generated: no punch record found";
             }
 
             return;
@@ -792,6 +840,9 @@ public class BiometricService : IBiometricService
             .Where(a => a.EmployeeId == employee.Id && a.Date == dayStart && !a.IsDeleted)
             .OrderBy(a => a.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (record?.Source == ManualSource)
+            return;
 
         if (record is null)
         {
@@ -834,7 +885,7 @@ public class BiometricService : IBiometricService
             .Where(a => a.EmployeeId == employee.Id && a.Date == dayStart && !a.IsDeleted)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (record == null)
+        if (record == null || record.Source == ManualSource)
             return;
 
         if (ShiftAttendanceCalculator.IsSpilloverOnlyCalendarDay(

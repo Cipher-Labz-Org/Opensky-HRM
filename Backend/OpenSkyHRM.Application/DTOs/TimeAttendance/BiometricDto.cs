@@ -57,6 +57,47 @@ public class AdmsProcessResultDto
     public int Failed { get; set; }
 }
 
+public class BiometricDayRebuildResult
+{
+    public int Rebuilt { get; set; }
+    public List<DateTime> SkippedManualDays { get; set; } = new();
+}
+
+public class PunchTimeRepairSampleDto
+{
+    public string DeviceUserId { get; set; } = string.Empty;
+    public string? EmployeeCode { get; set; }
+    public string? EmployeeName { get; set; }
+    public DateTime? StoredTime { get; set; }
+    public DateTime CorrectTime { get; set; }
+    public string Action { get; set; } = string.Empty;
+}
+
+public class PunchTimeRepairMonthDto
+{
+    public string Month { get; set; } = string.Empty;
+    public int Corrected { get; set; }
+    public int DuplicatesRemoved { get; set; }
+    public int Inserted { get; set; }
+}
+
+public class PunchTimeRepairReportDto
+{
+    public bool DryRun { get; set; }
+    public int RawEventsScanned { get; set; }
+    public int RawEventsUnreadable { get; set; }
+    public int PunchesUnchanged { get; set; }
+    public int PunchesCorrected { get; set; }
+    public int DuplicatesRemoved { get; set; }
+    public int PunchesInserted { get; set; }
+    public int PunchesNotInPayload { get; set; }
+    public int PunchesWithoutRawEvent { get; set; }
+    public int AttendanceDaysRebuilt { get; set; }
+    public int ManualDaysSkipped { get; set; }
+    public List<PunchTimeRepairMonthDto> ByMonth { get; set; } = new();
+    public List<PunchTimeRepairSampleDto> Samples { get; set; } = new();
+}
+
 public class AdmsPipelineStatusDto
 {
     public int DeviceCount { get; set; }
