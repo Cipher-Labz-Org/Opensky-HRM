@@ -91,6 +91,7 @@ public static class DependencyInjection
         // Hangfire jobs
         services.AddScoped<AttendanceReconciliationJob>();
         services.AddScoped<BiometricAdmsProcessorJob>();
+        services.AddScoped<BiometricPunchRepairJob>();
         services.AddScoped<LeaveAccrualJob>();
         services.AddScoped<LeaveEntitlementRecalculateJob>();
         services.AddScoped<PayrollBatchExportJob>();

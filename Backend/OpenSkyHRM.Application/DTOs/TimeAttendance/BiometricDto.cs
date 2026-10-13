@@ -98,6 +98,46 @@ public class PunchTimeRepairReportDto
     public List<PunchTimeRepairSampleDto> Samples { get; set; } = new();
 }
 
+/// <summary>
+/// Fingerprint taps from one device that arrived inside the window were recorded with a wrong
+/// device clock. <see cref="OffsetMinutes"/> is added to each tap time.
+/// </summary>
+public class DeviceClockCorrectionDto
+{
+    public Guid DeviceId { get; set; }
+    public DateTime ReceivedFromUtc { get; set; }
+    public DateTime ReceivedToUtc { get; set; }
+    public int OffsetMinutes { get; set; }
+    public string? Note { get; set; }
+    public DateTime? SavedAtUtc { get; set; }
+}
+
+public class ClockDiagnosticDayDto
+{
+    public string DeviceSerial { get; set; } = string.Empty;
+    public string ReceivedDate { get; set; } = string.Empty;
+    public int Punches { get; set; }
+    public int LivePunches { get; set; }
+    public int MedianLagMinutes { get; set; }
+    public string TopLagBuckets { get; set; } = string.Empty;
+}
+
+public class ClockDiagnosticPunchDto
+{
+    public string DeviceSerial { get; set; } = string.Empty;
+    public string DeviceUserId { get; set; } = string.Empty;
+    public DateTime PunchTime { get; set; }
+    public DateTime ReceivedAtLocal { get; set; }
+    public int LagMinutes { get; set; }
+}
+
+public class ClockDiagnosticsDto
+{
+    public int RawEventsScanned { get; set; }
+    public List<ClockDiagnosticDayDto> Days { get; set; } = new();
+    public List<ClockDiagnosticPunchDto> Punches { get; set; } = new();
+}
+
 public class AdmsPipelineStatusDto
 {
     public int DeviceCount { get; set; }

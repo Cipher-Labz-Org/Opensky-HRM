@@ -26,6 +26,7 @@ public class BiometricPunchTimeRepairService
     private readonly AppDbContext _db;
     private readonly IBiometricService _biometricService;
     private readonly AdmsPayloadParser _parser;
+    private readonly IBusinessClock _clock;
     private readonly ILogger<BiometricPunchTimeRepairService> _logger;
 
     public BiometricPunchTimeRepairService(
@@ -37,12 +38,20 @@ public class BiometricPunchTimeRepairService
         _db = db;
         _biometricService = biometricService;
         _parser = new AdmsPayloadParser(clock);
+        _clock = clock;
         _logger = logger;
     }
 
-    public async Task<PunchTimeRepairReportDto> RunAsync(bool dryRun, CancellationToken cancellationToken = default)
+    /// <param name="candidateCorrection">A device clock correction to try in addition to the saved ones (preview only).</param>
+    public async Task<PunchTimeRepairReportDto> RunAsync(
+        bool dryRun,
+        CancellationToken cancellationToken = default,
+        DeviceClockCorrectionDto? candidateCorrection = null)
     {
         var report = new PunchTimeRepairReportDto { DryRun = dryRun };
+        var corrections = await DeviceClockCorrections.LoadAsync(_db, cancellationToken);
+        if (candidateCorrection is not null)
+            corrections.Add(candidateCorrection);
         var months = new SortedDictionary<string, PunchTimeRepairMonthDto>(StringComparer.Ordinal);
 
         var employees = await _db.Employees.AsNoTracking()
@@ -64,7 +73,7 @@ public class BiometricPunchTimeRepairService
                 .ThenBy(r => r.Id)
                 .Skip(page * PageSize)
                 .Take(PageSize)
-                .Select(r => new { r.Id, DeviceId = r.DeviceId!.Value, r.Payload })
+                .Select(r => new { r.Id, DeviceId = r.DeviceId!.Value, r.ReceivedAtUtc, r.Payload })
                 .ToListAsync(cancellationToken);
             if (raws.Count == 0)
                 break;
@@ -83,6 +92,10 @@ public class BiometricPunchTimeRepairService
                 try
                 {
                     parsedByRaw[raw.Id] = _parser.ParsePunches(raw.Payload)
+                        .Select(item => item with
+                        {
+                            PunchAtUtc = DeviceClockCorrections.Apply(corrections, raw.DeviceId, raw.ReceivedAtUtc, item.PunchAtUtc),
+                        })
                         .Select(item => (item, AdmsPayloadParser.ComputeDedupe(
                             raw.DeviceId, item.UserId.Trim(), item.PunchAtUtc, item.PunchState, item.VerifyMode, item.ExternalLogId)))
                         .ToList();
@@ -214,6 +227,111 @@ public class BiometricPunchTimeRepairService
         report.ByMonth = months.Values.ToList();
         return report;
     }
+
+    /// <summary>
+    /// Compares each tap time in the stored payloads with when the payload reached the server.
+    /// Live taps arrive within minutes, so a steady gap of hours on a device means its clock was wrong.
+    /// </summary>
+    public async Task<ClockDiagnosticsDto> ClockDiagnosticsAsync(
+        DateTime receivedFromUtc,
+        DateTime receivedToUtc,
+        string? deviceUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new ClockDiagnosticsDto();
+        var serials = await _db.BiometricDevices.AsNoTracking()
+            .IgnoreQueryFilters()
+            .ToDictionaryAsync(d => d.Id, d => d.SerialNumber, cancellationToken);
+        var lags = new Dictionary<(string Serial, string Day), List<int>>();
+        var userFilter = deviceUserId?.Trim();
+
+        for (var page = 0; ; page++)
+        {
+            var raws = await _db.BiometricRawEvents.AsNoTracking()
+                .Where(r => r.ParseStatus == "Parsed" && r.DeviceId != null
+                    && r.ReceivedAtUtc >= receivedFromUtc && r.ReceivedAtUtc < receivedToUtc)
+                .OrderBy(r => r.ReceivedAtUtc)
+                .ThenBy(r => r.Id)
+                .Skip(page * PageSize)
+                .Take(PageSize)
+                .Select(r => new { DeviceId = r.DeviceId!.Value, r.ReceivedAtUtc, r.Payload })
+                .ToListAsync(cancellationToken);
+            if (raws.Count == 0)
+                break;
+
+            result.RawEventsScanned += raws.Count;
+            foreach (var raw in raws)
+            {
+                var serial = serials.GetValueOrDefault(raw.DeviceId) ?? raw.DeviceId.ToString();
+                var receivedLocal = _clock.ToBusinessLocal(DateTime.SpecifyKind(raw.ReceivedAtUtc, DateTimeKind.Utc));
+                List<AdmsPayloadParser.ParsedPunch> punches;
+                try
+                {
+                    punches = _parser.ParsePunches(raw.Payload).ToList();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var punch in punches)
+                {
+                    var lag = (int)Math.Round((receivedLocal - punch.PunchAtUtc).TotalMinutes);
+                    var key = (serial, receivedLocal.ToString("yyyy-MM-dd"));
+                    if (!lags.TryGetValue(key, out var list))
+                    {
+                        list = new List<int>();
+                        lags[key] = list;
+                    }
+                    list.Add(lag);
+
+                    if (userFilter is not null
+                        && string.Equals(punch.UserId.Trim(), userFilter, StringComparison.OrdinalIgnoreCase)
+                        && result.Punches.Count < 1000)
+                    {
+                        result.Punches.Add(new ClockDiagnosticPunchDto
+                        {
+                            DeviceSerial = serial,
+                            DeviceUserId = punch.UserId.Trim(),
+                            PunchTime = punch.PunchAtUtc,
+                            ReceivedAtLocal = receivedLocal,
+                            LagMinutes = lag,
+                        });
+                    }
+                }
+            }
+        }
+
+        foreach (var ((serial, day), list) in lags.OrderBy(k => k.Key.Day).ThenBy(k => k.Key.Serial))
+        {
+            list.Sort();
+            result.Days.Add(new ClockDiagnosticDayDto
+            {
+                DeviceSerial = serial,
+                ReceivedDate = day,
+                Punches = list.Count,
+                LivePunches = list.Count(l => Math.Abs(l) <= 30),
+                MedianLagMinutes = list[list.Count / 2],
+                TopLagBuckets = string.Join(", ", list
+                    .GroupBy(l => (int)Math.Round(l / 30.0) * 30)
+                    .OrderByDescending(g => g.Count())
+                    .Take(3)
+                    .Select(g => $"{g.Key}m x{g.Count()}")),
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>Saves a device clock correction. Run <see cref="RunAsync"/> afterwards to apply it.</summary>
+    public async Task SaveCorrectionAsync(DeviceClockCorrectionDto correction, CancellationToken cancellationToken = default)
+    {
+        correction.SavedAtUtc = DateTime.UtcNow;
+        await DeviceClockCorrections.AddAsync(_db, correction, cancellationToken);
+    }
+
+    public Task<List<DeviceClockCorrectionDto>> GetCorrectionsAsync(CancellationToken cancellationToken = default) =>
+        DeviceClockCorrections.LoadAsync(_db, cancellationToken);
 
     /// <summary>
     /// Runs the repair once per database. Afterwards the hours repair restarts from the

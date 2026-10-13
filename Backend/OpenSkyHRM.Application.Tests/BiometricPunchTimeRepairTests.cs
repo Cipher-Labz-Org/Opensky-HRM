@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using OpenSkyHRM.Application.DTOs.TimeAttendance;
 using OpenSkyHRM.Application.Services;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
@@ -183,6 +184,84 @@ public class BiometricPunchTimeRepairTests
         Assert.False(await db.SystemSettings.AnyAsync(s => s.Key == BiometricPunchTimeRepairService.HoursRepairCursorKey));
         var marker = await db.SystemSettings.SingleAsync(s => s.Key == BiometricPunchTimeRepairService.CompletedSettingKey);
         Assert.Contains("corrected=2", marker.Value);
+    }
+
+    [Fact]
+    public async Task Device_clock_correction_previews_then_applies_and_survives_a_reread()
+    {
+        await using var db = CreateDb(out var clock);
+        var employee = AddEmployee(db);
+        var device = new BiometricDevice { Name = "ADMS-SN2", SerialNumber = "SN2" };
+        db.BiometricDevices.Add(device);
+        var wrongClock = new DateTime(2026, 9, 14, 21, 7, 0);
+        var raw = new BiometricRawEvent
+        {
+            DeviceId = device.Id,
+            ReceivedAtUtc = new DateTime(2026, 9, 14, 3, 8, 0),
+            Payload = "{\"EmpId\":\"689\",\"AttTime\":\"2026-09-14 21:07:00\"}",
+            ParseStatus = "Parsed",
+        };
+        db.BiometricRawEvents.Add(raw);
+        db.BiometricPunchEvents.Add(Punch(device.Id, raw.Id, wrongClock));
+        db.AttendanceRecords.Add(new AttendanceRecord
+        {
+            EmployeeId = employee.Id,
+            Date = wrongClock.Date,
+            PunchIn = wrongClock,
+            Status = "Present",
+            Source = "Biometric",
+        });
+        await db.SaveChangesAsync();
+
+        var correction = new DeviceClockCorrectionDto
+        {
+            DeviceId = device.Id,
+            ReceivedFromUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+            ReceivedToUtc = new DateTime(2026, 9, 27, 0, 0, 0, DateTimeKind.Utc),
+            OffsetMinutes = -750,
+        };
+        var repair = CreateRepair(db, clock);
+
+        var preview = await repair.RunAsync(dryRun: true, default, correction);
+        Assert.Equal(1, preview.PunchesCorrected);
+        Assert.Equal(wrongClock, (await db.BiometricPunchEvents.AsNoTracking().SingleAsync()).PunchAtUtc);
+        Assert.Empty(await repair.GetCorrectionsAsync());
+
+        await repair.SaveCorrectionAsync(correction);
+        var applied = await CreateRepair(db, clock).RunAsync(dryRun: false);
+        var reread = await CreateRepair(db, clock).RunAsync(dryRun: false);
+
+        var expected = new DateTime(2026, 9, 14, 8, 37, 0);
+        Assert.Equal(1, applied.PunchesCorrected);
+        Assert.Equal(0, reread.PunchesCorrected);
+        Assert.Equal(expected, (await db.BiometricPunchEvents.AsNoTracking().SingleAsync()).PunchAtUtc);
+        var record = await db.AttendanceRecords.AsNoTracking().SingleAsync(a => a.Date == expected.Date);
+        Assert.Equal(expected, record.PunchIn);
+    }
+
+    [Fact]
+    public async Task Clock_diagnostics_show_the_gap_between_tap_time_and_arrival()
+    {
+        await using var db = CreateDb(out var clock);
+        var device = new BiometricDevice { Name = "ADMS-SN2", SerialNumber = "SN2" };
+        db.BiometricDevices.Add(device);
+        db.BiometricRawEvents.Add(new BiometricRawEvent
+        {
+            DeviceId = device.Id,
+            ReceivedAtUtc = new DateTime(2026, 9, 14, 3, 7, 0),
+            Payload = "{\"EmpId\":\"689\",\"AttTime\":\"2026-09-14 21:07:00\"}",
+            ParseStatus = "Parsed",
+        });
+        await db.SaveChangesAsync();
+
+        var result = await CreateRepair(db, clock).ClockDiagnosticsAsync(
+            new DateTime(2026, 9, 1), new DateTime(2026, 10, 1), "689");
+
+        var day = Assert.Single(result.Days);
+        Assert.Equal("SN2", day.DeviceSerial);
+        Assert.Equal(-750, day.MedianLagMinutes);
+        Assert.Equal(0, day.LivePunches);
+        Assert.Equal(-750, Assert.Single(result.Punches).LagMinutes);
     }
 
     private static async Task<(Guid DeviceId, Guid RawEventId)> SeedSkewedHistoryAsync(AppDbContext db)

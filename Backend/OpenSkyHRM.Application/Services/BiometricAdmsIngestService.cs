@@ -76,9 +76,11 @@ public class BiometricAdmsIngestService
             }
             else
             {
+                var corrections = await DeviceClockCorrections.LoadAsync(_db, cancellationToken);
                 foreach (var item in parsed)
                 {
-                    var dedupe = AdmsPayloadParser.ComputeDedupe(device.Id, item.UserId, item.PunchAtUtc, item.PunchState, item.VerifyMode, item.ExternalLogId);
+                    var punchAt = DeviceClockCorrections.Apply(corrections, device.Id, rawEvent.ReceivedAtUtc, item.PunchAtUtc);
+                    var dedupe = AdmsPayloadParser.ComputeDedupe(device.Id, item.UserId, punchAt, item.PunchState, item.VerifyMode, item.ExternalLogId);
                     var exists = await _db.BiometricPunchEvents.AsNoTracking()
                         .AnyAsync(x => x.DedupeHash == dedupe, cancellationToken);
                     if (exists) continue;
@@ -88,7 +90,7 @@ public class BiometricAdmsIngestService
                         DeviceId = device.Id,
                         RawEventId = rawEvent.Id,
                         DeviceUserId = item.UserId.Trim(),
-                        PunchAtUtc = item.PunchAtUtc,
+                        PunchAtUtc = punchAt,
                         PunchState = item.PunchState,
                         VerifyMode = item.VerifyMode,
                         ExternalLogId = item.ExternalLogId,
@@ -164,6 +166,7 @@ public class BiometricAdmsIngestService
             .OrderBy(x => x.ReceivedAtUtc)
             .ToListAsync(cancellationToken);
 
+        var corrections = await DeviceClockCorrections.LoadAsync(_db, cancellationToken);
         var replayed = 0;
         foreach (var raw in failed)
         {
@@ -197,7 +200,8 @@ public class BiometricAdmsIngestService
 
             foreach (var item in parsed)
             {
-                var dedupe = AdmsPayloadParser.ComputeDedupe(device.Id, item.UserId, item.PunchAtUtc, item.PunchState, item.VerifyMode, item.ExternalLogId);
+                var punchAt = DeviceClockCorrections.Apply(corrections, device.Id, raw.ReceivedAtUtc, item.PunchAtUtc);
+                var dedupe = AdmsPayloadParser.ComputeDedupe(device.Id, item.UserId, punchAt, item.PunchState, item.VerifyMode, item.ExternalLogId);
                 var exists = await _db.BiometricPunchEvents
                     .AnyAsync(x => x.DedupeHash == dedupe, cancellationToken);
                 if (exists)
@@ -213,7 +217,7 @@ public class BiometricAdmsIngestService
                     DeviceId = device.Id,
                     RawEventId = raw.Id,
                     DeviceUserId = item.UserId.Trim(),
-                    PunchAtUtc = item.PunchAtUtc,
+                    PunchAtUtc = punchAt,
                     PunchState = item.PunchState,
                     VerifyMode = item.VerifyMode,
                     ExternalLogId = item.ExternalLogId,

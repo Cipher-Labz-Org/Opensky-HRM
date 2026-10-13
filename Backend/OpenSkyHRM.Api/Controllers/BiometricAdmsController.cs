@@ -1,8 +1,11 @@
 using System.Text;
+using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.DTOs.TimeAttendance;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Application.Jobs;
 using OpenSkyHRM.Application.Services;
 using OpenSkyHRM.Persistence;
 
@@ -186,6 +189,75 @@ public class BiometricAdmsController : ControllerBase
     public async Task<IActionResult> ApplyPunchTimeRepair(CancellationToken cancellationToken)
     {
         return Ok(await _punchTimeRepair.RunAsync(dryRun: false, cancellationToken));
+    }
+
+    [Authorize]
+    [HttpGet("repair-punch-times/last-report")]
+    public async Task<IActionResult> GetLastPunchRepairReport(CancellationToken cancellationToken)
+    {
+        var value = await _db.SystemSettings.AsNoTracking()
+            .Where(s => s.Key == BiometricPunchRepairJob.LastReportKey)
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync(cancellationToken);
+        return value is null ? NotFound() : Content(value, "application/json");
+    }
+
+    /// <summary>Per device and day, how far tap times were from when the server received them.</summary>
+    [Authorize]
+    [HttpGet("diagnostics/clock")]
+    public async Task<IActionResult> GetClockDiagnostics(
+        [FromQuery] DateTime fromUtc,
+        [FromQuery] DateTime toUtc,
+        [FromQuery] string? deviceUserId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (toUtc <= fromUtc)
+            return BadRequest(new { message = "toUtc must be after fromUtc" });
+        return Ok(await _punchTimeRepair.ClockDiagnosticsAsync(fromUtc, toUtc, deviceUserId, cancellationToken));
+    }
+
+    [Authorize]
+    [HttpGet("clock-corrections")]
+    public async Task<IActionResult> GetClockCorrections(CancellationToken cancellationToken)
+    {
+        return Ok(await _punchTimeRepair.GetCorrectionsAsync(cancellationToken));
+    }
+
+    /// <summary>Shows what a device clock correction would change, without saving anything.</summary>
+    [Authorize]
+    [HttpPost("clock-corrections/preview")]
+    public async Task<IActionResult> PreviewClockCorrection([FromBody] DeviceClockCorrectionDto correction, CancellationToken cancellationToken)
+    {
+        if (!IsValidCorrection(correction, out var error))
+            return BadRequest(new { message = error });
+        return Ok(await _punchTimeRepair.RunAsync(dryRun: true, cancellationToken, correction));
+    }
+
+    /// <summary>Saves a device clock correction and applies it to stored taps and attendance in the background.</summary>
+    [Authorize]
+    [HttpPost("clock-corrections")]
+    public async Task<IActionResult> ApplyClockCorrection([FromBody] DeviceClockCorrectionDto correction, CancellationToken cancellationToken)
+    {
+        if (!IsValidCorrection(correction, out var error))
+            return BadRequest(new { message = error });
+        if (!await _db.BiometricDevices.AnyAsync(d => d.Id == correction.DeviceId, cancellationToken))
+            return BadRequest(new { message = "Unknown device" });
+
+        await _punchTimeRepair.SaveCorrectionAsync(correction, cancellationToken);
+        var jobId = BackgroundJob.Enqueue<BiometricPunchRepairJob>(job => job.ExecuteAsync(CancellationToken.None));
+        return Accepted(new { saved = correction, jobId, reportUrl = "/api/biometric/adms/repair-punch-times/last-report" });
+    }
+
+    private static bool IsValidCorrection(DeviceClockCorrectionDto correction, out string error)
+    {
+        error = string.Empty;
+        if (correction.DeviceId == Guid.Empty)
+            error = "deviceId is required";
+        else if (correction.ReceivedToUtc <= correction.ReceivedFromUtc)
+            error = "receivedToUtc must be after receivedFromUtc";
+        else if (correction.OffsetMinutes == 0 || Math.Abs(correction.OffsetMinutes) > 24 * 60)
+            error = "offsetMinutes must be non-zero and within one day";
+        return error.Length == 0;
     }
 
     [Authorize]
