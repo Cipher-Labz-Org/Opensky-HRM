@@ -195,14 +195,21 @@ public class LeaveController : ControllerBase
         var request = await _db.Set<Domain.Entities.LeaveRequest>().FindAsync(id);
         if (request is null) return NotFound();
 
+        var hrOverride = false;
         if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2 or ApprovalStatus.CancellationRequested)
         {
             var responsibleId = await _leaveService.GetResponsibleApproverEmployeeIdAsync(id);
             if (!responsibleId.HasValue || responsibleId.Value != approverId.Value)
-                return Forbid();
+            {
+                if (!LeaveAccessHelper.CanOverrideLeaveApproval(User))
+                    return Forbid();
+                if (request.EmployeeId == approverId.Value)
+                    return BadRequest(new { message = "You cannot approve your own leave." });
+                hrOverride = true;
+            }
         }
 
-        var result = await _leaveService.ApproveLeaveRequestAsync(id, approverId.Value, dto);
+        var result = await _leaveService.ApproveLeaveRequestAsync(id, approverId.Value, dto, finalDecision: hrOverride);
         return result is null ? NotFound() : Ok(result);
     }
 
@@ -219,7 +226,12 @@ public class LeaveController : ControllerBase
         {
             var responsibleId = await _leaveService.GetResponsibleApproverEmployeeIdAsync(id);
             if (!responsibleId.HasValue || responsibleId.Value != approverId.Value)
-                return Forbid();
+            {
+                if (!LeaveAccessHelper.CanOverrideLeaveApproval(User))
+                    return Forbid();
+                if (request.EmployeeId == approverId.Value)
+                    return BadRequest(new { message = "You cannot reject your own leave." });
+            }
         }
 
         var result = await _leaveService.RejectLeaveRequestAsync(id, approverId.Value, dto);

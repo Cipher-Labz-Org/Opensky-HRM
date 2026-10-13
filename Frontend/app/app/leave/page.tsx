@@ -648,6 +648,12 @@ export default function LeavePage() {
     hasPermission("Leave", "Update") ||
     hasPermission("Approvals", "Update") ||
     hasRole("SUPERVISOR");
+  const leaveHrCanOverride =
+    isAdmin ||
+    hasRole("HR_MANAGER") ||
+    (user?.permissions.some(
+      (p) => (p.module === "Leave" || p.module === "Approvals") && p.action === "Update" && (p.scope ?? "Own") === "All",
+    ) ?? false);
   const leaveScope = getLeaveReadScope();
   /** Full HR / admin leave workspace (all tabs). */
   const isHrWideAccess = leaveScope === "All";
@@ -786,6 +792,7 @@ export default function LeavePage() {
           isEmployeeView={isEmployeeView || isSupervisorView}
           currentEmployeeId={user?.employeeId ?? null}
           showApprovalActions={canLeaveApprove}
+          hrCanOverride={leaveHrCanOverride}
         />
       )}
       {pageTab === "approvals" && (
