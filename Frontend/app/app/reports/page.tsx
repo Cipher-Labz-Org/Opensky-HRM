@@ -16,6 +16,7 @@ import { filterLookupsByAllowedIds } from "@/lib/people-scope-filters";
 import { sanitizeSearchInput } from "@/lib/input-validation";
 import { ReportParametersSearchBar, type ReportPeriodSection } from "@/components/reports/ReportParametersSearchBar";
 import {
+  EMPLOYEE_DAY_LOG_DAY_TYPE_OPTIONS,
   EMPLOYEE_MASTER_GROUP_BY_OPTIONS,
   groupReportRowsByColumn,
   isValidReportGroupByKey,
@@ -71,9 +72,11 @@ const REPORT_URL_FILTER_KEYS = [
   "year",
   "month",
   "date",
+  "dayType",
 ] as const;
 
 const EMPLOYEE_MASTER_REPORT_KEY = "employee-master";
+const EMPLOYEE_DAY_LOG_REPORT_KEY = "employee-day-log";
 
 function readUrlReportFilterOverrides(sp: { get: (key: string) => string | null }): Record<string, string> {
   const out: Record<string, string> = {};
@@ -114,6 +117,7 @@ function mergeUrlFiltersIntoReportParams(
   if (item.supportsDepartmentFilter && url.employeeName) merged.employeeName = url.employeeName;
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && url.status) merged.status = url.status;
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && url.gradeId) merged.gradeId = url.gradeId;
+  if (item.key === EMPLOYEE_DAY_LOG_REPORT_KEY && url.dayType) merged.dayType = url.dayType;
   const mode = item.periodFilterMode || "none";
   if (url.from) merged.from = url.from;
   if (url.to) merged.to = url.to;
@@ -190,6 +194,7 @@ function buildReportUrlQuery(
   if (item.supportsDepartmentFilter && mergedParams.employeeName) qs.set("employeeName", mergedParams.employeeName);
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && mergedParams.status) qs.set("status", mergedParams.status);
   if (item.key === EMPLOYEE_MASTER_REPORT_KEY && mergedParams.gradeId) qs.set("gradeId", mergedParams.gradeId);
+  if (item.key === EMPLOYEE_DAY_LOG_REPORT_KEY && mergedParams.dayType) qs.set("dayType", mergedParams.dayType);
   if (mergedParams.from) qs.set("from", mergedParams.from);
   if (mergedParams.to) qs.set("to", mergedParams.to);
   return qs.toString();
@@ -302,6 +307,7 @@ export default function ReportsPage() {
   const [filterEmployeeName, setFilterEmployeeName] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterGradeId, setFilterGradeId] = useState("");
+  const [filterDayType, setFilterDayType] = useState("");
   const [filterCompanyProfileKey, setFilterCompanyProfileKey] = useState("");
   const { multiCompanyActive, companyFilterOptions } = useMultiCompanyFeature();
   const [filterFrom, setFilterFrom] = useState("");
@@ -325,6 +331,7 @@ export default function ReportsPage() {
     employeeName: "",
     status: "",
     gradeId: "",
+    dayType: "",
     companyProfileKey: "",
   });
   const filterApplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -392,6 +399,7 @@ export default function ReportsPage() {
       employeeName: filterEmployeeName,
       status: filterStatus,
       gradeId: filterGradeId,
+      dayType: filterDayType,
       companyProfileKey: filterCompanyProfileKey,
     };
   }, [
@@ -401,6 +409,7 @@ export default function ReportsPage() {
     filterEmployeeName,
     filterStatus,
     filterGradeId,
+    filterDayType,
     filterCompanyProfileKey,
   ]);
 
@@ -417,6 +426,7 @@ export default function ReportsPage() {
     setFilterEmployeeName(params.employeeName ?? "");
     setFilterStatus(params.status ?? "");
     setFilterGradeId(params.gradeId ?? "");
+    setFilterDayType(params.dayType ?? "");
     setFilterCompanyProfileKey(params.companyProfileKey ?? "");
     const period: ReportPeriodValues = {
       from: params.from ?? "",
@@ -481,6 +491,7 @@ export default function ReportsPage() {
       employeeName: string;
       status: string;
       gradeId: string;
+      dayType: string;
       companyProfileKey: string;
       from: string;
       to: string;
@@ -512,6 +523,9 @@ export default function ReportsPage() {
       p.status = status.trim();
     if (item.key === EMPLOYEE_MASTER_REPORT_KEY && gradeId.trim())
       p.gradeId = gradeId.trim();
+    const dayType = overrides?.dayType ?? filterDayType;
+    if (item.key === EMPLOYEE_DAY_LOG_REPORT_KEY && dayType.trim())
+      p.dayType = dayType.trim();
     const period = periodFiltersRef.current;
     const from = overrides?.from ?? period.from;
     const to = overrides?.to ?? period.to;
@@ -563,6 +577,7 @@ export default function ReportsPage() {
   }, [catalog, selectedCategory, selectedReport]);
 
   const isEmployeeMasterReport = activeReportDef?.key === EMPLOYEE_MASTER_REPORT_KEY;
+  const isEmployeeDayLogReport = activeReportDef?.key === EMPLOYEE_DAY_LOG_REPORT_KEY;
 
   const reportFilterSections = useMemo<ReportFilterSection[]>(() => {
     if (!activeReportDef?.supportsDepartmentFilter) return [];
@@ -606,6 +621,13 @@ export default function ReportsPage() {
         },
       );
     }
+    if (isEmployeeDayLogReport) {
+      sections.push({
+        key: "dayType",
+        label: "Day type",
+        options: EMPLOYEE_DAY_LOG_DAY_TYPE_OPTIONS,
+      });
+    }
     return sections;
   }, [
     activeReportDef,
@@ -617,6 +639,7 @@ export default function ReportsPage() {
     employeeStatuses,
     visibleGrades,
     isEmployeeMasterReport,
+    isEmployeeDayLogReport,
   ]);
 
   const reportFilterPills = useMemo<ReportFilterPill[]>(() => {
@@ -659,6 +682,13 @@ export default function ReportsPage() {
         label: grades.find((g) => g.id === id)?.name ?? "Grade",
       });
     }
+    for (const dayType of splitReportFilterValues(filterDayType)) {
+      pills.push({
+        key: "dayType",
+        value: dayType,
+        label: EMPLOYEE_DAY_LOG_DAY_TYPE_OPTIONS.find((o) => o.value === dayType)?.label ?? dayType,
+      });
+    }
     return pills;
   }, [
     filterCompanyProfileKey,
@@ -667,6 +697,7 @@ export default function ReportsPage() {
     filterEmployeeId,
     filterStatus,
     filterGradeId,
+    filterDayType,
     companyFilterOptions,
     departments,
     locations,
@@ -698,6 +729,9 @@ export default function ReportsPage() {
         break;
       case "companyProfileKey":
         setFilterCompanyProfileKey(value);
+        break;
+      case "dayType":
+        setFilterDayType(value);
         break;
     }
   }
@@ -793,6 +827,7 @@ export default function ReportsPage() {
       employeeName: "",
       status: "",
       gradeId: "",
+      dayType: "",
       companyProfileKey: "",
     };
     const period = defaultPeriodValues();
@@ -811,6 +846,7 @@ export default function ReportsPage() {
       employeeName: "",
       status: "",
       gradeId: "",
+      dayType: "",
       companyProfileKey: "",
       ...period,
     });
@@ -833,6 +869,7 @@ export default function ReportsPage() {
       employeeName: string;
       status: string;
       gradeId: string;
+      dayType: string;
       companyProfileKey: string;
       from: string;
       to: string;
@@ -848,6 +885,7 @@ export default function ReportsPage() {
     if (overrides?.employeeName !== undefined) setFilterEmployeeName(overrides.employeeName);
     if (overrides?.status !== undefined) setFilterStatus(overrides.status);
     if (overrides?.gradeId !== undefined) setFilterGradeId(overrides.gradeId);
+    if (overrides?.dayType !== undefined) setFilterDayType(overrides.dayType);
     if (overrides?.companyProfileKey !== undefined) setFilterCompanyProfileKey(overrides.companyProfileKey);
     if (overrides?.from !== undefined || overrides?.to !== undefined || overrides?.year !== undefined || overrides?.month !== undefined || overrides?.date !== undefined) {
       periodFiltersRef.current = {

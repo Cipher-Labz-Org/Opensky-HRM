@@ -67,6 +67,7 @@ public class ReportService : IReportService
                     new() { Key = "overtime-report", Name = "OT Summary", Description = "Period overtime totals per employee (Pre-OT + Post-OT)" },
                     new() { Key = "overtime-detail", Name = "OT Detail", Description = "Each day with Pre-OT or Post-OT in the selected period" },
                     new() { Key = "absent-report", Name = "Absent / No-Punch Report", Description = "Days with no attendance record for active employees" },
+                    new() { Key = "employee-day-log", Name = "Employee Day Log", Description = "One row per employee per calendar day in the period — work, leave, or absence (filter by day type)" },
                 }
             },
             new()
@@ -170,6 +171,7 @@ public class ReportService : IReportService
         Tag("attendance", "overtime-report", true, "dateRange");
         Tag("attendance", "overtime-detail", true, "dateRange");
         Tag("attendance", "absent-report", true, "dateRange");
+        Tag("attendance", "employee-day-log", true, "dateRange");
 
         Tag("payroll", "payroll-register", true, "yearMonth");
         Tag("payroll", "salary-register", true, "none");
@@ -241,6 +243,7 @@ public class ReportService : IReportService
             "attendance/overtime-report" => await OvertimeReport(filters),
             "attendance/overtime-detail" => await OvertimeDetailReport(filters),
             "attendance/absent-report" => await AbsentReport(filters),
+            "attendance/employee-day-log" => await EmployeeDayLogReport(filters),
 
             "payroll/payroll-register" => await PayrollRegisterReport(filters),
             "payroll/salary-register" => await SalaryRegisterReport(filters),
@@ -1174,6 +1177,172 @@ public class ReportService : IReportService
             ? $"Absent / No-Punch Report ({from:yyyy-MM-dd} to {to:yyyy-MM-dd})"
             : "Absent / No-Punch Report", cols, rows);
     }
+
+    /// <summary>
+    /// One row per employee per calendar day: Work (attendance), Leave (approved), or Absence (no punch and no leave).
+    /// Optional filter <c>dayType</c>: Work, Leave, Absence (comma-separated; empty = all).
+    /// </summary>
+    private async Task<ReportResultDto> EmployeeDayLogReport(Dictionary<string, string>? filters)
+    {
+        var hasRange = TryResolveFilterDateRange(filters, out var from, out var to);
+        if (!hasRange)
+        {
+            to = DateTime.UtcNow.Date;
+            from = to.AddDays(-30);
+        }
+
+        var dayTypeFilter = ParseCsvFilter(filters, "dayType");
+        var includeAll = dayTypeFilter.Count == 0
+            || dayTypeFilter.Exists(d => d.Equals("All", StringComparison.OrdinalIgnoreCase));
+        var includeWork = includeAll || dayTypeFilter.Exists(MatchesWorkDayTypeFilter);
+        var includeLeave = includeAll || dayTypeFilter.Exists(d => d.Equals("Leave", StringComparison.OrdinalIgnoreCase));
+        var includeAbsence = includeAll || dayTypeFilter.Exists(d => d.Equals("Absence", StringComparison.OrdinalIgnoreCase));
+
+        var empQ = ApplyEmployeeFilters(
+            _db.Employees.Include(e => e.Department)
+                .Where(e => e.Status != "Terminated" && !e.IsDeleted),
+            filters);
+        var employees = await empQ
+            .OrderBy(e => e.FirstName).ThenBy(e => e.LastName)
+            .ToListAsync();
+        if (employees.Count == 0)
+        {
+            return Build(
+                $"Employee Day Log ({from:yyyy-MM-dd} to {to:yyyy-MM-dd})",
+                EmployeeDayLogColumns(),
+                new List<Dictionary<string, object?>>());
+        }
+
+        var employeeIds = employees.Select(e => e.Id).ToHashSet();
+
+        var attendanceRows = await _db.Set<AttendanceRecord>()
+            .Where(a => !a.IsDeleted
+                && employeeIds.Contains(a.EmployeeId)
+                && a.Date.Date >= from
+                && a.Date.Date <= to)
+            .Select(a => new
+            {
+                a.EmployeeId,
+                Day = a.Date.Date,
+                a.PunchIn,
+                a.PunchOut,
+                a.WorkedHours,
+                a.Status,
+            })
+            .ToListAsync();
+
+        var attendanceByEmployeeDay = attendanceRows
+            .GroupBy(a => (a.EmployeeId, a.Day))
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(x => x.PunchIn ?? DateTime.MinValue).First());
+
+        var leaveRequests = await _db.Set<LeaveRequest>()
+            .Include(r => r.LeaveType)
+            .Where(r => !r.IsDeleted
+                && r.Status == ApprovalStatus.Approved
+                && employeeIds.Contains(r.EmployeeId)
+                && r.EndDate.Date >= from
+                && r.StartDate.Date <= to)
+            .ToListAsync();
+
+        var leaveByEmployeeDay = new Dictionary<(Guid EmployeeId, DateTime Day), string>();
+        foreach (var request in leaveRequests)
+        {
+            var start = request.StartDate.Date < from ? from : request.StartDate.Date;
+            var end = request.EndDate.Date > to ? to : request.EndDate.Date;
+            var typeName = request.LeaveType?.Name ?? "Leave";
+            var detail = typeName;
+            if (string.Equals(request.DurationKind, "HalfDay", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(request.HalfDayPeriod))
+                detail = $"{typeName} ({request.HalfDayPeriod} half)";
+            else if (string.Equals(request.DurationKind, "ShortLeave", StringComparison.OrdinalIgnoreCase))
+                detail = $"{typeName} (short leave)";
+
+            for (var day = start; day <= end; day = day.AddDays(1))
+                leaveByEmployeeDay[(request.EmployeeId, day)] = detail;
+        }
+
+        var rows = new List<Dictionary<string, object?>>();
+        foreach (var employee in employees)
+        {
+            for (var day = from; day <= to; day = day.AddDays(1))
+            {
+                string dayType;
+                string detail;
+                string? punchIn = null;
+                string? punchOut = null;
+                string? workedHours = null;
+
+                if (leaveByEmployeeDay.TryGetValue((employee.Id, day), out var leaveDetail))
+                {
+                    dayType = "Leave";
+                    detail = leaveDetail;
+                }
+                else if (attendanceByEmployeeDay.TryGetValue((employee.Id, day), out var att))
+                {
+                    dayType = "Work";
+                    detail = att.Status;
+                    punchIn = att.PunchIn?.ToString("HH:mm");
+                    punchOut = att.PunchOut?.ToString("HH:mm");
+                    workedHours = att.WorkedHours?.ToString("F2");
+                }
+                else
+                {
+                    dayType = "Absence";
+                    detail = "No punch / no leave";
+                }
+
+                var includeRow = dayType switch
+                {
+                    "Work" => includeWork,
+                    "Leave" => includeLeave,
+                    "Absence" => includeAbsence,
+                    _ => true,
+                };
+                if (!includeRow)
+                    continue;
+
+                rows.Add(new Dictionary<string, object?>
+                {
+                    ["Date"] = day.ToString("yyyy-MM-dd"),
+                    ["Employee Code"] = employee.EmployeeCode,
+                    ["Employee Name"] = employee.FullName,
+                    ["Department"] = employee.Department?.Name,
+                    ["Day Type"] = dayType,
+                    ["Detail"] = detail,
+                    ["Punch In"] = punchIn,
+                    ["Punch Out"] = punchOut,
+                    ["Worked Hours"] = workedHours,
+                });
+            }
+        }
+
+        rows = rows
+            .OrderBy(r => (string)r["Date"]!)
+            .ThenBy(r => (string)r["Employee Name"]!)
+            .ToList();
+
+        return Build($"Employee Day Log ({from:yyyy-MM-dd} to {to:yyyy-MM-dd})", EmployeeDayLogColumns(), rows);
+    }
+
+    private static List<string> EmployeeDayLogColumns() =>
+        new()
+        {
+            "Date",
+            "Employee Code",
+            "Employee Name",
+            "Department",
+            "Day Type",
+            "Detail",
+            "Punch In",
+            "Punch Out",
+            "Worked Hours",
+        };
+
+    private static bool MatchesWorkDayTypeFilter(string value) =>
+        value.Equals("Work", StringComparison.OrdinalIgnoreCase)
+        || value.Equals("Attendance", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Current month when no from/to is sent. Used by birthday and work-anniversary reports.</summary>
     private static (DateTime from, DateTime to) ResolveCalendarOccasionRange(Dictionary<string, string>? filters)

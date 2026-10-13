@@ -4,7 +4,15 @@ export type ReportParamFilterKey =
   | "locationId"
   | "employeeId"
   | "status"
-  | "gradeId";
+  | "gradeId"
+  | "dayType";
+
+/** Day-type filter for Employee Day Log (attendance category). */
+export const EMPLOYEE_DAY_LOG_DAY_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "Work", label: "Work (attendance)" },
+  { value: "Leave", label: "Leave" },
+  { value: "Absence", label: "Absence" },
+];
 
 export type ReportGroupByKey =
   | "department"
