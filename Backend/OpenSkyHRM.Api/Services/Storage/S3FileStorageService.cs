@@ -161,6 +161,65 @@ public sealed class S3FileStorageService : IFileStorageService, IDisposable
         }
     }
 
+    /// <summary>Write, read back and delete a probe object directly in S3 (no local fallback).</summary>
+    public async Task<S3ProbeResult> ProbeAsync(CancellationToken cancellationToken = default)
+    {
+        var key = FileStoragePathHelper.ToObjectKey(
+            _options,
+            FileStoragePathHelper.BuildLogicalPath("storage-probe", $"probe_{Guid.NewGuid():N}.txt"));
+        var payload = $"OpenSky HRM S3 probe {DateTime.UtcNow:O}";
+        var result = new S3ProbeResult { Bucket = _options.BucketName, Region = _options.Region, Key = key };
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        async Task<bool> Step(string name, Func<Task> action)
+        {
+            var started = stopwatch.ElapsedMilliseconds;
+            try
+            {
+                await action();
+                result.Steps.Add(new S3ProbeStep(name, true, stopwatch.ElapsedMilliseconds - started, null, null));
+                return true;
+            }
+            catch (AmazonS3Exception ex)
+            {
+                result.Steps.Add(new S3ProbeStep(
+                    name, false, stopwatch.ElapsedMilliseconds - started,
+                    $"{(int)ex.StatusCode} {ex.ErrorCode}", ex.Message));
+                return false;
+            }
+            catch (Exception ex)
+            {
+                result.Steps.Add(new S3ProbeStep(
+                    name, false, stopwatch.ElapsedMilliseconds - started, ex.GetType().Name, ex.Message));
+                return false;
+            }
+        }
+
+        var written = await Step("write", () => _s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = _options.BucketName,
+            Key = key,
+            ContentBody = payload,
+            ContentType = "text/plain",
+        }, cancellationToken));
+
+        if (written)
+        {
+            await Step("read", async () =>
+            {
+                using var response = await _s3.GetObjectAsync(_options.BucketName, key, cancellationToken);
+                using var reader = new StreamReader(response.ResponseStream);
+                var body = await reader.ReadToEndAsync(cancellationToken);
+                if (!string.Equals(body, payload, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Read-back content did not match what was written.");
+            });
+            await Step("delete", () => _s3.DeleteObjectAsync(_options.BucketName, key, cancellationToken));
+        }
+
+        result.Ok = result.Steps.Count == 3 && result.Steps.All(s => s.Ok);
+        return result;
+    }
+
     public void Dispose() => _s3.Dispose();
 
     private async Task SaveLocalAsync(string logicalPath, Stream content, CancellationToken cancellationToken)
@@ -235,4 +294,15 @@ public sealed class S3FileStorageService : IFileStorageService, IDisposable
             _ => "application/octet-stream",
         };
     }
+}
+
+public sealed record S3ProbeStep(string Step, bool Ok, long ElapsedMs, string? ErrorCode, string? Error);
+
+public sealed class S3ProbeResult
+{
+    public bool Ok { get; set; }
+    public string Bucket { get; set; } = "";
+    public string Region { get; set; } = "";
+    public string Key { get; set; } = "";
+    public List<S3ProbeStep> Steps { get; } = new();
 }

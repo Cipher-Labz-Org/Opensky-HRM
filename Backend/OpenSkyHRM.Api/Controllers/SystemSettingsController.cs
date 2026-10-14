@@ -243,6 +243,29 @@ public class SystemSettingsController : ControllerBase
         }
     }
 
+    /// <summary>Live S3 check: writes, reads and deletes a small probe file in the bucket.</summary>
+    [HttpPost("file-storage-test")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> TestFileStorage(CancellationToken cancellationToken)
+    {
+        if (_files is not S3FileStorageService s3)
+            return Ok(new { ok = true, provider = _fileStorage.Provider, message = "Files are stored on this server's disk; S3 is not in use." });
+
+        var result = await s3.ProbeAsync(cancellationToken);
+        return Ok(new
+        {
+            ok = result.Ok,
+            provider = _fileStorage.Provider,
+            result.Bucket,
+            result.Region,
+            result.Key,
+            result.Steps,
+            message = result.Ok
+                ? "S3 is working: write, read and delete all succeeded."
+                : "S3 is not working. New uploads are being saved on this server's disk instead.",
+        });
+    }
+
     [HttpGet("file-storage-status")]
     public IActionResult GetFileStorageStatus()
     {

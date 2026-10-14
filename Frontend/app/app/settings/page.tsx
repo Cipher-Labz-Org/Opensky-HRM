@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/api";
 import { getSystemSetting } from "@/lib/system-settings";
 import { AttendancePlacesModal } from "@/components/settings/AttendancePlacesModal";
 import { MobileConnectionQr } from "@/components/settings/MobileConnectionQr";
+import { FileStorageTestCard } from "@/components/settings/FileStorageTestCard";
 import Link from "next/link";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
@@ -339,6 +340,8 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {isAdmin && <FileStorageTestCard />}
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {settingsDashboardKpis.map((kpi) => (
