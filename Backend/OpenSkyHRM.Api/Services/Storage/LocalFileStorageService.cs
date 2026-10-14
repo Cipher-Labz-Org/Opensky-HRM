@@ -113,6 +113,12 @@ public sealed class LocalFileStorageService : IFileStorageService
         return Task.CompletedTask;
     }
 
+    public Task EnsureCompanyFoldersAsync(CancellationToken cancellationToken = default)
+    {
+        FileStoragePathHelper.EnsureCompanyFolders(_env.ContentRootPath, _options);
+        return Task.CompletedTask;
+    }
+
     private string ResolveWritePath(string logicalPath) =>
         FileStoragePathHelper.ToPhysicalPath(_env.ContentRootPath, _options, logicalPath);
 

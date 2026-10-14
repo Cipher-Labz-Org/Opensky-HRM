@@ -21,6 +21,12 @@ public interface IFileStorageService
     Task<bool> ExistsAsync(string logicalPath, CancellationToken cancellationToken = default);
 
     Task DeleteAsync(string logicalPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Create this company's standard subfolders (Images, Branding, …) in the backing store.
+    /// Idempotent and safe to call on every startup.
+    /// </summary>
+    Task EnsureCompanyFoldersAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed class StoredFileReadResult : IAsyncDisposable

@@ -161,6 +161,66 @@ public sealed class S3FileStorageService : IFileStorageService, IDisposable
         }
     }
 
+    public async Task EnsureCompanyFoldersAsync(CancellationToken cancellationToken = default)
+    {
+        var folderKeys = new List<string> { FileStoragePathHelper.BuildCompanyFolderKey(_options, string.Empty) };
+        foreach (var subfolder in FileStorageCategories.CompanySubfolders)
+            folderKeys.Add(FileStoragePathHelper.BuildCompanyFolderKey(_options, subfolder));
+
+        var created = 0;
+        foreach (var folderKey in folderKeys)
+        {
+            try
+            {
+                if (await S3FolderExistsAsync(folderKey, cancellationToken))
+                    continue;
+
+                await _s3.PutObjectAsync(new PutObjectRequest
+                {
+                    BucketName = _options.BucketName,
+                    Key = folderKey,
+                    ContentBody = string.Empty,
+                    ContentType = "application/x-directory",
+                }, cancellationToken);
+                created++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Could not ensure S3 folder s3://{Bucket}/{Key}.",
+                    _options.BucketName,
+                    folderKey);
+            }
+        }
+
+        _logger.LogInformation(
+            "Ensured company folders for '{Company}' in s3://{Bucket}/ ({Created} created, {Total} total).",
+            _options.ResolvedCompanyFolder,
+            _options.BucketName,
+            created,
+            folderKeys.Count);
+    }
+
+    private async Task<bool> S3FolderExistsAsync(string folderKey, CancellationToken cancellationToken)
+    {
+        // A folder "exists" if its marker object is present or any object lives under the prefix.
+        try
+        {
+            var listing = await _s3.ListObjectsV2Async(new ListObjectsV2Request
+            {
+                BucketName = _options.BucketName,
+                Prefix = folderKey,
+                MaxKeys = 1,
+            }, cancellationToken);
+            return listing.S3Objects is { Count: > 0 };
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Write, read back and delete a probe object directly in S3 (no local fallback).</summary>
     public async Task<S3ProbeResult> ProbeAsync(CancellationToken cancellationToken = default)
     {

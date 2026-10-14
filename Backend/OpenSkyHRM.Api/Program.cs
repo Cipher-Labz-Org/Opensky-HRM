@@ -578,9 +578,10 @@ else if (fileStorageSettings.UseS3)
     try
     {
         using var storageScope = app.Services.CreateScope();
-        _ = storageScope.ServiceProvider.GetRequiredService<IFileStorageService>();
+        var fileStorage = storageScope.ServiceProvider.GetRequiredService<IFileStorageService>();
         app.Logger.LogInformation("S3 file storage service initialized for company folder '{CompanyFolder}'.",
             fileStorageSettings.CompanyFolder);
+        fileStorage.EnsureCompanyFoldersAsync().GetAwaiter().GetResult();
     }
     catch (Exception ex)
     {

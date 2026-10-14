@@ -79,6 +79,30 @@ internal static class FileStoragePathHelper
         return SafeSegmentRegex.Replace(trimmed, "-").Trim('-');
     }
 
+    /// <summary>
+    /// Build the S3 "folder" key for a company subfolder, e.g. OpenskyHRM/gamma/Branding/.
+    /// Pass an empty <paramref name="subfolderRelative"/> for the company base folder.
+    /// Keeps slashes inside the subfolder (e.g. Leave/Certificates) intact.
+    /// </summary>
+    public static string BuildCompanyFolderKey(FileStorageOptions options, string subfolderRelative)
+    {
+        var segments = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(options.KeyPrefix))
+            segments.Add(SanitizeSegment(options.KeyPrefix));
+
+        if (!string.IsNullOrWhiteSpace(options.RootFolder))
+            segments.Add(SanitizeSegment(options.RootFolder));
+
+        segments.Add(SanitizeSegment(options.ResolvedCompanyFolder));
+
+        var relative = (subfolderRelative ?? string.Empty).Trim().Replace('\\', '/').Trim('/');
+        if (!string.IsNullOrEmpty(relative))
+            segments.Add(relative);
+
+        return string.Join('/', segments.Where(s => !string.IsNullOrEmpty(s))) + "/";
+    }
+
     public static void EnsureCompanyFolders(string contentRootPath, FileStorageOptions options)
     {
         var parts = new List<string> { contentRootPath, "wwwroot", "uploads" };
