@@ -154,6 +154,7 @@ public class PayStatementDto
     public string EmployeeName { get; set; } = string.Empty;
     public string? EmployeeCode { get; set; }
     public string? Department { get; set; }
+    public string? EmploymentType { get; set; }
     public int Month { get; set; }
     public int Year { get; set; }
     public decimal BasicPay { get; set; }

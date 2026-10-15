@@ -290,6 +290,7 @@ public class PayrollController : ControllerBase
             e.EmployeeCode,
             e.FirstName,
             e.LastName,
+            employmentType = e.EmploymentType,
             department = e.Department?.Name ?? "",
             grade = e.Grade?.Name ?? "",
             location = e.Location?.Name ?? "",

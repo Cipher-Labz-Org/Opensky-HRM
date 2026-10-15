@@ -11,6 +11,9 @@ public static class PayrollPoyaComponent
     public const string DefaultCode = "POYA";
     public const decimal ManualDaysCap = 15m;
 
+    public static bool HasExplicitSalaryEntry(decimal? assignmentAmount) =>
+        assignmentAmount is > 0;
+
     public static bool IsMatch(string? code, string? name)
     {
         if (!string.IsNullOrWhiteSpace(code))
@@ -27,10 +30,12 @@ public static class PayrollPoyaComponent
 
     public static bool IsLumpSumPay(decimal amount) => amount > ManualDaysCap;
 
+    /// <param name="assignmentAmount">Days (0.5–15) on the Employee Salary tab, or lump-sum LKR above 15.</param>
+    /// <param name="attendanceDays">Ignored; Poya is not auto-derived from attendance import or Calculate.</param>
     public static decimal ResolveDays(decimal? assignmentAmount, decimal attendanceDays)
     {
         if (assignmentAmount is > 0 and <= ManualDaysCap)
             return assignmentAmount.Value;
-        return attendanceDays;
+        return 0;
     }
 }

@@ -18,19 +18,22 @@ public class EmployeeService : IEmployeeService
     private readonly ILeaveEntitlementService _entitlementService;
     private readonly IEmployeeLifecycleService _lifecycleService;
     private readonly IBusinessClock _clock;
+    private readonly PayrollCalculationEngine _payrollCalculationEngine;
 
     public EmployeeService(
         AppDbContext db,
         ISystemSettingService settings,
         ILeaveEntitlementService entitlementService,
         IEmployeeLifecycleService lifecycleService,
-        IBusinessClock clock)
+        IBusinessClock clock,
+        PayrollCalculationEngine payrollCalculationEngine)
     {
         _db = db;
         _settings = settings;
         _entitlementService = entitlementService;
         _lifecycleService = lifecycleService;
         _clock = clock;
+        _payrollCalculationEngine = payrollCalculationEngine;
     }
 
     private static bool IsProfileSetupIncomplete(Employee e, bool hasDirectSupervisor) =>
@@ -736,6 +739,18 @@ public class EmployeeService : IEmployeeService
             catch
             {
                 // Leave balances can be recalculated from Leave admin; do not fail the employee update.
+            }
+        }
+
+        if (employmentChanged)
+        {
+            try
+            {
+                await _payrollCalculationEngine.TryRecalculateOpenSalaryBatchesForEmployeeAsync(id);
+            }
+            catch
+            {
+                // Open payroll batches can be recalculated from Payroll Run; do not fail the employee update.
             }
         }
 

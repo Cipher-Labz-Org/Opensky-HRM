@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Payroll;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain;
@@ -165,10 +166,6 @@ public class PayrollCalculationEngine
         var attendanceSnapshots = await _db.PayrollBatchAttendanceSnapshots
             .Where(s => s.BatchId == batchId)
             .ToDictionaryAsync(s => s.EmployeeId);
-        var poyaDaysByEmp = includeStatutory
-            ? await PayrollPoyaAttendance.GetDaysWorkedByEmployeeAsync(
-                _db, employeeIdSet, periodStart, periodEnd)
-            : new Dictionary<Guid, decimal>();
         var missingSalary = new List<string>();
         var missingBonus = new List<string>();
         var priorYtdByEmployee = includeApit
@@ -180,6 +177,13 @@ public class PayrollCalculationEngine
         var table02ByEmployee = batch.ProcessType == PayrollProcessType.Bonus
             ? await LoadTable02ContextAsync(employeeIdSet, activeEmployees, batch)
             : new Dictionary<Guid, Table02YearProjection>();
+
+        var employmentCatalog = await _db.EmploymentStatusTypes.AsNoTracking()
+            .Where(t => !t.IsDeleted && t.IsActive)
+            .Select(t => new { t.Code, t.Name })
+            .ToListAsync();
+        var employmentCatalogTuples = employmentCatalog.Select(t => (t.Code, t.Name)).ToList();
+        var freelanceEmploymentCodes = EmploymentTypeRules.CollectFreelanceEmploymentCodes(employmentCatalogTuples);
 
         foreach (var employee in activeEmployees)
         {
@@ -198,20 +202,19 @@ public class PayrollCalculationEngine
                 continue;
             }
 
-            var poyaDays = poyaDaysByEmp.GetValueOrDefault(employee.Id);
-            if (poyaDays <= 0)
-                poyaDays = snapshot?.PoyaDaysWorked ?? 0;
-
             var employeeMode = NormalizeApitTaxMode(
                 string.IsNullOrWhiteSpace(employee.ApitTaxMode) ? rates.ApitTaxMode : employee.ApitTaxMode);
             priorYtdByEmployee.TryGetValue(employee.Id, out var priorYtd);
             monthlySalaryByEmployee.TryGetValue(employee.Id, out var monthlySalary);
             table02ByEmployee.TryGetValue(employee.Id, out var table02);
 
+            var skipsProvidentFund = EmploymentTypeRules.SkipsProvidentFund(
+                employee.EmploymentType, freelanceEmploymentCodes, employmentCatalogTuples);
+
             var statement = CalculateEmployeePayStatement(
-                batch, employee, empComp, relevantComponents, rates, includeStatutory, snapshot, poyaDays,
+                batch, employee, empComp, relevantComponents, rates, includeStatutory, snapshot,
                 employeeMode, priorYtd.TotalTaxable, priorYtd.SalaryMonths,
-                includeApit, monthlySalary, priorYtd, table02);
+                includeApit, monthlySalary, priorYtd, table02, skipsProvidentFund);
             newStatements.Add(statement);
         }
 
@@ -300,7 +303,10 @@ public class PayrollCalculationEngine
                 catch { /* ignore malformed JSON */ }
             }
 
-            if (selectedIds?.Contains(employeeId) != true)
+            var inSelection = selectedIds?.Contains(employeeId) == true;
+            var inBatch = await _db.PayStatements.AnyAsync(s =>
+                s.BatchId == batch.Id && s.EmployeeId == employeeId);
+            if (!inSelection && !inBatch)
                 continue;
 
             try
@@ -383,14 +389,14 @@ public class PayrollCalculationEngine
         PayrollRates rates,
         bool includeStatutory,
         PayrollBatchAttendanceSnapshot? attendanceSnapshot = null,
-        decimal poyaDaysWorked = 0,
         string? employeeTaxMode = null,
         decimal priorCumulativeTaxable = 0,
         int confirmedMonths = 0,
         bool includeApit = false,
         decimal bonusRegularSalary = 0,
         ConfirmedApitYtd priorYtd = default,
-        Table02YearProjection? table02 = null)
+        Table02YearProjection? table02 = null,
+        bool skipsProvidentFund = false)
     {
         var resolvedValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
@@ -398,13 +404,10 @@ public class PayrollCalculationEngine
         {
             resolvedValues["NOPAY_DAYS"] = attendanceSnapshot.TotalNopayDays;
             resolvedValues["OT_HOURS"] = attendanceSnapshot.ApprovedOtHours;
-            if (poyaDaysWorked <= 0)
-                poyaDaysWorked = attendanceSnapshot.PoyaDaysWorked;
         }
 
-        var poyaAssignment = empComp.FirstOrDefault(ec =>
-            PayrollComponentMapping.IsPoyaComponent(ec.Component?.Code, ec.Component?.Name, rates.PoyaComponentCode));
-        resolvedValues["POYA_DAYS"] = PayrollPoyaComponent.ResolveDays(poyaAssignment?.Amount, poyaDaysWorked);
+        var poyaAssignment = SelectFixedPoyaAssignment(empComp, rates);
+        resolvedValues["POYA_DAYS"] = PayrollPoyaComponent.ResolveDays(poyaAssignment?.Amount, 0);
 
         // Load typed amounts first so formulas like BASIC1 / WORKING_DAYS work
         // even when the formula component is listed before its inputs.
@@ -417,6 +420,8 @@ public class PayrollCalculationEngine
         decimal taxableLump = 0;
         decimal epfEarnings = 0;
         decimal etfEarnings = 0;
+        decimal apitRegularMonthly = 0;
+        var trackApitRegularMonthly = batch.ProcessType != PayrollProcessType.Bonus;
 
         // Phase 1: Resolve fixed/variable earnings from employee compensation assignments
         foreach (var comp in OrderComponentsForEvaluation(
@@ -426,9 +431,16 @@ public class PayrollCalculationEngine
             var isNopay = PayrollComponentMapping.IsNopayComponent(comp.Code, rates.NopayComponentCode);
             var assignment = empComp.FirstOrDefault(ec => ec.ComponentId == comp.Id);
             if (assignment is null && string.IsNullOrEmpty(comp.FormulaExpression) && !isPoya && !isNopay) continue;
+            if (isPoya && !PayrollPoyaComponent.HasExplicitSalaryEntry(SelectFixedPoyaAssignment(empComp, rates)?.Amount))
+                continue;
 
             decimal amount;
-            if (isPoya && assignment != null && PayrollPoyaComponent.IsLumpSumPay(assignment.Amount))
+            if (isPoya)
+            {
+                assignment = SelectFixedPoyaAssignment(empComp, rates)!;
+            }
+
+            if (isPoya && PayrollPoyaComponent.IsLumpSumPay(assignment!.Amount))
             {
                 amount = assignment.Amount;
             }
@@ -464,10 +476,16 @@ public class PayrollCalculationEngine
             // so a manually entered allowance rounds the same way a formula result does.
             amount = ApplyComponentRounding(amount, comp.RoundResult);
 
+            if (isPoya && amount <= 0)
+                continue;
+
             resolvedValues[comp.Code] = amount;
             if (PayrollComponentMapping.IsBaseComponent(comp.Code, rates.BaseComponentCode))
                 resolvedValues["BASIC"] = amount;
-            AccumulateEarningsBases(comp, amount, ref taxableRegular, ref taxableLump, ref epfEarnings, ref etfEarnings);
+            AccumulateEarningsBases(
+                comp, amount, rates.PoyaComponentCode, ref taxableRegular, ref taxableLump, ref epfEarnings, ref etfEarnings);
+            if (trackApitRegularMonthly && CountsForApitRegularMonthly(comp, rates.PoyaComponentCode))
+                apitRegularMonthly += amount;
 
             lines.Add(new PayStatementLine
             {
@@ -499,7 +517,10 @@ public class PayrollCalculationEngine
             resolvedValues[comp.Code] = amount;
             if (PayrollComponentMapping.IsBaseComponent(comp.Code, rates.BaseComponentCode))
                 resolvedValues["BASIC"] = amount;
-            AccumulateEarningsBases(comp, amount, ref taxableRegular, ref taxableLump, ref epfEarnings, ref etfEarnings);
+            AccumulateEarningsBases(
+                comp, amount, rates.PoyaComponentCode, ref taxableRegular, ref taxableLump, ref epfEarnings, ref etfEarnings);
+            if (trackApitRegularMonthly && CountsForApitRegularMonthly(comp, rates.PoyaComponentCode))
+                apitRegularMonthly += amount;
 
             lines.Add(new PayStatementLine
             {
@@ -531,24 +552,30 @@ public class PayrollCalculationEngine
         var isBonusBatch = batch.ProcessType == PayrollProcessType.Bonus;
         var regularSalary = isBonusBatch
             ? Math.Max(0, bonusRegularSalary)
-            : ResolveApitRegularBase(
-                Math.Max(0, totalEarnings - taxableLump), taxableRegular, epfBase, basicPay);
+            : ResolveApitRegularBase(apitRegularMonthly, taxableRegular, epfBase, basicPay, skipsProvidentFund);
         if (isBonusBatch && taxableLump <= 0)
             taxableLump = Math.Max(0, totalEarnings);
         resolvedValues["TAXABLE_EARNINGS"] = regularSalary;
         resolvedValues["LUMP_TAXABLE"] = taxableLump;
-        var thisMonthTaxable = isBonusBatch
-            ? Math.Round(taxableLump, 2)
-            : Math.Round(regularSalary + taxableLump, 2);
+        var thisMonthTaxable = skipsProvidentFund
+            ? 0
+            : isBonusBatch
+                ? Math.Round(taxableLump, 2)
+                : Math.Round(regularSalary + taxableLump, 2);
         var taxMode = NormalizeApitTaxMode(employeeTaxMode ?? rates.ApitTaxMode);
-        decimal apitAmount = isBonusBatch
-            ? CalculateBonusApitByMode(regularSalary, taxableLump, taxMode, priorYtd, batch.Month, table02)
-            : CalculateApitByMode(
-                regularSalary, taxableLump, batch.Month, taxMode, priorCumulativeTaxable, confirmedMonths);
+        decimal apitAmount = 0;
+        if (!skipsProvidentFund)
+        {
+            apitAmount = isBonusBatch
+                ? CalculateBonusApitByMode(regularSalary, taxableLump, taxMode, priorYtd, batch.Month, table02)
+                : CalculateApitByMode(
+                    regularSalary, taxableLump, batch.Month, taxMode, priorCumulativeTaxable, confirmedMonths);
+        }
+
         resolvedValues["APIT_AMOUNT"] = apitAmount;
         resolvedValues["APIT"] = apitAmount;
 
-        if (includeStatutory || includeApit)
+        if ((includeStatutory || includeApit) && !skipsProvidentFund)
         {
             // Phase 2: EPF/ETF use applicable-earnings bases; APIT uses Table 01 + Table 02
             decimal epfEmployee = Math.Round(epfBase * rates.EpfEmployeeRate, 2);
@@ -561,7 +588,11 @@ public class PayrollCalculationEngine
                 if (!includeStatutory && !IsApitComponent(comp))
                     continue;
                 decimal amount;
-                if (!string.IsNullOrEmpty(comp.FormulaExpression))
+                if (IsApitComponent(comp))
+                {
+                    amount = apitAmount;
+                }
+                else if (!string.IsNullOrEmpty(comp.FormulaExpression))
                 {
                     amount = EvaluateFormula(comp.FormulaExpression, resolvedValues, rates, comp.RoundResult);
                 }
@@ -572,12 +603,9 @@ public class PayrollCalculationEngine
                         "EPF_EE" => epfEmployee,
                         "EPF_ER" => epfEmployer,
                         "ETF_ER" => etfEmployer,
-                        "APIT" => apitAmount,
                         _ => 0
                     };
                 }
-                if (IsApitComponent(comp) && amount == 0 && apitAmount > 0)
-                    amount = apitAmount;
 
                 resolvedValues[comp.Code] = amount;
 
@@ -620,6 +648,16 @@ public class PayrollCalculationEngine
             ApitTaxable = thisMonthTaxable,
             Lines = lines,
         };
+    }
+
+    internal static EmployeeCompensation? SelectFixedPoyaAssignment(
+        IEnumerable<EmployeeCompensation> empComp,
+        PayrollRates rates)
+    {
+        return empComp.FirstOrDefault(ec =>
+            ec.BatchId == null
+            && PayrollComponentMapping.IsPoyaComponent(
+                ec.Component?.Code, ec.Component?.Name, rates.PoyaComponentCode));
     }
 
     /// <summary>
@@ -724,26 +762,48 @@ public class PayrollCalculationEngine
     }
 
     /// <summary>
-    /// APIT base is the employee's monthly salary (all regular earnings). Falls back to
-    /// taxable / EPF / basic so every employee is assessed, not only Taxable-marked lines.
+    /// Monthly APIT Table 01 base: all regular earnings (Poya/lump already removed), matching
+    /// the Employee Salary tab (<c>monthlySalaryForApit</c>). When nothing is paid yet, fall back
+    /// to taxable-tagged amounts then EPF/basic for legacy catalogs.
     /// </summary>
     internal static decimal ResolveApitRegularBase(
-        decimal regularEarnings, decimal taxableRegular, decimal epfBase, decimal basicPay)
+        decimal regularEarnings,
+        decimal taxableRegular,
+        decimal epfBase,
+        decimal basicPay,
+        bool skipsProvidentFund = false)
     {
         if (regularEarnings > 0)
             return regularEarnings;
+        if (taxableRegular > 0)
+            return taxableRegular;
+        if (skipsProvidentFund)
+            return 0;
+
         return ResolveTaxableBase(taxableRegular, epfBase, basicPay);
+    }
+
+    internal static decimal SumPoyaEarnings(IEnumerable<PayStatementLine> lines, string mappedPoyaCode)
+    {
+        return lines
+            .Where(l => CountsAsEarningLine(l.Type, l.ComponentCode, l.IsEmployerContribution)
+                && PayrollComponentMapping.IsPoyaComponent(l.ComponentCode, l.ComponentName, mappedPoyaCode))
+            .Sum(l => l.Amount);
     }
 
     private static void AccumulateEarningsBases(
         CompensationComponent comp,
         decimal amount,
+        string mappedPoyaCode,
         ref decimal taxableRegular,
         ref decimal taxableLump,
         ref decimal epfEarnings,
         ref decimal etfEarnings)
     {
         if (!CountsAsEarning(comp))
+            return;
+
+        if (PayrollComponentMapping.IsPoyaComponent(comp.Code, comp.Name, mappedPoyaCode))
             return;
 
         if (comp.IsTaxable)
@@ -1088,6 +1148,12 @@ public class PayrollCalculationEngine
     internal static bool IsApitComponent(CompensationComponent comp)
         => string.Equals(comp.Code, "APIT", StringComparison.OrdinalIgnoreCase)
             || string.Equals(comp.Name, "APIT", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Fixed/variable monthly earnings for Table 01 — excludes Poya and one-time (bonus) pay.</summary>
+    internal static bool CountsForApitRegularMonthly(CompensationComponent comp, string mappedPoyaCode)
+        => CountsAsEarning(comp)
+            && comp.Category != ComponentCategory.OneTime
+            && !PayrollComponentMapping.IsPoyaComponent(comp.Code, comp.Name, mappedPoyaCode);
 
     /// <summary>
     /// IRD Tax Table No. 02 month index: April = 1 … March = 12.

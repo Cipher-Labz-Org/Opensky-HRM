@@ -36,7 +36,7 @@ import { EmployeeTimesheetsWidget } from "@/components/employee-profile/Employee
 import {
   type EmploymentTypeCatalogItem,
   employmentTypeDisplayName,
-  employmentTypeOptionsFromCatalog,
+  employmentTypeSelectOptions,
   defaultEmploymentTypeCode,
   isKnownEmploymentTypeCode,
 } from "@/lib/employment-types";
@@ -3537,18 +3537,11 @@ export default function EmployeeDetailPage() {
   const lifecycleRoleHistory = lifecycleTimeline?.roleHistory ?? [];
 
   const jobEmploymentTypeOptions = useMemo(
-    () => employmentTypeOptionsFromCatalog(employmentTypes),
-    [employmentTypes]
+    () => employmentTypeSelectOptions(employmentTypes, emp?.employmentType),
+    [employmentTypes, emp?.employmentType]
   );
 
-  const jobEmploymentTypeSelectOptions = useMemo((): FormSelectOption[] => {
-    const code = emp?.employmentType;
-    const base = jobEmploymentTypeOptions;
-    if (!code || base.some((o) => o.value === code)) return base;
-    const fromCatalog = employmentTypes.find((t) => t.code === code);
-    const label = fromCatalog ? `${fromCatalog.name} (inactive)` : `${employmentTypeDisplayName(employmentTypes, code)} (legacy)`;
-    return [{ value: code, label }, ...base];
-  }, [emp?.employmentType, employmentTypes, jobEmploymentTypeOptions]);
+  const jobEmploymentTypeSelectOptions = jobEmploymentTypeOptions;
 
   const workEmpTypeSelectOptions: FormSelectOption[] = useMemo(
     () => [{ value: "", label: "-- Select --" }, ...jobEmploymentTypeOptions],

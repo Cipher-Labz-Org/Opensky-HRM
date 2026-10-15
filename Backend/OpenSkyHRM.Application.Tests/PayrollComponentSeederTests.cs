@@ -61,6 +61,11 @@ public class PayrollComponentSeederTests
         Assert.True(basic.IsEpfApplicable);
         Assert.True(basic.IsEtfApplicable);
 
+        var poya = await db.CompensationComponents.SingleAsync(c => c.Code == PayrollPoyaComponent.DefaultCode);
+        Assert.False(poya.IsTaxable);
+        Assert.False(poya.IsEpfApplicable);
+        Assert.False(poya.IsEtfApplicable);
+
         var taxMode = await db.SystemSettings.FindAsync("Payroll_APIT_TaxMode");
         Assert.NotNull(taxMode);
         Assert.Equal("Monthly", taxMode.Value);
@@ -152,6 +157,41 @@ public class PayrollComponentSeederTests
         Assert.True(await db.EmployeeCompensations.IgnoreQueryFilters()
             .AnyAsync(ec => ec.ComponentId == basic.Id && ec.IsDeleted));
         Assert.DoesNotContain(await svc.GetComponentsAsync(), c => c.Code == "BASIC");
+    }
+
+    [Fact]
+    public async Task GetComponentsAsync_PreservesUserInactivePoya()
+    {
+        var (db, svc) = CreateSut();
+        await PayrollComponentSeeder.EnsureAsync(db);
+
+        var poya = await db.CompensationComponents.SingleAsync(c => c.Code == PayrollPoyaComponent.DefaultCode);
+        var updated = await svc.UpdateComponentAsync(poya.Id, new OpenSkyHRM.Application.DTOs.Payroll.UpdateComponentDto
+        {
+            Name = poya.Name,
+            Code = poya.Code,
+            Type = poya.Type.ToString(),
+            Category = poya.Category.ToString(),
+            IsTaxable = poya.IsTaxable,
+            IsEpfApplicable = poya.IsEpfApplicable,
+            IsEtfApplicable = poya.IsEtfApplicable,
+            IsStatutory = poya.IsStatutory,
+            Description = poya.Description,
+            FormulaExpression = poya.FormulaExpression,
+            DependsOnComponentCode = poya.DependsOnComponentCode,
+            SortOrder = poya.SortOrder,
+            IsEmployerContribution = poya.IsEmployerContribution,
+            IsActive = false,
+        });
+
+        Assert.NotNull(updated);
+        Assert.False(updated.IsActive);
+
+        db.ChangeTracker.Clear();
+        await PayrollComponentSeeder.EnsureAsync(db);
+        var list = await svc.GetComponentsAsync();
+        var reloaded = Assert.Single(list, c => c.Code == PayrollPoyaComponent.DefaultCode);
+        Assert.False(reloaded.IsActive);
     }
 
     [Fact]

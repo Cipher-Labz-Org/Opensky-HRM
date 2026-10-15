@@ -782,15 +782,23 @@ public class PayrollCalculationEngineTests
     }
 
     [Theory]
-    [InlineData(560_000, 0, 80_000, 50_000, 560_000)]
-    [InlineData(0, 0, 80_000, 50_000, 80_000)]
-    [InlineData(0, 200_000, 80_000, 50_000, 200_000)]
+    [InlineData(560_000, 0, 80_000, 50_000, false, 560_000)]
+    [InlineData(0, 0, 80_000, 50_000, false, 80_000)]
+    [InlineData(0, 200_000, 80_000, 50_000, false, 200_000)]
+    [InlineData(0, 0, 80_000, 50_000, true, 0)]
+    [InlineData(0, 0, 80_000, 200_000, true, 0)]
     public void ResolveApitRegularBase_UsesSalaryForEveryEmployee(
-        decimal regularEarnings, decimal taxableRegular, decimal epfBase, decimal basicPay, decimal expected)
+        decimal regularEarnings,
+        decimal taxableRegular,
+        decimal epfBase,
+        decimal basicPay,
+        bool freelancer,
+        decimal expected)
     {
         Assert.Equal(
             expected,
-            PayrollCalculationEngine.ResolveApitRegularBase(regularEarnings, taxableRegular, epfBase, basicPay));
+            PayrollCalculationEngine.ResolveApitRegularBase(
+                regularEarnings, taxableRegular, epfBase, basicPay, freelancer));
     }
 
     [Theory]
@@ -851,6 +859,24 @@ public class PayrollCalculationEngineTests
         Assert.Equal(
             0m,
             PayrollCalculationEngine.CalculateApitByMode(200_000m, 0, 4, "Annual"));
+    }
+
+    [Theory]
+    [InlineData(60_000, 210_040, 60_000, 60_000, false, 210_040)]
+    [InlineData(150_000, 155_000, 150_000, 80_000, false, 155_000)]
+    [InlineData(0, 155_000, 150_000, 80_000, false, 155_000)]
+    public void ResolveApitRegularBase_UsesFullRegularSalaryWhenPaid(
+        decimal taxableRegular,
+        decimal regularEarnings,
+        decimal epfBase,
+        decimal basicPay,
+        bool freelancer,
+        decimal expected)
+    {
+        Assert.Equal(
+            expected,
+            PayrollCalculationEngine.ResolveApitRegularBase(
+                regularEarnings, taxableRegular, epfBase, basicPay, freelancer));
     }
 
     [Theory]
@@ -924,8 +950,8 @@ public class PayrollPoyaAttendanceTests
     public void ResolveDays_ManualDayCountOverridesAttendance()
     {
         Assert.Equal(1m, PayrollPoyaComponent.ResolveDays(1m, 0.5m));
-        Assert.Equal(0.5m, PayrollPoyaComponent.ResolveDays(null, 0.5m));
-        Assert.Equal(0.5m, PayrollPoyaComponent.ResolveDays(30_000m, 0.5m));
+        Assert.Equal(0m, PayrollPoyaComponent.ResolveDays(null, 0.5m));
+        Assert.Equal(0m, PayrollPoyaComponent.ResolveDays(30_000m, 0.5m));
     }
 }
 
