@@ -3821,7 +3821,6 @@ const DEFAULT_SHOP_OFFICE_ANNUAL_NARRATIVE = {
     "Permanent for annual leave from Date of permanency, or the day after Probation end date, or from join if employment type is not probation (e.g. Full-Time Permanent).",
     "First eligible calendar year after join (and from permanent year): pro-rated by original join quarter — Jan–Mar 14d, Apr–Jun 10d, Jul–Sep 7d, Oct–Dec 4d",
     "Following calendar years: 14 days per year",
-    "Usage: minimum 7 consecutive calendar days per application",
   ],
 } as const;
 

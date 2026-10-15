@@ -232,15 +232,6 @@ public class LeaveService : ILeaveService
         if (!isSickLeave)
             medicalCertificateUrl = null;
 
-        if (string.Equals(leaveType.Code, "LT-ANN", StringComparison.OrdinalIgnoreCase))
-        {
-            var start = dto.StartDate.Date;
-            var end = dto.EndDate.Date;
-            var calendarSpanDays = (end - start).TotalDays + 1;
-            if (calendarSpanDays < 7 || totalDays < 7)
-                throw new InvalidOperationException("Annual leave must be at least 7 consecutive calendar days with at least 7 leave days (Shop & Office Act).");
-        }
-
         var skipEntireBalanceCheck =
             string.Equals(leaveType.Code, "LT-NPL", StringComparison.OrdinalIgnoreCase)
             || LeaveDurationRules.IsShortLeaveType(leaveType.Code, leaveType.AllowShortLeave);
