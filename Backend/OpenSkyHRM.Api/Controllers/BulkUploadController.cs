@@ -506,8 +506,7 @@ public partial class BulkUploadController : ControllerBase
                 continue;
             }
 
-            var personalEmailCol = Cell(row, "Personal Email");
-            var resolvedEmail = ResolveEmployeeWorkEmail(emailWork, personalEmailCol, empCode!);
+            var resolvedEmail = NormalizeImportEmail(emailWork);
 
             if (!string.IsNullOrEmpty(mgrCodeRaw) && mgrCodeRaw.Equals(empCode, StringComparison.OrdinalIgnoreCase))
             {
@@ -1155,13 +1154,6 @@ public partial class BulkUploadController : ControllerBase
 
     private static DateTime? ToImportWallDate(DateTime? value) =>
         value is DateTime dt ? ToImportWallDate(dt) : null;
-
-    private static string? ResolveEmployeeWorkEmail(string? workEmail, string? personalEmail, string employeeCode)
-    {
-        var work = NormalizeImportEmail(workEmail);
-        if (work != null) return work;
-        return NormalizeImportEmail(personalEmail);
-    }
 
     /// <summary>Treat Excel placeholders and non-email text as empty so import does not store "-" or "#N/A" as work email.</summary>
     private static string? NormalizeImportEmail(string? value)

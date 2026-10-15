@@ -8,6 +8,7 @@ namespace OpenSkyHRM.Persistence.Seeders;
 public static class OrganizationSeeder
 {
     private const string PlaceholderWorkEmailDomain = "@employee.noemail.opensky.hrm";
+    private const string LegacyImportPlaceholderDomain = "@import.openskyhrm.local";
     public static async Task SeedAsync(AppDbContext context)
     {
         if (!await context.Departments.AnyAsync())
@@ -22,7 +23,9 @@ public static class OrganizationSeeder
     public static async Task RepairNullEmployeeEmailsAsync(AppDbContext context)
     {
         var placeholders = await context.Employees
-            .Where(e => e.Email != null && EF.Functions.ILike(e.Email, $"%{PlaceholderWorkEmailDomain}%"))
+            .Where(e => e.Email != null
+                && (EF.Functions.ILike(e.Email, $"%{PlaceholderWorkEmailDomain}%")
+                    || EF.Functions.ILike(e.Email, $"%{LegacyImportPlaceholderDomain}")))
             .ToListAsync();
 
         if (placeholders.Count == 0)
