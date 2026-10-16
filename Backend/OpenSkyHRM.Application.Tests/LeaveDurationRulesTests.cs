@@ -132,4 +132,17 @@ public class LeaveDurationRulesTests
     {
         LeaveDurationRules.EnsureWithinMinMax(0.5m, minDays: null, maxDays: 3m);
     }
+
+    [Fact]
+    public void HalfDay_IsAllowedWhenMinimumIsOneFullDay()
+    {
+        LeaveDurationRules.EnsureWithinMinMax(0.5m, minDays: 1m, maxDays: 7m, LeaveDurationKinds.HalfDay);
+    }
+
+    [Fact]
+    public void FullDay_StillRejectsBelowMinimum()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            LeaveDurationRules.EnsureWithinMinMax(1m, minDays: 2m, maxDays: 7m, LeaveDurationKinds.FullDay));
+    }
 }

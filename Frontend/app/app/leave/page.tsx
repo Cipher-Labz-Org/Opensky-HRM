@@ -1478,7 +1478,7 @@ function ApplyLeaveTab({ isEmployeeView, currentEmployeeId }: { isEmployeeView: 
     } else {
       const minDays = selectedLeaveType?.minDays != null && selectedLeaveType.minDays > 0 ? selectedLeaveType.minDays : null;
       const maxDays = selectedLeaveType?.maxDays != null && selectedLeaveType.maxDays > 0 ? selectedLeaveType.maxDays : null;
-      if (minDays != null && totalDays < minDays) {
+      if (durationKind !== "HalfDay" && minDays != null && totalDays < minDays) {
         setMessage({
           type: "err",
           text: `This leave type requires at least ${formatLeaveDays(minDays)} day(s). Requested: ${formatLeaveDays(totalDays)}.`,

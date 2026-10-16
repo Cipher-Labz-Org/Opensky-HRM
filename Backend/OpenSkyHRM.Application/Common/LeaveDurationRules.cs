@@ -207,9 +207,12 @@ public static class LeaveDurationRules
             throw new InvalidOperationException("Minimum days cannot be greater than maximum days.");
     }
 
-    public static void EnsureWithinMinMax(decimal totalDays, decimal? minDays, decimal? maxDays)
+    public static void EnsureWithinMinMax(decimal totalDays, decimal? minDays, decimal? maxDays, string? durationKind = null)
     {
-        if (minDays.HasValue && totalDays < minDays.Value)
+        // Half day is a fixed 0.5-day request. The minimum applies to full-day spans only,
+        // otherwise a type that allows half day and also has a 1-day minimum can never be used for half day.
+        var skipMinimum = string.Equals(durationKind, LeaveDurationKinds.HalfDay, StringComparison.OrdinalIgnoreCase);
+        if (!skipMinimum && minDays.HasValue && totalDays < minDays.Value)
             throw new InvalidOperationException($"This leave type requires at least {minDays.Value:0.##} day(s). Requested: {totalDays:0.##}.");
         if (maxDays.HasValue && totalDays > maxDays.Value)
             throw new InvalidOperationException($"This leave type allows at most {maxDays.Value:0.##} day(s) per request. Requested: {totalDays:0.##}.");

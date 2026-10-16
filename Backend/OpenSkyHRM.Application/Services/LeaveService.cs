@@ -222,7 +222,7 @@ public class LeaveService : ILeaveService
                 throw new InvalidOperationException("Select start and end times for short leave.");
         }
         else
-            LeaveDurationRules.EnsureWithinMinMax(totalDays, leaveType.MinDays, leaveType.MaxDays);
+            LeaveDurationRules.EnsureWithinMinMax(totalDays, leaveType.MinDays, leaveType.MaxDays, durationKind);
 
         var isSickLeave = string.Equals(leaveType.Code, "LT-SIC", StringComparison.OrdinalIgnoreCase);
         var sickLeaveRequiresMedicalPdf = isSickLeave && totalDays > 2;
