@@ -9,19 +9,17 @@ import { resolveAssetUrl } from "@/config/constants";
 import { contextualHelpGuideHref } from "@/lib/help-topics";
 import { HeaderCalendarPopover } from "@/components/navigation/HeaderCalendarPopover";
 import { HeaderPunchControl } from "@/components/navigation/HeaderPunchControl";
+import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { apiFetch } from "@/lib/api";
 import { isVisibleHeaderNotification, shouldMarkReadFromHeader } from "@/lib/notification-visibility";
-import { OPENSKY_THEME } from "@/lib/opensky-theme";
-
-const T = OPENSKY_THEME;
 
 const iconStroke = 1.75;
 
-const iconBtn =
-  "app-header-icon-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--action)]/30";
+/** Glass command-bar icon button (see `.osky-ib` in globals.css). */
+const iconBtn = "osky-ib";
 
 function Divider() {
-  return <span className="mx-1.5 hidden h-5 w-px shrink-0 sm:block" style={{ backgroundColor: T.border }} aria-hidden />;
+  return <span className="osky-divider hidden sm:block" aria-hidden />;
 }
 
 export type AppGlobalHeaderUser = {
@@ -263,13 +261,12 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
   const helpIconHref = contextualHelpGuideHref(pathname, user.licensedModules);
 
   return (
-    <header
-      className="app-global-header sticky top-0 z-[45] flex h-[60px] shrink-0 items-center justify-end border-b px-4 sm:px-6"
-      role="banner"
-    >
+    <header className="osky-bar" role="banner">
+      <span className="osky-grow" aria-hidden />
       <div className="flex items-center gap-0.5 sm:gap-1">
         <HeaderPunchControl employeeId={user.employeeId} licensedModules={user.licensedModules} />
         <HeaderCalendarPopover iconBtnClass={iconBtn} iconStroke={iconStroke} />
+        <ThemeToggle />
 
         <Popover.Root open={notifOpen} onOpenChange={setNotifOpen}>
           <Popover.Trigger asChild>
@@ -287,12 +284,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                 />
               </svg>
               {notifUnread > 0 ? (
-                <span
-                  className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full px-0.5 text-[10px] font-bold leading-none text-white"
-                  style={{ backgroundColor: T.accent }}
-                >
-                  {notifUnread > 99 ? "99+" : notifUnread}
-                </span>
+                <span className="osky-badge">{notifUnread > 99 ? "99+" : notifUnread}</span>
               ) : null}
             </button>
           </Popover.Trigger>
@@ -455,12 +447,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
 
         <Popover.Root open={langOpen} onOpenChange={setLangOpen}>
           <Popover.Trigger asChild>
-            <button
-              type="button"
-              className="rounded-lg px-2.5 py-1.5 text-sm font-bold tracking-wide outline-none transition hover:bg-[var(--action-soft)] focus-visible:ring-2 focus-visible:ring-[var(--action)]/30"
-              style={{ color: T.navy }}
-              aria-label="Language"
-            >
+            <button type="button" className="osky-lang" aria-label="Language">
               EN
             </button>
           </Popover.Trigger>
@@ -482,30 +469,16 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
 
         <Popover.Root open={accountOpen} onOpenChange={setAccountOpen}>
           <Popover.Trigger asChild>
-            <button
-              type="button"
-              className="flex max-w-[220px] items-center gap-2 rounded-lg py-1.5 pl-2 pr-1 text-left outline-none transition hover:bg-[var(--action-soft)] focus-visible:ring-2 focus-visible:ring-[var(--action)]/30"
-              aria-label="Account menu"
-            >
+            <button type="button" className="osky-ubtn" aria-label="Account menu">
               {user.profileImageUrl ? (
-                <img
-                  src={resolveAssetUrl(user.profileImageUrl) ?? ""}
-                  alt=""
-                  className="h-8 w-8 shrink-0 rounded-full object-cover"
-                  style={{ boxShadow: `0 0 0 1px ${T.border}` }}
-                />
-              ) : (
-                <span
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
-                  style={{ backgroundColor: T.actionSoft, color: T.navy }}
-                >
-                  {initials}
+                <span className="osky-av">
+                  <img src={resolveAssetUrl(user.profileImageUrl) ?? ""} alt="" />
                 </span>
+              ) : (
+                <span className="osky-av">{initials}</span>
               )}
-              <span className="truncate text-sm font-medium" style={{ color: T.navy }}>
-                {displayName}
-              </span>
-              <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" style={{ color: T.muted }} aria-hidden>
+              <span className="hidden truncate sm:inline">{displayName}</span>
+              <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" style={{ color: "var(--ink-3)" }} aria-hidden>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </button>

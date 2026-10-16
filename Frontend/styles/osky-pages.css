@@ -1,0 +1,369 @@
+/* Page kit for every module inside the aurora shell.
+   Visual language from the OpenSky HRM dashboard concept.
+   Module markup, routes, and data stay as they are. */
+
+.osky-shell .app-shell-canvas {
+  color: var(--ink);
+  font-family: var(--body);
+}
+
+.osky-shell .app-shell-canvas :is(h1, h2, h3, h4) {
+  font-family: var(--display);
+  color: var(--ink);
+  letter-spacing: -0.03em;
+}
+
+/* ---------- page head (AppTopbar + shared headers) ---------- */
+.osky-phead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 4px;
+  margin-bottom: 18px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.osky-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--body);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.osky-eyebrow i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 4px rgba(123, 191, 60, 0.2);
+  animation: osky-ping 2.6s ease-out infinite;
+}
+@keyframes osky-ping {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(123, 191, 60, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(123, 191, 60, 0);
+  }
+}
+.osky-phead h1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 7px 0 0;
+  color: var(--ink);
+}
+
+/* ---------- KPI strip ---------- */
+.osky-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.osky-stat {
+  position: relative;
+  padding: 16px 17px 17px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--glass);
+  backdrop-filter: blur(26px) saturate(165%);
+  -webkit-backdrop-filter: blur(26px) saturate(165%);
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-xl, 22px);
+  box-shadow: var(--glass-shadow);
+}
+.osky-stat .osky-sl {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+.osky-stat .osky-sv {
+  display: block;
+  margin-top: 12px;
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.osky-stat .osky-ssub {
+  margin-top: 9px;
+  font-size: 11px;
+  color: var(--ink-3);
+  line-height: 1.45;
+}
+@media (max-width: 1100px) {
+  .osky-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .osky-strip {
+    grid-template-columns: 1fr;
+  }
+  .osky-phead h1 {
+    font-size: 23px;
+  }
+}
+
+/* ---------- glass surfaces on existing module cards ---------- */
+.osky-shell .app-shell-canvas :is(.hris-card, .opensky-dashboard-card),
+.osky-shell .app-shell-canvas [class*="bg-[var(--panel)]"],
+.osky-shell .app-shell-canvas :is(.rounded-2xl, .rounded-3xl, .rounded-xl).bg-white,
+.osky-shell .app-shell-canvas :is(.rounded-2xl, .rounded-xl)[class*="bg-white"],
+.osky-shell .app-shell-canvas :is(.rounded-2xl, .rounded-xl).bg-slate-50,
+.osky-shell .app-shell-canvas :is(.rounded-2xl, .rounded-xl)[class*="bg-slate-50"] {
+  background: var(--glass) !important;
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border-color: var(--glass-line) !important;
+  box-shadow: var(--glass-shadow) !important;
+  color: var(--ink);
+}
+.osky-shell .app-shell-canvas :is(.rounded-2xl, .rounded-3xl).bg-white,
+.osky-shell .app-shell-canvas :is(.rounded-2xl, .rounded-3xl)[class*="bg-white"],
+.osky-shell .app-shell-canvas .hris-card,
+.osky-shell .app-shell-canvas .opensky-dashboard-card {
+  border-radius: 22px !important;
+}
+
+/* Secondary actions stay pill-sized glass buttons, not full cards. */
+.osky-shell .app-shell-canvas :is(button, a).bg-white,
+.osky-shell .app-shell-canvas :is(button, a)[class*="bg-white"] {
+  background: var(--glass) !important;
+  border-color: var(--glass-line) !important;
+  color: var(--ink);
+  border-radius: 14px !important;
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px);
+}
+.osky-shell .app-shell-canvas :is(button, a).rounded-full {
+  border-radius: 999px !important;
+}
+
+/* ---------- type ---------- */
+.osky-shell .app-shell-canvas :is(
+  .text-slate-900,
+  .text-slate-800,
+  .text-slate-700,
+  .text-neutral-900,
+  .text-neutral-800
+) {
+  color: var(--ink);
+}
+.osky-shell .app-shell-canvas :is(
+  .text-slate-600,
+  .text-slate-500,
+  .text-slate-400,
+  .text-neutral-600,
+  .text-neutral-500
+) {
+  color: var(--ink-2);
+}
+
+/* ---------- primary actions → navy ---------- */
+.osky-shell .app-shell-canvas :is(
+  button,
+  a
+):is(
+  .bg-blue-600,
+  .bg-blue-700,
+  .bg-sky-600,
+  .bg-sky-700,
+  [class*="bg-[#2B7DE9]"],
+  [class*="bg-[#2E7BBF]"],
+  [class*="bg-[#28A9E0]"],
+  [class*="bg-[#1e3a8a]"],
+  [class*="bg-[#1E3A8A]"]
+) {
+  background: var(--navy) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  border-radius: 14px !important;
+  box-shadow: 0 5px 14px -8px rgba(10, 35, 71, 0.5) !important;
+}
+:root[data-theme="dark"] .osky-shell .app-shell-canvas :is(button, a):is(
+  .bg-blue-600,
+  .bg-blue-700,
+  .bg-sky-600,
+  .bg-sky-700,
+  [class*="bg-[#2B7DE9]"],
+  [class*="bg-[#2E7BBF]"],
+  [class*="bg-[#28A9E0]"],
+  [class*="bg-[#1e3a8a]"],
+  [class*="bg-[#1E3A8A]"]
+) {
+  background: var(--ramp-4) !important;
+}
+
+/* ---------- fields ---------- */
+.osky-shell .app-shell-canvas input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]),
+.osky-shell .app-shell-canvas select,
+.osky-shell .app-shell-canvas textarea {
+  background: var(--field);
+  color: var(--ink);
+  border-color: var(--rule);
+  border-radius: 12px;
+}
+.osky-shell .app-shell-canvas input::placeholder,
+.osky-shell .app-shell-canvas textarea::placeholder {
+  color: var(--ink-3);
+}
+.osky-shell .app-shell-canvas :is(input, select, textarea):focus {
+  border-color: var(--sky);
+  box-shadow: 0 0 0 4px rgba(4, 151, 216, 0.14);
+  outline: none;
+}
+
+/* ---------- tables ---------- */
+.osky-shell .app-shell-canvas table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.osky-shell .app-shell-canvas thead th {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3) !important;
+  background: var(--well);
+  border-bottom: 1px solid var(--rule);
+}
+.osky-shell .app-shell-canvas tbody td {
+  border-bottom-color: var(--rule);
+  color: var(--ink);
+}
+.osky-shell .app-shell-canvas tbody tr:hover {
+  background: var(--well);
+}
+
+/* ---------- command-bar punch clock ---------- */
+.osky-punch {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-right: 4px;
+  padding: 6px 7px;
+  border-radius: 15px;
+  background: var(--well);
+  border: 1px solid var(--rule);
+  max-width: none;
+}
+.osky-punch .ci {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: #fff;
+  background: var(--ramp-3);
+}
+.osky-punch .ci svg {
+  width: 15px;
+  height: 15px;
+}
+.osky-punch.on .ci {
+  background: var(--lime);
+}
+.osky-punch .ctx {
+  display: block;
+  min-width: 168px;
+}
+.osky-punch .t {
+  display: block;
+  font-family: var(--display);
+  font-size: 15.5px;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.osky-punch .s {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.osky-punch.on .s {
+  color: #4a8716;
+}
+:root[data-theme="dark"] .osky-punch.on .s {
+  color: var(--lime);
+}
+.osky-sw {
+  width: 46px;
+  height: 25px;
+  border-radius: 99px;
+  background: var(--well);
+  border: 1px solid var(--rule);
+  position: relative;
+  flex: none;
+  padding: 0;
+  transition: background 0.25s, border-color 0.25s;
+}
+.osky-sw::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.osky-sw[aria-pressed="true"] {
+  background: var(--lime);
+  border-color: transparent;
+}
+.osky-sw[aria-pressed="true"]::after {
+  transform: translateX(21px);
+}
+.osky-sw:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+@media (max-width: 720px) {
+  .osky-punch .ctx {
+    display: none;
+  }
+}
+
+/* Modals render on document.body, outside the shell canvas. */
+.osky-modal-overlay {
+  background: rgba(7, 24, 47, 0.45) !important;
+}
+.osky-modal-shell {
+  background: var(--glass, rgba(255, 255, 255, 0.94)) !important;
+  backdrop-filter: blur(26px) saturate(165%);
+  -webkit-backdrop-filter: blur(26px) saturate(165%);
+  border-color: var(--glass-line, rgba(255, 255, 255, 0.85)) !important;
+  border-radius: 22px !important;
+  box-shadow: var(--glass-shadow, 0 24px 60px -24px rgba(7, 24, 47, 0.45)) !important;
+  color: var(--ink, #07182f);
+}
+:root[data-theme="dark"] .osky-modal-shell {
+  background: rgba(17, 31, 52, 0.94) !important;
+  color: #eaf2fc;
+}

@@ -16,16 +16,15 @@ export function Button({
   ...props
 }: ButtonProps) {
   const base =
-    "inline-flex min-h-[42px] items-center justify-center rounded-lg px-5 py-2.5 text-sm font-semibold tracking-tight " +
+    "inline-flex min-h-[42px] items-center justify-center gap-2 rounded-[14px] px-[17px] py-[11px] text-[13px] font-semibold tracking-tight " +
     "transition-all duration-200 ease-out " +
-    "shadow-sm shadow-slate-900/[0.04] " +
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BBF]/30 focus-visible:ring-offset-2 " +
-    "disabled:pointer-events-none disabled:opacity-45 active:scale-[0.98]";
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0497D8]/40 focus-visible:ring-offset-2 " +
+    "disabled:pointer-events-none disabled:opacity-45";
 
   const styles =
     variant === "primary"
-      ? "border border-[#2E7BBF] bg-[#2E7BBF] text-white hover:border-[#256aa3] hover:bg-[#256aa3] hover:shadow-md hover:shadow-[#2E7BBF]/18"
-      : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow";
+      ? "border border-transparent bg-[#0A2347] text-white shadow-[0_5px_14px_-8px_rgba(10,35,71,0.5)] hover:bg-[#11427F]"
+      : "border border-white/80 bg-white/80 text-[#07182F] shadow-[0_1px_1px_rgba(7,24,47,0.04),0_10px_30px_-14px_rgba(7,24,47,0.28)] hover:-translate-y-0.5 hover:shadow-[0_2px_4px_rgba(7,24,47,0.06),0_26px_50px_-20px_rgba(7,24,47,0.4)]";
 
   return (
     <button type="button" className={`${base} ${styles} ${className}`} {...props}>

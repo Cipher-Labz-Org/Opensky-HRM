@@ -62,6 +62,7 @@ export function HeaderPunchControl({ employeeId, licensedModules }: HeaderPunchC
   const [optimisticOn, setOptimisticOn] = React.useState<boolean | null>(null);
   const [punching, setPunching] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [now, setNow] = React.useState(() => new Date());
 
   const canPunch = Boolean(employeeId);
   const serverOn = isCheckedIn(records);
@@ -119,43 +120,54 @@ export function HeaderPunchControl({ employeeId, licensedModules }: HeaderPunchC
     }
   }
 
+  React.useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   if (!isAttendanceLicensed(licensedModules)) return null;
 
-  const label = checkedIn ? "Punch out" : "Punch in";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const clock = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const openShift = records.find((r) => r.punchIn && !r.punchOut);
+  let state: string;
+  if (checkedIn && openShift?.punchIn) {
+    const secs = Math.max(0, Math.floor((now.getTime() - new Date(openShift.punchIn).getTime()) / 1000));
+    state = `On shift · ${pad(Math.floor(secs / 3600))}:${pad(Math.floor(secs / 60) % 60)}`;
+  } else if (checkedIn) {
+    state = "On shift";
+  } else {
+    state = `${now.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })} · Not clocked in`;
+  }
+
   const hint = canPunch
-    ? label
+    ? checkedIn
+      ? "Punch out"
+      : "Punch in"
     : "Link this login to an employee in User Management to punch.";
 
   return (
-    <div className="mx-1 flex max-w-[14rem] flex-col items-end">
-      <div
-        className="flex items-center gap-2 rounded-full border px-2.5 py-1"
-        style={{ borderColor: "#D4DEE8", opacity: canPunch ? 1 : 0.55 }}
-        title={hint}
-      >
-        <span className="whitespace-nowrap text-[13px] font-semibold" style={{ color: "#081F3E" }}>
-          {label}
+    <div className="flex flex-col items-end" style={{ opacity: canPunch ? 1 : 0.6 }}>
+      <div className={`osky-punch${checkedIn ? " on" : ""}`} title={hint}>
+        <span className="ci" aria-hidden>
+          <svg fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8" />
+            <path strokeLinecap="round" d="M12 8v4.5l3 1.5" />
+          </svg>
+        </span>
+        <span className="ctx">
+          <span className="t">{clock}</span>
+          <span className="s">{state}</span>
         </span>
         <button
           type="button"
-          role="switch"
-          aria-checked={checkedIn}
+          className="osky-sw"
+          aria-pressed={checkedIn}
           aria-label={hint}
           title={hint}
           disabled={!canPunch || punching}
           onClick={() => void punch()}
-          className="relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border outline-none transition-colors duration-200 ease-in-out focus-visible:ring-2 focus-visible:ring-[var(--action)]/30 disabled:cursor-not-allowed"
-          style={{
-            backgroundColor: checkedIn ? "#76D62A" : "#C4C4C4",
-            borderColor: checkedIn ? "#5BB21F" : "#A3A3A3",
-          }}
-        >
-          <span
-            className={`pointer-events-none inline-block h-[22px] w-[22px] rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out ${
-              checkedIn ? "translate-x-[26px]" : "translate-x-[3px]"
-            }`}
-          />
-        </button>
+        />
       </div>
       {error ? (
         <p className="mt-0.5 max-w-[11rem] truncate text-[10px] leading-tight text-red-600" title={error}>
