@@ -1762,7 +1762,7 @@ function EmployeeSalaryTab() {
           ) : (
             filtered.map((emp, idx) => {
               const selected = selectedEmp?.id === emp.id;
-              const highlighted = employeeSearch.trim() && idx === highlightIdx;
+              const highlighted = employeeSearch.trim().length > 0 && idx === highlightIdx;
               return (
                 <button
                   key={emp.id}
