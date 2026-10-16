@@ -25,6 +25,7 @@ public static class DbSeeder
             }
 
             await OrganizationSeeder.SeedAsync(context);
+            await EmploymentStatusTypeSeeder.EnsureCatalogAsync(context);
             await LeaveSeeder.SeedAsync(context);
             await LeaveSeeder.EnsureCatalogLeaveTypesAsync(context);
             await DocumentTemplateSeeder.SeedAsync(context);

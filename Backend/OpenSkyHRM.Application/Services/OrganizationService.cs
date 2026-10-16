@@ -3,6 +3,7 @@ using OpenSkyHRM.Application.DTOs.Organization;
 using OpenSkyHRM.Application.Interfaces;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
+using OpenSkyHRM.Persistence.Seeders;
 
 namespace OpenSkyHRM.Application.Services;
 
@@ -511,6 +512,7 @@ public class OrganizationService : IOrganizationService
 
     public async Task<List<EmploymentStatusTypeDto>> GetEmploymentStatusTypesAsync()
     {
+        await EmploymentStatusTypeSeeder.EnsureCatalogAsync(_db);
         return await _db.EmploymentStatusTypes
             .Where(s => !s.IsDeleted)
             .OrderBy(s => s.SortOrder).ThenBy(s => s.Name)

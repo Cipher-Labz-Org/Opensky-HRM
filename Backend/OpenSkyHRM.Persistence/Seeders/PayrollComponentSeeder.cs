@@ -44,8 +44,8 @@ public static class PayrollComponentSeeder
         new("Attendance Allowance", "ATTEND", ComponentType.Earning, ComponentCategory.Fixed, 70,
             "Allowance for full attendance in the month", IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true),
         new("Poya Day Pay", PayrollPoyaComponent.DefaultCode, ComponentType.Earning, ComponentCategory.Fixed, 15,
-            "Pay for days worked on a Poya holiday (Basic ÷ 30 × Poya days)",
-            IsTaxable: true, IsEpfApplicable: true, IsEtfApplicable: true,
+            "Pay for days worked on a Poya holiday (Basic ÷ 30 × Poya days); paid but not in EPF/ETF or monthly APIT Table 01 base",
+            IsTaxable: false, IsEpfApplicable: false, IsEtfApplicable: false,
             FormulaExpression: PayrollPoyaComponent.FormulaExpression,
             DependsOnComponentCode: PayrollPoyaComponent.DependsOnComponentCode),
 
@@ -143,10 +143,9 @@ public static class PayrollComponentSeeder
 
         foreach (var component in existing.Where(c => !c.IsDeleted && PayrollPoyaComponent.IsMatch(c.Code, c.Name)))
         {
-            component.IsActive = true;
+            // Keep formula metadata in sync only — never overwrite IsActive / taxable / EPF flags from the UI.
             component.FormulaExpression = PayrollPoyaComponent.FormulaExpression;
             component.DependsOnComponentCode = PayrollPoyaComponent.DependsOnComponentCode;
-            component.IsTaxable = true;
         }
         await EnsureDefaultSettingsAsync(context, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);

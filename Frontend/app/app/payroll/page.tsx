@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { DatePickerField, FormSelect, TablePagination, FlashMessageBanner, FormErrorAlert, InlinePageAlert, SectionErrorBoundary, type FormSelectOption } from "@/components/ui";
 import { useClientPagination } from "@/lib/use-client-pagination";
 import { useApplyFilter } from "@/lib/use-apply-filter";
+import { sanitizeSearchInput } from "@/lib/input-validation";
 import { printPayslip } from "@/lib/payslip-print";
 import { bankSlipFormatFor, bankSlipFormatLabel } from "@/lib/bank-slip-formats";
 import {
@@ -53,6 +54,11 @@ import {
 } from "@/lib/generic-bank-salary-excel";
 import { evaluatePayrollFormula, formulaInputComponentCodes } from "@/lib/payroll-formula";
 import { setComponentRoundResult, shouldRoundComponent } from "@/lib/payroll-component-round";
+import {
+  type EmploymentTypeCatalogItem,
+  employeeSkipsProvidentFund,
+  isFreelanceExcludedStatutoryLine,
+} from "@/lib/employment-types";
 
 interface Component {
   id: string; name: string; code: string; type: string; category: string;
@@ -88,7 +94,7 @@ interface StatementLine {
 
 interface Statement {
   id: string; batchId: string; employeeId: string; employeeName: string;
-  employeeCode?: string; department?: string; month: number; year: number;
+  employeeCode?: string; department?: string; employmentType?: string; month: number; year: number;
   basicPay: number; totalEarnings: number; totalDeductions: number;
   grossPay: number; netPay: number; employerCost: number; status: string;
   lines?: StatementLine[];
@@ -487,6 +493,20 @@ function resolveTaxableBase(taxableRegular: number, epfBase: number, basicPay: n
   return basicPay;
 }
 
+/** Matches backend ResolveApitRegularBase (Table 01 monthly profits). */
+function resolveApitRegularBase(
+  regularEarnings: number,
+  taxableRegular: number,
+  epfBase: number,
+  basicPay: number,
+  skipsProvidentFund: boolean
+): number {
+  if (regularEarnings > 0) return regularEarnings;
+  if (taxableRegular > 0) return taxableRegular;
+  if (skipsProvidentFund) return 0;
+  return resolveTaxableBase(taxableRegular, epfBase, basicPay);
+}
+
 function calcApit(regularTaxable: number, lumpTaxable: number): number {
   const table01 = calcApitTable01(regularTaxable);
   if (lumpTaxable <= 0) return table01;
@@ -701,13 +721,20 @@ function calcApitByMode(
   }
 }
 
+function isEpfEtfStatutoryCode(code: string) {
+  const c = code.toUpperCase();
+  return c === "EPF_EE" || c === "EPF_ER" || c === "ETF_ER";
+}
+
 function calcStatutoryAmount(
   def: Component,
   epfBase: number,
   etfBase: number,
   apitAmount: number,
-  settings: Settings | null
+  settings: Settings | null,
+  skipEpfEtf = false
 ): number {
+  if (skipEpfEtf && isEpfEtfStatutoryCode(def.code)) return 0;
   switch (def.code.toUpperCase()) {
     case "EPF_EE":
       return settings && epfBase > 0 ? roundMoney(epfBase * settings.epfEmployeeRate) : 0;
@@ -1317,6 +1344,7 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
   const [compType, setCompType] = useState(editing?.type || "Earning");
   const showEpfEtf = compType === "Earning";
   const [roundResult, setRoundResult] = useState(() => componentRoundsResult(editing));
+  const [isActive, setIsActive] = useState(() => editing?.isActive !== false);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1332,7 +1360,7 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
       sortOrder: Number(fd.get("sortOrder") || 0),
       isEmployerContribution: fd.get("isEmployerContribution") === "true",
       roundResult,
-      isActive: editing ? fd.get("isActive") === "true" : true,
+      isActive: editing ? isActive : true,
     };
     try {
       const saved = editing
@@ -1419,7 +1447,15 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
         <div><label className={labelCls}>Description</label><textarea name="description" className={inputCls} rows={2} defaultValue={editing?.description ?? ""} /></div>
         {editing && (
           <div><label className={labelCls}>Active</label>
-            <FormSelect name="isActive" defaultValue={String(editing.isActive)} options={ACTIVE_STATUS_OPTS} placeholder="—" />
+            <FormSelect
+              name="isActive"
+              value={isActive ? "true" : "false"}
+              onValueChange={(v) => setIsActive(v === "true")}
+              options={ACTIVE_STATUS_OPTS}
+              placeholder="—"
+              clearable={false}
+            />
+            <p className="mt-1 text-xs text-slate-500">Inactive components are skipped on payroll run (e.g. turn off Poya Day Pay).</p>
           </div>
         )}
         <div className="flex justify-end gap-3 pt-2">
@@ -1433,7 +1469,16 @@ function ComponentFormModal({ editing, onClose, onSaved }: { editing: Component 
 
 /* ═══════════════════════ EMPLOYEE SALARY ═══════════════════════ */
 
-interface SalaryEmployee { id: string; firstName: string; lastName: string; employeeCode: string; department: string; grade: string; location: string; }
+interface SalaryEmployee {
+  id: string;
+  firstName: string;
+  lastName: string;
+  employeeCode: string;
+  department: string;
+  grade: string;
+  location: string;
+  employmentType?: string;
+}
 
 function salaryEmployeeDisplayName(e: Pick<SalaryEmployee, "firstName" | "lastName">) {
   return `${e.firstName ?? ""} ${e.lastName ?? ""}`.trim();
@@ -1450,12 +1495,39 @@ function salaryEmployeeMatchesQuery(e: SalaryEmployee, raw: string) {
   );
 }
 
+function batchEmployeeDisplayName(e: Pick<EligibleEmployee, "firstName" | "lastName">) {
+  return salaryEmployeeDisplayName(e);
+}
+
+function batchEmployeeMatchesQuery(e: EligibleEmployee, raw: string) {
+  const q = raw.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    batchEmployeeDisplayName(e).toLowerCase().includes(q) ||
+    textIncludes(e.firstName, q) ||
+    textIncludes(e.lastName, q) ||
+    textIncludes(e.employeeCode, q) ||
+    textIncludes(e.department, q)
+  );
+}
+
+function batchEmployeePassesOrgFilters(
+  e: EligibleEmployee,
+  filterDept: string,
+  filterGrade: string,
+  filterLocation: string
+) {
+  if (filterDept && e.department !== filterDept) return false;
+  if (filterGrade && e.grade !== filterGrade) return false;
+  if (filterLocation && e.location !== filterLocation) return false;
+  return true;
+}
+
 function EmployeeSalaryTab() {
   const [allEmployees, setAllEmployees] = useState<SalaryEmployee[]>([]);
   const [listLoading, setListLoading] = useState(true);
-  const searchFilter = useApplyFilter();
+  const [employeeSearch, setEmployeeSearch] = useState("");
   const searchWrapRef = useRef<HTMLDivElement>(null);
-  const [suggestOpen, setSuggestOpen] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(0);
   const [filterDept, setFilterDept] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
@@ -1470,8 +1542,12 @@ function EmployeeSalaryTab() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [payrollSettings, setPayrollSettings] = useState<Settings | null>(null);
+  const [employmentTypes, setEmploymentTypes] = useState<EmploymentTypeCatalogItem[]>([]);
 
   useEffect(() => {
+    apiFetch<EmploymentTypeCatalogItem[]>("/api/organization/employment-statuses")
+      .then(setEmploymentTypes)
+      .catch(() => setEmploymentTypes([]));
     apiFetch<Component[]>("/api/payroll/components")
       .then((rows) =>
         setComponents(
@@ -1479,7 +1555,9 @@ function EmployeeSalaryTab() {
         )
       )
       .catch(() => {});
-    apiFetch<Settings>("/api/payroll/settings").then(setPayrollSettings).catch(() => {});
+    apiFetch<Settings>("/api/payroll/settings")
+      .then(setPayrollSettings)
+      .catch(() => setPayrollSettings(DEFAULT_PAYROLL_SETTINGS));
     apiFetch<PagedResult<Batch>>("/api/payroll/batches?pageSize=200").then(d => {
       const items = sortBatchesNewestFirst(normalizeBatches(pagedItems(d)));
       setBatches(items);
@@ -1530,7 +1608,7 @@ function EmployeeSalaryTab() {
   const batchEntryCategory =
     selectedBatch?.processType === "Bonus" ? "OneTime" : "Variable";
 
-  const searchQuery = searchFilter.input.trim() || searchFilter.applied;
+  const searchQuery = employeeSearch.trim();
 
   const filtered = useMemo(
     () =>
@@ -1543,23 +1621,23 @@ function EmployeeSalaryTab() {
     [allEmployees, filterDept, filterGrade, filterLocation, searchQuery]
   );
 
-  const suggestions = useMemo(() => {
-    const q = searchFilter.input.trim();
-    if (!q) return [];
-    return allEmployees
-      .filter((e) => {
-        if (filterDept && e.department !== filterDept) return false;
-        if (filterGrade && e.grade !== filterGrade) return false;
-        if (filterLocation && e.location !== filterLocation) return false;
-        return salaryEmployeeMatchesQuery(e, q);
-      })
-      .slice(0, 8);
-  }, [allEmployees, filterDept, filterGrade, filterLocation, searchFilter.input]);
-
   const selectEmployee = useCallback((emp: SalaryEmployee) => {
     setSelectedEmp(emp);
     setCompLoading(true);
     setCompError(null);
+    apiFetch<{ employmentType?: string }>(`/api/employees/${emp.id}`)
+      .then((detail) => {
+        const employmentType = detail.employmentType ?? emp.employmentType;
+        setSelectedEmp((current) =>
+          current?.id === emp.id ? { ...current, employmentType } : current
+        );
+        if (employmentType) {
+          setAllEmployees((list) =>
+            list.map((e) => (e.id === emp.id ? { ...e, employmentType } : e))
+          );
+        }
+      })
+      .catch(() => {});
     apiFetch<EmpComp[]>(`/api/payroll/compensation/${emp.id}`)
       .then(setEmpComp)
       .catch((err: unknown) => {
@@ -1569,25 +1647,17 @@ function EmployeeSalaryTab() {
       .finally(() => setCompLoading(false));
   }, []);
 
-  const pickSuggestion = useCallback((emp: SalaryEmployee) => {
-    searchFilter.setApplied(salaryEmployeeDisplayName(emp));
-    searchFilter.setInput("");
-    setSuggestOpen(false);
-    setHighlightIdx(0);
-    selectEmployee(emp);
-  }, [searchFilter, selectEmployee]);
-
-  useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (!searchWrapRef.current?.contains(e.target as Node)) setSuggestOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
+  const pickFromList = useCallback(
+    (emp: SalaryEmployee) => {
+      setHighlightIdx(0);
+      selectEmployee(emp);
+    },
+    [selectEmployee]
+  );
 
   useEffect(() => {
     setHighlightIdx(0);
-  }, [searchFilter.input]);
+  }, [employeeSearch, filterDept, filterGrade, filterLocation]);
 
   useEffect(() => {
     if (!selectedEmp) return;
@@ -1600,9 +1670,9 @@ function EmployeeSalaryTab() {
   if (listLoading) return <Loading />;
 
   return (
-    <div className="flex flex-col gap-6 lg:flex-row lg:gap-8" style={{ minHeight: 500 }}>
-      {/* Employee list */}
-      <div className="relative z-10 w-full shrink-0 space-y-3 rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/95 to-white p-4 shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] lg:w-[340px]">
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-8">
+      {/* Employee list — stretches with salary panel; results box fills to the bottom */}
+      <div className="relative z-10 flex w-full min-h-[min(28rem,60vh)] shrink-0 flex-col gap-3 rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/95 to-white p-4 shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] lg:sticky lg:top-20 lg:w-[340px] lg:max-h-[calc(100vh-6rem)]">
         <div ref={searchWrapRef} className="relative">
           <input
             id="employee-salary-search"
@@ -1610,29 +1680,23 @@ function EmployeeSalaryTab() {
             autoComplete="off"
             spellCheck={false}
             aria-autocomplete="list"
-            aria-expanded={suggestOpen}
+            aria-controls="employee-salary-search-results"
             className={
               inputCls +
-              " !mb-0 rounded-lg border-slate-200/90 bg-white shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400"
+              " !mb-0 rounded-lg border-slate-200/90 bg-white shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 " +
+              "focus:border-[#2E7BBF] focus:ring-2 focus:ring-[#2E7BBF]/20"
             }
             placeholder="Search name or code…"
-            value={searchFilter.input}
-            onChange={(e) => {
-              searchFilter.setInput(e.target.value);
-              setSuggestOpen(e.target.value.trim().length > 0);
-            }}
-            onFocus={() => {
-              if (searchFilter.input.trim()) setSuggestOpen(true);
-            }}
+            value={employeeSearch}
+            onChange={(e) => setEmployeeSearch(sanitizeSearchInput(e.target.value))}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
-                setSuggestOpen(false);
+                setEmployeeSearch("");
                 return;
               }
               if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setSuggestOpen(true);
-                setHighlightIdx((i) => Math.min(i + 1, Math.max(suggestions.length - 1, 0)));
+                setHighlightIdx((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));
                 return;
               }
               if (e.key === "ArrowUp") {
@@ -1642,46 +1706,10 @@ function EmployeeSalaryTab() {
               }
               if (e.key === "Enter") {
                 e.preventDefault();
-                if (suggestOpen && suggestions[highlightIdx]) {
-                  pickSuggestion(suggestions[highlightIdx]);
-                } else {
-                  searchFilter.apply();
-                  setSuggestOpen(false);
-                }
+                if (filtered[highlightIdx]) pickFromList(filtered[highlightIdx]);
               }
             }}
           />
-          {suggestOpen && searchFilter.input.trim() ? (
-            <ul
-              role="listbox"
-              className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
-            >
-              {suggestions.length === 0 ? (
-                <li className="px-3 py-2.5 text-sm text-slate-400">No matching employees</li>
-              ) : (
-                suggestions.map((emp, idx) => (
-                  <li key={emp.id} role="presentation">
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={idx === highlightIdx}
-                      className={`flex w-full flex-col items-start gap-0.5 px-3 py-2.5 text-left text-sm ${
-                        idx === highlightIdx ? "bg-[#e3eef8]" : "hover:bg-[#e3eef8]"
-                      }`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onMouseEnter={() => setHighlightIdx(idx)}
-                      onClick={() => pickSuggestion(emp)}
-                    >
-                      <span className="font-medium text-slate-800">{salaryEmployeeDisplayName(emp)}</span>
-                      <span className="text-[11px] text-slate-500">
-                        {[emp.employeeCode || null, emp.department || null].filter(Boolean).join(" · ")}
-                      </span>
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
-          ) : null}
         </div>
         <div className="flex min-w-0 gap-2">
           <div className="min-w-0 flex-1">
@@ -1714,50 +1742,61 @@ function EmployeeSalaryTab() {
         </div>
         <div className="flex items-center justify-between gap-2 text-xs font-medium text-slate-500">
           <span>{filtered.length} employee{filtered.length !== 1 ? "s" : ""}</span>
-          {searchFilter.hasApplied && !searchFilter.input.trim() ? (
+          {employeeSearch.trim() ? (
             <button
               type="button"
               className="shrink-0 text-[#2E7BBF] hover:underline"
-              onClick={() => searchFilter.clear()}
+              onClick={() => setEmployeeSearch("")}
             >
               Clear search
             </button>
           ) : null}
         </div>
-        <div className="max-h-[min(70vh,28rem)] overflow-y-auto rounded-xl border border-slate-200/80 bg-white shadow-inner">
+        <div
+          id="employee-salary-search-results"
+          role="listbox"
+          className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-slate-200/80 bg-white shadow-inner"
+        >
           {filtered.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-slate-400">No employees match filters</div>
           ) : (
-            filtered.map((emp) => (
-              <button
-                key={emp.id}
-                type="button"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  selectEmployee(emp);
-                }}
-                className={`flex w-full cursor-pointer items-center gap-2 border-b border-slate-100 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-slate-50/90 active:bg-sky-50/70 ${
-                  selectedEmp?.id === emp.id
-                    ? "border-l-[3px] border-l-[#2E7BBF] bg-sky-50/90 pl-[13px]"
-                    : ""
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold text-slate-900">
-                    {emp.firstName} {emp.lastName}
+            filtered.map((emp, idx) => {
+              const selected = selectedEmp?.id === emp.id;
+              const highlighted = employeeSearch.trim() && idx === highlightIdx;
+              return (
+                <button
+                  key={emp.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected || highlighted}
+                  onPointerDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setHighlightIdx(idx)}
+                  onClick={() => pickFromList(emp)}
+                  className={`flex w-full cursor-pointer items-center gap-2 border-b border-slate-100 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-slate-50/90 active:bg-sky-50/70 ${
+                    selected
+                      ? "border-l-[3px] border-l-[#2E7BBF] bg-sky-50/90 pl-[13px]"
+                      : highlighted
+                        ? "bg-[#e3eef8]"
+                        : ""
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold text-slate-900">
+                      {salaryEmployeeDisplayName(emp)}
+                    </div>
+                    <div className="truncate text-xs text-slate-500">
+                      {[emp.employeeCode || null, emp.department || null].filter(Boolean).join(" · ") || "—"}
+                    </div>
                   </div>
-                  <div className="truncate text-xs text-slate-500">
-                    {emp.employeeCode} · {emp.department || "—"}
-                  </div>
-                </div>
-              </button>
-            ))
+                </button>
+              );
+            })
           )}
         </div>
       </div>
 
       {/* Compensation details */}
-      <div className="min-w-0 flex-1 space-y-5">
+      <div className="min-h-[min(28rem,60vh)] min-w-0 flex-1 space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-0">
           <div className="flex gap-10">
             {(["Fixed", "Variable"] as const).map((t) => (
@@ -1817,6 +1856,8 @@ function EmployeeSalaryTab() {
               key={selectedEmp.id}
               employeeId={selectedEmp.id}
               employeeName={`${selectedEmp.firstName} ${selectedEmp.lastName}`}
+              employmentType={selectedEmp.employmentType}
+              employmentTypes={employmentTypes}
               title={`${selectedEmp.firstName} ${selectedEmp.lastName} — ${selectedEmp.employeeCode}`}
               mode={compTab}
               batchId={compTab === "Variable" ? selectedBatchId : undefined}
@@ -1846,6 +1887,8 @@ function EmployeeSalaryTab() {
 function SalaryComponentsEditor({
   employeeId,
   employeeName,
+  employmentType,
+  employmentTypes,
   title,
   mode,
   batchId,
@@ -1859,6 +1902,8 @@ function SalaryComponentsEditor({
 }: {
   employeeId: string;
   employeeName: string;
+  employmentType?: string;
+  employmentTypes: EmploymentTypeCatalogItem[];
   title: string;
   mode: "Fixed" | "Variable";
   batchId?: string;
@@ -1872,6 +1917,7 @@ function SalaryComponentsEditor({
 }) {
   const batchUsesOneTime = mode === "Variable" && processType === "Bonus";
 
+  const skipsProvidentFund = employeeSkipsProvidentFund(employmentType, employmentTypes);
   const isStatutory = (def: Component) => def.category === "Statutory" || def.isStatutory;
   const isPoya = (def: Component) => {
     const code = def.code.toUpperCase();
@@ -2214,6 +2260,7 @@ function SalaryComponentsEditor({
       !isRateOrQuantityType(d.type)
   );
   const statutoryDefs = definitions.filter((d) => isStatutory(d));
+  const payrollStatutoryDefs = skipsProvidentFund ? [] : statutoryDefs;
 
   function numericAmount(componentId: string): number {
     const draft = draftByComp[componentId];
@@ -2228,7 +2275,18 @@ function SalaryComponentsEditor({
   }
 
   function payAmount(def: Component) {
+    if (isPoya(def)) return poyaPayAmount(def);
     return isAutoFormula(def) ? formulaAmount(def) : numericAmount(def.id);
+  }
+
+  const POYA_DAYS_CAP = 15;
+
+  function poyaPayAmount(def: Component): number {
+    const stored = numericAmount(def.id);
+    if (stored <= 0) return 0;
+    if (stored > POYA_DAYS_CAP) return stored;
+    if (basicSalaryAmount <= 0) return 0;
+    return roundMoney((basicSalaryAmount / 30) * stored);
   }
 
   const epfEarnings = incomeDefs
@@ -2251,33 +2309,50 @@ function SalaryComponentsEditor({
     .filter((d) => d.category !== "OneTime")
     .reduce((s, d) => s + payAmount(d), 0);
   const fixedMonthlySalary = latestPositiveFixedSalary(assignmentsAll);
-  const taxableEarnings = monthlySalaryForApit > 0
-    ? monthlySalaryForApit
-    : resolveTaxableBase(taxableRegularMarked, epfBase, basicSalaryAmount);
+  const taxableEarnings = resolveApitRegularBase(
+    monthlySalaryForApit,
+    taxableRegularMarked,
+    epfBase,
+    basicSalaryAmount,
+    skipsProvidentFund
+  );
   const bonusMonthlyPay = fixedMonthlySalary > 0 ? fixedMonthlySalary : taxableEarnings;
-  const resolvedTaxMode = employeeTaxMode ?? payrollSettings?.apitTaxMode;
-  const apitAmount = batchUsesOneTime
-    ? calcBonusApitByMode(
-        bonusMonthlyPay,
-        taxableLump,
-        batchMonth ?? new Date().getMonth() + 1,
-        resolvedTaxMode
-      )
-    : calcApitByMode(
-        taxableEarnings,
-        taxableLump,
-        new Date().getMonth() + 1,
-        resolvedTaxMode
-      );
-  const hasStatutoryBase = epfBase > 0 || etfBase > 0 || taxableEarnings > 0 || taxableLump > 0;
+  const effectivePayrollSettings = payrollSettings ?? DEFAULT_PAYROLL_SETTINGS;
+  const resolvedTaxMode = employeeTaxMode ?? effectivePayrollSettings.apitTaxMode;
+  const apitAmount = skipsProvidentFund
+    ? 0
+    : batchUsesOneTime
+      ? calcBonusApitByMode(
+          bonusMonthlyPay,
+          taxableLump,
+          batchMonth ?? new Date().getMonth() + 1,
+          resolvedTaxMode
+        )
+      : calcApitByMode(
+          taxableEarnings,
+          taxableLump,
+          new Date().getMonth() + 1,
+          resolvedTaxMode
+        );
+  const hasStatutoryBase =
+    !skipsProvidentFund &&
+    (epfBase > 0 || etfBase > 0 || taxableEarnings > 0 || taxableLump > 0);
 
   function statutoryAmount(def: Component): number {
-    return calcStatutoryAmount(def, epfBase, etfBase, apitAmount, payrollSettings);
+    return calcStatutoryAmount(
+      def,
+      epfBase,
+      etfBase,
+      apitAmount,
+      effectivePayrollSettings,
+      skipsProvidentFund
+    );
   }
 
   function displayAmount(def: Component): number {
     if (isStatutory(def)) return statutoryAmount(def);
     if (isAutoFormula(def)) return formulaAmount(def);
+    if (isPoya(def)) return poyaPayAmount(def);
     return numericAmount(def.id);
   }
 
@@ -2285,8 +2360,8 @@ function SalaryComponentsEditor({
 
   const totalEarnings = incomeDefs.reduce((s, d) => s + displayAmount(d), 0);
   const manualDeductions = manualDeductionDefs.reduce((s, d) => s + numericAmount(d.id), 0);
-  const employeeStatutoryDefs = statutoryDefs.filter((d) => !d.isEmployerContribution);
-  const employerStatutoryDefs = statutoryDefs.filter((d) => d.isEmployerContribution);
+  const employeeStatutoryDefs = payrollStatutoryDefs.filter((d) => !d.isEmployerContribution);
+  const employerStatutoryDefs = payrollStatutoryDefs.filter((d) => d.isEmployerContribution);
   const employeeStatutoryDeductions =
     hasStatutoryBase
       ? employeeStatutoryDefs.reduce((s, d) => s + statutoryAmount(d), 0)
@@ -2296,9 +2371,7 @@ function SalaryComponentsEditor({
     hasStatutoryBase
       ? employerStatutoryDefs.reduce((s, d) => s + statutoryAmount(d), 0)
       : 0;
-  const employeeDeductionDefs = hasStatutoryBase
-    ? [...manualDeductionDefs, ...employeeStatutoryDefs]
-    : manualDeductionDefs;
+  const employeeDeductionDefs = [...manualDeductionDefs, ...employeeStatutoryDefs];
   const deductionDisplayTotal = employeeDeductionDefs.reduce((s, d) => s + displayAmount(d), 0);
 
   function inputDisplay(def: Component): string {
@@ -2346,9 +2419,9 @@ function SalaryComponentsEditor({
                   </div>
                   {isPoya(def) ? (
                     <FormulaInfoTip
-                      text={`Auto on Payroll Run: Basic ÷ 30 × Poya days worked${
+                      text={`Enter Poya days on this row only (not from attendance import). Payroll uses Basic ÷ 30 × days${
                         poyaDayRate > 0 ? ` (LKR ${fmt(poyaDayRate)} per day)` : ""
-                      }. Leave blank to use attendance, or enter 0.5–15 days / a larger LKR amount.`}
+                      }. Use 0.5–15 for days, or a larger LKR amount for a fixed payment. Leave blank for no Poya pay.`}
                     />
                   ) : isAutoFormula(def) && def.formulaExpression ? (
                     <FormulaInfoTip
@@ -2410,7 +2483,7 @@ function SalaryComponentsEditor({
                         void saveAll();
                       }
                     }}
-                    placeholder="—"
+                    placeholder={isPoya(def) ? "Days or LKR — blank = none" : "—"}
                     aria-label={`${def.name} amount`}
                   />
                 )}
@@ -2430,20 +2503,30 @@ function SalaryComponentsEditor({
           {saveButton("shrink-0")}
         </div>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
-          Enter amounts in LKR, then click Save. EPF/ETF use the EPF &amp; ETF mark; APIT uses Taxable earnings (IRD Table 01 monthly, Table 02 on bonus / lump sums).
+          {skipsProvidentFund
+            ? "Freelancer: enter amounts in LKR, then Save. No EPF, ETF, or APIT — statutory deductions are not applied."
+            : "Enter amounts in LKR, then click Save. EPF/ETF use the EPF & ETF mark; APIT uses Taxable earnings (IRD Table 01 monthly, Table 02 on bonus / lump sums)."}
           {dirtyCount > 0 ? (
             <span className="mt-1 block text-sm font-medium text-amber-700">
               You have unsaved changes — pay slips will not match until you click Save.
             </span>
           ) : null}
-          {hasStatutoryBase && payrollSettings ? (
+          {hasStatutoryBase ? (
             <span className="mt-1 block text-xs text-slate-400">
               {employeeName} EPF base: LKR {fmt(epfBase)} · ETF base: LKR {fmt(etfBase)} · APIT
               taxable: LKR {fmt(taxableEarnings)}{taxableLump > 0 ? ` + lump LKR ${fmt(taxableLump)}` : ""} · APIT: LKR {fmt(apitAmount)}
             </span>
+          ) : skipsProvidentFund ? (
+            <span className="mt-1 block text-xs text-slate-400">
+              {employeeName} is a freelancer — net pay equals gross earnings (no statutory auto-deductions).
+            </span>
           ) : (
             <span className="mt-1 block text-xs text-amber-600">
-              Mark earnings as Taxable (APIT) or EPF/ETF on the Components tab to auto-calculate statutory amounts.
+              Enter Basic or other earnings (and mark Taxable / EPF &amp; ETF on the Components tab where needed) to
+              calculate statutory amounts. Rates: EPF employee{" "}
+              {(effectivePayrollSettings.epfEmployeeRate * 100).toFixed(0)}% · EPF employer{" "}
+              {(effectivePayrollSettings.epfEmployerRate * 100).toFixed(0)}% · ETF{" "}
+              {(effectivePayrollSettings.etfEmployerRate * 100).toFixed(0)}% · APIT per IRD tables.
             </span>
           )}
         </p>
@@ -2507,12 +2590,13 @@ function SalaryComponentsEditor({
             </div>
             <div className="max-h-[min(62vh,26rem)] min-h-[14rem] overflow-y-auto overscroll-contain">
               {renderSalaryColumnTable(manualDeductionDefs, "deduction")}
-              {hasStatutoryBase && statutoryDefs.length > 0 ? (
+              {payrollStatutoryDefs.length > 0 ? (
                 <div className="border-t border-slate-200/90 bg-slate-50/50">
                   <div className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Statutory (auto — {employeeName})
+                    Statutory (auto — {employeeName}
+                    {skipsProvidentFund ? " · freelancer" : ""})
                   </div>
-                  {renderSalaryColumnTable(statutoryDefs, "deduction")}
+                  {renderSalaryColumnTable(payrollStatutoryDefs, "deduction")}
                 </div>
               ) : null}
             </div>
@@ -2898,7 +2982,7 @@ function PayrollRunTab() {
     setActionLoading(batchId);
     try {
       if (action === "calculate") {
-        if (!(await appConfirm("Rebuild pay slips for every employee in this batch from the Employee Salary tab? Includes Basic, allowances, deductions, Poya pay, and EPF/ETF."))) {
+        if (!(await appConfirm("Rebuild pay slips for every employee in this batch from the Employee Salary tab? Includes Basic, allowances, deductions, and EPF/ETF. Poya pay only if entered on Employee Salary."))) {
           setActionLoading(null);
           return;
         }
@@ -3144,7 +3228,6 @@ function ImportAttendanceLeaveModal({
         <p className="text-xs text-slate-500">
           Uses only Approved OT hours. Pending, rejected, and supervisor-not-assigned OT is excluded.
           No-pay combines attendance absences with approved unpaid leave for this exact period.
-          Poya pay is Basic ÷ 30 × days the employee was present (or half-day) on a Poya holiday.
         </p>
       </div>
 
@@ -3152,11 +3235,10 @@ function ImportAttendanceLeaveModal({
 
       {loading ? <Loading /> : preview ? (
         <>
-          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
             <div className="rounded-lg bg-green-50 p-3"><div className="text-xs text-green-700">Approved OT</div><div className="font-semibold text-green-900">{preview.employeesWithApprovedOt}</div></div>
             <div className="rounded-lg bg-amber-50 p-3"><div className="text-xs text-amber-700">Missing OT approval</div><div className="font-semibold text-amber-900">{preview.employeesMissingOtApproval}</div></div>
             <div className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-500">With no-pay days</div><div className="font-semibold text-slate-800">{preview.employeesWithNopay}</div></div>
-            <div className="rounded-lg bg-indigo-50 p-3"><div className="text-xs text-indigo-700">With Poya days</div><div className="font-semibold text-indigo-900">{preview.employeesWithPoya ?? 0}</div></div>
           </div>
 
           <div className="max-h-[360px] overflow-y-auto rounded-lg border border-slate-200">
@@ -3165,10 +3247,6 @@ function ImportAttendanceLeaveModal({
                 <tr>
                   <th className="px-3 py-2 font-medium">Employee</th>
                   <th className="px-3 py-2 font-medium text-right">OT Hrs</th>
-                  <th className="px-3 py-2 font-medium text-right">OT Amount</th>
-                  <th className="px-3 py-2 font-medium text-right">Poya</th>
-                  <th className="px-3 py-2 font-medium text-right">Att. NP</th>
-                  <th className="px-3 py-2 font-medium text-right">Leave NP</th>
                   <th className="px-3 py-2 font-medium text-right">Total NP</th>
                 </tr>
               </thead>
@@ -3181,10 +3259,6 @@ function ImportAttendanceLeaveModal({
                       {line.warning && <div className="text-xs text-amber-600">{line.warning}</div>}
                     </td>
                     <td className="px-3 py-2 text-right font-mono">{line.approvedOtHours || "—"}</td>
-                    <td className="px-3 py-2 text-right font-mono">{line.otAmount ? `LKR ${fmt(line.otAmount)}` : "—"}</td>
-                    <td className="px-3 py-2 text-right font-medium">{line.poyaDaysWorked || "—"}</td>
-                    <td className="px-3 py-2 text-right">{line.attendanceNopayDays || "—"}</td>
-                    <td className="px-3 py-2 text-right">{line.leaveNopayDays || "—"}</td>
                     <td className="px-3 py-2 text-right font-medium">{line.totalNopayDays || "—"}</td>
                   </tr>
                 ))}
@@ -3223,7 +3297,7 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
   const [employees, setEmployees] = useState<EligibleEmployee[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const searchFilter = useApplyFilter();
+  const [employeeSearch, setEmployeeSearch] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
@@ -3283,18 +3357,24 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
     [locations]
   );
 
-  const filtered = employees.filter(e => {
-    if (filterDept && e.department !== filterDept) return false;
-    if (filterGrade && e.grade !== filterGrade) return false;
-    if (filterLocation && e.location !== filterLocation) return false;
-    if (!searchFilter.applied) return true;
-    const q = searchFilter.applied.toLowerCase();
-    return textIncludes(e.firstName, q) || textIncludes(e.lastName, q)
-      || textIncludes(e.employeeCode, q) || textIncludes(e.department, q);
-  });
+  const filtered = useMemo(
+    () =>
+      employees.filter((e) => {
+        if (!batchEmployeePassesOrgFilters(e, filterDept, filterGrade, filterLocation)) return false;
+        return batchEmployeeMatchesQuery(e, employeeSearch);
+      }),
+    [employees, filterDept, filterGrade, filterLocation, employeeSearch]
+  );
 
   const selectableFiltered = filtered.filter((e) => !e.alreadyInBatch);
   const allFilteredSelected = selectableFiltered.length > 0 && selectableFiltered.every((e) => selected.has(e.id));
+
+  function clearBatchEmployeeFilters() {
+    setEmployeeSearch("");
+    setFilterDept("");
+    setFilterGrade("");
+    setFilterLocation("");
+  }
 
   function toggleAll() {
     const next = new Set(selected);
@@ -3320,7 +3400,13 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
       return;
     }
     setError("");
+    clearBatchEmployeeFilters();
     setStep(2);
+  }
+
+  function goBackToBatchDetails() {
+    clearBatchEmployeeFilters();
+    setStep(1);
   }
 
   async function handleCreate() {
@@ -3396,13 +3482,13 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
               className={inputCls + " !mb-0 min-w-[180px] flex-1"}
-              placeholder="Search name or code… (Enter)"
-              value={searchFilter.input}
-              onChange={(e) => searchFilter.setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") searchFilter.apply();
-              }}
+              placeholder="Search name or code…"
+              value={employeeSearch}
+              onChange={(e) => setEmployeeSearch(sanitizeSearchInput(e.target.value))}
             />
             <div className="w-auto min-w-[140px] shrink-0">
               <FormSelect
@@ -3433,6 +3519,20 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
             </div>
             <span className="whitespace-nowrap text-sm text-slate-500">{selected.size}/{employees.length} selected</span>
           </div>
+          {employeeSearch.trim() ? (
+            <p className="text-xs text-slate-600">
+              Showing employees matching{" "}
+              <strong className="font-medium text-slate-800">&quot;{employeeSearch.trim()}&quot;</strong>
+              {" · "}
+              <button
+                type="button"
+                className="font-medium text-[#2E7BBF] hover:underline"
+                onClick={() => setEmployeeSearch("")}
+              >
+                Clear search
+              </button>
+            </p>
+          ) : null}
 
           {empLoading ? <Loading /> : (
             <div className="max-h-[400px] overflow-y-auto rounded-lg border border-slate-200">
@@ -3476,7 +3576,7 @@ function CreateBatchModal({ onClose, onCreated }: { onClose: () => void; onCreat
           )}
 
           <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={() => setStep(1)}>Back</Button>
+            <Button variant="secondary" onClick={goBackToBatchDetails}>Back</Button>
             <Button onClick={handleCreate} disabled={submitting || selected.size === 0}>
               {submitting ? "Creating..." : `Create Batch (${selected.size} employees)`}
             </Button>
@@ -3514,10 +3614,6 @@ function BatchDetailModal({
     setViewingId(stmt.id);
     setSelectedStmt(stmt);
     try {
-      if (stmt.lines && stmt.lines.length > 0) {
-        setStmtDetail(stmt);
-        return;
-      }
       const detail = await apiFetch<Statement>(`/api/payroll/statements/${stmt.id}`);
       setStmtDetail(detail);
     } catch {
@@ -3668,6 +3764,26 @@ function BatchDetailModal({
   );
 }
 
+function applyFreelancePayslipView(statement: Statement): Statement {
+  if (!employeeSkipsProvidentFund(statement.employmentType, [])) return statement;
+  const lines = statement.lines ?? [];
+  const removed = lines.filter((l) =>
+    isFreelanceExcludedStatutoryLine(l.componentCode, l.componentName)
+  );
+  if (removed.length === 0) return statement;
+  const removedEmployee = removed.filter((l) => !l.isEmployerContribution).reduce((s, l) => s + l.amount, 0);
+  const removedEmployer = removed.filter((l) => l.isEmployerContribution).reduce((s, l) => s + l.amount, 0);
+  return {
+    ...statement,
+    lines: lines.filter(
+      (l) => !isFreelanceExcludedStatutoryLine(l.componentCode, l.componentName)
+    ),
+    totalDeductions: Math.max(0, statement.totalDeductions - removedEmployee),
+    netPay: statement.netPay + removedEmployee,
+    employerCost: Math.max(0, statement.employerCost - removedEmployer),
+  };
+}
+
 function PayslipModal({
   statement,
   onClose,
@@ -3682,9 +3798,11 @@ function PayslipModal({
   onApprove?: () => void;
 }) {
   const [printing, setPrinting] = useState(false);
-  const earnings = statement.lines?.filter(l => (isEarningComponentType(l.type) || isIncomePayCode(l.componentCode)) && !l.isEmployerContribution) || [];
-  const deductions = statement.lines?.filter(l => (l.type === "Deduction" || l.type === "StatutoryDeduction") && !l.isEmployerContribution) || [];
-  const employerItems = statement.lines?.filter(l => l.isEmployerContribution) || [];
+  const view = applyFreelancePayslipView(statement);
+  const earnings = view.lines?.filter(l => (isEarningComponentType(l.type) || isIncomePayCode(l.componentCode)) && !l.isEmployerContribution) || [];
+  const deductions = view.lines?.filter(l => (l.type === "Deduction" || l.type === "StatutoryDeduction") && !l.isEmployerContribution) || [];
+  const employerItems = view.lines?.filter(l => l.isEmployerContribution) || [];
+  const isFreelancer = employeeSkipsProvidentFund(statement.employmentType, []);
 
   async function handlePrint() {
     setPrinting(true);
@@ -3698,12 +3816,17 @@ function PayslipModal({
   }
 
   return (
-    <Modal open onClose={onClose} title={`Payslip — ${statement.employeeName}`} wide>
+    <Modal open onClose={onClose} title={`Payslip — ${view.employeeName}`} wide>
       <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-slate-500">
         <span>
-          {MONTHS[statement.month - 1]} {statement.year} &middot; {statement.employeeCode} &middot; {statement.department || ""}
+          {MONTHS[view.month - 1]} {view.year} &middot; {view.employeeCode} &middot; {view.department || ""}
         </span>
-        {!isApprovedPaySlip(statement.status) ? (
+        {isFreelancer ? (
+          <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-800">
+            Freelancer — no EPF / ETF / APIT
+          </span>
+        ) : null}
+        {!isApprovedPaySlip(view.status) ? (
           <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
             Preview — not yet approved
           </span>
@@ -3712,19 +3835,19 @@ function PayslipModal({
       <div className="mb-5 grid gap-3 sm:grid-cols-4 text-sm">
         <div className="rounded-lg bg-slate-50 p-3">
           <div className="text-xs text-slate-400">Gross</div>
-          <div className="font-semibold tabular-nums">LKR {fmt(statement.grossPay)}</div>
+          <div className="font-semibold tabular-nums">LKR {fmt(view.grossPay)}</div>
         </div>
         <div className="rounded-lg bg-slate-50 p-3">
           <div className="text-xs text-slate-400">Deductions</div>
-          <div className="font-semibold tabular-nums text-red-600">LKR {fmt(statement.totalDeductions)}</div>
+          <div className="font-semibold tabular-nums text-red-600">LKR {fmt(view.totalDeductions)}</div>
         </div>
         <div className="rounded-lg bg-slate-50 p-3">
           <div className="text-xs text-slate-400">Net</div>
-          <div className="font-semibold tabular-nums">LKR {fmt(statement.netPay)}</div>
+          <div className="font-semibold tabular-nums">LKR {fmt(view.netPay)}</div>
         </div>
         <div className="rounded-lg bg-slate-50 p-3">
           <div className="text-xs text-slate-400">Employer Cost</div>
-          <div className="font-semibold tabular-nums">LKR {fmt(statement.employerCost)}</div>
+          <div className="font-semibold tabular-nums">LKR {fmt(view.employerCost)}</div>
         </div>
       </div>
       <div className="grid gap-6 sm:grid-cols-2">
@@ -3738,7 +3861,7 @@ function PayslipModal({
                   <td className="py-1.5 text-right font-mono">LKR {fmt(l.amount)}</td>
                 </tr>
               ))}
-              <tr className="font-semibold"><td className="py-1.5">Total Earnings</td><td className="py-1.5 text-right font-mono">LKR {fmt(statement.totalEarnings)}</td></tr>
+              <tr className="font-semibold"><td className="py-1.5">Total Earnings</td><td className="py-1.5 text-right font-mono">LKR {fmt(view.totalEarnings)}</td></tr>
             </tbody>
           </table>
         </div>
@@ -3752,14 +3875,14 @@ function PayslipModal({
                   <td className="py-1.5 text-right font-mono">LKR {fmt(l.amount)}</td>
                 </tr>
               ))}
-              <tr className="font-semibold"><td className="py-1.5">Total Deductions</td><td className="py-1.5 text-right font-mono">LKR {fmt(statement.totalDeductions)}</td></tr>
+              <tr className="font-semibold"><td className="py-1.5">Total Deductions</td><td className="py-1.5 text-right font-mono">LKR {fmt(view.totalDeductions)}</td></tr>
             </tbody>
           </table>
         </div>
       </div>
       <div className="mt-4 flex items-center justify-between rounded-xl bg-slate-50 p-4">
         <span className="text-lg font-bold text-slate-800">Net Pay</span>
-        <span className="text-2xl font-bold text-green-700">LKR {fmt(statement.netPay)}</span>
+        <span className="text-2xl font-bold text-green-700">LKR {fmt(view.netPay)}</span>
       </div>
       {employerItems.length > 0 && (
         <div className="mt-4">
@@ -3772,7 +3895,7 @@ function PayslipModal({
                   <td className="py-1.5 text-right font-mono text-slate-600">LKR {fmt(l.amount)}</td>
                 </tr>
               ))}
-              <tr className="font-semibold"><td className="py-1.5">Total Employer Cost</td><td className="py-1.5 text-right font-mono">LKR {fmt(statement.employerCost)}</td></tr>
+              <tr className="font-semibold"><td className="py-1.5">Total Employer Cost</td><td className="py-1.5 text-right font-mono">LKR {fmt(view.employerCost)}</td></tr>
             </tbody>
           </table>
         </div>
@@ -5210,7 +5333,7 @@ function SettingsTab() {
             <select className={inputCls} value={poyaComponentCode} onChange={(e) => setPoyaComponentCode(e.target.value)} form="payroll-settings-form">
               {componentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
-            <p className="mt-1 text-xs text-slate-400">Formula uses Base ÷ 30 × Poya days worked.</p>
+            <p className="mt-1 text-xs text-slate-400">Poya pay is entered per employee on Employee Salary (days × Base ÷ 30), not from attendance import.</p>
           </div>
           <div>
             <label className={labelCls}>Base pay component</label>

@@ -26,6 +26,8 @@ public class PayrollService : IPayrollService
 
     public async Task<List<CompensationComponentDto>> GetComponentsAsync()
     {
+        // Idempotent: adds missing default codes (EPF/APIT) without restoring user-deleted rows
+        // or overwriting admin flags (see PayrollComponentSeeder).
         await PayrollComponentSeeder.EnsureAsync(_db);
         var rows = await _db.CompensationComponents
             .OrderBy(c => c.SortOrder)
@@ -628,11 +630,14 @@ public class PayrollService : IPayrollService
             .Include(s => s.Employee).ThenInclude(e => e.Department)
             .Include(s => s.Lines)
             .FirstOrDefaultAsync(s => s.Id == id);
-        return p is null ? null : MapPayStatementDto(p, includeLines: true);
+        if (p is null) return null;
+        var (freelanceCodes, catalog) = await LoadEmploymentCatalogAsync();
+        return MapPayStatementDto(p, includeLines: true, freelanceCodes, catalog);
     }
 
     public async Task<List<PayStatementDto>> GetStatementsByBatchAsync(Guid batchId)
     {
+        var (freelanceCodes, catalog) = await LoadEmploymentCatalogAsync();
         var statements = await _db.PayStatements
             .Include(p => p.Employee).ThenInclude(e => e.Department)
             .Include(p => p.Lines)
@@ -642,7 +647,7 @@ public class PayrollService : IPayrollService
         return statements
             .OrderBy(p => EmployeeCodeSort.NumericKey(p.Employee.EmployeeCode))
             .ThenBy(p => p.Employee.EmployeeCode, StringComparer.OrdinalIgnoreCase)
-            .Select(p => MapPayStatementDto(p, includeLines: true))
+            .Select(p => MapPayStatementDto(p, includeLines: true, freelanceCodes, catalog))
             .ToList();
     }
 
@@ -838,28 +843,74 @@ public class PayrollService : IPayrollService
             employeeIds, PayrollCalculationEngine.ApitTaxYearStartYear(batch.Month, batch.Year));
     }
 
-    private static PayStatementDto MapPayStatementDto(PayStatement p, bool includeLines)
+    private async Task<(HashSet<string> FreelanceCodes, List<(string Code, string Name)> Catalog)> LoadEmploymentCatalogAsync()
     {
-        return new PayStatementDto
+        var catalog = await _db.EmploymentStatusTypes.AsNoTracking()
+            .Where(t => !t.IsDeleted && t.IsActive)
+            .Select(t => new { t.Code, t.Name })
+            .ToListAsync();
+        var tuples = catalog.Select(t => (t.Code, t.Name)).ToList();
+        return (EmploymentTypeRules.CollectFreelanceEmploymentCodes(tuples), tuples);
+    }
+
+    private static PayStatementDto MapPayStatementDto(
+        PayStatement p,
+        bool includeLines,
+        IReadOnlySet<string> freelanceCatalogCodes,
+        IReadOnlyList<(string Code, string Name)> employmentCatalog)
+    {
+        var lines = includeLines
+            ? (p.Lines ?? []).OrderBy(l => l.SortOrder).Select(l => new PayStatementLineDto
+            {
+                Id = l.Id, ComponentId = l.ComponentId,
+                ComponentName = l.ComponentName, ComponentCode = l.ComponentCode,
+                Type = l.Type, Amount = l.Amount,
+                IsEmployerContribution = l.IsEmployerContribution, SortOrder = l.SortOrder,
+            }).ToList()
+            : new List<PayStatementLineDto>();
+
+        var dto = new PayStatementDto
         {
             Id = p.Id, BatchId = p.BatchId, EmployeeId = p.EmployeeId,
             EmployeeName = p.Employee.FirstName + " " + p.Employee.LastName,
             EmployeeCode = p.Employee.EmployeeCode,
             Department = p.Employee.Department?.Name,
+            EmploymentType = p.Employee.EmploymentType,
             Month = p.Month, Year = p.Year, BasicPay = p.BasicPay,
             TotalEarnings = p.TotalEarnings, TotalDeductions = p.TotalDeductions,
             GrossPay = p.GrossPay, NetPay = p.NetPay, EmployerCost = p.EmployerCost,
             Status = p.Status.ToString(),
-            Lines = includeLines
-                ? (p.Lines ?? []).OrderBy(l => l.SortOrder).Select(l => new PayStatementLineDto
-                {
-                    Id = l.Id, ComponentId = l.ComponentId,
-                    ComponentName = l.ComponentName, ComponentCode = l.ComponentCode,
-                    Type = l.Type, Amount = l.Amount,
-                    IsEmployerContribution = l.IsEmployerContribution, SortOrder = l.SortOrder,
-                }).ToList()
-                : new List<PayStatementLineDto>(),
+            Lines = lines,
         };
+
+        return ApplyFreelanceStatutoryExclusions(
+            p.Employee?.EmploymentType, dto, freelanceCatalogCodes, employmentCatalog);
+    }
+
+    private static PayStatementDto ApplyFreelanceStatutoryExclusions(
+        string? employmentType,
+        PayStatementDto dto,
+        IReadOnlySet<string> freelanceCatalogCodes,
+        IReadOnlyList<(string Code, string Name)> employmentCatalog)
+    {
+        if (!EmploymentTypeRules.SkipsProvidentFund(employmentType, freelanceCatalogCodes, employmentCatalog))
+            return dto;
+
+        var removed = dto.Lines
+            .Where(l => EmploymentTypeRules.IsFreelanceExcludedStatutoryLine(l.ComponentCode, l.ComponentName))
+            .ToList();
+        if (removed.Count == 0)
+            return dto;
+
+        var removedEmployee = removed.Where(l => !l.IsEmployerContribution).Sum(l => l.Amount);
+        var removedEmployer = removed.Where(l => l.IsEmployerContribution).Sum(l => l.Amount);
+        dto.Lines = dto.Lines
+            .Where(l => !EmploymentTypeRules.IsFreelanceExcludedStatutoryLine(l.ComponentCode, l.ComponentName))
+            .ToList();
+        dto.TotalDeductions = Math.Max(0, dto.TotalDeductions - removedEmployee);
+        dto.NetPay += removedEmployee;
+        dto.EmployerCost = Math.Max(0, dto.EmployerCost - removedEmployer);
+        return dto;
     }
 
     private static ComponentType ParseComponentType(string type)

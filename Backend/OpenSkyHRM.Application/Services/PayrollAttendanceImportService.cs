@@ -65,8 +65,6 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
         var attendanceByEmp = attendanceRows.ToDictionary(r => r.EmployeeId);
 
         var leaveNopayDays = await GetUnpaidLeaveDaysAsync(selectedIds, periodFrom, periodTo);
-        var poyaDaysByEmp = await PayrollPoyaAttendance.GetDaysWorkedByEmployeeAsync(
-            _db, selectedIds, periodFrom, periodTo);
         var basicByEmp = await GetBasePayByEmployeeAsync(selectedIds, periodFrom, periodTo, mapping.BaseComponentCode);
         var workingHoursByEmp = await GetWorkingHoursByEmployeeAsync(
             selectedIds, periodFrom, periodTo, mapping.WorkingHoursComponentCode);
@@ -81,7 +79,6 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
             basicByEmp.TryGetValue(empId, out var basic);
             workingHoursByEmp.TryGetValue(empId, out var mappedHours);
             leaveNopayDays.TryGetValue(empId, out var leaveDays);
-            poyaDaysByEmp.TryGetValue(empId, out var poyaDays);
             employees.TryGetValue(empId, out var emp);
 
             var otApproved = string.Equals(att?.OvertimeApprovalStatus, ApprovalStatus.Approved.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -120,7 +117,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
                 AttendanceNopayDays = attendanceNopay,
                 LeaveNopayDays = leaveDays,
                 TotalNopayDays = totalNopay,
-                PoyaDaysWorked = poyaDays,
+                PoyaDaysWorked = 0,
                 BasicPay = basic,
                 Warning = warning,
             });
@@ -140,7 +137,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
                 return !l.OtApproved && (a?.OvertimeHours ?? 0) > 0;
             }),
             EmployeesWithNopay = lines.Count(l => l.TotalNopayDays > 0),
-            EmployeesWithPoya = lines.Count(l => l.PoyaDaysWorked > 0),
+            EmployeesWithPoya = 0,
         };
 
         if (persist)
@@ -170,7 +167,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
                 AttendanceNopayDays = line.AttendanceNopayDays,
                 LeaveNopayDays = line.LeaveNopayDays,
                 TotalNopayDays = line.TotalNopayDays,
-                PoyaDaysWorked = line.PoyaDaysWorked,
+                PoyaDaysWorked = 0,
                 OtApproved = line.OtApproved,
                 OtOutdated = line.OtOutdated,
                 ImportedAt = now,

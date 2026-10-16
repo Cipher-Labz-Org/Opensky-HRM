@@ -371,6 +371,7 @@ if (dbAvailable)
         await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await EmployeeCompanyProfileSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await db.Database.MigrateAsync();
+        await EmploymentCatalogSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await BankAccountSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await HangfireSchemaRepair.EnsureHealthySchemaAsync(hangfireConn, app.Configuration);
         await LeaveSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
@@ -387,6 +388,7 @@ if (dbAvailable)
             await RecruitmentSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
             await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
             await EmployeeCompanyProfileSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
+            await EmploymentCatalogSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
         }
         catch (Exception repairEx)
         {
@@ -489,6 +491,7 @@ if (dbAvailable)
     {
         using var payrollScope = app.Services.CreateScope();
         var payrollDb = payrollScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await OpenSkyHRM.Persistence.Seeders.EmploymentStatusTypeSeeder.EnsureCatalogAsync(payrollDb);
         await PayrollComponentSeeder.EnsureAsync(payrollDb);
         await PayrollSeeder.EnsureStatutoryFormulasAsync(payrollDb);
         await PayrollSeeder.EnsureStarterBatchAsync(payrollDb);
