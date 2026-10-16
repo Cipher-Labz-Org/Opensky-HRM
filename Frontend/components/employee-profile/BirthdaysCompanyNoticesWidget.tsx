@@ -224,7 +224,7 @@ function sortNoticesForDisplay(items: NoticeItem[]): NoticeItem[] {
   });
 }
 
-function BirthdaysCompanyNoticesWidgetInner({ embedInCommandCenter }: { embedInCommandCenter?: boolean }) {
+function BirthdaysCompanyNoticesWidgetInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -725,37 +725,6 @@ function BirthdaysCompanyNoticesWidgetInner({ embedInCommandCenter }: { embedInC
   const birthdayWishUnreadCount = incomingBirthdayWishes.filter((n) => !n.readAt).length;
   const canSendWishesToOthers = pendingWishCount > 0;
 
-  const todayLabel = new Date().toLocaleDateString(undefined, { day: "numeric", month: "long" });
-  const commandCenterHero = React.useMemo(() => {
-    if (today.length === 0) {
-      return {
-        title: "No birthdays today",
-        sub: `Nobody in your People scope is celebrating on ${todayLabel}.`,
-      };
-    }
-    if (today.length === 1) {
-      const p = today[0];
-      const dept = p.departmentName?.trim();
-      return {
-        title: p.fullName,
-        sub: dept ? `${dept} · Birthday today` : "Birthday today",
-      };
-    }
-    return {
-      title: `${today.length} birthdays today`,
-      sub: "Open a row below to send wishes.",
-    };
-  }, [today, todayLabel]);
-
-  function occasionChip(iso: string): { mon: string; day: string } {
-    const d = new Date(`${iso}T12:00:00Z`);
-    if (Number.isNaN(d.getTime())) return { mon: "—", day: "—" };
-    return {
-      mon: d.toLocaleDateString(undefined, { month: "short" }).toUpperCase(),
-      day: String(d.getUTCDate()),
-    };
-  }
-
   const renderNoticeRow = (n: NoticeItem) => {
     const kind = classifyNotice(n.category);
     const label = n.category === "BirthdayWishSent" ? "Wish history" : noticeLabel(kind);
@@ -891,14 +860,9 @@ function BirthdaysCompanyNoticesWidgetInner({ embedInCommandCenter }: { embedInC
 
   return (
     <section
-      className={
-        embedInCommandCenter
-          ? "osky-birthdays-embed"
-          : "overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-lg shadow-slate-900/[0.07]"
-      }
-      aria-labelledby={embedInCommandCenter ? undefined : "birthdays-notices-heading"}
+      className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-lg shadow-slate-900/[0.07]"
+      aria-labelledby="birthdays-notices-heading"
     >
-      {!embedInCommandCenter ? (
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-600 to-violet-700 text-xl shadow-md shadow-violet-600/25 ring-1 ring-violet-500/30">
@@ -953,7 +917,6 @@ function BirthdaysCompanyNoticesWidgetInner({ embedInCommandCenter }: { embedInC
           ) : null}
         </div>
       </div>
-      ) : null}
 
       {wishHint ? (
         <p
@@ -969,169 +932,11 @@ function BirthdaysCompanyNoticesWidgetInner({ embedInCommandCenter }: { embedInC
       ) : null}
 
       {loading ? (
-        embedInCommandCenter ? (
-          <div className="flex min-h-[140px] items-center justify-center py-10">
-            <div
-              className="h-9 w-9 animate-spin rounded-full border-2 border-t-[var(--sky)]"
-              style={{ borderColor: "var(--rule)", borderTopColor: "var(--sky)" }}
-            />
-          </div>
-        ) : (
-          <div className="flex min-h-[220px] items-center justify-center py-12">
-            <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-violet-600" />
-          </div>
-        )
+        <div className="flex min-h-[220px] items-center justify-center py-12">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-violet-600" />
+        </div>
       ) : err ? (
-        embedInCommandCenter ? (
-          <p className="py-8 text-center text-sm" style={{ color: "var(--rose)" }}>
-            {err}
-          </p>
-        ) : (
-          <p className="px-5 py-10 text-center text-sm text-red-600 sm:px-6">{err}</p>
-        )
-      ) : embedInCommandCenter ? (
-        <>
-          <div className="bhero">
-            <span className="em" aria-hidden>
-              🎂
-            </span>
-            <span>
-              <b>{commandCenterHero.title}</b>
-              <span>{commandCenterHero.sub}</span>
-            </span>
-          </div>
-          <div className="rows">
-            {today.slice(0, 2).map((p) => {
-              const chip = occasionChip(p.occasionDate);
-              const dept = p.departmentName?.trim() || "—";
-              const wished = wishedEmployeeIds.has(p.employeeId);
-              const isSelf = Boolean(myEmployeeId && p.employeeId === myEmployeeId);
-              const canWish = isWishablePerson(p.employeeId);
-              return (
-                <button
-                  key={`cc-today-${p.employeeId}`}
-                  type="button"
-                  className="row"
-                  disabled={!canWish}
-                  onClick={() => openWishPanelFor(p.employeeId)}
-                >
-                  <span className="dchip">
-                    <em>{chip.mon}</em>
-                    <strong>{chip.day}</strong>
-                  </span>
-                  <span className="rtx">
-                    <span className="nm">{p.fullName}</span>
-                    <span className="sb">
-                      {dept} · {wished ? "Wish sent" : isSelf ? "Your birthday" : "Today"}
-                    </span>
-                  </span>
-                  {canWish ? <span className="go">Send wishes</span> : null}
-                </button>
-              );
-            })}
-            {upcomingLimited.slice(0, today.length > 0 ? 1 : 2).map((p) => {
-              const chip = occasionChip(p.occasionDate);
-              const dept = p.departmentName?.trim() || "—";
-              const inDays = p.daysUntil;
-              return (
-                <button
-                  key={`cc-up-${p.employeeId}-${p.occasionDate}`}
-                  type="button"
-                  className="row"
-                  onClick={() => {
-                    setNoticesExpanded(false);
-                    setWishesPanelOpen(false);
-                    router.push(`/app/people/${p.employeeId}`);
-                  }}
-                >
-                  <span className="dchip">
-                    <em>{chip.mon}</em>
-                    <strong>{chip.day}</strong>
-                  </span>
-                  <span className="rtx">
-                    <span className="nm">{p.fullName}</span>
-                    <span className="sb">
-                      {dept} · in {inDays} {inDays === 1 ? "day" : "days"}
-                    </span>
-                  </span>
-                  <span className="go">Profile</span>
-                </button>
-              );
-            })}
-            <button type="button" className="row" onClick={() => setNoticesExpanded((e) => !e)}>
-              <span
-                className="dchip"
-                style={{
-                  display: "grid",
-                  placeItems: "center",
-                  height: 42,
-                  borderStyle: "dashed",
-                  color: "var(--ink-3)",
-                }}
-              >
-                <svg style={{ width: 17, height: 17 }} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" aria-hidden>
-                  <path strokeLinecap="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-                </svg>
-              </span>
-              <span className="rtx">
-                <span className="nm">Company notices</span>
-                <span className="sb">
-                  {otherCompanyNotices.length === 0
-                    ? "Nothing new posted"
-                    : otherNoticesUnreadCount > 0
-                      ? `${otherNoticesUnreadCount} unread`
-                      : "All caught up"}
-                </span>
-              </span>
-              <span className="go">{noticesExpanded ? "Hide" : "View"}</span>
-            </button>
-          </div>
-          <div className="osky-cc-birthdays-extra">
-            {incomingBirthdayWishes.length > 0 ? (
-              <ul className="flex flex-col gap-2.5">{incomingBirthdayWishes.map((n) => renderNoticeRow(n))}</ul>
-            ) : null}
-            {wishesPanelOpen && selectedWishPerson && isWishablePerson(selectedWishPerson.employeeId) ? (
-              <div className="mt-3 rounded-xl border border-[var(--rule)] bg-[var(--well)] p-3">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--ink-3)]">Personal wish</p>
-                <p className="text-sm font-bold text-[var(--ink)]">{selectedWishPerson.fullName}</p>
-                <textarea
-                  id={`birthday-wish-note-${selectedWishPerson.employeeId}`}
-                  rows={2}
-                  maxLength={500}
-                  value={wishNoteByEmployee[selectedWishPerson.employeeId] ?? ""}
-                  onChange={(e) => {
-                    setWishBlankErrorEmployeeId(null);
-                    setWishNoteByEmployee((prev) => ({
-                      ...prev,
-                      [selectedWishPerson.employeeId]: e.target.value,
-                    }));
-                  }}
-                  disabled={wishBusyId === selectedWishPerson.employeeId}
-                  placeholder="Write your birthday message…"
-                  className="mt-2 w-full resize-y rounded-lg border border-[var(--rule)] bg-[var(--field)] px-2.5 py-1.5 text-xs text-[var(--ink)]"
-                />
-                <button
-                  type="button"
-                  disabled={composeSendDisabled}
-                  onClick={() => void sendWish(selectedWishPerson.employeeId)}
-                  className="mt-2 rounded-lg px-3 py-2 text-xs font-bold text-white"
-                  style={{ background: "var(--sky)" }}
-                >
-                  Send wish
-                </button>
-              </div>
-            ) : null}
-            {noticesExpanded ? (
-              <div className="mt-3 max-h-[min(40vh,16rem)] overflow-y-auto">
-                {otherCompanyNotices.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-[var(--ink-3)]">No notices in your inbox yet.</p>
-                ) : (
-                  <ul className="flex flex-col gap-2">{otherCompanyNotices.map((n) => renderNoticeRow(n))}</ul>
-                )}
-              </div>
-            ) : null}
-          </div>
-        </>
+        <p className="px-5 py-10 text-center text-sm text-red-600 sm:px-6">{err}</p>
       ) : (
         <>
           <div className="grid lg:grid-cols-2">
@@ -1473,7 +1278,7 @@ function BirthdaysCompanyNoticesWidgetInner({ embedInCommandCenter }: { embedInC
   );
 }
 
-export function BirthdaysCompanyNoticesWidget({ embedInCommandCenter }: { embedInCommandCenter?: boolean } = {}) {
+export function BirthdaysCompanyNoticesWidget() {
   return (
     <Suspense
       fallback={
@@ -1484,7 +1289,7 @@ export function BirthdaysCompanyNoticesWidget({ embedInCommandCenter }: { embedI
         </section>
       }
     >
-      <BirthdaysCompanyNoticesWidgetInner embedInCommandCenter={embedInCommandCenter} />
+      <BirthdaysCompanyNoticesWidgetInner />
     </Suspense>
   );
 }

@@ -50,12 +50,6 @@ export function isNavItemVisible(href: string, ctx: NavVisibilityContext): boole
         ctx.hasPermission("EmployeeActions", "Update")
       );
 
-    case ROUTES.onboarding:
-      return ctx.hasPermission("Onboarding", "Read");
-
-    case ROUTES.offboarding:
-      return ctx.hasPermission("Offboarding", "Read");
-
     case ROUTES.leave:
       return ctx.hasPermission("Leave", "Read");
 

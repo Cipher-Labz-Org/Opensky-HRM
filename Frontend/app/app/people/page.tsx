@@ -1004,13 +1004,9 @@ export default function PeoplePage() {
     <>
       {/* Header */}
       <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white px-6 py-5 shadow-sm">
-        <div className="osky-phead mb-0">
+        <div className="flex items-start justify-between">
           <div>
-            <span className="osky-eyebrow">
-              <i aria-hidden />
-              OpenSky HRM · live
-            </span>
-            <h1>People Hub</h1>
+            <h1 className="text-xl font-bold text-slate-800">People Hub</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {(isAdmin || hasPermission("People", "Read")) && !showSimplifiedView && (

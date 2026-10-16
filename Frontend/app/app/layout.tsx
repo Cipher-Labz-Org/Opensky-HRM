@@ -5,8 +5,6 @@ import { usePathname } from "next/navigation";
 import { APP_NAME } from "@/config/constants";
 import { AppSidebar } from "@/components/navigation/AppSidebar";
 import { AppGlobalHeader } from "@/components/navigation/AppGlobalHeader";
-import { Aurora } from "@/components/shell/Aurora";
-import { ThemeProvider } from "@/components/shell/ThemeProvider";
 import { AppDialogsProvider } from "@/components/ui/AppDialogsProvider";
 import { AiSidekickFab, AiSidekickPanel, AiSidekickProvider } from "@/components/ai-sidekick";
 import { LicensePageGate } from "@/components/licensing/LicensePageGate";
@@ -38,8 +36,6 @@ const ALL_NAV_GROUPS: NavGroup[] = [
       { href: ROUTES.recruitment, label: "Recruitment", module: "Recruitment" },
       { href: ROUTES.employeeTasks, label: "Employee Tasks", module: "EmployeeTasks" },
       { href: ROUTES.employeeActions, label: "Employee Actions", module: "EmployeeActions" },
-      { href: ROUTES.onboarding, label: "Onboarding", module: "Onboarding" },
-      { href: ROUTES.offboarding, label: "Offboarding", module: "Offboarding" },
     ],
   },
   {
@@ -200,33 +196,30 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   })).filter((group) => group.items.length > 0);
 
   return (
-    <ThemeProvider>
-      <AppDialogsProvider>
-        <AiSidekickProvider>
-          <div className={`osky-shell app-shell-grid min-h-screen${sidebarCollapsed ? " osky-tight" : ""}`}>
-            <Aurora />
-            <AppSidebar
-              appName={APP_NAME}
-              navGroups={filteredNavGroups}
-              collapsed={sidebarCollapsed}
-              onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-            />
-            <div className="app-shell-main-column flex min-h-screen min-w-0 flex-col">
-              <AppGlobalHeader user={user} onLogout={logout} />
-              <main className="app-shell-canvas flex-1 px-4 pb-6 sm:px-6" style={{ minWidth: 0 }}>
-                <LicensePageGate>{children}</LicensePageGate>
-              </main>
-              <footer className="app-shell-footer border-t px-6 py-3 text-center sm:px-7">
-                <p className="text-xs tracking-wide" style={{ color: "var(--ink-3)" }}>
-                  © {new Date().getFullYear()} OpenSky HRM · Enabling Growth
-                </p>
-              </footer>
-            </div>
-            <AiSidekickPanel />
-            <AiSidekickFab />
+    <AppDialogsProvider>
+      <AiSidekickProvider>
+        <div className="app-shell-grid flex min-h-screen">
+          <AppSidebar
+            appName={APP_NAME}
+            navGroups={filteredNavGroups}
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          />
+          <div className="app-shell-main-column flex min-h-screen min-w-0 flex-1 flex-col">
+            <AppGlobalHeader user={user} onLogout={logout} />
+            <main className="app-shell-canvas flex-1 p-6 sm:p-7" style={{ minWidth: 0 }}>
+              <LicensePageGate>{children}</LicensePageGate>
+            </main>
+            <footer className="app-shell-footer border-t px-6 py-3 text-center sm:px-7">
+              <p className="text-xs tracking-wide" style={{ color: "var(--muted)" }}>
+                © {new Date().getFullYear()} OpenSky HRM · Enabling Growth
+              </p>
+            </footer>
           </div>
-        </AiSidekickProvider>
-      </AppDialogsProvider>
-    </ThemeProvider>
+          <AiSidekickPanel />
+          <AiSidekickFab />
+        </div>
+      </AiSidekickProvider>
+    </AppDialogsProvider>
   );
 }
