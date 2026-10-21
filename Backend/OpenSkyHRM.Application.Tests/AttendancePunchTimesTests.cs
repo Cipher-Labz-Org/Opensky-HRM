@@ -101,6 +101,20 @@ public class AttendancePunchTimesTests
     }
 
     [Fact]
+    public void Report_hhmm_matches_attendance_page_for_unspecified_utc_web_punch()
+    {
+        var clock = new PacificHostColomboClock();
+        var storedIn = new DateTime(2026, 10, 21, 5, 30, 0, DateTimeKind.Unspecified);
+        var storedOut = new DateTime(2026, 10, 21, 5, 33, 0, DateTimeKind.Unspecified);
+
+        var punchIn = AttendancePunchTimes.ToApiWallClock(storedIn, "Web", clock);
+        var punchOut = AttendancePunchTimes.ToApiWallClock(storedOut, "Web", clock);
+
+        Assert.Equal("11:00", punchIn?.ToString("HH:mm"));
+        Assert.Equal("11:03", punchOut?.ToString("HH:mm"));
+    }
+
+    [Fact]
     public void Business_clock_never_falls_back_to_utc()
     {
         var config = new ConfigurationBuilder()

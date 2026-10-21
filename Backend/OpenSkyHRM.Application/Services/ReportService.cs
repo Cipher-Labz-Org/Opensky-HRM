@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Reports;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Persistence;
@@ -11,12 +13,14 @@ public class ReportService : IReportService
 {
     private readonly AppDbContext _db;
     private readonly IAttendanceService _attendance;
+    private readonly IBusinessClock _clock;
     private IReadOnlyList<Guid>? _allowedEmployeeIds;
 
-    public ReportService(AppDbContext db, IAttendanceService attendance)
+    public ReportService(AppDbContext db, IAttendanceService attendance, IBusinessClock clock)
     {
         _db = db;
         _attendance = attendance;
+        _clock = clock;
     }
 
     public List<ReportCategoryDto> GetReportCatalog()
@@ -925,7 +929,7 @@ public class ReportService : IReportService
             ["Date"] = a.Date.ToString("yyyy-MM-dd"),
             ["Employee Code"] = a.Employee.EmployeeCode, ["Employee Name"] = a.Employee.FullName,
             ["Department"] = a.Employee.Department?.Name,
-            ["Punch In"] = a.PunchIn?.ToString("HH:mm"), ["Punch Out"] = a.PunchOut?.ToString("HH:mm"),
+            ["Punch In"] = FormatPunchClock(a.PunchIn, a.Source), ["Punch Out"] = FormatPunchClock(a.PunchOut, a.Source),
             ["Worked Hours"] = a.WorkedHours?.ToString("F2"), ["Status"] = a.Status,
         }).ToList();
         var title = !hasRange
@@ -1001,7 +1005,7 @@ public class ReportService : IReportService
         {
             ["Employee Code"] = a.Employee.EmployeeCode, ["Employee Name"] = a.Employee.FullName,
             ["Department"] = a.Employee.Department?.Name, ["Date"] = a.Date.ToString("yyyy-MM-dd"),
-            ["Punch In"] = a.PunchIn?.ToString("HH:mm"), ["Status"] = a.Status,
+            ["Punch In"] = FormatPunchClock(a.PunchIn, a.Source), ["Status"] = a.Status,
         }).ToList();
         return Build("Late Arrivals", cols, rows);
     }
@@ -1021,7 +1025,7 @@ public class ReportService : IReportService
         {
             ["Employee Code"] = a.Employee.EmployeeCode, ["Employee Name"] = a.Employee.FullName,
             ["Department"] = a.Employee.Department?.Name, ["Date"] = a.Date.ToString("yyyy-MM-dd"),
-            ["Punch Out"] = a.PunchOut?.ToString("HH:mm"), ["Status"] = a.Status,
+            ["Punch Out"] = FormatPunchClock(a.PunchOut, a.Source), ["Status"] = a.Status,
         }).ToList();
         return Build("Early Departures", cols, rows);
     }
@@ -1228,6 +1232,7 @@ public class ReportService : IReportService
                 a.PunchOut,
                 a.WorkedHours,
                 a.Status,
+                a.Source,
             })
             .ToListAsync();
 
@@ -1283,8 +1288,8 @@ public class ReportService : IReportService
                 {
                     dayType = "Work";
                     detail = att.Status;
-                    punchIn = att.PunchIn?.ToString("HH:mm");
-                    punchOut = att.PunchOut?.ToString("HH:mm");
+                    punchIn = FormatPunchClock(att.PunchIn, att.Source);
+                    punchOut = FormatPunchClock(att.PunchOut, att.Source);
                     workedHours = att.WorkedHours?.ToString("F2");
                 }
                 else
@@ -1963,4 +1968,8 @@ public class ReportService : IReportService
         }).ToList();
         return Build("Offboarding Status", cols, rows);
     }
+
+    // Same Colombo wall clock as Time & Attendance (web/mobile punches are stored UTC).
+    private string? FormatPunchClock(DateTime? value, string? source) =>
+        AttendancePunchTimes.ToApiWallClock(value, source, _clock)?.ToString("HH:mm");
 }
