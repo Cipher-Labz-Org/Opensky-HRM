@@ -76,8 +76,26 @@ env:
 jobs:
   build-api:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write   # delete old Actions artifacts so the account storage quota can recover
     steps:
       - uses: actions/checkout@v4
+      - name: Delete stored Actions artifacts (the account storage quota is full)
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner, repo, per_page: 100,
+            })
+            const stale = artifacts.filter(a => a.name === "api" || a.name === "web")
+            for (const artifact of stale) {
+              await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id })
+              core.info(`deleted artifact ${artifact.name} #${artifact.id}`)
+            }
+            core.info(`deleted ${stale.length} artifact(s); left ${artifacts.length - stale.length}`)
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: "${{ env.DOTNET_VERSION }}" }
       - name: Test
@@ -89,8 +107,14 @@ jobs:
         run: test -f publish-api/OpenSkyHRM.Api.dll && test -f publish-api/OpenSkyHRM.Api.deps.json && ls publish-api | wc -l
       - name: Pack
         run: tar -czf api.tgz -C publish-api .
-      - uses: actions/upload-artifact@v4
-        with: { name: api, path: api.tgz, retention-days: 14 }
+      # Actions artifact storage is a small billed quota (the previous upload-artifact step failed once it was full).
+      # The cache is a separate 10 GB store and is only written when a deploy will read the package.
+      - name: Save the API package for the deploy job
+        if: inputs.deploy == 'api' || inputs.deploy == 'both'
+        uses: actions/cache/save@v4
+        with:
+          path: api.tgz
+          key: hrm-api-${{ github.run_id }}-${{ github.run_attempt }}
 
   build-web:
     runs-on: ubuntu-24.04
@@ -127,8 +151,12 @@ jobs:
           cp -r .dist public package.json package-lock.json next.config.js "$B"/
           if [ -d config ]; then cp -r config "$B"/; fi
           tar -czf "$GITHUB_WORKSPACE/web.tgz" -C "$B" .
-      - uses: actions/upload-artifact@v4
-        with: { name: web, path: web.tgz, retention-days: 14 }
+      - name: Save the web package for the deploy job
+        if: inputs.deploy == 'web' || inputs.deploy == 'both'
+        uses: actions/cache/save@v4
+        with:
+          path: web.tgz
+          key: hrm-web-${{ github.run_id }}-${{ github.run_attempt }}
 
   deploy:
     needs: [build-api, build-web]
@@ -170,8 +198,22 @@ jobs:
           echo "CUSTOMERS=$list" >> "$GITHUB_ENV"
           echo "API customers (in this order): ${list:-none}"
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { path: dl }
+      - name: Restore the API package
+        if: inputs.deploy == 'api' || inputs.deploy == 'both'
+        uses: actions/cache/restore@v4
+        with:
+          path: api.tgz
+          key: hrm-api-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: hrm-api-${{ github.run_id }}-
+          fail-on-cache-miss: true
+      - name: Restore the web package
+        if: inputs.deploy == 'web' || inputs.deploy == 'both'
+        uses: actions/cache/restore@v4
+        with:
+          path: web.tgz
+          key: hrm-web-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: hrm-web-${{ github.run_id }}-
+          fail-on-cache-miss: true
       - name: Read the droplet from hrm-fleet.json
         run: |
           f=.github/hrm-fleet.json
@@ -205,11 +247,11 @@ jobs:
         run: |
           S=${GITHUB_SHA::10}
           if [ "$WHAT" = api ] || [ "$WHAT" = both ]; then
-            mkdir -p up/api-$S && tar -xzf dl/api/api.tgz -C up/api-$S
+            mkdir -p up/api-$S && tar -xzf api.tgz -C up/api-$S
             rsync -az --delete up/api-$S/ droplet:incoming/api-$S/
           fi
           if [ "$WHAT" = web ] || [ "$WHAT" = both ]; then
-            mkdir -p up/web-$S && tar -xzf dl/web/web.tgz -C up/web-$S
+            mkdir -p up/web-$S && tar -xzf web.tgz -C up/web-$S
             rsync -az --delete up/web-$S/ droplet:incoming/web-$S/
           fi
       - name: Deploy the API, customer by customer (stops at the first failure)
