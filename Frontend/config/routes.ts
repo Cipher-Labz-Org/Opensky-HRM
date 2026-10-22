@@ -17,6 +17,9 @@ export const ROUTES = {
   // App – Core (under /app so one layout wraps all)
   dashboard: "/app/dashboard",
   people: "/app/people",
+  peopleNew: "/app/people/new",
+  peopleDetail: (id: string) => `/app/people/${id}`,
+  peopleEdit: (id: string) => `/app/people/${id}/edit`,
   /** All in-app how-to guides (topic list + per-module pages). */
   helpGuides: "/app/help",
   /** People Hub guide (under Help hub; `/app/people/help` redirects here). */

@@ -3957,6 +3957,16 @@ export default function EmployeeDetailPage() {
             <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className={sectionCardHeaderRowSm}>
                 <div className="flex items-center gap-2"><SectionIcon path="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" color="bg-slate-600" /><h2 className="text-[15px] font-bold text-slate-700">About</h2></div>
+                {(isAdmin || hasPermission("People", "Update")) && (
+                  <button
+                    type="button"
+                    onClick={() => router.push(ROUTES.peopleEdit(emp.id))}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                    Edit employee
+                  </button>
+                )}
               </div>
               <div className="flex min-h-0 flex-1 flex-col p-4">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start">

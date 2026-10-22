@@ -216,8 +216,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (embed) {
     return (
       <AppDialogsProvider>
-        <main className="min-h-screen bg-[var(--bg)] p-4 sm:p-6">
-          <PageHelpLink />
+        <main className="min-h-screen bg-[var(--bg)] px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+          <PageHelpLink floating />
           {gatedChildren}
         </main>
       </AppDialogsProvider>

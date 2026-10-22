@@ -8,7 +8,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { contextualHelpGuideHref, helpTopicForPathname } from "@/lib/help-topics";
 
 /** Opens the guide for the current module. Hidden on the help pages themselves. */
-export function PageHelpLink() {
+export function PageHelpLink({ floating = false }: { floating?: boolean }) {
   const pathname = usePathname() ?? "";
   const { user, hasPermission } = useAuth();
   const [query, setQuery] = useState("");
@@ -35,7 +35,7 @@ export function PageHelpLink() {
   const label = topic ? `${topic.title} guide` : "Help & guides";
 
   return (
-    <div className="mb-4 flex justify-end">
+    <div className={floating ? "fixed bottom-4 right-4 z-40" : "mb-4 flex justify-end"}>
       <Link
         href={href}
         title={label}

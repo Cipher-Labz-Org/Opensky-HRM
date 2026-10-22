@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { TablePagination } from "@/components/ui";
-import { CreateEmployeeModal } from "@/components/forms/CreateEmployeeModal";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 import { filterLookupsByAllowedIds } from "@/lib/people-scope-filters";
@@ -291,7 +290,6 @@ export default function PeoplePage() {
   const canCreateEmployee = isAdmin || hasPermission("People", "Create");
   const peopleScope = getPeopleReadScope();
   const showSimplifiedView = peopleScope === "Own";
-  const [showCreate, setShowCreate] = useState(false);
   const [quickSearch, setQuickSearch] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState<Employee[]>([]);
@@ -1018,8 +1016,8 @@ export default function PeoplePage() {
               </Link>
             )}
             {canCreateEmployee && (
-              <button
-                onClick={() => setShowCreate(true)}
+              <Link
+                href={ROUTES.peopleNew}
                 className="group flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-sm transition-all hover:border-[#2B7DE9] hover:text-[#2B7DE9] hover:shadow active:scale-[0.98]"
                 title="Create Employee"
               >
@@ -1027,7 +1025,7 @@ export default function PeoplePage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
                 New Employee
-              </button>
+              </Link>
             )}
           </div>
         </div>
@@ -1049,14 +1047,6 @@ export default function PeoplePage() {
           ))}
         </div>
       </div>
-
-      {canCreateEmployee && (
-      <CreateEmployeeModal
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-        onCreated={() => { loadEmployees(appliedFilters, page, listPageSize, statusFilter, sortBy, sortAsc); }}
-      />
-      )}
 
       {favoriteSaveNotice && (
         <div className="mb-3 rounded-xl bg-emerald-50 px-4 py-2.5 text-[12px] font-medium text-emerald-700 ring-1 ring-emerald-100">
