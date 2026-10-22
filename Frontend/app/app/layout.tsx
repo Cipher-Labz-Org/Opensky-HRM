@@ -8,9 +8,12 @@ import { AppGlobalHeader } from "@/components/navigation/AppGlobalHeader";
 import { AppDialogsProvider } from "@/components/ui/AppDialogsProvider";
 import { AiSidekickFab, AiSidekickPanel, AiSidekickProvider } from "@/components/ai-sidekick";
 import { LicensePageGate } from "@/components/licensing/LicensePageGate";
+import { PagePermissionGate } from "@/components/licensing/PagePermissionGate";
 import { ROUTES } from "@/config/routes";
 import { isAlwaysVisibleNavHref, isNavItemVisible } from "@/lib/nav-visibility";
 import { useAuth } from "@/contexts/auth-context";
+import { syncErpEmbedChrome } from "@/components/theme/ErpEmbedTheme";
+import { PageHelpLink } from "@/components/help/PageHelpLink";
 
 interface NavItem {
   href: string;
@@ -119,6 +122,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     hasRole,
   } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [embed, setEmbed] = useState(false);
+
+  useEffect(() => {
+    setEmbed(syncErpEmbedChrome());
+  }, [pathname]);
 
   useEffect(() => {
     if (isLoading || !user) return;
@@ -137,6 +145,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     if (isAuthenticated) return;
+    // Opened from the ERP shell: the ERP login is the only sign-in page. Wait for that session.
+    if (typeof window !== "undefined" && syncErpEmbedChrome()) return;
     // Intentionally omit `usePathname` from deps — pathname changes on every client navigation and
     // would re-run this effect, causing repeated `location.replace` loops while auth state settles.
     const path = typeof window !== "undefined"
@@ -195,6 +205,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }),
   })).filter((group) => group.items.length > 0);
 
+  const gatedChildren = (
+    <LicensePageGate>
+      <PagePermissionGate ctx={navVisibilityCtx} fallbackHref={filteredNavGroups[0]?.items[0]?.href ?? null}>
+        {children}
+      </PagePermissionGate>
+    </LicensePageGate>
+  );
+
+  if (embed) {
+    return (
+      <AppDialogsProvider>
+        <main className="min-h-screen bg-[var(--bg)] p-4 sm:p-6">
+          <PageHelpLink />
+          {gatedChildren}
+        </main>
+      </AppDialogsProvider>
+    );
+  }
+
   return (
     <AppDialogsProvider>
       <AiSidekickProvider>
@@ -208,7 +237,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="app-shell-main-column flex min-h-screen min-w-0 flex-1 flex-col">
             <AppGlobalHeader user={user} onLogout={logout} />
             <main className="app-shell-canvas flex-1 p-6 sm:p-7" style={{ minWidth: 0 }}>
-              <LicensePageGate>{children}</LicensePageGate>
+              <PageHelpLink />
+              {gatedChildren}
             </main>
             <footer className="app-shell-footer border-t px-6 py-3 text-center sm:px-7">
               <p className="text-xs tracking-wide" style={{ color: "var(--muted)" }}>

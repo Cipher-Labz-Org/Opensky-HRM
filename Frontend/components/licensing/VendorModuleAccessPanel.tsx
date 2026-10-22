@@ -118,14 +118,26 @@ export function VendorModuleAccessPanel() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "A" || e.key === "a")) {
+      if (e.repeat) return;
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "KeyQ") {
         e.preventDefault();
         setOpen((prev) => !prev);
       }
       if (e.key === "Escape") close();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const onMessage = (event: MessageEvent) => {
+      const fromErp =
+        event.origin === "http://localhost:5173" || event.origin === "http://127.0.0.1:5173";
+      if (!fromErp) return;
+      if (event.data?.type !== "opensky-hrm-secret-panel") return;
+      setOpen((prev) => !prev);
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("message", onMessage);
+    };
   }, [close]);
 
   useEffect(() => {

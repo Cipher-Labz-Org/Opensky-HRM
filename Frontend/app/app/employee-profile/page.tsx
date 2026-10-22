@@ -3,9 +3,10 @@
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiFetchBlob } from "@/lib/api";
+import { downloadBlob } from "@/lib/template-pdf";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
-import { getApiBaseUrl, resolveAssetUrl } from "@/config/constants";
+import { resolveAssetUrl } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { useAuth } from "@/contexts/auth-context";
 import { displayWorkEmail } from "@/lib/employee-email";
@@ -292,13 +293,14 @@ interface DriverLicenseItem {
 }
 
 const card =
-  "overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_-4px_rgba(15,23,42,0.08)]";
-const cardHead =
-  "border-b border-slate-200/55 bg-gradient-to-b from-white/90 via-slate-50/40 to-slate-100/20 px-5 py-3.5 backdrop-blur-xl";
-const cardTitle = "text-sm font-bold tracking-tight text-slate-800";
+  "overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--panel)]";
+const cardHead = "border-b border-[var(--border)] px-5 py-3";
+const cardTitle = "text-sm font-semibold tracking-tight text-[var(--text)]";
 const labelCls =
-  "text-[11px] font-semibold uppercase tracking-wider text-slate-400";
-const valueCls = "mt-0.5 text-sm font-medium text-slate-800";
+  "text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]";
+const valueCls = "mt-0.5 text-sm font-medium text-[var(--text)]";
+const fieldClass =
+  "w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[var(--btn-primary)] focus:ring-2 focus:ring-[var(--btn-ring)]";
 
 function BioSection({
   id,
@@ -323,9 +325,7 @@ function BioSection({
 }
 
 const skillInputClass =
-  "w-full rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition-all duration-200 " +
-  "placeholder:text-slate-400 hover:border-slate-300 hover:shadow " +
-  "focus:border-indigo-500 focus:shadow-md focus:shadow-indigo-500/5 focus:ring-[3px] focus:ring-indigo-500/20";
+  fieldClass + " placeholder:text-[var(--muted)]";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -349,10 +349,10 @@ function DataTable({
     return <p className="text-sm text-slate-400">{empty}</p>;
   }
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-100">
+    <div className="overflow-x-auto rounded-[10px] border border-[var(--border)]">
       <table className="w-full min-w-[520px] text-left text-sm">
         <thead>
-          <tr className="border-b border-slate-200/80 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <tr className="border-b border-[var(--border)] bg-[var(--soft)] text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
             {columns.map((c) => (
               <th key={c.key} className={`px-4 py-2.5 ${c.className ?? ""}`}>
                 {c.header}
@@ -362,9 +362,9 @@ function DataTable({
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+            <tr key={i} className="border-b border-[var(--line2,var(--border))] last:border-0 hover:bg-[var(--soft)]">
               {columns.map((c) => (
-                <td key={c.key} className={`px-4 py-2.5 text-slate-700 ${c.className ?? ""}`}>
+                <td key={c.key} className={`px-4 py-2.5 text-[var(--text)] ${c.className ?? ""}`}>
                   {row[c.key]}
                 </td>
               ))}
@@ -374,6 +374,14 @@ function DataTable({
       </table>
     </div>
   );
+}
+
+async function downloadEmployeeFile(endpoint: string, fileName: string) {
+  try {
+    downloadBlob(await apiFetchBlob(endpoint), fileName || "download");
+  } catch (err) {
+    await appAlert(err instanceof Error ? err.message : "Could not download the file.");
+  }
 }
 
 export default function EmployeeProfilePage() {
@@ -761,11 +769,11 @@ export default function EmployeeProfilePage() {
   const directorySearchBar = !canSearchOthers ? null : (
     <div
       ref={searchWrapRef}
-      className={`relative mb-6 rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur-sm ${dirOpen ? "z-50" : "z-20"}`}
+      className={`relative mb-6 rounded-[10px] border border-[var(--border)] bg-[var(--panel)] p-4 ${dirOpen ? "z-50" : "z-20"}`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="relative w-full overflow-visible sm:w-72">
-          <label htmlFor="emp-bio-search" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <label htmlFor="emp-bio-search" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
             Find employee
           </label>
           <input
@@ -775,10 +783,10 @@ export default function EmployeeProfilePage() {
             placeholder="Name or employee code…"
             value={dirSearch}
             onChange={(e) => handleDirSearchInput(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-[#2B7DE9] focus:ring-2 focus:ring-[#2B7DE9]/20"
+            className={fieldClass}
           />
           {dirOpen && effectiveEmployeeId && (
-            <ul className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl ring-1 ring-slate-900/5 sm:min-w-[18rem]">
+            <ul className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-64 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--panel)] py-1 shadow-xl sm:min-w-[18rem]">
               {dirLoading && <li className="px-4 py-3 text-sm text-slate-500">Searching…</li>}
               {!dirLoading && dirResults.length === 0 && (
                 <li className="px-4 py-3 text-sm text-slate-500">No matches</li>
@@ -807,14 +815,14 @@ export default function EmployeeProfilePage() {
         </div>
         {canFilterByDepartment && (
           <div className="w-full sm:w-52">
-            <label htmlFor="emp-bio-department" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <label htmlFor="emp-bio-department" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
               Department
             </label>
             <select
               id="emp-bio-department"
               value={dirDepartmentId}
               onChange={(e) => handleDirDepartmentChange(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-[#2B7DE9] focus:ring-2 focus:ring-[#2B7DE9]/20"
+              className={fieldClass}
             >
               <option value="">All departments</option>
               {departments.map((d) => (
@@ -1093,15 +1101,15 @@ export default function EmployeeProfilePage() {
       {directorySearchBar}
 
       <nav
-        className="sticky top-[52px] z-40 -mx-7 mb-6 flex flex-col gap-2 border-b border-slate-200/90 bg-white/95 py-2.5 pl-7 pr-7 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/85 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+        className="sticky top-0 z-40 mb-5 flex flex-col gap-3 border-b border-[var(--border)] bg-[var(--bg)] py-3 sm:flex-row sm:items-center sm:justify-between"
         aria-label="Bio sections"
       >
-        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80">
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
           {toc.map((t) => (
             <a
               key={t.id}
               href={`#${t.id}`}
-              className="shrink-0 rounded-full border border-slate-200/60 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:border-[#2B7DE9]/35 hover:text-[#1565C9]"
+              className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-xs font-medium text-[var(--muted)] transition hover:text-[var(--text)]"
             >
               {t.label}
             </a>
@@ -1109,57 +1117,51 @@ export default function EmployeeProfilePage() {
         </div>
         <Link
           href={`${ROUTES.people}/${emp.id}`}
-          className="shrink-0 self-start rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 sm:self-auto"
+          className="shrink-0 self-start rounded-lg bg-[var(--btn-primary)] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[var(--btn-primary-hover)] sm:self-auto"
         >
-          Open full profile (edit)
+          Open full profile
         </Link>
       </nav>
 
-      {/* Hero */}
-      <div
-        className={`${card} mb-8`}
-      >
-        <div className="relative overflow-hidden px-6 py-8 sm:px-10 sm:py-10">
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-sky-50/90 via-white to-indigo-50/40" />
-          <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center">
-            {emp.profileImageUrl ? (
-              <img
-                src={resolveAssetUrl(emp.profileImageUrl) ?? ""}
-                alt=""
-                className="h-28 w-28 shrink-0 rounded-2xl border-4 border-white object-cover shadow-lg shadow-slate-900/10"
-              />
-            ) : (
-              <div className="grid h-28 w-28 shrink-0 place-items-center rounded-2xl border-4 border-white bg-gradient-to-br from-[#2B7DE9] to-indigo-600 text-3xl font-bold text-white shadow-lg shadow-indigo-500/25">
-                {initials}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{emp.fullName}</h1>
-              <p className="mt-1 text-sm text-slate-600">
-                <span className="font-mono font-medium text-slate-800">{emp.employeeCode}</span>
-                <span className="mx-2 text-slate-300">·</span>
-                {dash(emp.jobTitleName ?? emp.positionTitle)}
-                <span className="mx-2 text-slate-300">·</span>
-                {dash(emp.departmentName)}
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200/60">
-                  {emp.status}
+      <div className={`${card} mb-6`}>
+        <div className="flex flex-col gap-5 px-5 py-5 sm:flex-row sm:items-center sm:px-6">
+          {emp.profileImageUrl ? (
+            <img
+              src={resolveAssetUrl(emp.profileImageUrl) ?? ""}
+              alt=""
+              className="h-16 w-16 shrink-0 rounded-xl border border-[var(--border)] object-cover"
+            />
+          ) : (
+            <div className="grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-[var(--btn-primary)] text-lg font-semibold text-white">
+              {initials}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-semibold tracking-tight text-[var(--text)]">{emp.fullName}</h2>
+            <p className="mt-1 text-[13px] text-[var(--muted)]">
+              <span className="font-mono text-[var(--text)]">{emp.employeeCode}</span>
+              <span className="mx-2">·</span>
+              {dash(emp.jobTitleName ?? emp.positionTitle)}
+              <span className="mx-2">·</span>
+              {dash(emp.departmentName)}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 ring-1 ring-emerald-500/30">
+                {emp.status}
+              </span>
+              <span className="rounded-full bg-[var(--soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--text)] ring-1 ring-[var(--border)]">
+                {employmentTypeDisplayName(employmentTypes, emp.employmentType)}
+              </span>
+              {emp.locationName && (
+                <span className="rounded-full bg-[var(--soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--text)] ring-1 ring-[var(--border)]">
+                  {emp.locationName}
                 </span>
-                <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200/80 backdrop-blur-sm">
-                  {employmentTypeDisplayName(employmentTypes, emp.employmentType)}
+              )}
+              {emp.gradeName && (
+                <span className="rounded-full bg-[var(--primary-soft)] px-2.5 py-0.5 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--border)]">
+                  {emp.gradeName}
                 </span>
-                {emp.locationName && (
-                  <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200/80 backdrop-blur-sm">
-                    {emp.locationName}
-                  </span>
-                )}
-                {emp.gradeName && (
-                  <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-900 ring-1 ring-indigo-200/60">
-                    {emp.gradeName}
-                  </span>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -1629,14 +1631,15 @@ export default function EmployeeProfilePage() {
                 {immDocs.map((d) => (
                   <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-2 text-sm">
                     <span className="font-medium text-slate-800">{d.fileName}</span>
-                    <a
-                      href={`${getApiBaseUrl()}/api/employees/${emp.id}/immigration-documents/${d.id}/download`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void downloadEmployeeFile(`/api/employees/${emp.id}/immigration-documents/${d.id}/download`, d.fileName)
+                      }
                       className="text-xs font-semibold text-[#2B7DE9] hover:underline"
                     >
                       Download
-                    </a>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -1673,14 +1676,15 @@ export default function EmployeeProfilePage() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{formatDateTime(a.dateAdded)}</td>
                       <td className="px-4 py-2.5 text-right">
-                        <a
-                          href={`${getApiBaseUrl()}/api/employees/${emp.id}/attachments/${a.id}/download`}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void downloadEmployeeFile(`/api/employees/${emp.id}/attachments/${a.id}/download`, a.fileName)
+                          }
                           className="text-xs font-semibold text-[#2B7DE9] hover:underline"
                         >
                           Download
-                        </a>
+                        </button>
                       </td>
                     </tr>
                   ))}

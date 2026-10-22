@@ -18,6 +18,45 @@ export function isAlwaysVisibleNavHref(href: string): boolean {
   return href === ROUTES.helpGuides || href.startsWith(`${ROUTES.helpGuides}/`);
 }
 
+const GUARDED_APP_ROUTES: readonly string[] = [
+  ROUTES.dashboard,
+  ROUTES.people,
+  ROUTES.peopleAuditTrail,
+  ROUTES.employeeProfile,
+  ROUTES.recruitment,
+  ROUTES.employeeTasks,
+  ROUTES.onboarding,
+  ROUTES.offboarding,
+  ROUTES.employeeActions,
+  ROUTES.leave,
+  ROUTES.approvals,
+  ROUTES.attendance,
+  ROUTES.payroll,
+  ROUTES.performance,
+  ROUTES.learning,
+  ROUTES.reports,
+  ROUTES.analytics,
+  ROUTES.orgStructure,
+  ROUTES.companyProfile,
+  ROUTES.settings,
+  ROUTES.emailTemplates,
+  ROUTES.emailDeliveryLog,
+  ROUTES.billing,
+  ROUTES.billingCustomerReset,
+  ROUTES.administration,
+  ROUTES.userManagement,
+];
+
+/** Most specific menu route that owns `pathname`, or null when the path has no menu rule. */
+export function findGuardedNavHref(pathname: string): string | null {
+  let best: string | null = null;
+  for (const href of GUARDED_APP_ROUTES) {
+    if (pathname !== href && !pathname.startsWith(`${href}/`)) continue;
+    if (!best || href.length > best.length) best = href;
+  }
+  return best;
+}
+
 /**
  * Menu visibility per route — finer than module-level Read checks.
  * Aligns sidebar with Roles & permissions (one row per sidebar item).
@@ -43,6 +82,12 @@ export function isNavItemVisible(href: string, ctx: NavVisibilityContext): boole
 
     case ROUTES.employeeTasks:
       return ctx.hasPermission("EmployeeTasks", "Read");
+
+    case ROUTES.onboarding:
+      return ctx.hasPermission("Onboarding", "Read") || ctx.hasPermission("EmployeeTasks", "Read");
+
+    case ROUTES.offboarding:
+      return ctx.hasPermission("Offboarding", "Read") || ctx.hasPermission("EmployeeTasks", "Read");
 
     case ROUTES.employeeActions:
       return (

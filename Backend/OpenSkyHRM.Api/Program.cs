@@ -93,6 +93,18 @@ static async Task EnsureDatabaseExistsAsync(string? connectionString)
     }
 }
 
+static async Task EnsureHrSchemaAsync(string? connectionString)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+        return;
+
+    await using var conn = new Npgsql.NpgsqlConnection(connectionString);
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = $"""CREATE SCHEMA IF NOT EXISTS "{HrDatabase.Schema}";""";
+    await cmd.ExecuteNonQueryAsync();
+}
+
 // --- Data Protection (before Application — API key encryption) ---
 // Persist the key ring to a folder that travels with the app instead of the
 // per-user DPAPI store. Under IIS the app-pool identity often has no loaded
@@ -360,10 +372,11 @@ if (dbAvailable)
 {
     try
     {
-        var defaultConn = builder.Configuration.GetConnectionString("DefaultConnection");
+        var defaultConn = HrDatabase.WithSearchPath(builder.Configuration.GetConnectionString("DefaultConnection"));
         var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection") ?? defaultConn;
         await EnsureDatabaseExistsAsync(defaultConn);
         await EnsureDatabaseExistsAsync(hangfireConn);
+        await EnsureHrSchemaAsync(defaultConn);
 
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -383,7 +396,7 @@ if (dbAvailable)
         Console.WriteLine($"WARNING: Database migration failed: {ex.Message}");
         try
         {
-            var fallbackConn = builder.Configuration.GetConnectionString("DefaultConnection");
+            var fallbackConn = HrDatabase.WithSearchPath(builder.Configuration.GetConnectionString("DefaultConnection"));
             await LeaveSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
             await RecruitmentSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
             await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);

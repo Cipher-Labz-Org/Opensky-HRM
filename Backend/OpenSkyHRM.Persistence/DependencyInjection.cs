@@ -16,8 +16,10 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>((sp, options) =>
         {
             options.UseNpgsql(
-                configuration.GetConnectionString("DefaultConnection"),
-                npgsql => npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName));
+                HrDatabase.WithSearchPath(configuration.GetConnectionString("DefaultConnection")),
+                npgsql => npgsql
+                    .MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)
+                    .MigrationsHistoryTable(HrDatabase.MigrationsHistoryTable, HrDatabase.Schema));
             options.AddInterceptors(sp.GetRequiredService<PeopleHubAuditSaveChangesInterceptor>());
         });
 

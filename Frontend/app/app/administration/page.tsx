@@ -14,8 +14,6 @@ const kpiTileClass =
 const panelClass = "rounded-2xl border border-slate-200 bg-white shadow-sm";
 
 /** Must match `BulkUploadController.BulkImportDefaultLoginPassword` in the API. */
-const BULK_IMPORT_DEFAULT_LOGIN_PASSWORD = "123";
-
 // ──── Shared Types ────
 
 interface RowResult {
@@ -339,7 +337,7 @@ async function downloadLoginCredentialsXlsx(logins: CreatedLoginCredential[]) {
     "Employee ID": l.employeeCode ?? "",
     "Employee Name": l.employeeName ?? "",
     Username: l.username ?? "",
-    Password: l.password || BULK_IMPORT_DEFAULT_LOGIN_PASSWORD,
+    Password: l.password ?? "",
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -355,7 +353,7 @@ function normalizeEmployeeUploadResult(json: UploadResult): UploadResult {
     return {
       employeeCode: String(r.employeeCode ?? r.EmployeeCode ?? ""),
       username: String(r.username ?? r.Username ?? ""),
-      password: String(r.password ?? r.Password ?? BULK_IMPORT_DEFAULT_LOGIN_PASSWORD),
+      password: String(r.password ?? r.Password ?? ""),
       employeeName: (r.employeeName ?? r.EmployeeName ?? null) as string | null,
     };
   });
@@ -471,8 +469,8 @@ function EmployeeUploadSection() {
               <li>Upload the completed file below.</li>
             </ol>
             <p className="mt-3 text-xs text-slate-600">
-              When <strong>Create employee logins</strong> is checked, a login is created only for rows with <strong>Employee Code</strong> filled in (used as username). Blank Employee Code rows are imported as employees only. Default password{" "}
-              <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong> and mandatory password change on first sign-in. Allowed username characters: letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, <code className="text-[11px]">-</code> (unique; a numeric suffix may be added to avoid collisions). After a successful import, use <strong>Download login credentials</strong> for an Excel file with Employee ID, Username, and Password. With the option off, no logins are created.
+              When <strong>Create employee logins</strong> is checked, a login is created only for rows with <strong>Employee Code</strong> filled in (used as username). Blank Employee Code rows are imported as employees only. Each login gets its own random one-time password
+              and must change it on first sign-in. Allowed username characters: letters, digits, <code className="text-[11px]">.</code>, <code className="text-[11px]">_</code>, <code className="text-[11px]">-</code> (unique; a numeric suffix may be added to avoid collisions). After a successful import, use <strong>Download login credentials</strong> for an Excel file with Employee ID, Username, and Password. With the option off, no logins are created.
             </p>
           </div>
           <DropZone file={file} fileRef={fileRef} dragOver={dragOver} setDragOver={setDragOver} onFileChange={handleFileChange} />
@@ -484,8 +482,8 @@ function EmployeeUploadSection() {
               onChange={(e) => setCreateUserLogins(e.target.checked)}
             />
             <span>
-              <span className="font-semibold text-slate-900">Create employee logins</span> — uses <strong>Employee Code</strong> as username when filled in (blank code = employee only); default password{" "}
-              <strong>{BULK_IMPORT_DEFAULT_LOGIN_PASSWORD}</strong>, mandatory password change on first login.
+              <span className="font-semibold text-slate-900">Create employee logins</span> — uses <strong>Employee Code</strong> as username when filled in (blank code = employee only); each login gets a random one-time password (download the credentials file after import),
+              with mandatory password change on first login.
             </span>
           </label>
           <div className="mt-4 flex flex-wrap items-center gap-3">

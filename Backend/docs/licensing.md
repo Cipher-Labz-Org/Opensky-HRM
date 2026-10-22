@@ -20,7 +20,7 @@
 
 ## Vendor module-access panel
 
-Company admins cannot change entitlements. OpenSky staff open a hidden panel with **Ctrl+Shift+A**, sign in with the vendor superadmin account (`VendorLicensing` in appsettings / env), and toggle modules for **that company database**. Endpoints:
+Company admins cannot change entitlements. OpenSky staff open a hidden panel with **Ctrl+Shift+Q**, sign in with the vendor superadmin account (`VendorLicensing` in appsettings / env), and toggle modules for **that company database**. Endpoints:
 
 - `POST /api/vendor-licensing/login`
 - `GET /api/vendor-licensing/state`

@@ -250,6 +250,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    const onErpSession = (event: MessageEvent) => {
+      const data = event.data as { type?: string; token?: string; user?: UserProfile } | null;
+      if (!data || data.type !== "opensky-erp-session" || !data.token || !data.user) return;
+      let allowed = false;
+      try {
+        const origin = new URL(event.origin);
+        const host = origin.hostname;
+        allowed =
+          origin.port === "5173" &&
+          (host === "localhost" ||
+            host === "127.0.0.1" ||
+            host.startsWith("192.168.") ||
+            host.startsWith("10."));
+      } catch {
+        allowed = false;
+      }
+      if (!allowed) return;
+      persistAuthToken(data.token, true);
+      persistAuthProfile(data.user, true);
+      ensureAuthVisitId();
+      setToken(data.token);
+      setUser(data.user);
+      setIsLoading(false);
+    };
+    window.addEventListener("message", onErpSession);
+    return () => window.removeEventListener("message", onErpSession);
+  }, []);
+
+  useEffect(() => {
+    const embedded =
+      typeof window !== "undefined" &&
+      (new URLSearchParams(window.location.search).get("embed") === "1" ||
+        sessionStorage.getItem("opensky-erp-embed") === "1");
+    if (embedded) {
+      // ERP parent supplies the session via postMessage — ignore stale HRM tokens from standalone dev.
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      sessionStorage.removeItem(AUTH_TOKEN_KEY);
+      clearStoredProfile();
+      clearAuthBrowserCookies();
+      setUser(null);
+      setToken(null);
+      setIsLoading(false);
+      return;
+    }
+
     const stored = readStoredToken();
     if (!stored) {
       setIsLoading(false);

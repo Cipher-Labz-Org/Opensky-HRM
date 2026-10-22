@@ -19,13 +19,13 @@ export function Button({
     "inline-flex min-h-[42px] items-center justify-center rounded-lg px-5 py-2.5 text-sm font-semibold tracking-tight " +
     "transition-all duration-200 ease-out " +
     "shadow-sm shadow-slate-900/[0.04] " +
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BBF]/30 focus-visible:ring-offset-2 " +
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--btn-ring)] focus-visible:ring-offset-2 " +
     "disabled:pointer-events-none disabled:opacity-45 active:scale-[0.98]";
 
   const styles =
     variant === "primary"
-      ? "border border-[#2E7BBF] bg-[#2E7BBF] text-white hover:border-[#256aa3] hover:bg-[#256aa3] hover:shadow-md hover:shadow-[#2E7BBF]/18"
-      : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow";
+      ? "border border-[var(--btn-primary)] bg-[var(--btn-primary)] text-white hover:border-[var(--btn-primary-hover)] hover:bg-[var(--btn-primary-hover)] hover:shadow-md"
+      : "border border-[var(--border)] bg-[var(--panel)] text-[var(--text)] hover:border-[var(--border)] hover:bg-[var(--soft)] hover:shadow";
 
   return (
     <button type="button" className={`${base} ${styles} ${className}`} {...props}>

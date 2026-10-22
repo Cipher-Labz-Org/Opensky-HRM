@@ -20,7 +20,7 @@ public static class BankAccountSchemaRepair
             check.CommandText = """
                 SELECT 1
                 FROM information_schema.columns
-                WHERE table_schema = 'public'
+                WHERE table_schema = 'HR'
                   AND table_name = 'BankAccounts'
                   AND column_name = 'Amount'
                 LIMIT 1;

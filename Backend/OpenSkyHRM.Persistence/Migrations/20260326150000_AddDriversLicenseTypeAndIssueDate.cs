@@ -16,13 +16,13 @@ namespace OpenSkyHRM.Persistence.Migrations
                 DO $$ BEGIN
                     IF NOT EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_schema = 'public' AND table_name = 'Employees' AND column_name = 'DriversLicenseType'
+                        WHERE table_schema = 'HR' AND table_name = 'Employees' AND column_name = 'DriversLicenseType'
                     ) THEN
                         ALTER TABLE ""Employees"" ADD COLUMN ""DriversLicenseType"" character varying(80);
                     END IF;
                     IF NOT EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_schema = 'public' AND table_name = 'Employees' AND column_name = 'LicenseIssueDate'
+                        WHERE table_schema = 'HR' AND table_name = 'Employees' AND column_name = 'LicenseIssueDate'
                     ) THEN
                         ALTER TABLE ""Employees"" ADD COLUMN ""LicenseIssueDate"" timestamp without time zone;
                     END IF;

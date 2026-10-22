@@ -13,6 +13,7 @@ import { sanitizeEmployeeAddressFields } from "@/lib/employee-address";
 import { displayWorkEmail } from "@/lib/employee-email";
 import { inferStateFromDistrict } from "@/lib/geo-regions";
 import { apiFetch, apiFetchBlob } from "@/lib/api";
+import { downloadBlob } from "@/lib/template-pdf";
 import { resolveHttpErrorMessage } from "@/lib/api-errors";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
 import { getSystemSetting } from "@/lib/system-settings";
@@ -1872,6 +1873,14 @@ export default function EmployeeDetailPage() {
       await appAlert(err instanceof Error ? err.message : "Could not open the attachment.");
     } finally {
       setAttachOpeningId(null);
+    }
+  }
+
+  async function downloadAttachmentFile(attId: string, fileName: string) {
+    try {
+      downloadBlob(await apiFetchBlob(`/api/employees/${id}/attachments/${attId}/download`), fileName || "download");
+    } catch (err) {
+      await appAlert(err instanceof Error ? err.message : "Could not download the attachment.");
     }
   }
 
@@ -4631,9 +4640,9 @@ export default function EmployeeDetailPage() {
                               >
                                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                               </button>
-                              <a href={`${getApiBaseUrl()}/api/employees/${id}/attachments/${att.id}/download`} target="_blank" rel="noreferrer" title="Download" className="text-slate-500 transition hover:text-blue-600">
+                              <button type="button" onClick={() => void downloadAttachmentFile(att.id, att.fileName)} title="Download" className="text-slate-500 transition hover:text-blue-600">
                                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                              </a>
+                              </button>
                               <button
                                 type="button"
                                 title="Edit attachment"

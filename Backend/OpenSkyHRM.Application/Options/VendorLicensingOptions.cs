@@ -1,7 +1,7 @@
 namespace OpenSkyHRM.Application.Options;
 
 /// <summary>
-/// OpenSky vendor credentials for the hidden module-access panel (Ctrl+Shift+A).
+/// OpenSky vendor credentials for the hidden module-access panel (Ctrl+Shift+Q).
 /// Override with env vars VendorLicensing__Username / VendorLicensing__Password per environment.
 /// </summary>
 public class VendorLicensingOptions

@@ -363,7 +363,7 @@ export default function DashboardPage() {
                 <>
                   {" "}
                   ·{" "}
-                  <span className="font-semibold" style={{ color: T.accent }}>
+                  <span className="erp-attention font-semibold" style={{ color: T.accent }}>
                     {attentionCount} need attention
                   </span>
                 </>

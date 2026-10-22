@@ -40,24 +40,11 @@ const triggerSlate =
   "disabled:cursor-not-allowed disabled:opacity-50 " +
   "[&[data-placeholder]]:text-slate-500";
 
-const contentBlue =
-  "z-[10050] max-h-[min(320px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-slate-200/90 bg-white py-1 shadow-lg shadow-slate-900/10 ring-1 ring-slate-200/60";
+const contentClass =
+  "opensky-select-panel z-[10050] max-h-[min(320px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden";
 
-const contentSlate =
-  "z-[10050] max-h-[min(320px,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/15";
-
-const itemBlue =
-  "relative flex cursor-pointer select-none items-center rounded-md py-2 pl-3 pr-8 text-sm text-slate-700 outline-none " +
-  "data-[disabled]:pointer-events-none data-[disabled]:opacity-40 " +
-  "data-[highlighted]:bg-[#e3eef8] data-[highlighted]:text-[#1a5f94] " +
-  "data-[state=checked]:bg-[#e3eef8]/90 data-[state=checked]:font-semibold data-[state=checked]:text-[#1a5f94]";
-
-const itemSlate =
-  "relative flex cursor-pointer select-none items-center rounded-md py-2.5 pl-3 pr-8 text-sm text-slate-700 outline-none " +
-  "data-[disabled]:pointer-events-none data-[disabled]:opacity-40 " +
-  "data-[highlighted]:bg-slate-600 data-[highlighted]:text-white " +
-  "data-[state=checked]:bg-slate-100 data-[state=checked]:font-medium data-[state=checked]:text-slate-900 " +
-  "data-[state=checked]:data-[highlighted]:bg-slate-600 data-[state=checked]:data-[highlighted]:text-white";
+const itemClass =
+  "opensky-select-option relative flex w-full cursor-pointer select-none items-center rounded-[7px] py-2 pl-2.5 pr-2 text-left text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40";
 
 function Chevron({ tone }: { tone: FormSelectTone }) {
   const cls = tone === "slate" ? "shrink-0 text-slate-600" : "shrink-0 text-[#2E7BBF]";
@@ -139,9 +126,7 @@ export function FormSelect({
   const clearSelection = () => setFormValue("");
 
   const triggerClass = tone === "slate" ? triggerSlate : triggerBlue;
-  const contentClass = tone === "slate" ? contentSlate : contentBlue;
-  const itemClass = tone === "slate" ? itemSlate : itemBlue;
-  const sideOffset = tone === "slate" ? 4 : 6;
+  const sideOffset = 6;
   const placeholderClass = tone === "slate" ? "text-slate-500" : "text-slate-400";
 
   return (

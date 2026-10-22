@@ -19,11 +19,13 @@ public sealed class AppDbContextDesignTimeFactory : IDesignTimeDbContextFactory<
             .AddEnvironmentVariables()
             .Build();
 
-        var conn = config.GetConnectionString("DefaultConnection")
-                   ?? "Host=localhost;Port=5432;Database=openskyhrm_dev;Username=postgres;Password=postgres";
+        var conn = HrDatabase.WithSearchPath(config.GetConnectionString("DefaultConnection")
+                   ?? "Host=localhost;Port=5432;Database=Janasetha;Username=postgres;Password=postgres");
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(conn, npgsql => npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName))
+            .UseNpgsql(conn, npgsql => npgsql
+                .MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)
+                .MigrationsHistoryTable(HrDatabase.MigrationsHistoryTable, HrDatabase.Schema))
             .Options;
 
         return new AppDbContext(options, new BusinessClock(config));

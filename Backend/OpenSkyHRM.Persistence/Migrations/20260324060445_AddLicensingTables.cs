@@ -21,7 +21,7 @@ DO $empType$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'Employees' AND column_name = 'EmploymentType'
+    WHERE table_schema = 'HR' AND table_name = 'Employees' AND column_name = 'EmploymentType'
   ) THEN
     ALTER TABLE ""Employees"" ADD COLUMN ""EmploymentType"" text NOT NULL DEFAULT '';
   END IF;

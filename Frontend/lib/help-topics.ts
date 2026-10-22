@@ -238,14 +238,24 @@ const HELP_ROUTE_BY_PREFIX: Array<{ prefix: string; helpRoute: string }> = [
   { prefix: ROUTES.emailDeliveryLog, helpRoute: helpTopicHref("email-delivery-log") },
 ].sort((a, b) => b.prefix.length - a.prefix.length);
 
+export function helpTopicForPathname(pathname: string): HelpTopic | undefined {
+  const cleanPath = (pathname || "").trim();
+  if (!cleanPath || cleanPath === ROUTES.helpGuides || cleanPath.startsWith(`${ROUTES.helpGuides}/`)) {
+    return undefined;
+  }
+  const match = HELP_ROUTE_BY_PREFIX.find(
+    ({ prefix }) => cleanPath === prefix || cleanPath.startsWith(`${prefix}/`)
+  );
+  if (!match) return undefined;
+  const slug = match.helpRoute.slice(`${ROUTES.helpGuides}/`.length);
+  return getHelpTopic(slug);
+}
+
 export function contextualHelpGuideHref(pathname: string, _licensedModules?: string[]): string {
   const cleanPath = (pathname || "").trim();
   if (!cleanPath || cleanPath === ROUTES.helpGuides || cleanPath.startsWith(`${ROUTES.helpGuides}/`)) {
     return ROUTES.helpGuides;
   }
-
-  const match = HELP_ROUTE_BY_PREFIX.find(
-    ({ prefix }) => cleanPath === prefix || cleanPath.startsWith(`${prefix}/`)
-  );
-  return match?.helpRoute ?? ROUTES.helpGuides;
+  const topic = helpTopicForPathname(cleanPath);
+  return topic ? helpTopicHref(topic.slug) : ROUTES.helpGuides;
 }

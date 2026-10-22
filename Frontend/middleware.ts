@@ -52,7 +52,13 @@ export function middleware(request: NextRequest) {
   const hasSession =
     request.cookies.get("auth_ok")?.value === "1" ||
     Boolean(request.cookies.get("auth_token")?.value);
-  if (!hasSession && pathname.startsWith("/app")) {
+  const redirectParam = request.nextUrl.searchParams.get("redirect") ?? "";
+  const openedFromErp =
+    request.nextUrl.searchParams.get("embed") === "1" ||
+    redirectParam.includes("embed=1") ||
+    request.cookies.get("opensky_erp_embed")?.value === "1";
+  // Inside the ERP shell the only sign-in page is the ERP login. Do not show this app's login form.
+  if (!hasSession && pathname.startsWith("/app") && !openedFromErp) {
     const loginUrl = new URL("/login", request.url);
     const next = `${pathname}${request.nextUrl.search}`;
     loginUrl.searchParams.set("redirect", next);

@@ -85,6 +85,9 @@
   --danger: #dc2626;
   --border: #d4dee8;
   --shadow: 0 18px 40px rgba(8, 31, 62, 0.08);
+  --btn-primary: #2e7bbf;
+  --btn-primary-hover: #256aa3;
+  --btn-ring: rgba(46, 123, 191, 0.3);
   /* App shell surface layers */
   --shell-sidebar: linear-gradient(180deg, #e3eaf4 0%, #eef3f9 42%, #f4f8fc 100%);
   --shell-nav-rail: rgba(255, 255, 255, 0.58);
@@ -902,4 +905,658 @@ body:has(.login-page) {
   .toast-popup-progress {
     transform: scaleX(0);
   }
+}
+
+/* ERP embed: match OpenSky ERP neutral surfaces and indigo actions.
+   Standalone HRM keeps the navy/green palette above. */
+html.erp-embed {
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --soft: #f5f5f5;
+  --text: #171717;
+  --muted: #737373;
+  --primary: #4f46e5;
+  --primary-deep: #312e81;
+  --primary-soft: #eef0fb;
+  --accent: #3730a3;
+  --accent-soft: #eef0fb;
+  --action: #3730a3;
+  --action-soft: #eef0fb;
+  --accent-hot: #3730a3;
+  --accent-hot-soft: #eef0fb;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --border: #e5e5e5;
+  --line2: #f5f5f5;
+  --shadow: none;
+  --btn-primary: #4f46e5;
+  --btn-primary-hover: #4338ca;
+  --btn-ring: rgba(79, 70, 229, 0.28);
+  --shell-canvas: #fafafa;
+  color-scheme: light;
+}
+
+html.erp-embed.dark {
+  --bg: #0a0a0a;
+  --panel: #171717;
+  --soft: #262626;
+  --text: #f5f5f5;
+  --muted: #a3a3a3;
+  --primary: #a5b4fc;
+  --primary-deep: #3730a3;
+  --primary-soft: #1e1b4b;
+  --accent: #3730a3;
+  --accent-soft: #1e1b4b;
+  --action: #3730a3;
+  --action-soft: #262626;
+  --accent-hot: #3730a3;
+  --accent-hot-soft: #1e1b4b;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --border: #404040;
+  --line2: #333333;
+  --shadow: none;
+  --btn-primary: #6366f1;
+  --btn-primary-hover: #4f46e5;
+  --btn-ring: rgba(99, 102, 241, 0.45);
+  --shell-canvas: #0a0a0a;
+  color-scheme: dark;
+}
+
+html.erp-embed body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+html.erp-embed button:hover:not(:disabled),
+html.erp-embed [role="button"]:hover:not([aria-disabled="true"]) {
+  box-shadow: 0 8px 18px -12px rgba(99, 102, 241, 0.45);
+  filter: none;
+}
+
+html.erp-embed .opensky-dashboard-card {
+  border-radius: 1rem;
+  box-shadow: var(--shadow);
+}
+
+html.erp-embed .opensky-dashboard-card:hover {
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+  transform: none;
+}
+
+html.erp-embed .opensky-dashboard-card-header {
+  background: var(--soft);
+  border-radius: 1rem 1rem 0 0;
+}
+
+html.erp-embed .opensky-dashboard-quicklink:hover {
+  border-color: var(--border);
+  background: var(--soft);
+  box-shadow: none;
+  transform: none;
+}
+
+html.erp-embed .text-blue-600,
+html.erp-embed .text-blue-700,
+html.erp-embed .text-sky-600,
+html.erp-embed .text-sky-700,
+html.erp-embed .text-\[\#2E7BBF\],
+html.erp-embed .text-\[\#2e7bbf\] {
+  color: var(--primary);
+}
+
+html.erp-embed .bg-blue-600,
+html.erp-embed .bg-blue-700,
+html.erp-embed .bg-sky-600,
+html.erp-embed .bg-\[\#2E7BBF\],
+html.erp-embed .bg-\[\#2e7bbf\],
+html.erp-embed .hover\:bg-blue-600:hover,
+html.erp-embed .hover\:bg-blue-700:hover,
+html.erp-embed .hover\:bg-\[\#256aa3\]:hover,
+html.erp-embed .hover\:bg-\[\#2E7BBF\]:hover {
+  background-color: var(--btn-primary);
+}
+
+html.erp-embed .border-blue-600,
+html.erp-embed .border-\[\#2E7BBF\],
+html.erp-embed .border-\[\#2e7bbf\],
+html.erp-embed .hover\:border-blue-700:hover,
+html.erp-embed .hover\:border-\[\#256aa3\]:hover {
+  border-color: var(--btn-primary);
+}
+
+html.erp-embed .border-t-blue-600 {
+  border-top-color: var(--btn-primary);
+}
+
+html.erp-embed.dark .bg-white,
+html.erp-embed.dark .hover\:bg-white:hover {
+  background-color: var(--panel);
+}
+
+html.erp-embed.dark .bg-slate-50,
+html.erp-embed.dark .bg-gray-50,
+html.erp-embed.dark .bg-neutral-50,
+html.erp-embed.dark .bg-slate-100,
+html.erp-embed.dark .bg-gray-100,
+html.erp-embed.dark .hover\:bg-slate-50:hover,
+html.erp-embed.dark .hover\:bg-slate-100:hover,
+html.erp-embed.dark .hover\:bg-gray-50:hover,
+html.erp-embed.dark .hover\:bg-gray-100:hover {
+  background-color: var(--soft);
+}
+
+html.erp-embed.dark .text-slate-900,
+html.erp-embed.dark .text-slate-800,
+html.erp-embed.dark .text-gray-900,
+html.erp-embed.dark .text-gray-800,
+html.erp-embed.dark .text-neutral-900,
+html.erp-embed.dark .hover\:text-slate-900:hover,
+html.erp-embed.dark .hover\:text-gray-900:hover {
+  color: var(--text);
+}
+
+html.erp-embed.dark .text-slate-700,
+html.erp-embed.dark .text-slate-600,
+html.erp-embed.dark .text-gray-700,
+html.erp-embed.dark .text-gray-600,
+html.erp-embed.dark .text-neutral-700,
+html.erp-embed.dark .text-neutral-600 {
+  color: #d4d4d4;
+}
+
+html.erp-embed.dark .text-slate-500,
+html.erp-embed.dark .text-slate-400,
+html.erp-embed.dark .text-gray-500,
+html.erp-embed.dark .text-gray-400,
+html.erp-embed.dark .text-neutral-500,
+html.erp-embed.dark .text-neutral-400 {
+  color: var(--muted);
+}
+
+html.erp-embed.dark .border-slate-100,
+html.erp-embed.dark .border-slate-200,
+html.erp-embed.dark .border-slate-300,
+html.erp-embed.dark .border-gray-100,
+html.erp-embed.dark .border-gray-200,
+html.erp-embed.dark .border-gray-300,
+html.erp-embed.dark .hover\:border-slate-300:hover,
+html.erp-embed.dark .hover\:border-gray-300:hover,
+html.erp-embed.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+html.erp-embed.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border);
+}
+
+html.erp-embed.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not(.bg-transparent):not(.login-field-input),
+html.erp-embed.dark select,
+html.erp-embed.dark textarea {
+  background-color: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+html.erp-embed .login-page {
+  --login-bg: var(--bg);
+  background-color: var(--bg) !important;
+}
+
+html.erp-embed .login-card {
+  border-color: var(--border) !important;
+  box-shadow: var(--shadow) !important;
+}
+
+html.erp-embed .login-card button[type="submit"] {
+  background-color: var(--btn-primary) !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+}
+
+html.erp-embed .login-card a {
+  color: var(--primary) !important;
+}
+
+html.erp-embed.dark .login-card-title,
+html.erp-embed.dark .login-card label {
+  color: var(--text) !important;
+}
+
+html.erp-embed.dark .login-card-subtitle,
+html.erp-embed.dark .login-card p,
+html.erp-embed.dark .login-copyright {
+  color: var(--muted) !important;
+}
+
+html.erp-embed.dark .login-card form .rounded-xl:not(button) {
+  background-color: var(--soft) !important;
+  border-color: var(--border) !important;
+}
+
+html.erp-embed.dark .login-field-input {
+  background-color: transparent !important;
+  color: var(--text) !important;
+}
+
+html.erp-embed:not(.dark) .login-card-title,
+html.erp-embed:not(.dark) .login-card label {
+  color: var(--text) !important;
+}
+
+html.erp-embed:not(.dark) .login-card-subtitle {
+  color: var(--muted) !important;
+}
+
+html.erp-embed.dark input::placeholder,
+html.erp-embed.dark textarea::placeholder {
+  color: #737373;
+}
+
+html.erp-embed.dark table {
+  color: var(--text);
+}
+
+html.erp-embed.dark .shadow-sm,
+html.erp-embed.dark .shadow,
+html.erp-embed.dark .shadow-md {
+  --tw-shadow-color: rgb(0 0 0 / 0.35);
+}
+
+/* Match the ERP page canvas: flat background, no HRM hero slab. */
+html.erp-embed .app-page-hero {
+  margin: 0 0 1.5rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html.erp-embed .opensky-brand-badge {
+  display: none !important;
+}
+
+html.erp-embed .erp-attention {
+  color: #16a34a !important;
+}
+
+html.erp-embed.dark .erp-attention {
+  color: #4ade80 !important;
+}
+
+/* Campaigns-style chrome for every HR module inside the ERP frame. */
+html.erp-embed main {
+  background: transparent;
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+}
+
+html.erp-embed .app-page-kicker {
+  display: none !important;
+}
+
+html.erp-embed .app-page-topbar {
+  margin: 0 0 1.25rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible;
+}
+
+html.erp-embed .app-page-topbar .pl-4 {
+  padding-left: 0 !important;
+}
+
+html.erp-embed main h1,
+html.erp-embed .app-page-topbar h1 {
+  margin: 0;
+  color: var(--text) !important;
+  font-size: 1.875rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+  line-height: 1.2 !important;
+}
+
+html.erp-embed main h2,
+html.erp-embed main h3,
+html.erp-embed .opensky-dashboard-card-header h3 {
+  color: var(--text) !important;
+}
+
+html.erp-embed main p,
+html.erp-embed .app-page-topbar p,
+html.erp-embed .opensky-dashboard-card-header p {
+  color: var(--muted);
+}
+
+html.erp-embed .app-page-topbar p,
+html.erp-embed .opensky-dashboard-card-header p {
+  color: var(--muted) !important;
+  font-size: 13px !important;
+}
+
+html.erp-embed main .rounded-2xl,
+html.erp-embed main .rounded-xl,
+html.erp-embed main .rounded-\[20px\],
+html.erp-embed main .opensky-dashboard-card,
+html.erp-embed main .hris-card,
+html.erp-embed .erp-kpi {
+  border-radius: 10px !important;
+}
+
+html.erp-embed main .rounded-2xl.border,
+html.erp-embed main .rounded-xl.border,
+html.erp-embed main .rounded-\[20px\].border,
+html.erp-embed main .opensky-dashboard-card,
+html.erp-embed main .hris-card,
+html.erp-embed .erp-kpi {
+  border-color: var(--border) !important;
+  background-color: var(--panel) !important;
+  box-shadow: none !important;
+}
+
+html.erp-embed .erp-kpi,
+html.erp-embed .erp-kpi:hover {
+  transform: none !important;
+  padding: 1.5rem !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05) !important;
+}
+
+html.erp-embed.dark .erp-kpi,
+html.erp-embed.dark .erp-kpi:hover {
+  box-shadow: none !important;
+}
+
+html.erp-embed .erp-kpi .text-3xl {
+  color: var(--text) !important;
+  font-size: 1.875rem !important;
+  font-weight: 700 !important;
+}
+
+html.erp-embed .erp-kpi p,
+html.erp-embed .erp-kpi .uppercase {
+  color: var(--muted) !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+}
+
+html.erp-embed .opensky-dashboard-card-header {
+  background: transparent !important;
+  border-bottom-color: var(--border) !important;
+  border-radius: 10px 10px 0 0 !important;
+}
+
+html.erp-embed main .bg-slate-50\/60,
+html.erp-embed main .bg-blue-50,
+html.erp-embed main .bg-red-50,
+html.erp-embed main .bg-emerald-50,
+html.erp-embed main .bg-amber-50 {
+  background-color: var(--soft) !important;
+}
+
+html.erp-embed main .bg-slate-50\/70,
+html.erp-embed main .bg-slate-50\/90 {
+  background-color: transparent !important;
+}
+
+html.erp-embed main .border-slate-100,
+html.erp-embed main .border-slate-200,
+html.erp-embed main .border-slate-200\/80,
+html.erp-embed main .border-slate-300,
+html.erp-embed.dark main .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border) !important;
+}
+
+html.erp-embed main .text-slate-800,
+html.erp-embed main .text-slate-900,
+html.erp-embed main .text-\[\#081F3E\],
+html.erp-embed main .text-\[\#081f3e\],
+html.erp-embed main .text-\[\#173A63\] {
+  color: var(--text) !important;
+}
+
+html.erp-embed main .text-slate-400,
+html.erp-embed main .text-slate-500,
+html.erp-embed main .text-slate-600,
+html.erp-embed main .text-\[\#5B7087\],
+html.erp-embed main .text-\[\#94A3B8\] {
+  color: var(--muted) !important;
+}
+
+html.erp-embed main .text-\[\#2B7DE9\],
+html.erp-embed main .text-\[\#2E7BBF\],
+html.erp-embed main .text-\[\#3B8BEA\],
+html.erp-embed main .text-\[\#E8192C\] {
+  color: var(--primary) !important;
+}
+
+html.erp-embed main table th {
+  background: var(--soft) !important;
+  color: var(--muted) !important;
+  border-color: var(--border) !important;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+html.erp-embed main table td {
+  border-color: var(--line2) !important;
+  color: var(--text);
+  font-size: 13px;
+}
+
+html.erp-embed.dark main table tbody tr:hover {
+  background: #262626;
+}
+
+html.erp-embed main button.hover\:border-\[\#2B7DE9\],
+html.erp-embed main a.hover\:border-\[\#2B7DE9\],
+html.erp-embed main button.hover\:text-\[\#2B7DE9\],
+html.erp-embed main a.hover\:text-\[\#2B7DE9\] {
+  background-color: var(--btn-primary) !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+html.erp-embed main button.hover\:border-\[\#2B7DE9\] svg,
+html.erp-embed main a.hover\:border-\[\#2B7DE9\] svg {
+  color: #ffffff !important;
+}
+
+html.erp-embed button:hover:not(:disabled),
+html.erp-embed [role="button"]:hover:not([aria-disabled="true"]) {
+  transform: none;
+  box-shadow: none;
+  filter: none;
+}
+
+.opensky-select-panel {
+  position: fixed;
+  z-index: 10050;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid #e5e5e5;
+  background: #ffffff !important;
+  color: #171717;
+  padding: 6px;
+  box-shadow:
+    0 12px 32px -8px rgba(17, 24, 39, 0.16),
+    0 4px 8px -2px rgba(17, 24, 39, 0.06);
+  font-size: 14px;
+}
+
+html.dark .opensky-select-panel,
+html.erp-embed.dark .opensky-select-panel {
+  border-color: #404040;
+  background: #171717 !important;
+  color: #fafafa;
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.72);
+}
+
+.opensky-select-list {
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.opensky-select-empty,
+.opensky-select-group {
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #737373;
+}
+
+html.dark .opensky-select-group,
+html.erp-embed.dark .opensky-select-group,
+html.dark .opensky-select-empty,
+html.erp-embed.dark .opensky-select-empty {
+  color: #a3a3a3;
+}
+
+.opensky-select-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent !important;
+  color: inherit !important;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.opensky-select-option[data-active="true"],
+.opensky-select-option[data-highlighted] {
+  background: #eef0fb !important;
+  color: #171717 !important;
+}
+
+.opensky-select-option[data-selected="true"],
+.opensky-select-option[data-state="checked"] {
+  background: #eef0fb !important;
+  color: #3730a3 !important;
+  font-weight: 600;
+}
+
+html.dark .opensky-select-option[data-active="true"],
+html.erp-embed.dark .opensky-select-option[data-active="true"],
+html.dark .opensky-select-option[data-highlighted],
+html.erp-embed.dark .opensky-select-option[data-highlighted] {
+  background: rgba(67, 56, 202, 0.4) !important;
+  color: #fafafa !important;
+}
+
+html.dark .opensky-select-option[data-selected="true"],
+html.erp-embed.dark .opensky-select-option[data-selected="true"],
+html.dark .opensky-select-option[data-state="checked"],
+html.erp-embed.dark .opensky-select-option[data-state="checked"] {
+  background: rgba(49, 46, 129, 0.55) !important;
+  color: #c7d2fe !important;
+}
+
+.opensky-select-option:disabled {
+  cursor: not-allowed;
+  color: #a3a3a3 !important;
+}
+
+/* People Hub group-by menu: same panel as the ERP hub search. */
+html.erp-embed .phsb-panel {
+  background: var(--panel) !important;
+  border-color: var(--border) !important;
+  color: var(--text);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28) !important;
+  --tw-ring-color: transparent;
+}
+
+html.erp-embed.dark .phsb-panel {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55) !important;
+}
+
+html.erp-embed .phsb-panel .phsb-scroll,
+html.erp-embed .phsb-panel .phsb-favorites-attention,
+html.erp-embed .phsb-panel [class*="bg-white"],
+html.erp-embed .phsb-panel [class*="bg-slate-"],
+html.erp-embed .phsb-panel [class*="bg-amber-"],
+html.erp-embed .phsb-panel [class*="from-amber-"],
+html.erp-embed .phsb-panel [class*="via-slate-"],
+html.erp-embed .phsb-panel [class*="to-white"] {
+  background-color: var(--panel) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+html.erp-embed .phsb-panel [class*="border-slate"],
+html.erp-embed .phsb-panel [class*="border-amber"],
+html.erp-embed .phsb-panel [class*="ring-slate"],
+html.erp-embed .phsb-panel [class*="ring-amber"],
+html.erp-embed .phsb-panel [class*="ring-blue"] {
+  border-color: var(--border) !important;
+  --tw-ring-color: transparent;
+}
+
+html.erp-embed .phsb-panel [class*="text-slate-8"],
+html.erp-embed .phsb-panel [class*="text-slate-7"],
+html.erp-embed .phsb-panel [class*="text-slate-6"] {
+  color: var(--text) !important;
+}
+
+html.erp-embed .phsb-panel [class*="text-slate-5"],
+html.erp-embed .phsb-panel [class*="text-slate-4"] {
+  color: var(--muted) !important;
+}
+
+html.erp-embed .phsb-panel button.from-blue-50 {
+  background: var(--primary-soft) !important;
+  color: var(--btn-primary) !important;
+  box-shadow: none !important;
+  font-weight: 600;
+}
+
+html.erp-embed.dark .phsb-panel button.from-blue-50 {
+  background: rgba(49, 46, 129, 0.55) !important;
+  color: #c7d2fe !important;
+}
+
+html.erp-embed .phsb-panel button.from-blue-50 svg {
+  color: var(--btn-primary) !important;
+}
+
+html.erp-embed.dark .phsb-panel button.from-blue-50 svg {
+  color: #a5b4fc !important;
+}
+
+html.erp-embed .phsb-panel button:hover:not(.from-blue-50) {
+  background: var(--soft) !important;
+}
+
+html.erp-embed .phsb-panel input {
+  background: var(--soft) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+}
+
+html.erp-embed .phsb-panel .border-dashed {
+  background: var(--soft) !important;
+  border-color: var(--border) !important;
+  color: var(--muted) !important;
+}
+
+html.erp-embed .phsb-panel .phsb-star-pulse {
+  background: var(--panel) !important;
+  color: #fbbf24 !important;
+  animation: none;
+  box-shadow: none !important;
 }

@@ -4,7 +4,6 @@ import { appAlert, appConfirm, appPrompt } from "@/components/ui/appDialogs";
 import { useState, useEffect, useMemo } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
-import { CreateRoleModal } from "@/components/forms/CreateRoleModal";
 import { FormSelect, TablePagination, FormErrorAlert, FlashMessageBanner, UsernameInput, EmailInput, type FormSelectOption, type FlashMessage } from "@/components/ui";
 import { SUCCESS_BANNER_DISMISS_MS } from "@/lib/use-auto-dismiss";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
@@ -12,7 +11,6 @@ import { UserAdvancedPermissionsPanel } from "@/components/user-management/UserA
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatUtcInstantAsBusinessDateTime } from "@/lib/date-utils";
-import { resolveRolePermissionModules } from "@/lib/role-permission-modules";
 import { useApplyFilter } from "@/lib/use-apply-filter";
 import {
   sanitizeUsernameInput,
@@ -172,7 +170,6 @@ export default function UserManagementPage() {
   const searchFilter = useApplyFilter();
   const [filterRole, setFilterRole] = useState("");
   const [filterStatus, setFilterStatus] = useState<"" | "active" | "disabled">("");
-  const [activeSection, setActiveSection] = useState<"users" | "roles">("users");
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [userSummary, setUserSummary] = useState({ totalUsers: 0, activeUsers: 0, linkedToEmployee: 0 });
@@ -401,7 +398,7 @@ export default function UserManagementPage() {
 
   return (
     <>
-      <AppTopbar title="User Management" subtitle="Accounts, roles, and access control for your OpenSky HRM tenant." />
+      <AppTopbar title="User Management" subtitle="User accounts for your OpenSky HRM tenant. Create roles and assign permissions in ERP Roles." />
 
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -413,32 +410,7 @@ export default function UserManagementPage() {
           ))}
         </div>
 
-        <div className="flex flex-wrap gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/90 p-1.5 shadow-sm">
-          <button
-            type="button"
-            onClick={() => setActiveSection("users")}
-            className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
-              activeSection === "users" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/90" : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
-            }`}
-          >
-            User accounts
-          </button>
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setActiveSection("roles")}
-              className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
-                activeSection === "roles" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/90" : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
-              }`}
-            >
-              Roles & permissions
-            </button>
-          )}
-        </div>
-
-        {activeSection === "roles" && isAdmin ? (
-          <RolesPermissionsSection roles={roles} onSaved={() => void loadData()} />
-        ) : loading ? (
+        {loading ? (
           <div className={`flex items-center justify-center py-20 ${panelClass}`}>
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
           </div>
@@ -760,293 +732,6 @@ export default function UserManagementPage() {
           </div>
         </div>
       )}
-    </>
-  );
-}
-
-// ──── Roles & Permissions Section ────
-
-const ACTIONS = [
-  { key: "Read", label: "View / Menu Access" },
-  { key: "Create", label: "Create" },
-  { key: "Update", label: "Update" },
-  { key: "Delete", label: "Delete" },
-];
-const SCOPES = [
-  { key: "All", label: "All" },
-  { key: "Team", label: "Team" },
-  { key: "Own", label: "Own" },
-];
-
-const SCOPE_FORM_OPTIONS: FormSelectOption[] = SCOPES.map((s) => ({ value: s.key, label: s.label }));
-
-function RolesPermissionsSection({ roles, onSaved }: { roles: RoleItem[]; onSaved: () => void }) {
-  const [showCreateRole, setShowCreateRole] = useState(false);
-  const [modules, setModules] = useState<{ module: string; label: string }[]>([]);
-  const [selectedRoleId, setSelectedRoleId] = useState<string>("");
-  const [permissions, setPermissions] = useState<Record<string, Record<string, { enabled: boolean; scope: string }>>>({});
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [successMsg, setSuccessMsg] = useState<FlashMessage | null>(null);
-
-  useEffect(() => {
-    apiFetch<{ module: string; label: string }[]>("/api/auth/roles/available-modules")
-      .then((list) => setModules(resolveRolePermissionModules(Array.isArray(list) ? list : [])))
-      .catch(() => setModules(resolveRolePermissionModules([])));
-  }, []);
-
-  const selectedRole = roles.find((r) => r.id === selectedRoleId);
-
-  useEffect(() => {
-    setSuccessMsg(null);
-    setError("");
-  }, [selectedRoleId]);
-
-  useEffect(() => {
-    if (!selectedRole) {
-      setPermissions({});
-      return;
-    }
-    const perms: Record<string, Record<string, { enabled: boolean; scope: string }>> = {};
-    for (const mod of modules) {
-      perms[mod.module] = {};
-      for (const act of ACTIONS) {
-        const existing = selectedRole.permissions?.find((p) => p.module === mod.module && p.action === act.key);
-        perms[mod.module][act.key] = {
-          enabled: !!existing,
-          scope: existing?.scope || "All",
-        };
-      }
-    }
-    setPermissions(perms);
-  }, [selectedRole, modules]);
-
-  function togglePermission(module: string, action: string, enabled: boolean) {
-    setPermissions((prev) => ({
-      ...prev,
-      [module]: {
-        ...prev[module],
-        [action]: { ...prev[module]?.[action], enabled, scope: prev[module]?.[action]?.scope || "All" },
-      },
-    }));
-  }
-
-  function setScope(module: string, action: string, scope: string) {
-    setPermissions((prev) => ({
-      ...prev,
-      [module]: {
-        ...prev[module],
-        [action]: { ...prev[module]?.[action], scope },
-      },
-    }));
-  }
-
-  function grantAllPermissions() {
-    setPermissions((prev) => {
-      const next: Record<string, Record<string, { enabled: boolean; scope: string }>> = {};
-      for (const mod of modules) {
-        next[mod.module] = {};
-        for (const act of ACTIONS) {
-          next[mod.module][act.key] = {
-            enabled: true,
-            scope: prev[mod.module]?.[act.key]?.scope || "All",
-          };
-        }
-      }
-      return next;
-    });
-  }
-
-  function clearAllPermissions() {
-    setPermissions((prev) => {
-      const next: Record<string, Record<string, { enabled: boolean; scope: string }>> = {};
-      for (const mod of modules) {
-        next[mod.module] = {};
-        for (const act of ACTIONS) {
-          next[mod.module][act.key] = {
-            enabled: false,
-            scope: prev[mod.module]?.[act.key]?.scope || "All",
-          };
-        }
-      }
-      return next;
-    });
-  }
-
-  function grantAllForModule(module: string) {
-    setPermissions((prev) => ({
-      ...prev,
-      [module]: Object.fromEntries(
-        ACTIONS.map((act) => [
-          act.key,
-          { enabled: true, scope: prev[module]?.[act.key]?.scope || "All" },
-        ]),
-      ),
-    }));
-  }
-
-  async function handleSave() {
-    if (!selectedRoleId) return;
-    setError("");
-    setSuccessMsg(null);
-    setSaving(true);
-    const perms: { module: string; action: string; scope: string }[] = [];
-    for (const [mod, acts] of Object.entries(permissions)) {
-      for (const [act, val] of Object.entries(acts)) {
-        if (val.enabled) perms.push({ module: mod, action: act, scope: val.scope });
-      }
-    }
-    try {
-      await apiFetch(`/api/auth/roles/${selectedRoleId}/permissions`, {
-        method: "PUT",
-        body: JSON.stringify({ permissions: perms }),
-      });
-      setSuccessMsg({
-        type: "ok",
-        text: `Permissions saved successfully for ${selectedRole?.name ?? "role"}.`,
-      });
-      onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save permissions");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <>
-      <div className={`${panelClass} overflow-hidden`}>
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
-          <div>
-            <h2 className="text-base font-semibold text-slate-800">Roles & permissions</h2>
-              <p className="mt-1 text-xs text-slate-500">Configure which menus and actions each role can access. Read = menu visibility. Use Grant all to enable every module in this list.</p>
-          </div>
-          <Button type="button" onClick={() => setShowCreateRole(true)}>
-            + New Security Role
-          </Button>
-        </div>
-      <div className="flex flex-col lg:flex-row min-h-[400px]">
-        <div className="w-full lg:w-56 border-b lg:border-b-0 lg:border-r border-slate-100 p-4">
-          <div className="mb-2">
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Select Role</p>
-          </div>
-          <div className="space-y-1">
-            {roles.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => setSelectedRoleId(r.id)}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-                  selectedRoleId === r.id
-                    ? "border border-slate-200 bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80"
-                    : "text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                {r.name}
-                {r.code ? (
-                  <span className="mt-0.5 block text-[11px] font-normal text-slate-400">{r.code}</span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex-1 p-6 overflow-x-auto">
-          {!selectedRole ? (
-            <p className="text-sm text-slate-400 py-8">Select a role to configure its permissions.</p>
-          ) : (
-            <>
-              <FlashMessageBanner
-                msg={successMsg}
-                onClear={() => setSuccessMsg(null)}
-                dismissMs={SUCCESS_BANNER_DISMISS_MS}
-                className="mb-4"
-              />
-              <FormErrorAlert
-                message={error}
-                onDismiss={() => setError("")}
-                className="mb-4 rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-2.5 text-sm text-rose-800"
-              />
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-slate-700">
-                  Permissions for {selectedRole.name}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="secondary" onClick={grantAllPermissions}>
-                    Grant all
-                  </Button>
-                  <Button type="button" variant="secondary" onClick={clearAllPermissions}>
-                    Clear all
-                  </Button>
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-left">
-                      <th className="py-2 pr-4 font-medium text-slate-600">Module / Menu</th>
-                      {ACTIONS.map((a) => (
-                        <th key={a.key} className="py-2 px-2 font-medium text-slate-600 text-center min-w-[100px]">{a.label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {modules.map((mod) => (
-                      <tr key={mod.module} className="border-b border-slate-50">
-                        <td className="py-2.5 pr-4">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-slate-700">{mod.label}</span>
-                            <button
-                              type="button"
-                              onClick={() => grantAllForModule(mod.module)}
-                              className="text-[11px] font-medium text-indigo-600 hover:text-indigo-800"
-                            >
-                              All
-                            </button>
-                          </div>
-                        </td>
-                        {ACTIONS.map((act) => {
-                          const val = permissions[mod.module]?.[act.key] ?? { enabled: false, scope: "All" };
-                          return (
-                            <td key={act.key} className="py-2 px-2">
-                              <div className="flex items-center justify-center gap-1">
-                                <input
-                                  type="checkbox"
-                                  checked={val.enabled}
-                                  onChange={(e) => togglePermission(mod.module, act.key, e.target.checked)}
-                                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25"
-                                />
-                                {val.enabled && (
-                                  <FormSelect
-                                    value={val.scope}
-                                    onValueChange={(v) => setScope(mod.module, act.key, v)}
-                                    options={SCOPE_FORM_OPTIONS}
-                                    className="!h-8 min-h-8 w-[5.25rem] px-2 py-0 text-[11px] leading-tight"
-                                  />
-                                )}
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="mt-6 flex justify-end">
-                <Button type="button" onClick={() => void handleSave()} disabled={saving}>
-                  {saving ? "Saving…" : "Save permissions"}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-      </div>
-      <CreateRoleModal
-        open={showCreateRole}
-        onClose={() => setShowCreateRole(false)}
-        onCreated={() => void onSaved()}
-      />
     </>
   );
 }

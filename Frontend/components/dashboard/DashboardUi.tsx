@@ -22,9 +22,9 @@ export function DashboardPageHeader({
   badge?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+    <div className="app-page-topbar mb-5 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <div className="flex items-center gap-2">
+        <div className="app-page-kicker flex items-center gap-2">
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: T.accent }} aria-hidden />
           <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: T.muted }}>
             {eyebrow}
@@ -39,7 +39,7 @@ export function DashboardPageHeader({
           </p>
         ) : null}
         <div
-          className="mt-3 h-1 w-14 rounded-full"
+          className="app-page-kicker mt-3 h-1 w-14 rounded-full"
           style={{ background: `linear-gradient(90deg, ${T.accent}, ${T.action})` }}
           aria-hidden
         />
@@ -63,7 +63,7 @@ export function DashboardKpiGrid({
         return (
           <div
             key={kpi.label}
-            className="rounded-[20px] border px-4 py-4 transition hover:-translate-y-0.5"
+            className="erp-kpi rounded-[20px] border px-4 py-4 transition hover:-translate-y-0.5"
             style={{ borderColor: T.border, backgroundColor: tone.bg, boxShadow: softCardShadow }}
           >
             <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: T.muted }}>
@@ -132,7 +132,7 @@ export function DashboardCardHeader({
 export function DashboardBrandBadge() {
   return (
     <span
-      className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium"
+      className="opensky-brand-badge inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium"
       style={{ borderColor: T.border, backgroundColor: T.actionSoft, color: T.navy, boxShadow: softCardShadow }}
     >
       <span style={{ color: T.accent }} aria-hidden>
