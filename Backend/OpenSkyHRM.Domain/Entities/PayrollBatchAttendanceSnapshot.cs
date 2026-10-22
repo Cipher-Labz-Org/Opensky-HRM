@@ -19,6 +19,7 @@ public class PayrollBatchAttendanceSnapshot : BaseEntity
     public int LeaveNopayDays { get; set; }
     public int TotalNopayDays { get; set; }
     public decimal PoyaDaysWorked { get; set; }
+    public decimal TotalWorkedHours { get; set; }
     public bool OtApproved { get; set; }
     public bool OtOutdated { get; set; }
     public DateTime ImportedAt { get; set; }

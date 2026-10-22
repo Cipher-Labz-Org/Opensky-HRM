@@ -13,12 +13,18 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
     private readonly AppDbContext _db;
     private readonly IAttendanceService _attendance;
     private readonly ISystemSettingService _settings;
+    private readonly PayrollCalculationEngine _engine;
 
-    public PayrollAttendanceImportService(AppDbContext db, IAttendanceService attendance, ISystemSettingService settings)
+    public PayrollAttendanceImportService(
+        AppDbContext db,
+        IAttendanceService attendance,
+        ISystemSettingService settings,
+        PayrollCalculationEngine engine)
     {
         _db = db;
         _attendance = attendance;
         _settings = settings;
+        _engine = engine;
     }
 
     public Task<PayrollAttendanceImportPreviewDto> PreviewImportAsync(Guid batchId)
@@ -27,12 +33,62 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
     public async Task<PayrollAttendanceImportResultDto> ImportAsync(Guid batchId)
     {
         var preview = await BuildPreviewAsync(batchId, persist: true);
+        var (recalculated, recalcError) = await TryRecalculateAfterImportAsync(batchId);
         return new PayrollAttendanceImportResultDto
         {
             ImportedCount = preview.Lines.Count,
             OtLinesUpdated = preview.Lines.Count(l => l.OtApproved && l.OtAmount > 0),
+            Recalculated = recalculated,
+            RecalculateError = recalcError,
             Preview = preview,
         };
+    }
+
+    public async Task<PayrollEmployeeWorkedHoursDto> GetEmployeeWorkedHoursAsync(Guid batchId, Guid employeeId)
+    {
+        var batch = await _db.PayrollBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == batchId)
+            ?? throw new InvalidOperationException("Batch not found.");
+
+        var periodFrom = batch.EffectiveFrom.Date;
+        var periodTo = (batch.EffectiveTo ?? batch.EffectiveFrom).Date;
+        var rows = await _attendance.CalculateOvertimeNopayAsync(
+            periodFrom, periodTo, employeeId: employeeId, includeEmployeeIds: new[] { employeeId });
+        var att = rows.FirstOrDefault();
+        var leaveDays = (await GetUnpaidLeaveDaysAsync(new[] { employeeId }, periodFrom, periodTo))
+            .GetValueOrDefault(employeeId);
+        var attendanceNopay = att?.NopayDays ?? 0;
+        var poyaDays = (await PayrollPoyaAttendance.GetDaysWorkedByEmployeeAsync(
+                _db, new[] { employeeId }, periodFrom, periodTo))
+            .GetValueOrDefault(employeeId);
+        return new PayrollEmployeeWorkedHoursDto
+        {
+            EmployeeId = employeeId,
+            TotalWorkedHours = Math.Round(att?.TotalWorkedHours ?? 0m, 2),
+            AttendanceNopayDays = attendanceNopay,
+            LeaveNopayDays = leaveDays,
+            TotalNopayDays = attendanceNopay + leaveDays,
+            PoyaDaysWorked = poyaDays,
+        };
+    }
+
+    private async Task<(bool Recalculated, string? Error)> TryRecalculateAfterImportAsync(Guid batchId)
+    {
+        var batch = await _db.PayrollBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == batchId);
+        if (batch is null)
+            return (false, "Batch not found.");
+
+        if (batch.Status != BatchStatus.Draft && batch.Status != BatchStatus.Calculated)
+            return (false, null);
+
+        try
+        {
+            await _engine.CalculateBatchAsync(batchId);
+            return (true, null);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return (false, ex.Message);
+        }
     }
 
     private async Task<PayrollAttendanceImportPreviewDto> BuildPreviewAsync(Guid batchId, bool persist)
@@ -118,6 +174,7 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
                 LeaveNopayDays = leaveDays,
                 TotalNopayDays = totalNopay,
                 PoyaDaysWorked = 0,
+                TotalWorkedHours = Math.Round(att?.TotalWorkedHours ?? 0m, 2),
                 BasicPay = basic,
                 Warning = warning,
             });
@@ -156,6 +213,11 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
             .ToListAsync();
         _db.PayrollBatchAttendanceSnapshots.RemoveRange(existingSnapshots);
 
+        var hoursComponent = (await _db.CompensationComponents
+                .Where(c => c.IsActive)
+                .ToListAsync())
+            .FirstOrDefault(c => PayrollComponentMapping.IsWorkedHoursQuantity(c.Code));
+
         foreach (var line in lines)
         {
             _db.PayrollBatchAttendanceSnapshots.Add(new PayrollBatchAttendanceSnapshot
@@ -168,12 +230,15 @@ public class PayrollAttendanceImportService : IPayrollAttendanceImportService
                 LeaveNopayDays = line.LeaveNopayDays,
                 TotalNopayDays = line.TotalNopayDays,
                 PoyaDaysWorked = 0,
+                TotalWorkedHours = line.TotalWorkedHours,
                 OtApproved = line.OtApproved,
                 OtOutdated = line.OtOutdated,
                 ImportedAt = now,
             });
 
             await UpsertBatchCompensationAsync(batch.Id, line.EmployeeId, otComponentId, line.OtAmount, periodFrom, periodTo);
+            if (hoursComponent != null)
+                await UpsertBatchCompensationAsync(batch.Id, line.EmployeeId, hoursComponent.Id, line.TotalWorkedHours, periodFrom, periodTo);
         }
 
         await _db.SaveChangesAsync();
