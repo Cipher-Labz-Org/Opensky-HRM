@@ -97,6 +97,31 @@ function birthdaysNoticesTargetHref(pathname: string, employeeId: string | undef
   return `${ROUTES.dashboard}#dashboard-birthdays`;
 }
 
+const LEAVE_NOTIFICATION_ICONS: Record<string, string> = {
+  LeaveApprovalRequest: "📝",
+  LeaveCancellationRequest: "↩️",
+  LeaveCovering: "🤝",
+  LeaveSubmitted: "📨",
+  LeaveApproved: "✅",
+  LeaveRejected: "❌",
+};
+
+/** Approver notices open the waiting leave approvals; applicant and covering notices open Leave & Absence. */
+function leaveNotificationTargetHref(category: string): string | null {
+  if (category === "LeaveApprovalRequest" || category === "LeaveCancellationRequest") {
+    return `${ROUTES.approvals}?tab=leave&waiting=1`;
+  }
+  if (
+    category === "LeaveCovering" ||
+    category === "LeaveSubmitted" ||
+    category === "LeaveApproved" ||
+    category === "LeaveRejected"
+  ) {
+    return ROUTES.leave;
+  }
+  return null;
+}
+
 function sortNotificationInbox(items: NotificationInboxItem[]): NotificationInboxItem[] {
   const rank = (n: NotificationInboxItem) => {
     if (n.category === "BirthdayToday") return 0;
@@ -117,6 +142,7 @@ function sortNotificationInbox(items: NotificationInboxItem[]): NotificationInbo
         if (c !== 0) return c;
       }
     }
+    if (ra === 3) return b.createdAt.localeCompare(a.createdAt);
     return a.title.localeCompare(b.title);
   });
 }
@@ -306,7 +332,7 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
               <div className="border-b border-slate-100 px-3 py-2.5">
                 <p className="text-sm font-semibold text-slate-800">Notifications</p>
                 <p className="text-[11px] text-slate-500">
-                  People: birthdays, licenses, probation & retirement
+                  Leave requests, birthdays, licenses, probation & retirement
                 </p>
               </div>
               <div className="max-h-[min(70vh,22rem)] overflow-y-auto px-2 py-2">
@@ -328,6 +354,8 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                         n.category === "BirthdayWishReply" ||
                         n.category === "BirthdayWishSent";
                       const unreadAccent = unread && goBioBirthdaysWidget;
+                      const leaveHref = leaveNotificationTargetHref(n.category);
+                      const leaveIcon = LEAVE_NOTIFICATION_ICONS[n.category];
                       return (
                         <li key={n.id}>
                           <button
@@ -342,6 +370,9 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                                   bd?.kind === "today" || bd?.kind === "upcoming" ? bd.employeeId : undefined;
                                 const target = birthdaysNoticesTargetHref(pathname, focusId);
                                 router.push(target);
+                              } else if (leaveHref) {
+                                setNotifOpen(false);
+                                router.push(leaveHref);
                               }
                               if (!unread || !shouldMarkReadFromHeader(n.category)) return;
                               try {
@@ -372,6 +403,10 @@ export function AppGlobalHeader({ user, onLogout }: AppGlobalHeaderProps) {
                             ) : n.category === "BirthdayWishReply" ? (
                               <span className="shrink-0 select-none text-base leading-tight" aria-hidden>
                                 💬
+                              </span>
+                            ) : leaveIcon ? (
+                              <span className="shrink-0 select-none text-base leading-tight" aria-hidden>
+                                {leaveIcon}
                               </span>
                             ) : (
                               <span className="w-5 shrink-0" aria-hidden />

@@ -57,6 +57,7 @@ export default function SettingsPage() {
 
   const [approvalLevels, setApprovalLevels] = useState(1);
   const [approvalConfigSaving, setApprovalConfigSaving] = useState(false);
+  const [approvalConfigMessage, setApprovalConfigMessage] = useState<string | null>(null);
 
   const [casualNewHireHalfDayEnabled, setCasualNewHireHalfDayEnabled] = useState(false);
   const [casualNewHireSaving, setCasualNewHireSaving] = useState(false);
@@ -250,11 +251,34 @@ export default function SettingsPage() {
   }, []);
 
   async function saveLeaveApprovalConfig(levels: number) {
+    if (
+      levels === 1 &&
+      !window.confirm(
+        "Switch to 1 approval level? Requests already waiting for level 2 will be approved by their level 1 approver, and the employees will be notified."
+      )
+    )
+      return;
     setApprovalConfigSaving(true);
+    setApprovalConfigMessage(null);
     try {
-      const res = await apiFetch<{ levels: number }>("/api/leave/approval-config", { method: "PUT", body: JSON.stringify({ levels }) });
+      const res = await apiFetch<{ levels: number; approvedFromLevel2?: number }>("/api/leave/approval-config", {
+        method: "PUT",
+        body: JSON.stringify({ levels }),
+      });
       setApprovalLevels(res.levels);
-    } catch { /* ignore */ } finally { setApprovalConfigSaving(false); }
+      const approved = res.approvedFromLevel2 ?? 0;
+      if (res.levels === 1) {
+        setApprovalConfigMessage(
+          approved > 0
+            ? `${approved} request${approved === 1 ? "" : "s"} waiting for level 2 ${approved === 1 ? "was" : "were"} approved.`
+            : "No requests were waiting for level 2."
+        );
+      }
+    } catch (e) {
+      setApprovalConfigMessage(e instanceof Error ? e.message : "Could not save approval levels.");
+    } finally {
+      setApprovalConfigSaving(false);
+    }
   }
 
   async function saveCasualNewHireAccrualSettings() {
@@ -456,6 +480,9 @@ export default function SettingsPage() {
               ? "Supervisor approves → Approved"
               : "Supervisor approves (L1) → Second approver (L2) → Approved"}
           </p>
+          {approvalConfigMessage ? (
+            <p className="w-full text-xs font-medium text-slate-700">{approvalConfigMessage}</p>
+          ) : null}
         </div>
         <div className="mt-4 border-t border-slate-100 pt-4">
           <p className="text-sm font-semibold text-slate-800">New hire casual leave (0.5 day / month)</p>

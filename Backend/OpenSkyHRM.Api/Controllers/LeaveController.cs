@@ -273,7 +273,9 @@ public class LeaveController : ControllerBase
             });
         }
         await _db.SaveChangesAsync();
-        return Ok(new { levels });
+
+        var approvedFromLevel2 = levels == 1 ? await _leaveService.FinalizePendingLevel2RequestsAsync() : 0;
+        return Ok(new { levels, approvedFromLevel2 });
     }
 
     public record ApprovalConfigRequest(int Levels);

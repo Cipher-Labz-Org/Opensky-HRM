@@ -12,6 +12,8 @@ public interface ILeaveService
     Task<PagedResult<LeaveRequestDto>> GetLeaveRequestsAsync(int page = 1, int pageSize = 20, string? status = null, Guid? employeeId = null, DateTime? fromDate = null, DateTime? toDate = null, IReadOnlyList<Guid>? allowedEmployeeIds = null, Guid? excludeEmployeeId = null);
     Task<LeaveRequestDto> CreateLeaveRequestAsync(CreateLeaveRequestDto dto, string? medicalCertificateUrl = null);
     Task<LeaveRequestDto?> ApproveLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto);
+    /// <summary>Approves every request waiting for level 2; returns how many were approved.</summary>
+    Task<int> FinalizePendingLevel2RequestsAsync();
     Task<LeaveRequestDto?> RejectLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto);
     Task<LeaveRequestDto> CancelLeaveRequestAsync(Guid id, Guid actingEmployeeId, string? remarks);
     Task<Guid?> GetResponsibleApproverEmployeeIdAsync(Guid leaveRequestId);
