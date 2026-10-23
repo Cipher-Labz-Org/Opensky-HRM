@@ -254,27 +254,14 @@ public class PayrollAttendanceImportLineDto
     public int LeaveNopayDays { get; set; }
     public int TotalNopayDays { get; set; }
     public decimal PoyaDaysWorked { get; set; }
-    public decimal TotalWorkedHours { get; set; }
     public decimal BasicPay { get; set; }
     public string? Warning { get; set; }
-}
-
-public class PayrollEmployeeWorkedHoursDto
-{
-    public Guid EmployeeId { get; set; }
-    public decimal TotalWorkedHours { get; set; }
-    public int AttendanceNopayDays { get; set; }
-    public int LeaveNopayDays { get; set; }
-    public int TotalNopayDays { get; set; }
-    public decimal PoyaDaysWorked { get; set; }
 }
 
 public class PayrollAttendanceImportResultDto
 {
     public int ImportedCount { get; set; }
     public int OtLinesUpdated { get; set; }
-    public bool Recalculated { get; set; }
-    public string? RecalculateError { get; set; }
     public PayrollAttendanceImportPreviewDto Preview { get; set; } = new();
 }
 

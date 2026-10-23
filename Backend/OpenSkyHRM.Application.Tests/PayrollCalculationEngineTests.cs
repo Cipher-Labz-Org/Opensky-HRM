@@ -293,51 +293,6 @@ public class PayrollCalculationEngineTests
         Assert.Equal(26m, values["WORKING_DAYS"]);
     }
 
-    [Fact]
-    public void SeedWorkedHoursFromAttendance_UsesMonthTotalWhenUnsaved()
-    {
-        var hoursId = Guid.NewGuid();
-        var components = new List<CompensationComponent>
-        {
-            new()
-            {
-                Id = hoursId,
-                Code = "WORKED_HOURS",
-                Name = "Working Hours for Month",
-                Category = ComponentCategory.Variable,
-                Type = ComponentType.Hours,
-            },
-        };
-
-        var values = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        PayrollCalculationEngine.SeedWorkedHoursFromAttendance(values, components, new List<EmployeeCompensation>(), 193.45m);
-
-        Assert.Equal(193.45m, values["WORKED_HOURS"]);
-    }
-
-    [Fact]
-    public void SeedWorkedHoursFromAttendance_KeepsSavedOverride()
-    {
-        var hoursId = Guid.NewGuid();
-        var hours = new CompensationComponent
-        {
-            Id = hoursId,
-            Code = "WORKED_HOURS",
-            Name = "Working Hours for Month",
-            Category = ComponentCategory.Variable,
-            Type = ComponentType.Hours,
-        };
-        var empComp = new List<EmployeeCompensation>
-        {
-            new() { ComponentId = hoursId, Amount = 160m, Component = hours },
-        };
-
-        var values = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        PayrollCalculationEngine.SeedWorkedHoursFromAttendance(values, new List<CompensationComponent> { hours }, empComp, 193.45m);
-
-        Assert.Equal(160m, values["WORKED_HOURS"]);
-    }
-
     /// <summary>
     /// Live catalogs leave SortOrder at 0, so PACKAGE -> PER_DAY -> HOURLY_RATEE -> NOPAY_EXE
     /// used to evaluate in catalog order and the payslip drifted from Employee Salary.
@@ -570,24 +525,6 @@ public class PayrollCalculationEngineTests
 
         var amount = PayrollCalculationEngine.EvaluateFormula(
             PayrollPoyaComponent.FormulaExpression, values, new PayrollRates());
-
-        Assert.Equal(expected, amount);
-    }
-
-    [Theory]
-    [InlineData(150_000, 1, 5_000)]
-    [InlineData(60_000, 2, 4_000)]
-    [InlineData(150_000, 0, 0)]
-    public void EvaluateFormula_NopayIsBasicDividedBy30TimesDays(decimal basic, decimal days, decimal expected)
-    {
-        var values = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["BASIC"] = basic,
-            ["NOPAY_DAYS"] = days,
-        };
-
-        var amount = PayrollCalculationEngine.EvaluateFormula(
-            "BASIC / 30 * NOPAY_DAYS", values, new PayrollRates());
 
         Assert.Equal(expected, amount);
     }

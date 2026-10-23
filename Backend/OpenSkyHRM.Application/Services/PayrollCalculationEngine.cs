@@ -166,10 +166,6 @@ public class PayrollCalculationEngine
         var attendanceSnapshots = await _db.PayrollBatchAttendanceSnapshots
             .Where(s => s.BatchId == batchId)
             .ToDictionaryAsync(s => s.EmployeeId);
-        var attendanceHoursByEmp = await GetAttendanceWorkedHoursByEmployeeAsync(
-            employeeIdSet, periodStart, periodEnd);
-        var liveNopayByEmp = await GetLiveNopayDaysByEmployeeAsync(
-            employeeIdSet, periodStart, periodEnd);
         var missingSalary = new List<string>();
         var missingBonus = new List<string>();
         var priorYtdByEmployee = includeApit
@@ -206,14 +202,6 @@ public class PayrollCalculationEngine
                 continue;
             }
 
-            var workedHours = snapshot is { TotalWorkedHours: > 0 }
-                ? snapshot.TotalWorkedHours
-                : attendanceHoursByEmp.GetValueOrDefault(employee.Id);
-            var nopayDays = snapshot is { TotalNopayDays: > 0 }
-                ? snapshot.TotalNopayDays
-                : liveNopayByEmp.GetValueOrDefault(employee.Id);
-
-
             var employeeMode = NormalizeApitTaxMode(
                 string.IsNullOrWhiteSpace(employee.ApitTaxMode) ? rates.ApitTaxMode : employee.ApitTaxMode);
             priorYtdByEmployee.TryGetValue(employee.Id, out var priorYtd);
@@ -226,7 +214,7 @@ public class PayrollCalculationEngine
             var statement = CalculateEmployeePayStatement(
                 batch, employee, empComp, relevantComponents, rates, includeStatutory, snapshot,
                 employeeMode, priorYtd.TotalTaxable, priorYtd.SalaryMonths,
-                includeApit, monthlySalary, priorYtd, table02, skipsProvidentFund, workedHours, nopayDays);
+                includeApit, monthlySalary, priorYtd, table02, skipsProvidentFund);
             newStatements.Add(statement);
         }
 
@@ -408,19 +396,15 @@ public class PayrollCalculationEngine
         decimal bonusRegularSalary = 0,
         ConfirmedApitYtd priorYtd = default,
         Table02YearProjection? table02 = null,
-        bool skipsProvidentFund = false,
-        decimal attendanceWorkedHours = 0,
-        int attendanceNopayDays = 0)
+        bool skipsProvidentFund = false)
     {
         var resolvedValues = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
-        var nopayDays = attendanceSnapshot is { TotalNopayDays: > 0 }
-            ? attendanceSnapshot.TotalNopayDays
-            : attendanceNopayDays;
-        resolvedValues["NOPAY_DAYS"] = nopayDays;
-        resolvedValues["OT_HOURS"] = attendanceSnapshot?.ApprovedOtHours ?? 0;
-        if (attendanceWorkedHours <= 0)
-            attendanceWorkedHours = attendanceSnapshot?.TotalWorkedHours ?? 0;
+        if (attendanceSnapshot != null)
+        {
+            resolvedValues["NOPAY_DAYS"] = attendanceSnapshot.TotalNopayDays;
+            resolvedValues["OT_HOURS"] = attendanceSnapshot.ApprovedOtHours;
+        }
 
         var poyaAssignment = SelectFixedPoyaAssignment(empComp, rates);
         resolvedValues["POYA_DAYS"] = PayrollPoyaComponent.ResolveDays(poyaAssignment?.Amount, 0);
@@ -429,7 +413,6 @@ public class PayrollCalculationEngine
         // even when the formula component is listed before its inputs.
         SeedAssignmentValues(resolvedValues, allComponents, empComp, rates);
         AliasMappedBaseAsBasic(resolvedValues, rates.BaseComponentCode);
-        SeedWorkedHoursFromAttendance(resolvedValues, allComponents, empComp, attendanceWorkedHours);
         AliasMappedWorkingHours(resolvedValues, rates.WorkingHoursComponentCode);
 
         var lines = new List<PayStatementLine>();
@@ -446,9 +429,8 @@ public class PayrollCalculationEngine
         {
             var isPoya = PayrollComponentMapping.IsPoyaComponent(comp.Code, comp.Name, rates.PoyaComponentCode);
             var isNopay = PayrollComponentMapping.IsNopayComponent(comp.Code, rates.NopayComponentCode);
-            var isWorkedHours = PayrollComponentMapping.IsWorkedHoursQuantity(comp.Code);
             var assignment = empComp.FirstOrDefault(ec => ec.ComponentId == comp.Id);
-            if (assignment is null && string.IsNullOrEmpty(comp.FormulaExpression) && !isPoya && !isNopay && !isWorkedHours) continue;
+            if (assignment is null && string.IsNullOrEmpty(comp.FormulaExpression) && !isPoya && !isNopay) continue;
             if (isPoya && !PayrollPoyaComponent.HasExplicitSalaryEntry(SelectFixedPoyaAssignment(empComp, rates)?.Amount))
                 continue;
 
@@ -476,10 +458,6 @@ public class PayrollCalculationEngine
                     ? "BASIC / 30 * NOPAY_DAYS"
                     : comp.FormulaExpression;
                 amount = EvaluateFormula(formula, resolvedValues, rates, comp.RoundResult);
-            }
-            else if (isWorkedHours)
-            {
-                amount = assignment is { Amount: > 0 } ? assignment.Amount : attendanceWorkedHours;
             }
             else if (!string.IsNullOrEmpty(comp.FormulaExpression))
             {
@@ -509,14 +487,6 @@ public class PayrollCalculationEngine
             if (trackApitRegularMonthly && CountsForApitRegularMonthly(comp, rates.PoyaComponentCode))
                 apitRegularMonthly += amount;
 
-            if ((isNopay || isPoya) && amount <= 0)
-                continue;
-            if (isWorkedHours)
-            {
-                resolvedValues["WORKED_HOURS"] = amount;
-                continue;
-            }
-
             lines.Add(new PayStatementLine
             {
                 ComponentId = comp.Id,
@@ -541,8 +511,6 @@ public class PayrollCalculationEngine
             if (isPoya)
                 continue;
             if (PayrollComponentMapping.IsNopayComponent(comp.Code, rates.NopayComponentCode))
-                continue;
-            if (PayrollComponentMapping.IsWorkedHoursQuantity(comp.Code))
                 continue;
 
             var amount = ApplyComponentRounding(assignment.Amount, comp.RoundResult);
@@ -766,86 +734,6 @@ public class PayrollCalculationEngine
         resolvedValues["WORKING_HOURS"] = hours;
         if (!resolvedValues.ContainsKey("HOURS_PER_MONTH"))
             resolvedValues["HOURS_PER_MONTH"] = hours;
-    }
-
-    internal static void SeedWorkedHoursFromAttendance(
-        Dictionary<string, decimal> resolvedValues,
-        IEnumerable<CompensationComponent> components,
-        IEnumerable<EmployeeCompensation> empComp,
-        decimal attendanceHours)
-    {
-        if (attendanceHours <= 0)
-            return;
-
-        var hoursComp = components.FirstOrDefault(c => PayrollComponentMapping.IsWorkedHoursQuantity(c.Code));
-        if (hoursComp != null)
-        {
-            var assignment = empComp.FirstOrDefault(ec => ec.ComponentId == hoursComp.Id);
-            var amount = assignment is { Amount: > 0 } ? assignment.Amount : attendanceHours;
-            resolvedValues[hoursComp.Code] = amount;
-            resolvedValues["WORKED_HOURS"] = amount;
-            return;
-        }
-
-        if (!resolvedValues.TryGetValue("WORKED_HOURS", out var existing) || existing <= 0)
-            resolvedValues["WORKED_HOURS"] = attendanceHours;
-    }
-
-    private async Task<Dictionary<Guid, decimal>> GetAttendanceWorkedHoursByEmployeeAsync(
-        IReadOnlyCollection<Guid> employeeIds, DateTime periodStart, DateTime periodEnd)
-    {
-        if (employeeIds.Count == 0)
-            return new Dictionary<Guid, decimal>();
-
-        var toExclusive = periodEnd.Date.AddDays(1);
-        var rows = await _db.AttendanceRecords
-            .Where(a => employeeIds.Contains(a.EmployeeId)
-                && a.Date >= periodStart
-                && a.Date < toExclusive)
-            .GroupBy(a => a.EmployeeId)
-            .Select(g => new { EmployeeId = g.Key, Hours = g.Sum(a => a.WorkedHours ?? 0m) })
-            .ToListAsync();
-
-        return rows.ToDictionary(r => r.EmployeeId, r => Math.Round(r.Hours, 2));
-    }
-
-    private async Task<Dictionary<Guid, int>> GetLiveNopayDaysByEmployeeAsync(
-        IReadOnlyCollection<Guid> employeeIds, DateTime periodStart, DateTime periodEnd)
-    {
-        if (employeeIds.Count == 0)
-            return new Dictionary<Guid, int>();
-
-        var toExclusive = periodEnd.Date.AddDays(1);
-        var absent = await _db.AttendanceRecords
-            .Where(a => employeeIds.Contains(a.EmployeeId)
-                && a.Date >= periodStart
-                && a.Date < toExclusive
-                && a.Status == "Absent")
-            .GroupBy(a => a.EmployeeId)
-            .Select(g => new { EmployeeId = g.Key, Days = g.Count() })
-            .ToListAsync();
-
-        var unpaidLeave = await _db.LeaveRequests
-            .Include(lr => lr.LeaveType)
-            .Where(lr => lr.Status == ApprovalStatus.Approved
-                && employeeIds.Contains(lr.EmployeeId)
-                && !lr.LeaveType.IsPaid
-                && lr.StartDate.Date <= periodEnd
-                && lr.EndDate.Date >= periodStart)
-            .Select(lr => new { lr.EmployeeId, lr.StartDate, lr.EndDate })
-            .ToListAsync();
-
-        var result = absent.ToDictionary(r => r.EmployeeId, r => r.Days);
-        foreach (var leave in unpaidLeave)
-        {
-            var start = leave.StartDate.Date < periodStart ? periodStart : leave.StartDate.Date;
-            var end = leave.EndDate.Date > periodEnd ? periodEnd : leave.EndDate.Date;
-            var days = (int)(end - start).TotalDays + 1;
-            if (days <= 0) continue;
-            result[leave.EmployeeId] = result.GetValueOrDefault(leave.EmployeeId) + days;
-        }
-
-        return result;
     }
 
     /// <summary>

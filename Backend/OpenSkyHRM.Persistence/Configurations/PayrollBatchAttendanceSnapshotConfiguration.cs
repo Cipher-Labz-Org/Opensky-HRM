@@ -15,7 +15,6 @@ public class PayrollBatchAttendanceSnapshotConfiguration : IEntityTypeConfigurat
         builder.Property(s => s.ApprovedOtHours).HasColumnType("numeric(18,2)");
         builder.Property(s => s.OtAmount).HasColumnType("numeric(18,2)");
         builder.Property(s => s.PoyaDaysWorked).HasColumnType("numeric(18,2)");
-        builder.Property(s => s.TotalWorkedHours).HasColumnType("numeric(18,2)");
 
         builder.HasOne(s => s.Batch)
             .WithMany()

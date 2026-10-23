@@ -63,12 +63,4 @@ public static class PayrollComponentMapping
             return false;
         return CodeEquals(code, mappedWorkingHoursCode.Trim());
     }
-
-    /// <summary>
-    /// Quantity input for hours actually worked in the payroll period (not the OT divisor).
-    /// </summary>
-    public static bool IsWorkedHoursQuantity(string? code) =>
-        !string.IsNullOrWhiteSpace(code)
-        && (code.Equals("WORKED_HOURS", StringComparison.OrdinalIgnoreCase)
-            || code.Equals("NO_OF_WORKED_HOURS", StringComparison.OrdinalIgnoreCase));
 }

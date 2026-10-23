@@ -94,7 +94,6 @@ public static class PayrollSchemaRepair
                     CONSTRAINT "PK_PayrollBatchAttendanceSnapshots" PRIMARY KEY ("Id")
                 );
                 ALTER TABLE "PayrollBatchAttendanceSnapshots" ADD COLUMN IF NOT EXISTS "PoyaDaysWorked" numeric(18,2) NOT NULL DEFAULT 0;
-                ALTER TABLE "PayrollBatchAttendanceSnapshots" ADD COLUMN IF NOT EXISTS "TotalWorkedHours" numeric(18,2) NOT NULL DEFAULT 0;
                 CREATE UNIQUE INDEX IF NOT EXISTS "IX_PayrollBatchAttendanceSnapshots_BatchId_EmployeeId"
                     ON "PayrollBatchAttendanceSnapshots" ("BatchId", "EmployeeId");
                 """;

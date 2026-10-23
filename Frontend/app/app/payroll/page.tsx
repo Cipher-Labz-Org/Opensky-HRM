@@ -139,7 +139,6 @@ interface AttendanceImportLine {
   approvedOtHours: number; otAmount: number; otApproved: boolean; otOutdated: boolean;
   attendanceNopayDays: number; leaveNopayDays: number; totalNopayDays: number;
   poyaDaysWorked: number;
-  totalWorkedHours?: number;
   basicPay: number; warning?: string;
 }
 
@@ -252,14 +251,6 @@ interface AttendanceImportPreview {
   lines: AttendanceImportLine[];
   employeesWithApprovedOt: number; employeesMissingOtApproval: number; employeesWithNopay: number;
   employeesWithPoya: number;
-}
-
-interface AttendanceImportResult {
-  importedCount: number;
-  otLinesUpdated: number;
-  recalculated: boolean;
-  recalculateError?: string | null;
-  preview?: AttendanceImportPreview;
 }
 
 const TABS = ["Dashboard", "Components", "Employee Salary", "Variable Entry", "Payroll Run", "Slip Generate", "Pay Slips", "Settings"] as const;
@@ -617,16 +608,6 @@ function isRateOrQuantityType(type?: string | null) {
 function isIncomePayCode(code?: string | null) {
   const value = (code ?? "").toUpperCase();
   return value === "TOTAL_PAYMENT" || value === "TOTAL_PAY";
-}
-
-function isWorkedHoursComponent(code?: string | null) {
-  const value = (code ?? "").toUpperCase();
-  return value === "WORKED_HOURS" || value === "NO_OF_WORKED_HOURS";
-}
-
-function fmtWorkedHours(hours: number) {
-  if (!Number.isFinite(hours) || hours <= 0) return "—";
-  return hours.toLocaleString("en-LK", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 function isEndedSalaryRow(row: EmpComp) {
@@ -1882,8 +1863,6 @@ function EmployeeSalaryTab() {
               batchId={compTab === "Variable" ? selectedBatchId : undefined}
               processType={compTab === "Variable" ? selectedBatch?.processType : undefined}
               batchMonth={compTab === "Variable" ? selectedBatch?.month : undefined}
-              batchFrom={compTab === "Variable" ? selectedBatch?.effectiveFrom : undefined}
-              batchTo={compTab === "Variable" ? selectedBatch?.effectiveTo : undefined}
               componentsLibrary={components}
               assignmentsAll={empComp}
               payrollSettings={payrollSettings}
@@ -1915,8 +1894,6 @@ function SalaryComponentsEditor({
   batchId,
   processType,
   batchMonth,
-  batchFrom,
-  batchTo,
   componentsLibrary,
   assignmentsAll,
   payrollSettings,
@@ -1932,8 +1909,6 @@ function SalaryComponentsEditor({
   batchId?: string;
   processType?: string;
   batchMonth?: number;
-  batchFrom?: string;
-  batchTo?: string;
   componentsLibrary: Component[];
   assignmentsAll: EmpComp[];
   payrollSettings: Settings | null;
@@ -2009,53 +1984,12 @@ function SalaryComponentsEditor({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState<string | null>(null);
   const [employeeTaxMode, setEmployeeTaxMode] = useState<string | undefined>();
-  const [attendanceWorkedHours, setAttendanceWorkedHours] = useState<number | null>(null);
-  const [attendanceNopayDays, setAttendanceNopayDays] = useState<number | null>(null);
 
   useEffect(() => {
     setDraftByComp({});
     setSaveError(null);
     setSaveOk(null);
-    setAttendanceWorkedHours(null);
-    setAttendanceNopayDays(null);
   }, [employeeId, mode, batchId, processType]);
-
-  useEffect(() => {
-    if (mode !== "Variable" || !batchId || !employeeId) return;
-    let cancelled = false;
-    const from = (batchFrom ?? "").slice(0, 10);
-    const to = (batchTo ?? batchFrom ?? "").slice(0, 10);
-    const otUrl =
-      from && to
-        ? `/api/attendance/overtime-nopay?from=${from}&to=${to}&employeeId=${employeeId}`
-        : null;
-
-    Promise.all([
-      apiFetch<{
-        totalWorkedHours?: number;
-        totalNopayDays?: number;
-        attendanceNopayDays?: number;
-      }>(`/api/payroll/batches/${batchId}/worked-hours?employeeId=${employeeId}`).catch(() => null),
-      otUrl
-        ? apiFetch<{ nopayDays?: number; totalWorkedHours?: number }[] | { nopayDays?: number; totalWorkedHours?: number }>(
-            otUrl
-          ).catch(() => null)
-        : Promise.resolve(null),
-    ]).then(([hours, ot]) => {
-      if (cancelled) return;
-      const otRow = Array.isArray(ot) ? ot[0] : ot;
-      const nopay =
-        Number(hours?.totalNopayDays) ||
-        Number(hours?.attendanceNopayDays) ||
-        Number(otRow?.nopayDays) ||
-        0;
-      setAttendanceWorkedHours(Number(hours?.totalWorkedHours ?? otRow?.totalWorkedHours) || 0);
-      setAttendanceNopayDays(nopay);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [mode, batchId, employeeId, batchFrom, batchTo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2089,21 +2023,6 @@ function SalaryComponentsEditor({
     );
   }
 
-  function workedHoursAmount(def: Component): number {
-    if (draftByComp[def.id] !== undefined) return parseAmountText(draftByComp[def.id]);
-    const line = lineForComponent(def.id);
-    const saved = Number(line?.amount) || 0;
-    if (saved > 0) return saved;
-    return attendanceWorkedHours && attendanceWorkedHours > 0 ? attendanceWorkedHours : 0;
-  }
-
-  function isAutoWorkedHours(def: Component) {
-    if (!isWorkedHoursComponent(def.code) || mode !== "Variable") return false;
-    if (draftByComp[def.id] !== undefined) return false;
-    const saved = Number(lineForComponent(def.id)?.amount) || 0;
-    return saved <= 0;
-  }
-
   function isAutoFormula(def: Component) {
     if (isStatutory(def) || isPoya(def)) return false;
     if (isAutoHoursPay(def)) return true;
@@ -2114,7 +2033,6 @@ function SalaryComponentsEditor({
     const key = code.toUpperCase();
     const def = componentsLibrary.find((c) => c.code.toUpperCase() === key);
     if (def) {
-      if (isWorkedHoursComponent(def.code)) return workedHoursAmount(def);
       if (draftByComp[def.id] !== undefined) return parseAmountText(draftByComp[def.id]);
       const onTab = lineForComponent(def.id);
       if (onTab) return Number(onTab.amount) || 0;
@@ -2157,7 +2075,6 @@ function SalaryComponentsEditor({
     return evaluatePayrollFormula(expr, (code) => {
       const ref = code.toUpperCase();
       if (ref === key) return 0;
-      if (ref === "NOPAY_DAYS") return attendanceNopayDays ?? 0;
       const other = componentsLibrary.find((c) => c.code.toUpperCase() === ref);
       if (other && isAutoFormula(other)) return formulaAmount(other, visiting);
       return amountForCode(code);
@@ -2271,12 +2188,11 @@ function SalaryComponentsEditor({
 
   async function saveAll() {
     if (savingAll || loading) return;
-    const dirty = manualDefinitions.filter((d) => draftByComp[d.id] !== undefined && !isAutoFormula(d) && !isAutoWorkedHours(d));
+    const dirty = manualDefinitions.filter((d) => draftByComp[d.id] !== undefined && !isAutoFormula(d));
     const autoPay = manualDefinitions.filter(isAutoFormula);
-    const autoHours = manualDefinitions.filter(isAutoWorkedHours);
     setSaveError(null);
     setSaveOk(null);
-    if (dirty.length === 0 && autoPay.length === 0 && autoHours.length === 0) {
+    if (dirty.length === 0 && autoPay.length === 0) {
       setSaveOk("Salary is already saved.");
       return;
     }
@@ -2298,15 +2214,6 @@ function SalaryComponentsEditor({
         const { wrote, recalculatedBatches: n = 0 } = await persistComponent(
           def,
           computed > 0 ? String(computed) : ""
-        );
-        if (wrote) wroteAny = true;
-        if (n > recalculatedBatches) recalculatedBatches = n;
-      }
-      for (const def of autoHours) {
-        const hours = workedHoursAmount(def);
-        const { wrote, recalculatedBatches: n = 0 } = await persistComponent(
-          def,
-          hours > 0 ? String(hours) : ""
         );
         if (wrote) wroteAny = true;
         if (n > recalculatedBatches) recalculatedBatches = n;
@@ -2356,8 +2263,6 @@ function SalaryComponentsEditor({
   const payrollStatutoryDefs = skipsProvidentFund ? [] : statutoryDefs;
 
   function numericAmount(componentId: string): number {
-    const def = componentsLibrary.find((c) => c.id === componentId);
-    if (def && isWorkedHoursComponent(def.code)) return workedHoursAmount(def);
     const draft = draftByComp[componentId];
     const line = lineForComponent(componentId);
     if (draft !== undefined) {
@@ -2447,7 +2352,6 @@ function SalaryComponentsEditor({
   function displayAmount(def: Component): number {
     if (isStatutory(def)) return statutoryAmount(def);
     if (isAutoFormula(def)) return formulaAmount(def);
-    if (isWorkedHoursComponent(def.code)) return workedHoursAmount(def);
     if (isPoya(def)) return poyaPayAmount(def);
     return numericAmount(def.id);
   }
@@ -2455,7 +2359,7 @@ function SalaryComponentsEditor({
   const poyaDayRate = basicSalaryAmount > 0 ? Math.round((basicSalaryAmount / 30) * 100) / 100 : 0;
 
   const totalEarnings = incomeDefs.reduce((s, d) => s + displayAmount(d), 0);
-  const manualDeductions = manualDeductionDefs.reduce((s, d) => s + displayAmount(d), 0);
+  const manualDeductions = manualDeductionDefs.reduce((s, d) => s + numericAmount(d.id), 0);
   const employeeStatutoryDefs = payrollStatutoryDefs.filter((d) => !d.isEmployerContribution);
   const employerStatutoryDefs = payrollStatutoryDefs.filter((d) => d.isEmployerContribution);
   const employeeStatutoryDeductions =
@@ -2472,10 +2376,6 @@ function SalaryComponentsEditor({
 
   function inputDisplay(def: Component): string {
     if (draftByComp[def.id] !== undefined) return draftByComp[def.id];
-    if (isWorkedHoursComponent(def.code)) {
-      const hours = workedHoursAmount(def);
-      return hours > 0 ? String(hours) : "";
-    }
     const line = lineForComponent(def.id);
     if (!line || Number(line.amount) === 0) return "";
     if (shouldRoundComponent(def.id, def.roundResult))
@@ -2522,14 +2422,6 @@ function SalaryComponentsEditor({
                       text={`Enter Poya days on this row only (not from attendance import). Payroll uses Basic ÷ 30 × days${
                         poyaDayRate > 0 ? ` (LKR ${fmt(poyaDayRate)} per day)` : ""
                       }. Use 0.5–15 for days, or a larger LKR amount for a fixed payment. Leave blank for no Poya pay.`}
-                    />
-                  ) : isWorkedHoursComponent(def.code) ? (
-                    <FormulaInfoTip
-                      text={`Loads attendance worked hours for ${
-                        batchFrom
-                          ? `${formatDate(batchFrom)}${batchTo ? ` – ${formatDate(batchTo)}` : ""}`
-                          : "this payroll month"
-                      }. Leave blank to use the month total, or type hours to override.`}
                     />
                   ) : isAutoFormula(def) && def.formulaExpression ? (
                     <FormulaInfoTip
@@ -3090,7 +2982,7 @@ function PayrollRunTab() {
     setActionLoading(batchId);
     try {
       if (action === "calculate") {
-        if (!(await appConfirm("Rebuild pay slips for every employee in this batch from the Employee Salary tab? Includes Basic, allowances, deductions, and EPF/ETF. Working hours and no-pay come from attendance for the payroll period. Poya pay only if entered on Employee Salary."))) {
+        if (!(await appConfirm("Rebuild pay slips for every employee in this batch from the Employee Salary tab? Includes Basic, allowances, deductions, and EPF/ETF. Poya pay only if entered on Employee Salary."))) {
           setActionLoading(null);
           return;
         }
@@ -3280,17 +3172,7 @@ function PayrollRunTab() {
         <ImportAttendanceLeaveModal
           batch={importBatch}
           onClose={() => setImportBatch(null)}
-          onImported={async () => {
-            const batchId = importBatch.id;
-            setImportBatch(null);
-            try {
-              const items = await refreshBatches();
-              const updated = items.find((b) => b.id === batchId);
-              if (updated) await viewBatchDetails(updated);
-            } catch {
-              load();
-            }
-          }}
+          onImported={() => { setImportBatch(null); load(); }}
         />
       )}
     </div>
@@ -3326,13 +3208,10 @@ function ImportAttendanceLeaveModal({
     setImporting(true);
     setError("");
     try {
-      const result = await apiFetch<AttendanceImportResult>(`/api/payroll/batches/${batch.id}/import-attendance-leave`, {
+      await apiFetch(`/api/payroll/batches/${batch.id}/import-attendance-leave`, {
         method: "POST",
         timeoutMs: PAYROLL_LONG_REQUEST_MS,
       });
-      if (result.recalculateError) {
-        await appAlert(`Attendance was imported, but pay slips were not rebuilt: ${result.recalculateError}`);
-      }
       onImported();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
@@ -3349,8 +3228,6 @@ function ImportAttendanceLeaveModal({
         <p className="text-xs text-slate-500">
           Uses only Approved OT hours. Pending, rejected, and supervisor-not-assigned OT is excluded.
           No-pay combines attendance absences with approved unpaid leave for this exact period.
-          Working Hours (WORKED_HOURS) is filled from attendance hours for the full payroll month.
-          Import rebuilds pay slips so No-Pay and approved OT appear on the salary slip.
         </p>
       </div>
 
@@ -3369,7 +3246,6 @@ function ImportAttendanceLeaveModal({
               <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500">
                 <tr>
                   <th className="px-3 py-2 font-medium">Employee</th>
-                  <th className="px-3 py-2 font-medium text-right">Hours</th>
                   <th className="px-3 py-2 font-medium text-right">OT Hrs</th>
                   <th className="px-3 py-2 font-medium text-right">Total NP</th>
                 </tr>
@@ -3382,7 +3258,6 @@ function ImportAttendanceLeaveModal({
                       <div className="text-xs text-slate-400">{line.employeeCode}</div>
                       {line.warning && <div className="text-xs text-amber-600">{line.warning}</div>}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono">{line.totalWorkedHours ? fmtWorkedHours(line.totalWorkedHours) : "—"}</td>
                     <td className="px-3 py-2 text-right font-mono">{line.approvedOtHours || "—"}</td>
                     <td className="px-3 py-2 text-right font-medium">{line.totalNopayDays || "—"}</td>
                   </tr>
