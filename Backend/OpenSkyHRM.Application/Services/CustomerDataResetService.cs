@@ -185,7 +185,7 @@ WHERE lower(""Username"") <> 'admin';", cancellationToken);
         cmd.CommandText = @"
 SELECT table_name
 FROM information_schema.tables
-WHERE table_schema = 'HR'
+WHERE table_schema = current_schema()
   AND table_type = 'BASE TABLE';";
 
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);

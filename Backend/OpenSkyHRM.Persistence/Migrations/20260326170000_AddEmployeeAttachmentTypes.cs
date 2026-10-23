@@ -34,13 +34,13 @@ public partial class AddEmployeeAttachmentTypes : Migration
             DO $$ BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'HR' AND table_name = 'EmployeeAttachments' AND column_name = 'AttachmentTypeId'
+                    WHERE table_schema = current_schema() AND table_name = 'EmployeeAttachments' AND column_name = 'AttachmentTypeId'
                 ) THEN
                     ALTER TABLE ""EmployeeAttachments"" ADD COLUMN ""AttachmentTypeId"" uuid;
                 END IF;
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'HR' AND table_name = 'EmployeeAttachments' AND column_name = 'ExpiryDate'
+                    WHERE table_schema = current_schema() AND table_name = 'EmployeeAttachments' AND column_name = 'ExpiryDate'
                 ) THEN
                     ALTER TABLE ""EmployeeAttachments"" ADD COLUMN ""ExpiryDate"" timestamp without time zone;
                 END IF;

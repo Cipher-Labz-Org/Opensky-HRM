@@ -10,6 +10,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
     {
+        HrDatabase.Configure(configuration);
         services.AddSingleton<IBusinessClock, BusinessClock>();
         services.AddScoped<PeopleHubAuditSaveChangesInterceptor>();
 

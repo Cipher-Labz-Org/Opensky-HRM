@@ -95,7 +95,7 @@ static async Task EnsureDatabaseExistsAsync(string? connectionString)
 
 static async Task EnsureHrSchemaAsync(string? connectionString)
 {
-    if (string.IsNullOrWhiteSpace(connectionString))
+    if (string.IsNullOrWhiteSpace(connectionString) || !HrDatabase.UsesCustomSchema)
         return;
 
     await using var conn = new Npgsql.NpgsqlConnection(connectionString);

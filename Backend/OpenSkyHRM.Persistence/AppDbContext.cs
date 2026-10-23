@@ -152,7 +152,8 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.HasDefaultSchema(HrDatabase.Schema);
+        if (HrDatabase.UsesCustomSchema)
+            modelBuilder.HasDefaultSchema(HrDatabase.Schema);
 
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
 
