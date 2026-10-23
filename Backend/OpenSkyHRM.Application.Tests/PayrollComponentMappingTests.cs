@@ -45,6 +45,15 @@ public class PayrollComponentMappingTests
     }
 
     [Fact]
+    public void IsWorkedHoursQuantity_MatchesKnownHoursCodes()
+    {
+        Assert.True(PayrollComponentMapping.IsWorkedHoursQuantity("WORKED_HOURS"));
+        Assert.True(PayrollComponentMapping.IsWorkedHoursQuantity("NO_OF_WORKED_HOURS"));
+        Assert.False(PayrollComponentMapping.IsWorkedHoursQuantity("HOURLY_RATE"));
+        Assert.False(PayrollComponentMapping.IsWorkedHoursQuantity("OT"));
+    }
+
+    [Fact]
     public void AliasMappedBaseAsBasic_CopiesMappedAmount()
     {
         var values = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)

@@ -464,6 +464,21 @@ public class PayrollController : ControllerBase
         }
     }
 
+    [HttpGet("batches/{id:guid}/worked-hours")]
+    public async Task<IActionResult> GetEmployeeWorkedHours(Guid id, [FromQuery] Guid employeeId)
+    {
+        if (employeeId == Guid.Empty)
+            return BadRequest(new { message = "employeeId is required." });
+        try
+        {
+            return Ok(await _attendanceImport.GetEmployeeWorkedHoursAsync(id, employeeId));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPut("batches/{id:guid}/review")]
     public async Task<IActionResult> ReviewBatch(Guid id)
     {
