@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { FormSelect, TablePagination, FormErrorAlert, FlashMessageBanner, UsernameInput, EmailInput, type FormSelectOption, type FlashMessage } from "@/components/ui";
 import { SUCCESS_BANNER_DISMISS_MS } from "@/lib/use-auto-dismiss";
 import { EmployeeSearchCombobox } from "@/components/workforce/EmployeeSearchCombobox";
+import { RolesPermissionsSection } from "@/components/user-management/RolesPermissionsSection";
 import { UserAdvancedPermissionsPanel } from "@/components/user-management/UserAdvancedPermissionsPanel";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
@@ -170,6 +171,7 @@ export default function UserManagementPage() {
   const searchFilter = useApplyFilter();
   const [filterRole, setFilterRole] = useState("");
   const [filterStatus, setFilterStatus] = useState<"" | "active" | "disabled">("");
+  const [activeSection, setActiveSection] = useState<"users" | "roles">("users");
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [userSummary, setUserSummary] = useState({ totalUsers: 0, activeUsers: 0, linkedToEmployee: 0 });
@@ -398,7 +400,7 @@ export default function UserManagementPage() {
 
   return (
     <>
-      <AppTopbar title="User Management" subtitle="User accounts for your OpenSky HRM tenant. Create roles and assign permissions in ERP Roles." />
+      <AppTopbar title="User Management" subtitle="Accounts, roles, and access control for your OpenSky HRM tenant." />
 
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -410,7 +412,36 @@ export default function UserManagementPage() {
           ))}
         </div>
 
-        {loading ? (
+        <div className="flex flex-wrap gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/90 p-1.5 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setActiveSection("users")}
+            className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+              activeSection === "users"
+                ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/90"
+                : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
+            }`}
+          >
+            User accounts
+          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setActiveSection("roles")}
+              className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+                activeSection === "roles"
+                  ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/90"
+                  : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
+              }`}
+            >
+              Roles & permissions
+            </button>
+          )}
+        </div>
+
+        {activeSection === "roles" && isAdmin ? (
+          <RolesPermissionsSection roles={roles} onSaved={() => void loadData()} />
+        ) : loading ? (
           <div className={`flex items-center justify-center py-20 ${panelClass}`}>
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
           </div>

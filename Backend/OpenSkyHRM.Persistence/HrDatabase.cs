@@ -3,8 +3,7 @@ using Microsoft.Extensions.Configuration;
 namespace OpenSkyHRM.Persistence;
 
 /// <summary>
-/// PostgreSQL schema that holds the HR tables. Standalone customer databases keep their data in
-/// "public"; only the shared ERP database (Janasetha) sets <c>Database:Schema</c> to "HR".
+/// PostgreSQL schema that holds the HRM tables. HRM databases keep their data in "public".
 /// Changing this on an existing deployment points the API at a different, empty set of tables.
 /// </summary>
 public static class HrDatabase
