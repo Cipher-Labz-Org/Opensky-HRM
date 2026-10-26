@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { FormErrorAlert } from "@/components/ui/FormErrorAlert";
-import { API_ASSET_BASE_URL, getApiBaseUrl, getAssetBaseUrl, tenantBackendUrl } from "@/config/constants";
+import { getApiBaseUrl, getConfiguredBackendOrigin } from "@/config/constants";
 import { ApiHttpError, apiFetch, apiFetchBlob, isMissingApiRoute } from "@/lib/api";
 import {
   buildAttendanceImportTemplateCsv,
@@ -19,10 +19,9 @@ import { downloadBlob } from "@/lib/template-pdf";
  */
 function attendanceImportApiBase(): string | undefined {
   if (typeof window === "undefined") return undefined;
-  const direct = tenantBackendUrl() || getAssetBaseUrl();
   const base = getApiBaseUrl();
   if (base === "/hrm-backend" || base === "") {
-    return direct || API_ASSET_BASE_URL || undefined;
+    return getConfiguredBackendOrigin() ?? undefined;
   }
   return base;
 }

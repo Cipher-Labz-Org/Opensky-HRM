@@ -437,7 +437,7 @@ export function LeaveRequestsPanel({
 
       <div className={`${panelClass} overflow-hidden`}>
         <div className="overflow-x-auto">
-          <table className="hris-table min-w-[920px]">
+          <table className="hris-table min-w-[1080px]">
             <thead className="bg-slate-50/90">
               <tr>
                 <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Employee</th>
@@ -446,6 +446,7 @@ export function LeaveRequestsPanel({
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Days</th>
                 <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
                 <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Approver</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Comments</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
               </tr>
             </thead>
@@ -453,14 +454,14 @@ export function LeaveRequestsPanel({
               {loading &&
                 Array.from({ length: 4 }).map((_, i) => (
                   <tr key={`sk-${i}`} className="animate-pulse">
-                    <td colSpan={7} className="px-4 py-4">
+                    <td colSpan={8} className="px-4 py-4">
                       <div className="h-10 rounded-lg bg-slate-100" />
                     </td>
                   </tr>
                 ))}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-0">
+                  <td colSpan={8} className="p-0">
                     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
                       <div
                         className="mb-4 flex h-14 w-14 items-center justify-center rounded-full"
@@ -541,6 +542,23 @@ export function LeaveRequestsPanel({
                       <span className={leaveStatusBadgeClass(r.status)}>{formatLeaveStatusLabel(r.status)}</span>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{r.responsibleUserName ?? "—"}</td>
+                    <td className="max-w-[16rem] px-4 py-3 text-sm text-slate-600">
+                      {r.reason?.trim() ? (
+                        <p className="line-clamp-2 whitespace-pre-line break-words" title={r.reason.trim()}>
+                          {r.reason.trim()}
+                        </p>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                      {r.approverRemarks?.trim() ? (
+                        <p
+                          className="mt-1 line-clamp-2 break-words text-[11px] text-slate-500"
+                          title={r.approverRemarks.trim()}
+                        >
+                          <span className="font-semibold">Approver:</span> {r.approverRemarks.trim()}
+                        </p>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex flex-wrap justify-end gap-1.5">
                         {r.medicalCertificateUrl ? (

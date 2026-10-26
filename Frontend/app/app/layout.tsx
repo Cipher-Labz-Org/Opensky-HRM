@@ -13,7 +13,6 @@ import { ROUTES } from "@/config/routes";
 import { isAlwaysVisibleNavHref, isNavItemVisible } from "@/lib/nav-visibility";
 import { useAuth } from "@/contexts/auth-context";
 import { syncErpEmbedChrome } from "@/components/theme/ErpEmbedTheme";
-import { PageHelpLink } from "@/components/help/PageHelpLink";
 
 interface NavItem {
   href: string;
@@ -217,7 +216,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
       <AppDialogsProvider>
         <main className="min-h-screen bg-[var(--bg)] px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
-          <PageHelpLink floating />
           {gatedChildren}
         </main>
       </AppDialogsProvider>
@@ -237,7 +235,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="app-shell-main-column flex min-h-screen min-w-0 flex-1 flex-col">
             <AppGlobalHeader user={user} onLogout={logout} />
             <main className="app-shell-canvas flex-1 p-6 sm:p-7" style={{ minWidth: 0 }}>
-              <PageHelpLink />
               {gatedChildren}
             </main>
             <footer className="app-shell-footer border-t px-6 py-3 text-center sm:px-7">

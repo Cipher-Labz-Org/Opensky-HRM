@@ -5,7 +5,7 @@ import { useState, useRef } from "react";
 import { AppTopbar } from "@/components/navigation/AppTopbar";
 import { Button } from "@/components/ui/Button";
 import { InlinePageAlert } from "@/components/ui";
-import { API_ASSET_BASE_URL, getApiBaseUrl, getAssetBaseUrl } from "@/config/constants";
+import { getApiBaseUrl, getConfiguredBackendOrigin } from "@/config/constants";
 import { ROUTES } from "@/config/routes";
 import { apiFetch, apiFetchBlob, isMissingApiRoute } from "@/lib/api";
 
@@ -293,12 +293,8 @@ export default function AdministrationPage() {
 
 function bulkImportApiBase(): string | undefined {
   if (typeof window === "undefined") return undefined;
-  const base = getApiBaseUrl();
-  if (base === "/hrm-backend") {
-    const direct = getAssetBaseUrl() || API_ASSET_BASE_URL;
-    return direct || undefined;
-  }
-  return undefined;
+  if (getApiBaseUrl() !== "/hrm-backend") return undefined;
+  return getConfiguredBackendOrigin() ?? undefined;
 }
 
 async function downloadTemplate(path: string, fallbackFilename: string) {

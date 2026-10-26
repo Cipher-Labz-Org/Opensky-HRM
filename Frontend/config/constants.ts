@@ -147,6 +147,21 @@ export function getAssetBaseUrl(): string {
   return (rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl : defaultLocalApi).replace(/\/$/, "");
 }
 
+/**
+ * Real API origin for calls that must bypass same-origin rewrites (multipart uploads get 405 there on live).
+ * Null when no backend origin is configured — local dev then only knows the :5000 placeholder,
+ * which is not where OpenSkyHRM.Api listens, so callers should stay on the `/hrm-backend` proxy.
+ */
+export function getConfiguredBackendOrigin(): string | null {
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (tenantBackendRequiresBrowserProxy(hostname)) return null;
+    const backend = getBackendUrlForHostname(hostname);
+    if (backend) return backend.replace(/\/$/, "");
+  }
+  return rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl.replace(/\/$/, "") : null;
+}
+
 /** @deprecated Use getAssetBaseUrl() — kept for existing imports. */
 export const API_ASSET_BASE_URL = (
   rawApiUrl && rawApiUrl.length > 0 ? rawApiUrl : defaultLocalApi
