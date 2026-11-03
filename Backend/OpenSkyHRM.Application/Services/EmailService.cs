@@ -963,13 +963,15 @@ public class EmailService : IEmailService
     private static readonly string[] KnownCompanySlugs =
     {
         "donandson", "stage2cafe", "cipherlabz", "besttrend", "nexawave", "stagecafe",
-        "rambank", "gamma", "tasty", "mbkh", "demo", "epic",
+        "rambank", "santhastore", "gamma", "tasty", "mbkh", "demo", "epic",
     };
 
     private static readonly Dictionary<string, string> CompanyNameAliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["ram bank"] = "rambank",
         ["rambank"] = "rambank",
+        ["santha store"] = "santhastore",
+        ["santhastore"] = "santhastore",
         ["don & son"] = "donandson",
         ["don and son"] = "donandson",
         ["best trend"] = "besttrend",
