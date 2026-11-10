@@ -11,6 +11,21 @@ export async function getAttendanceCheckInMode(): Promise<{ mode: string }> {
   return apiFetch<{ mode: string }>("/api/Attendance/check-in-mode");
 }
 
+export type MobilePunchAccess = {
+  allowed: boolean;
+  message: string | null;
+};
+
+export async function getMobilePunchAccess(): Promise<MobilePunchAccess> {
+  const raw = await apiFetch<Record<string, unknown>>("/api/Attendance/mobile-punch-access");
+  const allowedValue = raw.allowed ?? raw.Allowed;
+  const messageValue = raw.message ?? raw.Message;
+  return {
+    allowed: allowedValue === true,
+    message: typeof messageValue === "string" && messageValue.trim() ? messageValue : null,
+  };
+}
+
 export async function punchAttendance(body: PunchRequest): Promise<AttendanceRecord> {
   return apiFetch<AttendanceRecord>("/api/Attendance/punch", {
     method: "POST",

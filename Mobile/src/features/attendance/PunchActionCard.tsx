@@ -22,6 +22,7 @@ import { parseAttendanceQr } from "./attendanceQr";
 import { validateAttendanceQrForEmployee } from "./attendanceQrValidation";
 import { useAttendancePunch } from "./useAttendancePunch";
 import { useCheckInMode } from "./useCheckInMode";
+import { useMobilePunchAccess } from "./useMobilePunchAccess";
 import {
   checkInModeHint,
   modeAllowsDirectPunch,
@@ -206,6 +207,9 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
   const [requesting, setRequesting] = useState(false);
   const { punch, punching } = useAttendancePunch();
   const checkInModeQuery = useCheckInMode();
+  const accessQuery = useMobilePunchAccess();
+  const punchBlocked = accessQuery.data?.allowed === false;
+  const showPunchActions = !accessQuery.isLoading && !punchBlocked;
   // Prefer QR until policy loads — never flash a direct Punch button for QR companies.
   const checkInMode = checkInModeQuery.data ?? "BusinessUnitQr";
   const useQrFlow = modeRequiresQr(checkInMode);
@@ -430,7 +434,35 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
         </View>
       </View>
 
-      {useDirectFlow && !scanning ? (
+      {accessQuery.isLoading ? (
+        <Text style={{ marginTop: 16, textAlign: "center", fontSize: 12, color: colors.muted }}>
+          Checking punch access…
+        </Text>
+      ) : null}
+
+      {punchBlocked ? (
+        <View
+          style={{
+            marginTop: 16,
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.primaryLight,
+            paddingHorizontal: 16,
+            paddingVertical: 14,
+          }}
+        >
+          <Text style={{ textAlign: "center", fontSize: 14, fontWeight: "700", color: colors.navy }}>
+            Punch in and punch out are unavailable
+          </Text>
+          <Text style={{ marginTop: 6, textAlign: "center", fontSize: 12, color: colors.muted }}>
+            {accessQuery.data?.message
+              ?? "Mobile punch is not enabled for your business unit or location. Ask HR to turn it on in Settings."}
+          </Text>
+        </View>
+      ) : null}
+
+      {useDirectFlow && !scanning && showPunchActions ? (
         <>
           <TouchableOpacity
             activeOpacity={0.85}
@@ -482,7 +514,7 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
         </>
       ) : null}
 
-      {useQrFlow && !scanning ? (
+      {useQrFlow && !scanning && showPunchActions ? (
         <>
           {/* OUTSIDE the card so Android never paints this action invisible */}
           <TouchableOpacity
@@ -557,7 +589,7 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
         </>
       ) : null}
 
-      {useQrFlow && scanning ? (
+      {useQrFlow && scanning && showPunchActions ? (
         <View
           style={{
             marginTop: 16,

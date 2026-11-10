@@ -172,6 +172,7 @@ public class OrganizationService : IOrganizationService
                 Code = b.Code,
                 Description = b.Description,
                 IsActive = b.IsActive,
+                AllowMobilePunch = b.AllowMobilePunch,
                 EmployeeCount = b.Employees.Count(e => !e.IsDeleted),
             })
             .ToListAsync();
@@ -179,14 +180,21 @@ public class OrganizationService : IOrganizationService
 
     public async Task<BusinessUnitDto> CreateBusinessUnitAsync(CreateLookupDto dto)
     {
-        var bu = new BusinessUnit { Name = dto.Name, Code = dto.Code, Description = dto.Description };
+        var bu = new BusinessUnit
+        {
+            Name = dto.Name,
+            Code = dto.Code,
+            Description = dto.Description,
+            AllowMobilePunch = dto.AllowMobilePunch ?? false,
+        };
         _db.BusinessUnits.Add(bu);
         await _db.SaveChangesAsync();
 
         return new BusinessUnitDto
         {
             Id = bu.Id, Name = bu.Name, Code = bu.Code,
-            Description = bu.Description, IsActive = bu.IsActive, EmployeeCount = 0
+            Description = bu.Description, IsActive = bu.IsActive,
+            AllowMobilePunch = bu.AllowMobilePunch, EmployeeCount = 0
         };
     }
 
@@ -197,11 +205,14 @@ public class OrganizationService : IOrganizationService
         bu.Name = dto.Name;
         bu.Code = dto.Code;
         bu.Description = dto.Description;
+        if (dto.AllowMobilePunch.HasValue)
+            bu.AllowMobilePunch = dto.AllowMobilePunch.Value;
         await _db.SaveChangesAsync();
         return new BusinessUnitDto
         {
             Id = bu.Id, Name = bu.Name, Code = bu.Code,
-            Description = bu.Description, IsActive = bu.IsActive, EmployeeCount = 0
+            Description = bu.Description, IsActive = bu.IsActive,
+            AllowMobilePunch = bu.AllowMobilePunch, EmployeeCount = 0
         };
     }
 
@@ -232,6 +243,7 @@ public class OrganizationService : IOrganizationService
         City = l.City,
         Country = l.Country,
         IsActive = l.IsActive,
+        AllowMobilePunch = l.AllowMobilePunch,
     };
 
     public async Task<List<LocationDto>> GetLocationsAsync()
@@ -242,6 +254,7 @@ public class OrganizationService : IOrganizationService
             {
                 Id = l.Id, Name = l.Name, Code = l.Code,
                 Address = l.Address, City = l.City, Country = l.Country, IsActive = l.IsActive,
+                AllowMobilePunch = l.AllowMobilePunch,
             })
             .ToListAsync();
     }
@@ -256,6 +269,7 @@ public class OrganizationService : IOrganizationService
             City = dto.City,
             Country = dto.Country,
             IsActive = dto.IsActive,
+            AllowMobilePunch = dto.AllowMobilePunch ?? false,
         };
         _db.Locations.Add(entity);
         await _db.SaveChangesAsync();
@@ -272,6 +286,8 @@ public class OrganizationService : IOrganizationService
         entity.City = dto.City;
         entity.Country = dto.Country;
         entity.IsActive = dto.IsActive;
+        if (dto.AllowMobilePunch.HasValue)
+            entity.AllowMobilePunch = dto.AllowMobilePunch.Value;
         await _db.SaveChangesAsync();
         return ToLocationDto(entity);
     }

@@ -383,6 +383,7 @@ if (dbAvailable)
         // Schema first so live tenants have APIT/EPF columns even if a later migration fails.
         await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await EmployeeCompanyProfileSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
+        await MobilePunchSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await db.Database.MigrateAsync();
         await EmploymentCatalogSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
         await BankAccountSchemaRepair.EnsureCompatibleSchemaAsync(defaultConn);
@@ -402,6 +403,7 @@ if (dbAvailable)
             await PayrollSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
             await EmployeeCompanyProfileSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
             await EmploymentCatalogSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
+            await MobilePunchSchemaRepair.EnsureCompatibleSchemaAsync(fallbackConn);
         }
         catch (Exception repairEx)
         {

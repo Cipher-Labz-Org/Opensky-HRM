@@ -278,6 +278,11 @@ export function MasterDataEditorModal({
                     {item.description && (
                       <div className="text-xs text-[var(--text-muted)]">{item.description}</div>
                     )}
+                    {typeof item.allowMobilePunch === "boolean" ? (
+                      <div className={`text-xs ${item.allowMobilePunch ? "text-green-700" : "text-[var(--text-muted)]"}`}>
+                        {item.allowMobilePunch ? "Mobile punch allowed" : "Mobile punch off"}
+                      </div>
+                    ) : null}
                   </td>
                   <td><span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-mono">{item.code}</span></td>
                   <td className="text-right">

@@ -12,6 +12,7 @@ import {
   parseAttendanceQr,
   useAttendancePunch,
   useCheckInMode,
+  useMobilePunchAccess,
   useTodayAttendanceRecord,
   validateAttendanceQrForEmployee,
 } from "@/features/attendance";
@@ -31,6 +32,7 @@ export default function AttendanceQrScanScreen() {
   const todayRecordQuery = useTodayAttendanceRecord(employeeId);
   const { punch, punching } = useAttendancePunch();
   const checkInModeQuery = useCheckInMode();
+  const accessQuery = useMobilePunchAccess();
   const checkInMode = checkInModeQuery.data ?? "BusinessUnitQr";
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -44,6 +46,14 @@ export default function AttendanceQrScanScreen() {
   const handleScanned = useCallback(
     async (data: string) => {
       if (scanned || punching) return;
+      if (accessQuery.data?.allowed === false) {
+        Alert.alert(
+          "Cannot punch",
+          accessQuery.data.message
+            ?? "Mobile punch is not enabled for your business unit or location."
+        );
+        return;
+      }
       setScanned(true);
 
       const parsed = parseAttendanceQr(data);
@@ -105,7 +115,7 @@ export default function AttendanceQrScanScreen() {
         setScanned(false);
       }
     },
-    [checkInMode, profileQuery.data, punch, punchType, punching, scanned]
+    [accessQuery.data, checkInMode, profileQuery.data, punch, punchType, punching, scanned]
   );
 
   if (!employeeId) {
@@ -120,6 +130,27 @@ export default function AttendanceQrScanScreen() {
           <EmptyState
             title="No employee profile"
             description="Your account is not linked to an employee record."
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (accessQuery.isSuccess && accessQuery.data.allowed === false) {
+    return (
+      <SafeAreaView className="flex-1 bg-background" edges={["top", "left", "right"]}>
+        <AttendanceQrHeader
+          title="Scan attendance QR"
+          subtitle="Punch in and punch out are unavailable"
+          onBack={() => router.back()}
+        />
+        <View className="px-4 pt-6">
+          <EmptyState
+            title="Punch unavailable"
+            description={
+              accessQuery.data.message
+              ?? "Mobile punch is not enabled for your business unit or location. Ask HR to turn it on in Settings."
+            }
           />
         </View>
       </SafeAreaView>

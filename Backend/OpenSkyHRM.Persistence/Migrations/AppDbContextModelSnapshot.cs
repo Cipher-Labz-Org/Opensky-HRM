@@ -1059,6 +1059,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AllowMobilePunch")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -3888,6 +3891,9 @@ namespace OpenSkyHRM.Persistence.Migrations
                     b.Property<string>("Address")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("AllowMobilePunch")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("City")
                         .HasMaxLength(100)

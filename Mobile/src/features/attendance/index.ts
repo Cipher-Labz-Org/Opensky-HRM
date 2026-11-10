@@ -9,6 +9,7 @@ export type { AttendanceSummaryStat } from "./AttendancePageHeader";
 export { PunchActionCard } from "./PunchActionCard";
 export { useAttendancePunch } from "./useAttendancePunch";
 export { useCheckInMode } from "./useCheckInMode";
+export { useMobilePunchAccess } from "./useMobilePunchAccess";
 export {
   normalizeCheckInMode,
   modeRequiresQr,

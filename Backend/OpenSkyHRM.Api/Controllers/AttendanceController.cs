@@ -6,6 +6,7 @@ using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.LeaveAttendance;
 using OpenSkyHRM.Application.Interfaces;
+using OpenSkyHRM.Application.Services;
 using OpenSkyHRM.Domain;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Persistence;
@@ -118,6 +119,60 @@ public partial class AttendanceController : ControllerBase
         var mode = AttendanceCheckInModes.Normalize(
             await settings.GetAsync(AttendanceCheckInModes.SettingKey));
         return Ok(new { mode });
+    }
+
+    /// <summary>
+    /// Whether the signed-in employee may punch in or out in the mobile app.
+    /// Access is granted per business unit and per location in Settings.
+    /// </summary>
+    [HttpGet("mobile-punch-access")]
+    public async Task<IActionResult> GetMobilePunchAccess([FromServices] ISystemSettingService settings)
+    {
+        var linkedEmployeeId = await ResolveLinkedEmployeeIdAsync();
+        if (linkedEmployeeId == null)
+        {
+            return Ok(new
+            {
+                allowed = false,
+                message = "Link this user to an employee in User Management before punching.",
+            });
+        }
+
+        var mode = AttendanceCheckInModes.Normalize(
+            await settings.GetAsync(AttendanceCheckInModes.SettingKey));
+
+        try
+        {
+            var employee = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == linkedEmployeeId.Value && !e.IsDeleted);
+            if (employee == null)
+            {
+                return Ok(new { allowed = false, message = "Employee not found." });
+            }
+
+            if (mode == AttendanceCheckInModes.LocationGeofence)
+            {
+                if (!employee.LocationId.HasValue || employee.LocationId == Guid.Empty)
+                    throw new InvalidOperationException("Employee has no assigned location for location-based check-in.");
+                await MobilePunchAccess.EnsureLocationAsync(_db, employee.LocationId.Value);
+            }
+            else if (mode == AttendanceCheckInModes.BusinessUnitGeofence)
+            {
+                if (!employee.BusinessUnitId.HasValue || employee.BusinessUnitId == Guid.Empty)
+                    throw new InvalidOperationException("Business unit is required for this check-in mode.");
+                await MobilePunchAccess.EnsureBusinessUnitAsync(_db, employee.BusinessUnitId.Value);
+            }
+            else
+            {
+                await MobilePunchAccess.EnsureEmployeeAsync(_db, linkedEmployeeId.Value);
+            }
+
+            return Ok(new { allowed = true, message = (string?)null });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Ok(new { allowed = false, message = ex.Message });
+        }
     }
 
     /// <summary>Today's attendance sessions for the signed-in user's linked employee (web punch widget).</summary>

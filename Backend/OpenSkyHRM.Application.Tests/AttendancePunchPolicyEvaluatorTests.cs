@@ -45,8 +45,8 @@ public class AttendancePunchPolicyEvaluatorTests
             new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options,
             new TestClock());
 
-        var location = new Location { Id = Guid.NewGuid(), Name = "HQ", Code = "HQ", IsActive = true };
-        var businessUnit = new BusinessUnit { Id = Guid.NewGuid(), Name = "Retail", Code = "RTL", IsActive = true };
+        var location = new Location { Id = Guid.NewGuid(), Name = "HQ", Code = "HQ", IsActive = true, AllowMobilePunch = true };
+        var businessUnit = new BusinessUnit { Id = Guid.NewGuid(), Name = "Retail", Code = "RTL", IsActive = true, AllowMobilePunch = true };
         var department = new Department
         {
             Id = Guid.NewGuid(),
@@ -247,6 +247,98 @@ public class AttendancePunchPolicyEvaluatorTests
 
         var policy = await AttendancePunchPolicyEvaluator.EvaluateAsync(
             db, new FakeSettings(AttendanceCheckInModes.BusinessUnitQr), employee.Id, dto);
+
+        Assert.Null(policy.ResolvedPlace);
+    }
+
+    [Fact]
+    public async Task MobilePunch_RejectsBusinessUnitWithoutPermission()
+    {
+        var (db, employee, _, _) = await SeedAsync();
+        var bu = await db.BusinessUnits.FirstAsync(b => b.Id == employee.BusinessUnitId);
+        bu.AllowMobilePunch = false;
+        await db.SaveChangesAsync();
+
+        var dto = new PunchRequestDto
+        {
+            QrPayload = "{\"type\":\"opensky-hrm-attendance-bu\"}",
+            BusinessUnitId = employee.BusinessUnitId,
+            Source = "Mobile QR",
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AttendancePunchPolicyEvaluator.EvaluateAsync(
+                db, new FakeSettings(AttendanceCheckInModes.BusinessUnitQr), employee.Id, dto));
+
+        Assert.Contains("business unit", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task MobilePunch_RejectsLocationWithoutPermission()
+    {
+        var (db, employee, _, location) = await SeedAsync();
+        location.AllowMobilePunch = false;
+        await db.SaveChangesAsync();
+
+        var dto = new PunchRequestDto
+        {
+            QrPayload = "{\"type\":\"opensky-hrm-attendance-location\"}",
+            LocationId = location.Id,
+            Source = "Mobile QR",
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AttendancePunchPolicyEvaluator.EvaluateAsync(
+                db, new FakeSettings(AttendanceCheckInModes.BusinessUnitQr), employee.Id, dto));
+
+        Assert.Contains("location", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task OpenMode_RejectsMobilePunchWhenNeitherPlaceIsGranted()
+    {
+        var (db, employee, _, location) = await SeedAsync();
+        var bu = await db.BusinessUnits.FirstAsync(b => b.Id == employee.BusinessUnitId);
+        bu.AllowMobilePunch = false;
+        location.AllowMobilePunch = false;
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AttendancePunchPolicyEvaluator.EvaluateAsync(
+                db, new FakeSettings(AttendanceCheckInModes.Open), employee.Id,
+                new PunchRequestDto { Source = "Mobile" }));
+
+        Assert.Contains("business unit or location", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task OpenMode_AllowsMobilePunchWhenOnlyLocationIsGranted()
+    {
+        var (db, employee, _, location) = await SeedAsync();
+        var bu = await db.BusinessUnits.FirstAsync(b => b.Id == employee.BusinessUnitId);
+        bu.AllowMobilePunch = false;
+        location.AllowMobilePunch = true;
+        await db.SaveChangesAsync();
+
+        var policy = await AttendancePunchPolicyEvaluator.EvaluateAsync(
+            db, new FakeSettings(AttendanceCheckInModes.Open), employee.Id,
+            new PunchRequestDto { Source = "Mobile" });
+
+        Assert.Null(policy.ResolvedPlace);
+    }
+
+    [Fact]
+    public async Task WebPunch_IgnoresMobilePunchPermission()
+    {
+        var (db, employee, _, location) = await SeedAsync();
+        var bu = await db.BusinessUnits.FirstAsync(b => b.Id == employee.BusinessUnitId);
+        bu.AllowMobilePunch = false;
+        location.AllowMobilePunch = false;
+        await db.SaveChangesAsync();
+
+        var policy = await AttendancePunchPolicyEvaluator.EvaluateAsync(
+            db, new FakeSettings(AttendanceCheckInModes.BusinessUnitQr), employee.Id,
+            new PunchRequestDto { Type = "in", Source = "Web" });
 
         Assert.Null(policy.ResolvedPlace);
     }

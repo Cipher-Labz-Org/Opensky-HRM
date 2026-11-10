@@ -688,7 +688,21 @@ export default function SettingsPage() {
           { key: "name", label: "Name", placeholder: "Head Office" },
           { key: "code", label: "Code", placeholder: "BU-HO" },
           { key: "description", label: "Description", type: "textarea", required: false, placeholder: "Optional description" },
+          {
+            key: "allowMobilePunch",
+            label: "Allow mobile punch in and punch out",
+            type: "checkbox",
+            required: false,
+            defaultForAdd: false,
+            hint: "Employees in this business unit can punch in and out in the mobile app only when this is on.",
+          },
         ]}
+        toForm={(item) => ({
+          name: item.name,
+          code: item.code,
+          description: (item.description as string) ?? "",
+          allowMobilePunch: Boolean(item.allowMobilePunch),
+        })}
       />
       <AttendancePlacesModal
         open={editAttendancePlaces}
@@ -745,6 +759,14 @@ export default function SettingsPage() {
           { key: "address", label: "Address", required: false, placeholder: "123 Main Street" },
           { key: "city", label: "City", required: false, placeholder: "Colombo" },
           { key: "country", label: "Country", required: false, placeholder: "Sri Lanka" },
+          {
+            key: "allowMobilePunch",
+            label: "Allow mobile punch in and punch out",
+            type: "checkbox",
+            required: false,
+            defaultForAdd: false,
+            hint: "Employees at this location can punch in and out in the mobile app only when this is on.",
+          },
         ]}
         toForm={(item) => ({
           name: item.name,
@@ -752,6 +774,7 @@ export default function SettingsPage() {
           address: (item.address as string) ?? "",
           city: (item.city as string) ?? "",
           country: (item.country as string) ?? "",
+          allowMobilePunch: Boolean(item.allowMobilePunch),
         })}
         toPayload={(fd) => ({
           name: fd.get("name"),
@@ -760,6 +783,7 @@ export default function SettingsPage() {
           city: fd.get("city") || null,
           country: fd.get("country") || null,
           isActive: true,
+          allowMobilePunch: fd.get("allowMobilePunch") === "on",
         })}
       />
 
@@ -991,6 +1015,9 @@ export default function SettingsPage() {
                 Use &quot;QR required&quot; so mobile users must scan a business unit or location QR to punch.
                 The web header Punch in / out still maps to attendance without a QR scan.
                 Configure attendance places with coordinates before enabling geofence modes.
+                Mobile punch itself is off until you turn on &quot;Allow mobile punch in and punch out&quot;
+                for a business unit or location under Master Data. Employees can punch only for a unit or
+                location that has that permission.
               </p>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-[var(--bg-subtle)] px-4 py-3">

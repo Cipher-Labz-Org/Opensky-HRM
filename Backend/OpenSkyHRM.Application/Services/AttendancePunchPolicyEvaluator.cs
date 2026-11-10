@@ -24,12 +24,17 @@ internal static class AttendancePunchPolicyEvaluator
         var mode = AttendanceCheckInModes.Normalize(
             await settings.GetAsync(AttendanceCheckInModes.SettingKey));
 
-        if (mode == AttendanceCheckInModes.Open)
-            return new AttendancePunchPolicy();
-
-        // Desktop header punch records attendance without a mobile QR/geofence scan.
+        // Desktop header punch records attendance without a mobile QR/geofence scan
+        // and is not limited by business-unit or location mobile punch access.
         if (string.Equals(dto.Source?.Trim(), "Web", StringComparison.OrdinalIgnoreCase))
             return new AttendancePunchPolicy();
+
+        if (mode == AttendanceCheckInModes.Open)
+        {
+            if (MobilePunchAccess.IsMobileSource(dto.Source))
+                await MobilePunchAccess.EnsureEmployeeAsync(db, employeeId);
+            return new AttendancePunchPolicy();
+        }
 
         var employee = await db.Employees.AsNoTracking()
             .FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted)
@@ -43,6 +48,12 @@ internal static class AttendancePunchPolicyEvaluator
                 place = dto.LocationId.HasValue && dto.LocationId != Guid.Empty
                     ? await ResolveLocationPlaceByLocationIdAsync(db, dto.LocationId.Value)
                     : await ResolveLocationPlaceAsync(db, employee);
+                if (MobilePunchAccess.IsMobileSource(dto.Source))
+                {
+                    var locationId = place.LocationId ?? employee.LocationId
+                        ?? throw new InvalidOperationException(MobilePunchAccess.LocationDenied);
+                    await MobilePunchAccess.EnsureLocationAsync(db, locationId);
+                }
                 RequireGpsInsidePlace(dto, place, "location");
                 break;
 
@@ -51,17 +62,23 @@ internal static class AttendancePunchPolicyEvaluator
                 if (HasScannedLocation(dto))
                 {
                     EnsureEmployeeMatchesLocation(dto, employee);
+                    if (MobilePunchAccess.IsMobileSource(dto.Source))
+                        await MobilePunchAccess.EnsureLocationAsync(db, dto.LocationId!.Value);
                     place = await TryResolveLocationPlaceAsync(db, dto.LocationId!.Value);
                     return new AttendancePunchPolicy { ResolvedPlace = place };
                 }
 
                 EnsureBusinessUnit(dto, employee);
                 EnsureEmployeeMatchesBusinessUnit(dto, employee);
+                if (MobilePunchAccess.IsMobileSource(dto.Source))
+                    await MobilePunchAccess.EnsureBusinessUnitAsync(db, dto.BusinessUnitId!.Value);
                 break;
 
             case AttendanceCheckInModes.BusinessUnitGeofence:
                 EnsureBusinessUnit(dto, employee);
                 EnsureEmployeeMatchesBusinessUnit(dto, employee);
+                if (MobilePunchAccess.IsMobileSource(dto.Source))
+                    await MobilePunchAccess.EnsureBusinessUnitAsync(db, dto.BusinessUnitId!.Value);
                 place = await ResolveBusinessUnitPlaceAsync(db, dto.BusinessUnitId!.Value);
                 RequireGpsInsidePlace(dto, place, "business unit");
                 break;
@@ -71,6 +88,8 @@ internal static class AttendancePunchPolicyEvaluator
                 if (HasScannedLocation(dto))
                 {
                     EnsureEmployeeMatchesLocation(dto, employee);
+                    if (MobilePunchAccess.IsMobileSource(dto.Source))
+                        await MobilePunchAccess.EnsureLocationAsync(db, dto.LocationId!.Value);
                     place = await ResolveLocationPlaceByLocationIdAsync(db, dto.LocationId!.Value);
                     RequireGpsInsidePlace(dto, place, "location");
                     return new AttendancePunchPolicy { ResolvedPlace = place };
@@ -78,6 +97,8 @@ internal static class AttendancePunchPolicyEvaluator
 
                 EnsureBusinessUnit(dto, employee);
                 EnsureEmployeeMatchesBusinessUnit(dto, employee);
+                if (MobilePunchAccess.IsMobileSource(dto.Source))
+                    await MobilePunchAccess.EnsureBusinessUnitAsync(db, dto.BusinessUnitId!.Value);
                 place = await ResolveBusinessUnitPlaceAsync(db, dto.BusinessUnitId!.Value);
                 RequireGpsInsidePlace(dto, place, "business unit");
                 break;

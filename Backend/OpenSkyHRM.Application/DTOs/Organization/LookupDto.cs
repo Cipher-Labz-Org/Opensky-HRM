@@ -11,6 +11,7 @@ public class BusinessUnitDto : LookupDto
 {
     public string? Description { get; set; }
     public bool IsActive { get; set; }
+    public bool AllowMobilePunch { get; set; }
     public int EmployeeCount { get; set; }
 }
 
@@ -20,6 +21,7 @@ public class LocationDto : LookupDto
     public string? City { get; set; }
     public string? Country { get; set; }
     public bool IsActive { get; set; }
+    public bool AllowMobilePunch { get; set; }
 }
 
 public class GradeDto : LookupDto
@@ -49,6 +51,8 @@ public class CreateLookupDto
     public string Name { get; set; } = string.Empty;
     public string Code { get; set; } = string.Empty;
     public string? Description { get; set; }
+    /// <summary>Null on update leaves the current business-unit mobile punch flag unchanged.</summary>
+    public bool? AllowMobilePunch { get; set; }
 }
 
 public class CreateGradeDto
@@ -74,6 +78,8 @@ public class CreateLocationDto
     public string? City { get; set; }
     public string? Country { get; set; }
     public bool IsActive { get; set; } = true;
+    /// <summary>Null on update leaves the current location mobile punch flag unchanged.</summary>
+    public bool? AllowMobilePunch { get; set; }
 }
 
 public class EmploymentStatusTypeDto
