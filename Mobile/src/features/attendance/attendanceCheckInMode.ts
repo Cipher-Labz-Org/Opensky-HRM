@@ -22,8 +22,7 @@ export function normalizeCheckInMode(mode: string | null | undefined): Attendanc
 }
 
 export function modeRequiresQr(mode: AttendanceCheckInMode): boolean {
-  // Open also uses QR on mobile so users cannot punch from a plain button.
-  return mode === "BusinessUnitQr" || mode === "Hybrid" || mode === "Open";
+  return mode === "BusinessUnitQr" || mode === "Hybrid";
 }
 
 export function modeRequiresGps(mode: AttendanceCheckInMode): boolean {
@@ -31,14 +30,13 @@ export function modeRequiresGps(mode: AttendanceCheckInMode): boolean {
 }
 
 export function modeAllowsDirectPunch(mode: AttendanceCheckInMode): boolean {
-  // Only pure geofence modes allow tap-to-punch (no QR).
-  return mode === "LocationGeofence" || mode === "BusinessUnitGeofence";
+  return mode === "Open" || mode === "LocationGeofence" || mode === "BusinessUnitGeofence";
 }
 
 export function checkInModeHint(mode: AttendanceCheckInMode): string {
   switch (mode) {
     case "Open":
-      return "Scan a business unit or location attendance QR to punch in or out.";
+      return "Tap Punch in or Punch out. No QR scan or location check is required.";
     case "LocationGeofence":
       return "You must be at your assigned location to punch in or out.";
     case "BusinessUnitQr":

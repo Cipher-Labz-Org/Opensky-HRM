@@ -24,7 +24,6 @@ import { useAttendancePunch } from "./useAttendancePunch";
 import { useCheckInMode } from "./useCheckInMode";
 import { useMobilePunchAccess } from "./useMobilePunchAccess";
 import {
-  checkInModeHint,
   modeAllowsDirectPunch,
   modeRequiresQr,
 } from "./attendanceCheckInMode";
@@ -424,13 +423,6 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
           <View style={{ marginTop: 12 }}>
             <TodayStatus record={todayRecord} />
           </View>
-          <Text style={{ marginTop: 8, fontSize: 12, fontWeight: "600", color: colors.navyMid }}>
-            Next: {nextAction}
-            {isOpenSession ? " (scan QR to clock out)" : " (scan QR — multiple sessions allowed)"}
-          </Text>
-          <Text style={{ marginTop: 6, textAlign: "center", fontSize: 11, color: colors.muted, paddingHorizontal: 8 }}>
-            {checkInModeHint(checkInMode)}
-          </Text>
         </View>
       </View>
 
@@ -571,21 +563,6 @@ export function PunchActionCard({ todayRecord, onPunched }: PunchActionCardProps
               </Text>
             </View>
           </TouchableOpacity>
-
-          <View
-            style={{
-              marginTop: 12,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-            }}
-          >
-            <Ionicons name="business-outline" size={13} color={colors.muted} />
-            <Text style={{ fontSize: 11, color: colors.muted }}>
-              Use the QR from Settings → Attendance Places
-            </Text>
-          </View>
         </>
       ) : null}
 

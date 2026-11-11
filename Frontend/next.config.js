@@ -14,7 +14,11 @@ function apiUpstreamBase() {
   return url.replace(/\/$/, "");
 }
 
+/** When set (e.g. /hrm-ui for ERP Vite proxy), all routes and assets use this prefix. */
+const erpEmbedBasePath = process.env.NEXT_PUBLIC_BASE_PATH?.trim() || "";
+
 const nextConfig = {
+  ...(erpEmbedBasePath ? { basePath: erpEmbedBasePath } : {}),
   reactStrictMode: true,
   distDir: process.env.VERCEL ? ".next" : ".dist",
   transpilePackages: ["jspdf", "jspdf-autotable", "pdfjs-dist"],

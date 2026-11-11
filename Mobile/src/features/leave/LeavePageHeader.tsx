@@ -10,12 +10,26 @@ interface LeavePageHeaderProps {
   subtitle?: string;
   showApply?: boolean;
   onApply?: () => void;
+  onBack?: () => void;
 }
 
 /** Light top bar — title and optional Apply action on the page background. */
-export function LeavePageHeader({ title, subtitle, showApply, onApply }: LeavePageHeaderProps) {
+export function LeavePageHeader({ title, subtitle, showApply, onApply, onBack }: LeavePageHeaderProps) {
   return (
     <View className="px-4 pb-2 pt-2">
+      {onBack ? (
+        <Pressable
+          onPress={onBack}
+          hitSlop={10}
+          className="mb-2 flex-row items-center gap-1 self-start rounded-full py-1.5 pl-1 pr-3"
+          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+        >
+          <Ionicons name="chevron-back" size={22} color={colors.navy} />
+          <Text className="text-[15px] font-semibold" style={{ color: colors.navy }}>
+            Back
+          </Text>
+        </Pressable>
+      ) : null}
       <View className="flex-row items-start justify-between gap-3">
         <View className="min-w-0 flex-1">
           <View className="flex-row items-center gap-2">

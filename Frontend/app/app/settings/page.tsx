@@ -1012,6 +1012,7 @@ export default function SettingsPage() {
                 <option value="Hybrid">Hybrid — QR + geofence</option>
               </select>
               <p className="mt-1.5 text-xs text-[var(--text-muted)]">
+                &quot;Open&quot; lets mobile users tap Punch in / out from anywhere without a QR scan.
                 Use &quot;QR required&quot; so mobile users must scan a business unit or location QR to punch.
                 The web header Punch in / out still maps to attendance without a QR scan.
                 Configure attendance places with coordinates before enabling geofence modes.

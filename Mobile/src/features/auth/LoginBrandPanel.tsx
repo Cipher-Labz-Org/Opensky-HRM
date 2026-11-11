@@ -28,10 +28,6 @@ export function LoginBrandPanel() {
         <Text style={{ color: LOGIN_THEME.green }}>Performance.</Text>
       </Text>
 
-      <Text className="mt-2 text-sm leading-5" style={{ color: LOGIN_THEME.muted }}>
-        Your all-in-one HR workspace — manage leave, attendance, and more from one place.
-      </Text>
-
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}

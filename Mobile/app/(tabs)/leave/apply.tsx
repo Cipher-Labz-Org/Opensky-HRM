@@ -5,7 +5,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { Button, Field, LoadingState } from "@/components/ui";
+import { Button, DateField, Field, LoadingState } from "@/components/ui";
 import { DashboardCtaButton } from "@/features/dashboard";
 import {
   DaysSummaryBanner,
@@ -56,6 +56,11 @@ export default function ApplyLeaveScreen() {
   }, [startDate, endDate]);
 
   const requiresMedical = selectedType?.code?.toLowerCase().includes("sick") && totalDays > 2;
+
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/leave");
+  };
 
   const pickMedicalCertificate = async () => {
     const result = await DocumentPicker.getDocumentAsync({
@@ -120,7 +125,7 @@ export default function ApplyLeaveScreen() {
   if (typesQuery.isLoading) {
     return (
       <SafeAreaView className="flex-1 bg-background">
-        <LeavePageHeader title="Apply for leave" subtitle="Submit a new request" />
+        <LeavePageHeader title="Apply for leave" subtitle="Submit a new request" onBack={goBack} />
         <LoadingState />
       </SafeAreaView>
     );
@@ -137,6 +142,7 @@ export default function ApplyLeaveScreen() {
         <LeavePageHeader
           title="Apply for leave"
           subtitle="Fill in the details below and submit for approval"
+          onBack={goBack}
         />
 
         <View className="px-4 pt-4">
@@ -152,18 +158,22 @@ export default function ApplyLeaveScreen() {
           </FormSection>
 
           <FormSection title="Dates" icon="calendar-outline">
-            <Field
+            <DateField
               label="Start date"
-              placeholder="YYYY-MM-DD"
+              placeholder="Select start date"
               value={startDate}
-              onChangeText={setStartDate}
+              onChange={(value) => {
+                setStartDate(value);
+                if (!endDate || endDate < value) setEndDate(value);
+              }}
             />
             <View className="mt-3">
-              <Field
+              <DateField
                 label="End date"
-                placeholder="YYYY-MM-DD"
+                placeholder="Select end date"
                 value={endDate}
-                onChangeText={setEndDate}
+                onChange={setEndDate}
+                minimumDate={startDate ? new Date(`${startDate}T00:00:00`) : undefined}
               />
             </View>
             {totalDays > 0 ? (

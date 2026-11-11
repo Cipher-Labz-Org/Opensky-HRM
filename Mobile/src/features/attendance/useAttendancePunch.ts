@@ -65,7 +65,7 @@ export function useAttendancePunch() {
         });
       }
 
-      const { type, businessUnitId, locationId, qrPayload, checkInMode } = input;
+      const { type, businessUnitId, locationId, qrPayload, checkInMode } = input as PunchWithQrInput;
       const { latitude, longitude } = await resolveGps(modeRequiresGps(checkInMode));
 
       return punchAttendance({
@@ -84,8 +84,8 @@ export function useAttendancePunch() {
       Alert.alert(
         "Success",
         type === "in"
-          ? "You have punched in. Scan again later to punch out."
-          : "You have punched out. You can scan again to start another session."
+          ? "You have punched in."
+          : "You have punched out."
       );
     },
     onSettled: () => setPunching(null),

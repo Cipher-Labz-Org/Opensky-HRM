@@ -19,31 +19,36 @@ export function DashboardCtaButton({
   onPress,
 }: DashboardCtaButtonProps) {
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={loading}
-      style={({ pressed }) => ({
-        minHeight: 52,
-        borderRadius: 12,
-        backgroundColor: LOGIN_THEME.green,
-        opacity: pressed || loading ? 0.9 : 1,
-        shadowColor: LOGIN_THEME.green,
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-        elevation: 5,
-      })}
-    >
-      <View className="min-h-[52px] flex-row items-center justify-center gap-2 px-6">
-        {loading ? (
-          <ActivityIndicator color="#ffffff" />
-        ) : (
-          <>
-            <Text style={{ fontSize: 16, fontWeight: "700", color: "#ffffff" }}>{title}</Text>
-            <Ionicons name={icon} size={18} color="#ffffff" />
-          </>
-        )}
-      </View>
+    <Pressable onPress={onPress} disabled={loading}>
+      {({ pressed }) => (
+        <View
+          style={{
+            minHeight: 52,
+            borderRadius: 12,
+            backgroundColor: LOGIN_THEME.green ?? "#7AC143",
+            opacity: pressed || loading ? 0.85 : 1,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            paddingHorizontal: 24,
+            shadowColor: LOGIN_THEME.green ?? "#7AC143",
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 12,
+            elevation: 5,
+          }}
+        >
+          {loading ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: "#ffffff" }}>{title}</Text>
+              <Ionicons name={icon} size={18} color="#ffffff" />
+            </>
+          )}
+        </View>
+      )}
     </Pressable>
   );
 }
