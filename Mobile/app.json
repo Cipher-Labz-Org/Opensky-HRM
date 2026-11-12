@@ -3,7 +3,7 @@
     "name": "OpenSky HRM",
     "slug": "opensky-hrm",
     "scheme": "openskyhrm",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.cipherlabz.openskyhrm",
-      "buildNumber": "1",
+      "buildNumber": "12",
       "infoPlist": {
         "NSCameraUsageDescription": "OpenSky HRM uses the camera to scan business unit or location QR codes for attendance punch in/out.",
         "NSLocationWhenInUseUsageDescription": "OpenSky HRM may capture your location when you punch attendance.",
