@@ -19,7 +19,8 @@ public static class LeaveRequestsQueryScope
         Guid? EffectiveEmployeeId,
         IReadOnlyList<Guid>? AllowedEmployeeIds,
         Guid? ExcludeEmployeeId,
-        PagedResult<LeaveRequestDto>? EmptyResult);
+        PagedResult<LeaveRequestDto>? EmptyResult,
+        bool IncludePendingLevel2ForDirectReports = false);
 
     public static async Task<ResolvedQuery> ResolveAsync(
         ClaimsPrincipal user,
@@ -71,10 +72,19 @@ public static class LeaveRequestsQueryScope
         }
         else if (scope == "Team")
         {
-            allowedIds = await ModuleRbacHelper.ResolveEmployeeIdsForScopeAsync(
-                user, db, "Team", excludeSelfFromTeam: excludeSelf);
-            if (excludeSelf)
+            if (forApprovalsWorkspace)
+            {
+                // Team on Approvals is the direct reporting line, not the whole company or skip-level tree.
+                allowedIds = await ApprovalsAccessHelper.GetDirectReportIdsForUserAsync(user, db);
                 excludeEmployeeId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(user, db);
+            }
+            else
+            {
+                allowedIds = await ModuleRbacHelper.ResolveEmployeeIdsForScopeAsync(
+                    user, db, "Team", excludeSelfFromTeam: excludeSelf);
+                if (excludeSelf)
+                    excludeEmployeeId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(user, db);
+            }
             if (allowedIds is { Count: 0 })
             {
                 return new ResolvedQuery(
@@ -100,7 +110,13 @@ public static class LeaveRequestsQueryScope
             }
         }
 
-        return new ResolvedQuery(true, effectiveEmployeeId, allowedIds, excludeEmployeeId, null);
+        return new ResolvedQuery(
+            true,
+            effectiveEmployeeId,
+            allowedIds,
+            excludeEmployeeId,
+            null,
+            IncludePendingLevel2ForDirectReports: forApprovalsWorkspace && scope == "Team");
     }
 
     /// <summary>
@@ -109,26 +125,15 @@ public static class LeaveRequestsQueryScope
     /// </summary>
     internal static async Task<bool> CanViewEveryLeaveRequestAsync(ClaimsPrincipal user, AppDbContext db)
     {
-        if (HasExplicitApprovalsReadAllClaim(user) || IsAdmin(user))
+        if (IsAdmin(user))
             return true;
         var scope = await ResolveApprovalsReadScopeFromDatabaseAsync(user, db);
         return scope.Equals("All", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Any claim whose value is Approvals:Read:All, whatever the claim type.</summary>
-    private static bool HasExplicitApprovalsReadAllClaim(ClaimsPrincipal user)
-    {
-        foreach (var claim in user.Claims)
-        {
-            if (claim.Value.Contains("Approvals:Read:All", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
-
     /// <summary>
-    /// Approvals → Read from the user's roles in the database only.
+    /// Approvals → Read from the user's roles in the database.
+    /// A saved Team or Own scope is kept even when the login token still says All.
     /// Leave permissions are not used. A missing employee link does not remove Approvals → All.
     /// </summary>
     internal static async Task<string> ResolveApprovalsReadScopeFromDatabaseAsync(ClaimsPrincipal user, AppDbContext db)
@@ -182,19 +187,15 @@ public static class LeaveRequestsQueryScope
             .Select(p => p.Scope);
 
         var fromDb = HighestScope(scopes);
-        if (fromDb.Equals("All", StringComparison.OrdinalIgnoreCase))
-            return "All";
-        if (fromDb is not ("Team" or "Own"))
-            fromDb = "None";
-
-        // Use only an explicit Approvals:Read claim. Do not apply the supervisor Team default,
-        // which would hide every other employee when the saved scope is All.
-        var fromClaim = ExplicitApprovalsReadScope(user);
-        if (fromClaim.Equals("All", StringComparison.OrdinalIgnoreCase))
-            return "All";
-        if (fromClaim is not ("Team" or "Own"))
+        // Saved role scope wins. A login token that still says All must not
+        // reopen the company list after Approvals was set to Team or Own.
+        if (fromDb is "All" or "Team" or "Own")
             return fromDb;
-        return RbacScopeHelper.MaxScope(fromDb, fromClaim);
+
+        var fromClaim = ExplicitApprovalsReadScope(user);
+        if (fromClaim is "All" or "Team" or "Own")
+            return fromClaim;
+        return "None";
     }
 
     /// <summary>Approvals:Read scope written on the login token. No role fallback.</summary>

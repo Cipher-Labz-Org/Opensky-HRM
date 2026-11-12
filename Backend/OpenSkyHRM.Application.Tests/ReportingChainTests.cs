@@ -69,6 +69,53 @@ public class ReportingChainTests
     }
 
     [Fact]
+    public void DirectReports_IncludeOnlyEmployeesWhoseDirectSupervisorIsThisPerson()
+    {
+        var now = DateTime.UtcNow;
+        var links = new[]
+        {
+            new SupervisorLinkRow(Employee, Supervisor, "Direct", now),
+            new SupervisorLinkRow(Supervisor, Head, "Direct", now),
+            new SupervisorLinkRow(Other, Head, "Indirect", now),
+            new SupervisorLinkRow(Other, Supervisor, "Indirect", now.AddMinutes(-1)),
+        };
+        var managers = new Dictionary<Guid, Guid> { [Other] = Head };
+
+        var map = ReportingChain.ResolveDirectSupervisorByEmployee(links, managers);
+        var reports = ReportingChain.DirectReportIds(map, Supervisor);
+
+        Assert.Contains(Employee, reports);
+        Assert.DoesNotContain(Supervisor, reports);
+        Assert.DoesNotContain(Head, reports);
+        Assert.DoesNotContain(Other, reports);
+        Assert.Equal(Head, map[Other]);
+    }
+
+    [Fact]
+    public void DirectReports_ManagerIdIsUsedOnlyWhenThereIsNoDirectLine()
+    {
+        var employee = Guid.NewGuid();
+        var managers = new Dictionary<Guid, Guid> { [employee] = Supervisor };
+        var map = ReportingChain.ResolveDirectSupervisorByEmployee([], managers);
+
+        Assert.Contains(employee, ReportingChain.DirectReportIds(map, Supervisor));
+    }
+
+    [Fact]
+    public void DirectReports_DirectLineBeatsADifferentManagerId()
+    {
+        var now = DateTime.UtcNow;
+        var links = new[] { new SupervisorLinkRow(Employee, Supervisor, "Direct", now) };
+        var managers = new Dictionary<Guid, Guid> { [Employee] = Head };
+
+        var map = ReportingChain.ResolveDirectSupervisorByEmployee(links, managers);
+
+        Assert.Equal(Supervisor, map[Employee]);
+        Assert.Contains(Employee, ReportingChain.DirectReportIds(map, Supervisor));
+        Assert.DoesNotContain(Employee, ReportingChain.DirectReportIds(map, Head));
+    }
+
+    [Fact]
     public void IndirectReport_IsIncludedInDescendants()
     {
         var graph = new ReportingGraph();

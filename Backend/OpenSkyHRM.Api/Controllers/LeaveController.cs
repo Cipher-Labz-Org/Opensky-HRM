@@ -81,7 +81,8 @@ public class LeaveController : ControllerBase
             fromDate,
             toDate,
             resolved.AllowedEmployeeIds,
-            resolved.ExcludeEmployeeId));
+            resolved.ExcludeEmployeeId,
+            resolved.IncludePendingLevel2ForDirectReports));
     }
 
     [HttpPost("requests")]

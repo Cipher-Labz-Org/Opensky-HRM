@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Services;
@@ -48,12 +48,27 @@ public static class ApprovalsAccessHelper
             : ResolveScope(user, action);
         if (string.Equals(scope, "All", StringComparison.OrdinalIgnoreCase))
             return null;
-        if (!string.Equals(scope, "Team", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(scope, "Own", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(scope, "Team", StringComparison.OrdinalIgnoreCase))
+            return await GetDirectReportIdsForUserAsync(user, db);
+        if (!string.Equals(scope, "Own", StringComparison.OrdinalIgnoreCase))
             return Array.Empty<Guid>();
 
         return await LeaveAccessHelper.ResolveEmployeeIdsForScopeAsync(
             user, db, scope, excludeSelfForApprovalList);
+    }
+
+    /// <summary>
+    /// Employees who report directly to the signed-in employee.
+    /// Used when Approvals scope is Team. Does not include the signed-in employee or skip-level reports.
+    /// </summary>
+    public static async Task<IReadOnlyList<Guid>> GetDirectReportIdsForUserAsync(ClaimsPrincipal user, AppDbContext db)
+    {
+        var currentId = await PeopleAccessHelper.ResolveOwnEmployeeIdAsync(user, db);
+        if (!currentId.HasValue)
+            return Array.Empty<Guid>();
+
+        var ids = await ReportingChain.GetDirectReportIdsAsync(db, currentId.Value);
+        return ids.ToList();
     }
 
     public static async Task<bool> CanAccessEmployeeAsync(

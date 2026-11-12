@@ -137,8 +137,10 @@ function ApprovalsInner() {
           sectionTitle="Leave requests"
           sectionSubtitle={
             searchParams.get("waiting") === "1"
-              ? "Leave requests waiting for your approval."
-              : "All employees' leave requests. Filter by department, status, and dates as needed."
+              ? "Leave requests from your direct reports that are waiting for your approval."
+              : leaveTeamOnly
+                ? "Leave requests for employees who report directly to you."
+                : "All employees' leave requests. Filter by department, status, and dates as needed."
           }
           hideApplyShortcut
           waitingOnly={searchParams.get("waiting") === "1"}

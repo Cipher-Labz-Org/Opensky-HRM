@@ -94,7 +94,7 @@ public class LeaveService : ILeaveService
 
     // ───── Leave Requests ─────
 
-    public async Task<PagedResult<LeaveRequestDto>> GetLeaveRequestsAsync(int page = 1, int pageSize = 20, string? status = null, Guid? employeeId = null, DateTime? fromDate = null, DateTime? toDate = null, IReadOnlyList<Guid>? allowedEmployeeIds = null, Guid? excludeEmployeeId = null)
+    public async Task<PagedResult<LeaveRequestDto>> GetLeaveRequestsAsync(int page = 1, int pageSize = 20, string? status = null, Guid? employeeId = null, DateTime? fromDate = null, DateTime? toDate = null, IReadOnlyList<Guid>? allowedEmployeeIds = null, Guid? excludeEmployeeId = null, bool includePendingLevel2ForDirectReports = false)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 500);
@@ -112,7 +112,20 @@ public class LeaveService : ILeaveService
         {
             if (allowedEmployeeIds.Count == 0)
                 return new PagedResult<LeaveRequestDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
-            query = query.Where(r => allowedEmployeeIds.Contains(r.EmployeeId));
+            var teamIds = allowedEmployeeIds.ToList();
+            if (includePendingLevel2ForDirectReports)
+            {
+                // Second approver sees a request only when the level-1 approver reports directly to them.
+                query = query.Where(r =>
+                    teamIds.Contains(r.EmployeeId)
+                    || (r.Status == ApprovalStatus.PendingLevel2
+                        && r.Level1ApproverId != null
+                        && teamIds.Contains(r.Level1ApproverId.Value)));
+            }
+            else
+            {
+                query = query.Where(r => teamIds.Contains(r.EmployeeId));
+            }
         }
 
         if (excludeEmployeeId.HasValue)
