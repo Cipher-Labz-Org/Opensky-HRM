@@ -96,7 +96,20 @@ function normalizeHostname(hostname: string): string {
 }
 
 export function getTenantByHostname(hostname: string): TenantConfig | null {
-  return TENANTS[normalizeHostname(hostname)] ?? null;
+  const normalized = normalizeHostname(hostname);
+  const explicit = TENANTS[normalized];
+  if (explicit) return explicit;
+
+  const apiUrl = tenantBackends[normalized as keyof typeof tenantBackends];
+  if (typeof apiUrl !== "string" || !apiUrl.trim()) return null;
+
+  const meta = TENANT_META[normalized as keyof typeof TENANT_META];
+  const slug = normalized.replace(/\.openskyhrm\.com$/, "");
+  return {
+    companyId: meta?.companyId ?? slug,
+    companyName: meta?.companyName ?? slug.charAt(0).toUpperCase() + slug.slice(1),
+    apiUrl: apiUrl.replace(/\/$/, ""),
+  };
 }
 
 export type VendorCompanyOption = {
@@ -126,7 +139,7 @@ export function getTenantHostnameByCompanyId(companyId: string): string | null {
 }
 
 export function isKnownTenant(hostname: string): boolean {
-  return normalizeHostname(hostname) in TENANTS;
+  return getTenantByHostname(hostname) != null;
 }
 
 /**
