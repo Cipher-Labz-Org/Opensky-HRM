@@ -71,6 +71,10 @@ const TENANT_META: Record<string, Omit<TenantConfig, "apiUrl">> = {
     companyId: "santhastore",
     companyName: "Santhastore",
   },
+  "vivpharma.openskyhrm.com": {
+    companyId: "vivpharma",
+    companyName: "Vivpharma",
+  },
 };
 
 function buildTenants(): Record<string, TenantConfig> {

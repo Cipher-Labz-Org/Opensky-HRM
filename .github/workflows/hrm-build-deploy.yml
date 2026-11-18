@@ -54,6 +54,10 @@ on:
         description: "API customer: santhastore"
         type: boolean
         default: false
+      cust_vivpharma:
+        description: "API customer: vivpharma"
+        type: boolean
+        default: false
       cust_stagecafe:
         description: "API customer: stagecafe"
         type: boolean
@@ -183,6 +187,7 @@ jobs:
           T_NEXAWAVE: ${{ inputs.cust_nexawave }}
           T_RAMBANK: ${{ inputs.cust_rambank }}
           T_SANTHASTORE: ${{ inputs.cust_santhastore }}
+          T_VIVPHARMA: ${{ inputs.cust_vivpharma }}
           T_STAGECAFE: ${{ inputs.cust_stagecafe }}
           EXTRA: ${{ inputs.customers }}
         run: |
@@ -195,6 +200,7 @@ jobs:
           add nexawave "$T_NEXAWAVE"
           add rambank "$T_RAMBANK"
           add santhastore "$T_SANTHASTORE"
+          add vivpharma "$T_VIVPHARMA"
           add stagecafe "$T_STAGECAFE"
           extra=$(printf '%s' "$EXTRA" | tr -d ' ')
           if [ -n "$extra" ]; then list="${list:+$list,}$extra"; fi
