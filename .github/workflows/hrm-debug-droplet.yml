@@ -1,0 +1,108 @@
+# .github/workflows/hrm-debug-droplet.yml
+#
+# READ-ONLY diagnosis of the droplet deploy scripts. Changes nothing on the server.
+# Made to find why "hr-release.sh web apply" fails inside frontend-deploy.sh
+# ("!! frontend-deploy.sh failed: putting the old frontend back" right after
+# "=== 3. Port and host names ===  port 3001 (free)").
+#
+# Run it from the Actions tab ("Run workflow"). It prints:
+#   - the hr-release.sh and frontend-deploy.sh scripts themselves
+#   - the hrweb site config (/etc/sites/hrweb) and the per-customer site list
+#   - the most recent deploy/rollback log files the scripts wrote
+name: HRM debug droplet (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      droplet:
+        description: "Which droplet (listed in .github/hrm-fleet.json)"
+        type: choice
+        options: [hris-basic-01]
+        default: hris-basic-01
+
+concurrency:
+  group: hrm-deploy
+  cancel-in-progress: false
+
+jobs:
+  debug:
+    runs-on: ubuntu-24.04
+    environment: production
+    env:
+      DROPLET: ${{ inputs.droplet }}
+      SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DO_TOKEN: ${{ secrets.DO_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the droplet from hrm-fleet.json
+        run: |
+          f=.github/hrm-fleet.json
+          jq -e --arg d "$DROPLET" '.droplets[$d]' "$f" > /dev/null || { echo "::error::droplet $DROPLET is not in $f"; exit 1; }
+          get(){ jq -r --arg d "$DROPLET" --arg k "$1" '.droplets[$d][$k] // empty' "$f"; }
+          H=$(get host); U=$(get user); F=$(get firewall_id); K=$(get host_key)
+          [[ "$H" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "::error::bad host in fleet file"; exit 1; }
+          [[ "$U" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "::error::bad user in fleet file"; exit 1; }
+          [[ "$F" =~ ^[0-9a-f-]{36}$ ]] || { echo "::error::bad firewall_id in fleet file"; exit 1; }
+          [[ "$K" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+$ ]] || { echo "::error::bad host_key in fleet file"; exit 1; }
+          { echo "HOST=$H"; echo "DUSER=$U"; echo "FW=$F"; echo "HOSTKEY=$K"; } >> "$GITHUB_ENV"
+          echo "droplet $DROPLET -> $U@$H"
+      - name: Open SSH on the cloud firewall for this runner only (one IP, removed at the end)
+        id: fw
+        run: |
+          ip=$(curl -fsS https://api.ipify.org); [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::could not get the runner IP"; exit 1; }
+          body=$(jq -nc --arg s "$ip/32" '{inbound_rules:[{protocol:"tcp",ports:"22",sources:{addresses:[$s]}}]}')
+          code=$(curl -sS -o resp.txt -w '%{http_code}' -X POST -H "Authorization: Bearer $DO_TOKEN" -H 'Content-Type: application/json' -d "$body" "https://api.digitalocean.com/v2/firewalls/$FW/rules")
+          if [ "$code" != 204 ]; then echo "::error::DigitalOcean answered HTTP $code"; cat resp.txt; exit 1; fi
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"; echo "opened SSH for $ip/32"
+      - name: SSH setup (waits until the firewall change is active)
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy; chmod 600 ~/.ssh/id_deploy
+          printf '%s %s\n' "$HOST" "$HOSTKEY" > ~/.ssh/known_hosts
+          printf 'Host droplet\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  StrictHostKeyChecking yes\n  BatchMode yes\n  ConnectTimeout 6\n  ServerAliveInterval 30\n' "$HOST" "$DUSER" > ~/.ssh/config
+          ok=0; for i in $(seq 1 30); do if ssh droplet 'hostname'; then ok=1; break; fi; echo "waiting for the firewall ($i/30)"; sleep 5; done
+          [ "$ok" = 1 ] || { echo "::error::cannot reach the droplet over SSH"; exit 1; }
+      - name: Print the deploy scripts (read-only)
+        run: |
+          ssh droplet 'bash -s' <<'EOS'
+          show(){ echo; echo "########## $1"; cat "$1" 2>/dev/null || sudo -n cat "$1" 2>/dev/null || echo "(cannot read: permission denied)"; }
+          echo "=== script files in /usr/local/sbin"
+          ls -l /usr/local/sbin/ 2>/dev/null || true
+          show /usr/local/sbin/hr-release.sh
+          show /usr/local/sbin/frontend-deploy.sh
+          EOS
+      - name: Print the site configuration (read-only)
+        run: |
+          ssh droplet 'bash -s' <<'EOS'
+          echo "=== /etc/sites tree"
+          sudo -n ls -lR /etc/sites 2>/dev/null || ls -lR /etc/sites 2>/dev/null || echo "(cannot list /etc/sites)"
+          for f in /etc/sites/hrweb/* /etc/sites/vivpharma/*; do
+            echo; echo "########## $f"
+            sudo -n cat "$f" 2>/dev/null || cat "$f" 2>/dev/null || echo "(cannot read $f)"
+          done
+          echo; echo "=== nginx site configs"
+          sudo -n ls -l /etc/nginx/sites 2>/dev/null || ls -l /etc/nginx/sites 2>/dev/null || true
+          sudo -n cat /etc/nginx/sites/hrweb/frontend.conf 2>/dev/null || cat /etc/nginx/sites/hrweb/frontend.conf 2>/dev/null || echo "(cannot read frontend.conf)"
+          EOS
+      - name: Print recent deploy logs and service state (read-only)
+        run: |
+          ssh droplet 'bash -s' <<'EOS'
+          echo "=== newest files under /var/log that mention frontend or hrweb"
+          sudo -n sh -c 'ls -lt /var/log/hr-release* /var/log/frontend* 2>/dev/null | head -5' || true
+          for f in $(sudo -n sh -c 'ls -t /var/log/hr-release*.log /var/log/frontend*.log 2>/dev/null | head -2'); do
+            echo; echo "########## tail -80 $f"
+            sudo -n tail -80 "$f" 2>/dev/null || echo "(cannot read $f)"
+          done
+          echo; echo "=== node@hrweb-web service"
+          systemctl status node@hrweb-web --no-pager -l 2>/dev/null | head -15 || true
+          echo; echo "=== listeners on 3000/3001"
+          ss -ltnp 2>/dev/null | grep -E ':(3000|3001)' || echo "(nothing on 3000/3001 visible to this user)"
+          EOS
+      - name: Close SSH on the cloud firewall again (runs even when a step failed)
+        if: always() && steps.fw.outputs.ip != ''
+        env:
+          RUNNER_IP: ${{ steps.fw.outputs.ip }}
+        run: |
+          body=$(jq -nc --arg s "$RUNNER_IP/32" '{inbound_rules:[{protocol:"tcp",ports:"22",sources:{addresses:[$s]}}]}')
+          code=$(curl -sS -o resp.txt -w '%{http_code}' -X DELETE -H "Authorization: Bearer $DO_TOKEN" -H 'Content-Type: application/json' -d "$body" "https://api.digitalocean.com/v2/firewalls/$FW/rules")
+          if [ "$code" = 204 ]; then echo "closed SSH for $RUNNER_IP/32"; else echo "::error::could NOT remove the firewall rule for $RUNNER_IP (HTTP $code). Remove it by hand in DigitalOcean > Networking > Firewalls."; cat resp.txt; exit 1; fi
