@@ -266,6 +266,14 @@ jobs:
             mkdir -p up/web-$S && tar -xzf web.tgz -C up/web-$S
             rsync -az --delete up/web-$S/ droplet:incoming/web-$S/
           fi
+      # The frontend goes FIRST: it carries the tenant registry (config/tenant-backends.json),
+      # so a brand-new customer's site resolves even when its API provisioning on the droplet
+      # (/etc/sites/<name>/site.conf) is not done yet and the API step below fails.
+      - name: Deploy the shared frontend (ALL customers of hrweb on this droplet)
+        if: inputs.deploy == 'web' || inputs.deploy == 'both'
+        run: |
+          S=${GITHUB_SHA::10}
+          ssh droplet "sudo /usr/local/sbin/hr-release.sh web $MODE /home/$DUSER/incoming/web-$S"
       - name: Deploy the API, customer by customer (stops at the first failure)
         if: inputs.deploy == 'api' || inputs.deploy == 'both'
         run: |
@@ -276,11 +284,6 @@ jobs:
             ssh droplet "sudo /usr/local/sbin/hr-release.sh api $MODE $c /home/$DUSER/incoming/api-$S"
             echo "::endgroup::"
           done
-      - name: Deploy the shared frontend (ALL customers of hrweb on this droplet)
-        if: inputs.deploy == 'web' || inputs.deploy == 'both'
-        run: |
-          S=${GITHUB_SHA::10}
-          ssh droplet "sudo /usr/local/sbin/hr-release.sh web $MODE /home/$DUSER/incoming/web-$S"
       - name: Summary
         run: |
           echo "### HRM deploy ${GITHUB_SHA::10} to $DROPLET" >> "$GITHUB_STEP_SUMMARY"
