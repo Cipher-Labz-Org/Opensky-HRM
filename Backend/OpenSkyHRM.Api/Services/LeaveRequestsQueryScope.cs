@@ -75,7 +75,7 @@ public static class LeaveRequestsQueryScope
             if (forApprovalsWorkspace)
             {
                 // Team on Approvals is the direct reporting line, not the whole company or skip-level tree.
-                allowedIds = await ApprovalsAccessHelper.GetDirectReportIdsForUserAsync(user, db);
+                allowedIds = await ApprovalsAccessHelper.GetLeaveDirectReportIdsForUserAsync(user, db);
                 excludeEmployeeId = await LeaveAccessHelper.GetCurrentEmployeeIdAsync(user, db);
             }
             else

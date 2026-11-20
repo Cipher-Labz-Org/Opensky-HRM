@@ -36,8 +36,10 @@ public class LeaveRequestDto
     public string? ApproverName { get; set; }
     /// <summary>Who is responsible: approver/rejector name, or who needs to approve for Pending states.</summary>
     public string? ResponsibleUserName { get; set; }
-    /// <summary>Employee ID of the responsible approver (for Pending / PendingLevel2).</summary>
+    /// <summary>First responsible approver. Kept for older clients. Pending requests also list every direct supervisor in <see cref="ResponsibleEmployeeIds"/>.</summary>
     public Guid? ResponsibleEmployeeId { get; set; }
+    /// <summary>Every employee who can approve or reject this request. For a pending request this is every direct supervisor.</summary>
+    public List<Guid> ResponsibleEmployeeIds { get; set; } = [];
 
     /// <summary>Relative URL to a stored medical certificate PDF, when applicable.</summary>
     public string? MedicalCertificateUrl { get; set; }

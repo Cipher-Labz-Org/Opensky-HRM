@@ -234,6 +234,85 @@ public static class ReportingChain
     }
 
     /// <summary>
+    /// Employees who list <paramref name="supervisorId"/> as a direct supervisor.
+    /// When an employee has several direct supervisors, each of them includes that employee.
+    /// <see cref="Employee.ManagerId"/> counts only when the employee has no Direct or Both line.
+    /// </summary>
+    public static async Task<HashSet<Guid>> GetReportsForEveryDirectSupervisorAsync(
+        AppDbContext db,
+        Guid supervisorId,
+        CancellationToken cancellationToken = default)
+    {
+        var linkedIds = await db.Set<EmployeeSupervisor>()
+            .AsNoTracking()
+            .Where(s => !s.IsDeleted && s.SupervisorId == supervisorId && s.EmployeeId != supervisorId)
+            .Select(s => s.EmployeeId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var managerIds = await db.Employees
+            .AsNoTracking()
+            .Where(e => !e.IsDeleted && e.ManagerId == supervisorId && e.Id != supervisorId)
+            .Select(e => e.Id)
+            .ToListAsync(cancellationToken);
+
+        var candidateIds = linkedIds.Concat(managerIds).Distinct().ToList();
+        if (candidateIds.Count == 0)
+            return [];
+
+        var links = await db.Set<EmployeeSupervisor>()
+            .AsNoTracking()
+            .Where(s => !s.IsDeleted && candidateIds.Contains(s.EmployeeId) && s.EmployeeId != s.SupervisorId)
+            .Select(s => new SupervisorLinkRow(s.EmployeeId, s.SupervisorId, s.ReportingMethod, s.CreatedAt))
+            .ToListAsync(cancellationToken);
+
+        var managers = await db.Employees
+            .AsNoTracking()
+            .Where(e => candidateIds.Contains(e.Id) && !e.IsDeleted && e.ManagerId != null && e.ManagerId != e.Id)
+            .Select(e => new { e.Id, ManagerId = e.ManagerId!.Value })
+            .ToListAsync(cancellationToken);
+
+        return ReportsForEveryDirectSupervisor(
+            links,
+            managers.Select(m => new KeyValuePair<Guid, Guid>(m.Id, m.ManagerId)),
+            supervisorId);
+    }
+
+    /// <summary>
+    /// Every direct supervisor of an employee, not only the first one.
+    /// Direct beats Both, then the newest link. Indirect-only links are skipped.
+    /// </summary>
+    public static HashSet<Guid> ReportsForEveryDirectSupervisor(
+        IEnumerable<SupervisorLinkRow> links,
+        IEnumerable<KeyValuePair<Guid, Guid>> managerByEmployee,
+        Guid supervisorId)
+    {
+        var linkList = links.Where(l => l.EmployeeId != l.SupervisorId).ToList();
+        var employeesWithDirectLine = linkList
+            .Where(l => IsDirectMethod(l.ReportingMethod))
+            .Select(l => l.EmployeeId)
+            .ToHashSet();
+
+        var result = linkList
+            .Where(l => l.SupervisorId == supervisorId
+                && l.EmployeeId != supervisorId
+                && IsDirectMethod(l.ReportingMethod))
+            .Select(l => l.EmployeeId)
+            .ToHashSet();
+
+        foreach (var pair in managerByEmployee)
+        {
+            if (pair.Key == pair.Value || pair.Key == supervisorId || pair.Value != supervisorId)
+                continue;
+            if (employeesWithDirectLine.Contains(pair.Key))
+                continue;
+            result.Add(pair.Key);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// One direct supervisor per employee. Direct beats Both, then the newest link.
     /// <paramref name="managerByEmployee"/> is used only when the employee has no Direct/Both line.
     /// </summary>

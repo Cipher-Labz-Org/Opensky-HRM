@@ -32,6 +32,7 @@ import {
 
 import { useAuthStore } from "@/store/authStore";
 
+import { isResponsibleLeaveApprover } from "@/types/leave";
 import { getEmployeeId } from "@/utils/permissions";
 
 import { colors } from "@/theme/colors";
@@ -80,7 +81,7 @@ export default function ApprovalsScreen() {
 
       (pendingQuery.data ?? []).filter(
 
-        (request) => request.responsibleEmployeeId === employeeId
+        (request) => isResponsibleLeaveApprover(request, employeeId)
 
       ),
 

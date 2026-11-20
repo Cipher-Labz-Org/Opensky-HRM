@@ -42,6 +42,7 @@ export interface LeaveRequestRow {
   approverName: string | null;
   responsibleUserName: string | null;
   responsibleEmployeeId: string | null;
+  responsibleEmployeeIds?: string[] | null;
   medicalCertificateUrl?: string | null;
 }
 
@@ -110,14 +111,25 @@ function isOwnLeaveRow(row: LeaveRequestRow, currentEmployeeId: string | null): 
     && row.employeeId.toLowerCase() === currentEmployeeId!.toLowerCase();
 }
 
+function listedApproverIds(row: LeaveRequestRow): string[] {
+  const ids = (row.responsibleEmployeeIds ?? []).filter((id) => Boolean(id));
+  if (ids.length > 0) return ids;
+  return row.responsibleEmployeeId ? [row.responsibleEmployeeId] : [];
+}
+
+function isListedApprover(row: LeaveRequestRow, currentEmployeeId: string | null): boolean {
+  if (!currentEmployeeId) return false;
+  const id = currentEmployeeId.toLowerCase();
+  return listedApproverIds(row).some((value) => value.toLowerCase() === id);
+}
+
 function canSupervisorCancelApproved(
   row: LeaveRequestRow,
   currentEmployeeId: string | null,
   showApprovalActions: boolean,
 ): boolean {
   if (!showApprovalActions || row.status !== "Approved") return false;
-  if (!currentEmployeeId || !row.responsibleEmployeeId) return false;
-  return row.responsibleEmployeeId.toLowerCase() === currentEmployeeId.toLowerCase();
+  return isListedApprover(row, currentEmployeeId);
 }
 
 function canUserActOnLeaveRow(
@@ -125,8 +137,7 @@ function canUserActOnLeaveRow(
   currentEmployeeId: string | null,
 ): boolean {
   if (!canActOnLeaveStatus(row.status)) return false;
-  if (!currentEmployeeId || !row.responsibleEmployeeId) return false;
-  return row.responsibleEmployeeId.toLowerCase() === currentEmployeeId.toLowerCase();
+  return isListedApprover(row, currentEmployeeId);
 }
 
 function leaveStatusBadgeClass(status: string | null | undefined): string {

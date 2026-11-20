@@ -17,6 +17,8 @@ public interface ILeaveService
     Task<LeaveRequestDto?> RejectLeaveRequestAsync(Guid id, Guid approverId, ApproveRejectLeaveDto dto);
     Task<LeaveRequestDto> CancelLeaveRequestAsync(Guid id, Guid actingEmployeeId, string? remarks);
     Task<Guid?> GetResponsibleApproverEmployeeIdAsync(Guid leaveRequestId);
+    /// <summary>True when this employee is one of the direct supervisors who can approve, reject, or confirm cancellation.</summary>
+    Task<bool> CanEmployeeDecideLeaveRequestAsync(Guid leaveRequestId, Guid employeeId);
 
     // Leave Types
     Task<List<LeaveTypeDto>> GetLeaveTypesAsync();

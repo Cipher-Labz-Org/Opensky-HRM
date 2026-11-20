@@ -30,6 +30,7 @@ import { getAttendanceSummary } from "@/api/endpoints/attendance";
 import { useAuthStore } from "@/store/authStore";
 import { useConfigStore } from "@/store/configStore";
 import { buildAssetUrl } from "@/utils/connect";
+import { isResponsibleLeaveApprover } from "@/types/leave";
 import { getEmployeeId, hasLicensedModule, canApproveLeave } from "@/utils/permissions";
 import { LICENSED_MODULES } from "@/config/constants";
 import { endOfMonthIso, monthYearLabel, startOfMonthIso } from "@/utils/format";
@@ -104,7 +105,7 @@ export default function HomeScreen() {
   const pendingApprovals = useMemo(
     () =>
       (pendingApprovalsQuery.data ?? [])
-        .filter((request) => request.responsibleEmployeeId === employeeId)
+        .filter((request) => isResponsibleLeaveApprover(request, employeeId))
         .slice(0, 4),
     [employeeId, pendingApprovalsQuery.data]
   );

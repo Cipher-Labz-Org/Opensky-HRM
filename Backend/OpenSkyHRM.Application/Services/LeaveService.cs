@@ -475,8 +475,8 @@ public class LeaveService : ILeaveService
             ?? throw new InvalidOperationException("Leave request not found.");
 
         var isOwner = request.EmployeeId == actingEmployeeId;
-        var supervisorId = await GetDirectSupervisorIdAsync(request.EmployeeId);
-        var isSupervisor = supervisorId.HasValue && supervisorId.Value == actingEmployeeId;
+        var supervisorIds = await GetDirectSupervisorIdsAsync(request.EmployeeId);
+        var isSupervisor = supervisorIds.Contains(actingEmployeeId);
         var note = string.IsNullOrWhiteSpace(remarks) ? null : remarks.Trim();
 
         if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2)
@@ -918,55 +918,61 @@ public class LeaveService : ILeaveService
 
     private async Task NotifyLevel2ApproverAsync(LeaveRequest request, Guid level1ApproverId)
     {
-        var level2ApproverId = await GetDirectSupervisorIdAsync(level1ApproverId);
-        if (!level2ApproverId.HasValue || level2ApproverId.Value == request.EmployeeId) return;
+        var level2ApproverIds = await GetDirectSupervisorIdsAsync(level1ApproverId);
+        if (level2ApproverIds.Count == 0) return;
 
         var employee = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == request.EmployeeId);
-        var approver = await _db.Employees.AsNoTracking()
-            .FirstOrDefaultAsync(e => e.Id == level2ApproverId.Value && !e.IsDeleted);
-        if (employee is null || approver is null) return;
+        if (employee is null) return;
         var leaveType = await _db.Set<LeaveType>().AsNoTracking()
             .Where(t => t.Id == request.LeaveTypeId)
             .Select(t => t.Name)
             .FirstOrDefaultAsync() ?? "Leave";
 
-        await NotifyEmployeeInAppAsync(
-            approver.Id,
-            "APPROVE-L2",
-            request.Id,
-            "Leave request to approve",
-            $"{employee.FullName} applied for {DescribeLeave(leaveType, request)}. Level 1 approved; waiting for your approval.",
-            NotificationCategoryApprovalRequest);
-
-        try
+        foreach (var level2ApproverId in level2ApproverIds)
         {
-            var approverEmail = await ResolveLeaveNotificationEmailAsync(approver.Id, approver.Email, approver.OtherEmail);
-            if (string.IsNullOrWhiteSpace(approverEmail))
+            if (level2ApproverId == request.EmployeeId) continue;
+            var approver = await _db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == level2ApproverId && !e.IsDeleted);
+            if (approver is null) continue;
+
+            await NotifyEmployeeInAppAsync(
+                approver.Id,
+                "APPROVE-L2",
+                request.Id,
+                "Leave request to approve",
+                $"{employee.FullName} applied for {DescribeLeave(leaveType, request)}. Level 1 approved; waiting for your approval.",
+                NotificationCategoryApprovalRequest);
+
+            try
             {
-                _logger.LogInformation(
-                    "Leave request {LeaveRequestId} waiting for level 2; approver {ApproverId} has no work, personal, or login email.",
-                    request.Id, approver.Id);
-                return;
-            }
+                var approverEmail = await ResolveLeaveNotificationEmailAsync(approver.Id, approver.Email, approver.OtherEmail);
+                if (string.IsNullOrWhiteSpace(approverEmail))
+                {
+                    _logger.LogInformation(
+                        "Leave request {LeaveRequestId} waiting for level 2; approver {ApproverId} has no work, personal, or login email.",
+                        request.Id, approver.Id);
+                    continue;
+                }
 
-            await _emailService.SendLeaveApplicationToSupervisorAsync(
-                approverEmail,
-                approver.FullName,
-                employee.FullName,
-                leaveType,
-                request.StartDate,
-                request.EndDate,
-                request.TotalDays,
-                "Pending level 2 approval",
-                request.Reason,
-                request.Id);
-            _logger.LogInformation(
-                "Leave request {LeaveRequestId} level 2 approver email sent to {Email}.",
-                request.Id, approverEmail);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Leave request {LeaveRequestId} waiting for level 2; approver email failed.", request.Id);
+                await _emailService.SendLeaveApplicationToSupervisorAsync(
+                    approverEmail,
+                    approver.FullName,
+                    employee.FullName,
+                    leaveType,
+                    request.StartDate,
+                    request.EndDate,
+                    request.TotalDays,
+                    "Pending level 2 approval",
+                    request.Reason,
+                    request.Id);
+                _logger.LogInformation(
+                    "Leave request {LeaveRequestId} level 2 approver email sent to {Email}.",
+                    request.Id, approverEmail);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Leave request {LeaveRequestId} waiting for level 2; approver email to {Email} failed.", request.Id, approver.Email);
+            }
         }
     }
 
@@ -1048,21 +1054,37 @@ public class LeaveService : ILeaveService
 
     private async Task<Guid?> GetDirectSupervisorIdAsync(Guid employeeId)
     {
+        var ids = await GetDirectSupervisorIdsAsync(employeeId);
+        return ids.Count == 0 ? null : ids[0];
+    }
+
+    /// <summary>
+    /// Every direct supervisor (Direct or Both). When several are assigned, each one is returned.
+    /// ManagerId is used only when the employee has no direct line.
+    /// </summary>
+    private async Task<List<Guid>> GetDirectSupervisorIdsAsync(Guid employeeId)
+    {
         var links = await _db.Set<EmployeeSupervisor>()
-            .Where(es => !es.IsDeleted && es.EmployeeId == employeeId)
+            .Where(es => !es.IsDeleted && es.EmployeeId == employeeId && es.SupervisorId != employeeId)
             .Select(es => new { es.SupervisorId, es.ReportingMethod, es.CreatedAt })
             .ToListAsync();
 
-        var id = links
+        var ids = links
             .Where(x => ReportingChain.IsDirectMethod(x.ReportingMethod))
             .OrderByDescending(x => string.Equals(x.ReportingMethod, "Direct", StringComparison.OrdinalIgnoreCase))
             .ThenByDescending(x => x.CreatedAt)
             .Select(x => x.SupervisorId)
-            .FirstOrDefault();
-        if (id != default) return id;
+            .Distinct()
+            .ToList();
+        if (ids.Count > 0) return ids;
 
-        var emp = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted);
-        return emp?.ManagerId;
+        var managerId = await _db.Employees.AsNoTracking()
+            .Where(e => e.Id == employeeId && !e.IsDeleted)
+            .Select(e => e.ManagerId)
+            .FirstOrDefaultAsync();
+        if (managerId.HasValue && managerId.Value != employeeId)
+            return [managerId.Value];
+        return [];
     }
 
     private async Task<LeaveRequestDto?> GetLeaveRequestByIdAsync(Guid id)
@@ -1081,7 +1103,20 @@ public class LeaveService : ILeaveService
     {
         var r = await _db.Set<LeaveRequest>().FindAsync(leaveRequestId);
         if (r is null) return null;
-        return await GetResponsibleEmployeeIdAsync(r);
+        var ids = await GetResponsibleEmployeeIdsAsync(r);
+        return ids.Count == 0 ? null : ids[0];
+    }
+
+    public async Task<bool> CanEmployeeDecideLeaveRequestAsync(Guid leaveRequestId, Guid employeeId)
+    {
+        var r = await _db.Set<LeaveRequest>().FindAsync(leaveRequestId);
+        if (r is null) return false;
+        if (r.Status != ApprovalStatus.Pending
+            && r.Status != ApprovalStatus.PendingLevel2
+            && r.Status != ApprovalStatus.CancellationRequested)
+            return false;
+        var ids = await GetResponsibleEmployeeIdsAsync(r);
+        return ids.Contains(employeeId);
     }
 
     private static LeaveTypeDto MapLeaveType(LeaveType t) => new()
@@ -1133,43 +1168,43 @@ public class LeaveService : ILeaveService
 
     private async Task SetResponsibleFieldsAsync(LeaveRequestDto dto, LeaveRequest r)
     {
-        dto.ResponsibleEmployeeId = await GetResponsibleEmployeeIdAsync(r);
-        dto.ResponsibleUserName = await GetResponsibleUserNameAsync(r);
+        var ids = await GetResponsibleEmployeeIdsAsync(r);
+        dto.ResponsibleEmployeeIds = ids;
+        dto.ResponsibleEmployeeId = ids.Count == 0 ? null : ids[0];
+        dto.ResponsibleUserName = await FormatResponsibleNamesAsync(ids);
     }
 
-    private async Task<Guid?> GetResponsibleEmployeeIdAsync(LeaveRequest r)
+    private async Task<List<Guid>> GetResponsibleEmployeeIdsAsync(LeaveRequest r)
     {
         if (r.Status == ApprovalStatus.Approved)
         {
-            if (r.Level2ApproverId.HasValue) return r.Level2ApproverId;
-            if (r.Level1ApproverId.HasValue) return r.Level1ApproverId;
-            return r.ApproverId;
+            if (r.Level2ApproverId.HasValue) return [r.Level2ApproverId.Value];
+            if (r.Level1ApproverId.HasValue) return [r.Level1ApproverId.Value];
+            return r.ApproverId.HasValue ? [r.ApproverId.Value] : [];
         }
         if (r.Status == ApprovalStatus.Rejected)
-            return r.ApproverId;
-        if (r.Status == ApprovalStatus.Pending)
-            return await GetDirectSupervisorIdAsync(r.EmployeeId);
-        if (r.Status == ApprovalStatus.CancellationRequested)
-            return await GetDirectSupervisorIdAsync(r.EmployeeId);
+            return r.ApproverId.HasValue ? [r.ApproverId.Value] : [];
+        if (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.CancellationRequested)
+            return await GetDirectSupervisorIdsAsync(r.EmployeeId);
         if (r.Status == ApprovalStatus.PendingLevel2 && r.Level1ApproverId.HasValue)
-            return await GetDirectSupervisorIdAsync(r.Level1ApproverId.Value);
-        return null;
+            return await GetDirectSupervisorIdsAsync(r.Level1ApproverId.Value);
+        return [];
     }
 
-    private async Task<string?> GetResponsibleUserNameAsync(LeaveRequest r)
+    private async Task<string?> FormatResponsibleNamesAsync(List<Guid> ids)
     {
-        if (r.Status == ApprovalStatus.Approved)
-            return r.Level2Approver != null ? r.Level2Approver.FirstName + " " + r.Level2Approver.LastName : r.Level1Approver != null ? r.Level1Approver.FirstName + " " + r.Level1Approver.LastName : r.Approver != null ? r.Approver.FirstName + " " + r.Approver.LastName : null;
-        if (r.Status == ApprovalStatus.Rejected)
-            return r.Approver != null ? r.Approver.FirstName + " " + r.Approver.LastName : null;
-        if (r.Status == ApprovalStatus.Pending || r.Status == ApprovalStatus.PendingLevel2 || r.Status == ApprovalStatus.CancellationRequested)
-        {
-            var supervisorId = await GetResponsibleEmployeeIdAsync(r);
-            if (!supervisorId.HasValue) return null;
-            var emp = await _db.Employees.FindAsync(supervisorId.Value);
-            return emp != null ? emp.FirstName + " " + emp.LastName : null;
-        }
-        return null;
+        if (ids.Count == 0) return null;
+        var employees = await _db.Employees.AsNoTracking()
+            .Where(e => ids.Contains(e.Id) && !e.IsDeleted)
+            .Select(e => new { e.Id, e.FirstName, e.LastName })
+            .ToListAsync();
+        var names = ids
+            .Select(id => employees.FirstOrDefault(e => e.Id == id))
+            .Where(e => e != null)
+            .Select(e => $"{e!.FirstName} {e.LastName}".Trim())
+            .Where(name => name.Length > 0)
+            .ToList();
+        return names.Count == 0 ? null : string.Join(", ", names);
     }
 
     // ───── Leave Types ─────

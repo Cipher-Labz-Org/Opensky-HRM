@@ -116,6 +116,27 @@ public class ReportingChainTests
     }
 
     [Fact]
+    public void EveryDirectSupervisor_CanSeeTheSameEmployee()
+    {
+        var second = Guid.Parse("55555555-5555-5555-5555-555555555555");
+        var now = DateTime.UtcNow;
+        var links = new[]
+        {
+            new SupervisorLinkRow(Employee, Supervisor, "Direct", now.AddMinutes(-5)),
+            new SupervisorLinkRow(Employee, second, "Direct", now),
+            new SupervisorLinkRow(Other, Supervisor, "Indirect", now),
+        };
+
+        var managers = Array.Empty<KeyValuePair<Guid, Guid>>();
+        var firstReports = ReportingChain.ReportsForEveryDirectSupervisor(links, managers, Supervisor);
+        var secondReports = ReportingChain.ReportsForEveryDirectSupervisor(links, managers, second);
+
+        Assert.Contains(Employee, firstReports);
+        Assert.Contains(Employee, secondReports);
+        Assert.DoesNotContain(Other, firstReports);
+    }
+
+    [Fact]
     public void IndirectReport_IsIncludedInDescendants()
     {
         var graph = new ReportingGraph();

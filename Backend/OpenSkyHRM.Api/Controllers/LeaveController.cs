@@ -198,8 +198,8 @@ public class LeaveController : ControllerBase
 
         if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2 or ApprovalStatus.CancellationRequested)
         {
-            var responsibleId = await _leaveService.GetResponsibleApproverEmployeeIdAsync(id);
-            if (!responsibleId.HasValue || responsibleId.Value != approverId.Value)
+            var canDecide = await _leaveService.CanEmployeeDecideLeaveRequestAsync(id, approverId.Value);
+            if (!canDecide)
                 return Forbid();
         }
 
@@ -218,8 +218,8 @@ public class LeaveController : ControllerBase
 
         if (request.Status is ApprovalStatus.Pending or ApprovalStatus.PendingLevel2 or ApprovalStatus.CancellationRequested)
         {
-            var responsibleId = await _leaveService.GetResponsibleApproverEmployeeIdAsync(id);
-            if (!responsibleId.HasValue || responsibleId.Value != approverId.Value)
+            var canDecide = await _leaveService.CanEmployeeDecideLeaveRequestAsync(id, approverId.Value);
+            if (!canDecide)
                 return Forbid();
         }
 

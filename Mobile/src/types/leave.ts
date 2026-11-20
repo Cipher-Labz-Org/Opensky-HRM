@@ -40,7 +40,22 @@ export interface LeaveRequest {
   currentApprovalLevel: number;
   responsibleUserName: string | null;
   responsibleEmployeeId: string | null;
+  responsibleEmployeeIds?: string[] | null;
   medicalCertificateUrl: string | null;
+}
+
+export function isResponsibleLeaveApprover(
+  request: Pick<LeaveRequest, "responsibleEmployeeId" | "responsibleEmployeeIds">,
+  employeeId: string | null | undefined,
+): boolean {
+  if (!employeeId) return false;
+  const ids = request.responsibleEmployeeIds?.length
+    ? request.responsibleEmployeeIds
+    : request.responsibleEmployeeId
+      ? [request.responsibleEmployeeId]
+      : [];
+  const wanted = employeeId.toLowerCase();
+  return ids.some((id) => id.toLowerCase() === wanted);
 }
 
 export interface CreateLeaveRequest {

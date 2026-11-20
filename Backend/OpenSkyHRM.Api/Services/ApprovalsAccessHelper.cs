@@ -71,6 +71,20 @@ public static class ApprovalsAccessHelper
         return ids.ToList();
     }
 
+    /// <summary>
+    /// Employees who list the signed-in person as a direct supervisor.
+    /// Every direct supervisor is included when an employee has more than one.
+    /// </summary>
+    public static async Task<IReadOnlyList<Guid>> GetLeaveDirectReportIdsForUserAsync(ClaimsPrincipal user, AppDbContext db)
+    {
+        var currentId = await PeopleAccessHelper.ResolveOwnEmployeeIdAsync(user, db);
+        if (!currentId.HasValue)
+            return Array.Empty<Guid>();
+
+        var ids = await ReportingChain.GetReportsForEveryDirectSupervisorAsync(db, currentId.Value);
+        return ids.ToList();
+    }
+
     public static async Task<bool> CanAccessEmployeeAsync(
         ClaimsPrincipal user,
         AppDbContext db,
