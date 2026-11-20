@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ClosedXML.Excel;
+using OpenSkyHRM.Api.Infrastructure;
 using OpenSkyHRM.Application.DTOs.Reports;
 
 namespace OpenSkyHRM.Api.Helpers;
@@ -37,7 +38,7 @@ public static partial class ReportExcelExport
 
         if (colCount > 0)
         {
-            ws.Columns(1, colCount).AdjustToContents();
+            ExcelExportBootstrap.FitColumns(ws);
             ws.SheetView.FreezeRows(1);
             if (result.Rows.Count > 0)
                 ws.Range(1, 1, result.Rows.Count + 1, colCount).SetAutoFilter();

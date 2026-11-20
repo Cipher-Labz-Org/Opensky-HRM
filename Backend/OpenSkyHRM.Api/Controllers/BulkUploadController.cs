@@ -10,6 +10,7 @@ using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
 using OpenSkyHRM.Domain.Enums;
 using OpenSkyHRM.Api.Filters;
+using OpenSkyHRM.Api.Infrastructure;
 using OpenSkyHRM.Persistence;
 
 namespace OpenSkyHRM.Api.Controllers;
@@ -108,7 +109,7 @@ public partial class BulkUploadController : ControllerBase
                 "Enter a real Excel date or yyyy-mm-dd. 05/03/1990 means 5 March (day/month), not 3 May.");
         }
 
-        ws.Columns().AdjustToContents(1, 1);
+        ExcelExportBootstrap.FitColumns(ws);
 
         AddLookupSheet(wb, "Departments", _db.Departments.Where(d => !d.IsDeleted).Select(d => new { d.Name }).ToList().Select(d => d.Name));
         AddLookupSheet(wb, "BusinessUnits", _db.BusinessUnits.Where(b => !b.IsDeleted).Select(b => new { b.Name }).ToList().Select(b => b.Name));
@@ -147,7 +148,7 @@ public partial class BulkUploadController : ControllerBase
         refWs.Cell(1, 5).Style.Font.Bold = true;
         refWs.Cell(2, 5).Value = "Yes, Y, True, or 1 = top; blank or other = no";
 
-        refWs.Columns().AdjustToContents();
+        ExcelExportBootstrap.FitColumns(refWs);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
@@ -1512,7 +1513,7 @@ public partial class BulkUploadController : ControllerBase
         int r = 2;
         foreach (var v in values)
             ws.Cell(r++, 1).Value = v;
-        ws.Column(1).AdjustToContents();
+        ExcelExportBootstrap.FitColumns(ws);
     }
 
     // ───── Leave Balance Upload ─────
@@ -1531,7 +1532,7 @@ public partial class BulkUploadController : ControllerBase
             ws.Cell(1, i + 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#7c3aed");
             ws.Cell(1, i + 1).Style.Font.FontColor = XLColor.White;
         }
-        ws.Columns().AdjustToContents(1, 1);
+        ExcelExportBootstrap.FitColumns(ws);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);

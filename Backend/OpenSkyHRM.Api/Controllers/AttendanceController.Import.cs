@@ -3,6 +3,7 @@ using System.Text;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Api.Infrastructure;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.Services;
@@ -37,8 +38,8 @@ public partial class AttendanceController
         refWs.Cell(1, 1).Style.Font.Bold = true;
         for (var i = 0; i < AttendanceImportColumns.AllowedStatuses.Length; i++)
             refWs.Cell(i + 2, 1).Value = AttendanceImportColumns.AllowedStatuses[i];
-        refWs.Columns().AdjustToContents();
-        ws.Columns().AdjustToContents();
+        ExcelExportBootstrap.FitColumns(refWs);
+        ExcelExportBootstrap.FitColumns(ws);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);

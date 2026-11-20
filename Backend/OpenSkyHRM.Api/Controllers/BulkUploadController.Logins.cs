@@ -4,6 +4,7 @@ using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using OpenSkyHRM.Api.Infrastructure;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Domain.Entities;
@@ -62,7 +63,7 @@ public partial class BulkUploadController
 
         ws.SheetView.SplitRow = 1;
         ws.Row(1).Height = 22;
-        ws.Columns().AdjustToContents(1, 1);
+        ExcelExportBootstrap.FitColumns(ws);
 
         var roles = await _db.SecurityRoles.AsNoTracking()
             .Where(r => !r.IsDeleted)
@@ -88,7 +89,7 @@ public partial class BulkUploadController
         typeWs.Cell(1, 4).Value = "Active / Must Change Password";
         typeWs.Cell(1, 4).Style.Font.Bold = true;
         typeWs.Cell(2, 4).Value = "Yes, Y, True, or 1 = yes; No, N, False, or 0 = no; blank = default (Yes)";
-        typeWs.Columns().AdjustToContents();
+        ExcelExportBootstrap.FitColumns(typeWs);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);

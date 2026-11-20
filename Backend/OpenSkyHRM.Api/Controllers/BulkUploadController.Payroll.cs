@@ -3,6 +3,7 @@ using System.Security.Claims;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Api.Infrastructure;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Domain.Entities;
 
@@ -36,7 +37,7 @@ public partial class BulkUploadController
 
         ws.SheetView.SplitRow = 1;
         ws.Row(1).Height = 22;
-        ws.Columns().AdjustToContents(1, 1);
+        ExcelExportBootstrap.FitColumns(ws);
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);

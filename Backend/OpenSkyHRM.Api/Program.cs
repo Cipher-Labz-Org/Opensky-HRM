@@ -23,6 +23,15 @@ using OpenSkyHRM.Persistence.Seeders;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
+try
+{
+    ExcelExportBootstrap.UseEmbeddedFonts();
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"WARNING: Excel template fonts could not be loaded ({ex.Message}). Column widths will use a fixed fallback.");
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Hangfire or other hosted services must not take the IIS worker down (HTTP 500.30).

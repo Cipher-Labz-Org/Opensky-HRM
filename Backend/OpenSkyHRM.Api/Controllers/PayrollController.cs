@@ -2,6 +2,7 @@ using System;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenSkyHRM.Api.Infrastructure;
 using OpenSkyHRM.Api.Services;
 using OpenSkyHRM.Application.Common;
 using OpenSkyHRM.Application.DTOs.Payroll;
@@ -605,7 +606,7 @@ public class PayrollController : ControllerBase
             ws.Cell(1, i + 2).Style.Font.Bold = true;
         }
 
-        ws.Columns().AdjustToContents();
+        ExcelExportBootstrap.FitColumns(ws);
 
         var ms = new MemoryStream();
         wb.SaveAs(ms);
